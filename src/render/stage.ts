@@ -62,7 +62,7 @@ export class Stage {
 
     const scene = this.scene;
     scene.background = new THREE.Color(0x070a12);
-    scene.fog = new THREE.FogExp2(0x070a12, 0.045);
+    scene.fog = new THREE.FogExp2(0x070a12, 0.016);
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     scene.environmentIntensity = 0.55;

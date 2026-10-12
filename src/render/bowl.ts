@@ -1,0 +1,187 @@
+/**
+ * Shape of the indoor arena bowl around the ring: a rounded rectangle that grows outward
+ * row by row. The venue geometry and the crowd seating are both laid out from it.
+ */
+
+/** Half-extents and corner radius of the front row (offset 0). */
+export const AX = 13;
+export const AZ = 10;
+export const RC = 7;
+const SX = AX - RC;
+const SZ = AZ - RC;
+/** Arena floor height (the ring canvas is at 0). */
+export const FLOOR = -0.62;
+
+export interface Row {
+  /** Offset of the tread's front edge from the front-row outline. */
+  d: number;
+  /** Tread depth. */
+  depth: number;
+  /** Tread height. */
+  y: number;
+  /** Riser up to the next row. */
+  rise: number;
+  upper: boolean;
+}
+
+export const LOWER_ROWS = 15;
+export const UPPER_ROWS = 18;
+/** Outline offset of the suite wall between the two tiers. */
+export const SUITE_D = LOWER_ROWS * 0.9;
+/** Height of the first upper-tier tread. */
+export const UPPER_Y = 9.4;
+export const ROOF_Y = 25;
+
+export const ROWS: Row[] = [];
+for (let i = 0; i < LOWER_ROWS; i++) ROWS.push({ d: i * 0.9, depth: 0.9, y: -0.1 + i * 0.42, rise: 0.42, upper: false });
+for (let i = 0; i < UPPER_ROWS; i++) ROWS.push({ d: SUITE_D + i * 0.85, depth: 0.85, y: UPPER_Y + i * 0.56, rise: 0.56, upper: true });
+const last = ROWS[ROWS.length - 1];
+/** Outline offset of the back wall behind the top row. */
+export const BACK_D = last.d + last.depth;
+export const TOP_Y = last.y;
+
+export const ARC_SEG = 14;
+const CORNERS: [number, number][] = [
+  [SX, SZ],
+  [-SX, SZ],
+  [-SX, -SZ],
+  [SX, -SZ],
+];
+
+export interface OutlinePt {
+  x: number;
+  z: number;
+  /** Outward normal. */
+  nx: number;
+  nz: number;
+  /** Arc length from the start. */
+  s: number;
+}
+
+/** Closed outline pushed out by d (first point repeated at the end), counter-clockwise from +x. */
+export function outline(d: number): OutlinePt[] {
+  const r = Math.max(0.05, RC + d);
+  const pts: OutlinePt[] = [];
+  let s = 0;
+  for (let k = 0; k < 4; k++) {
+    const [cx, cz] = CORNERS[k];
+    for (let i = 0; i <= ARC_SEG; i++) {
+      const a = ((k + i / ARC_SEG) * Math.PI) / 2;
+      const nx = Math.cos(a), nz = Math.sin(a);
+      const x = cx + nx * r, z = cz + nz * r;
+      if (pts.length) {
+        const p = pts[pts.length - 1];
+        s += Math.hypot(x - p.x, z - p.z);
+      }
+      pts.push({ x, z, nx, nz, s });
+    }
+  }
+  const p = pts[pts.length - 1], q = pts[0];
+  pts.push({ ...q, s: s + Math.hypot(q.x - p.x, q.z - p.z) });
+  return pts;
+}
+
+/** A point roughly on the outline at offset d in direction a (for aiming lights). */
+export function towards(a: number, d: number): [number, number] {
+  return [Math.cos(a) * (AX + d), Math.sin(a) * (AZ + d)];
+}
+
+export interface Seat {
+  x: number;
+  y: number;
+  z: number;
+  /** Row index (0 = front). */
+  row: number;
+  /** Angle around the arena. */
+  a: number;
+}
+
+const SEAT_W = 0.6;
+const AISLE = 1.0;
+/** Lower rows that the two entrance tunnels cut through. */
+export const TUNNEL_ROWS = 6;
+export const TUNNEL_W = 3.8;
+
+/**
+ * Seats of every row, with aisles running straight up the bowl: on the sides' middles and ends,
+ * and fanning across the corners. The lower rows leave room for the two entrance tunnels.
+ */
+export function seats(): Seat[] {
+  const out: Seat[] = [];
+  ROWS.forEach((row, ri) => {
+    const d = row.d + row.depth * 0.45;
+    const r = RC + d;
+    const fan = row.upper ? 6 : 3;
+    const tunnel = ri < TUNNEL_ROWS;
+    // straight sides: [x0,z0] -> [x1,z1] with one middle aisle
+    const place = (x0: number, z0: number, x1: number, z1: number, gap0: number, gap1: number) => {
+      const len = Math.hypot(x1 - x0, z1 - z0);
+      const free = len - gap0 - gap1;
+      const n = Math.floor(free / SEAT_W);
+      if (n <= 0) return;
+      const start = gap0 + (free - n * SEAT_W) / 2 + SEAT_W / 2;
+      for (let i = 0; i < n; i++) {
+        const t = (start + i * SEAT_W) / len;
+        const x = x0 + (x1 - x0) * t, z = z0 + (z1 - z0) * t;
+        out.push({ x, y: row.y, z, row: ri, a: Math.atan2(z, x) });
+      }
+    };
+    const half = AISLE / 2;
+    // east and west ends (tunnels in the middle of the lower rows)
+    const mid = tunnel ? TUNNEL_W / 2 + 0.3 : half;
+    for (const sx of [1, -1]) {
+      const x = sx * (SX + r);
+      place(x, -SZ, x, 0, half, mid);
+      place(x, 0, x, SZ, mid, half);
+    }
+    for (const sz of [1, -1]) {
+      const z = sz * (SZ + r);
+      place(-SX, z, 0, z, half, half);
+      place(0, z, SX, z, half, half);
+    }
+    // corners: arcs split into `fan` sections
+    for (let k = 0; k < 4; k++) {
+      const [cx, cz] = CORNERS[k];
+      for (let f = 0; f < fan; f++) {
+        const a0 = ((k + f / fan) * Math.PI) / 2;
+        const a1 = ((k + (f + 1) / fan) * Math.PI) / 2;
+        const len = (a1 - a0) * r;
+        const free = len - AISLE;
+        const n = Math.floor(free / SEAT_W);
+        for (let i = 0; i < n; i++) {
+          const t = (half + (free - n * SEAT_W) / 2 + SEAT_W / 2 + i * SEAT_W) / len;
+          const a = a0 + (a1 - a0) * t;
+          const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+          out.push({ x, y: row.y, z, row: ri, a: Math.atan2(z, x) });
+        }
+      }
+    }
+  });
+  return out;
+}
+
+/** Points along the aisles at each riser, for the little step lights. */
+export function aisleLights(): number[] {
+  const out: number[] = [];
+  ROWS.forEach((row, ri) => {
+    if (ri === LOWER_ROWS - 1 || ri === ROWS.length - 1) return;
+    const d = row.d + row.depth - 0.02;
+    const r = RC + d;
+    const y = row.y + 0.08;
+    const push = (x: number, z: number) => out.push(x, y, z);
+    for (const sx of [1, -1]) {
+      for (const z of [-SZ, SZ]) push(sx * (SX + r), z);
+      if (ri >= TUNNEL_ROWS) push(sx * (SX + r), 0);
+    }
+    for (const sz of [1, -1]) for (const x of [-SX, 0, SX]) push(x, sz * (SZ + r));
+    const fan = row.upper ? 6 : 3;
+    for (let k = 0; k < 4; k++) {
+      const [cx, cz] = CORNERS[k];
+      for (let f = 1; f < fan; f++) {
+        const a = ((k + f / fan) * Math.PI) / 2;
+        push(cx + Math.cos(a) * r, cz + Math.sin(a) * r);
+      }
+    }
+  });
+  return out;
+}
