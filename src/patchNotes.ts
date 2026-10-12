@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-12 19:00',
+    title: 'Smoother screens',
+    notes: [
+      'Experimental "Keep 120 Hz" setting for phones that drop to 60 Hz when you are not touching the screen: try Video, Scroll, Anim or All and watch the frame rate in Performance stats.',
+    ],
+  },
+  {
     hour: '2026-10-12 18:00',
     title: 'The new garage and fight night atmosphere',
     notes: [

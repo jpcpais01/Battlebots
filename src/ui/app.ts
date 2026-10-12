@@ -1,6 +1,7 @@
 import type { Game, Place } from '../game/game';
 import { resScaleChoices, type Quality, type ResScale } from '../render/stage';
 import type { FpsCap } from '../render/pacer';
+import { BOOST_MODES } from '../render/refreshBoost';
 import { enterLandscape } from '../fullscreen';
 import { Rng } from '../sim/math';
 import { MOVES } from '../sim/moves';
@@ -571,6 +572,7 @@ export class App {
       }, box);
       this.resolutionRow(box);
       this.frameRateRow(box);
+      this.boostRow(box);
       const perfBtn = button('btn small', '', () => {
         this.perf.setVisible(!this.perf.visible);
         syncPerf();
@@ -624,6 +626,20 @@ export class App {
         this.tap();
         pacer.setCap(o);
         opts.forEach((v, i) => btns[i].classList.toggle('on', v === o));
+      }, seg),
+    );
+  }
+
+  /** Experimental: tricks that may keep a phone's screen at 120 Hz with no finger on it. */
+  private boostRow(box: HTMLElement) {
+    const boost = this.game.boost;
+    el('div', 'muted', 'Keep 120 Hz (experimental)', box);
+    const seg = el('div', 'seg', '', box);
+    const btns = BOOST_MODES.map((m) =>
+      button(m.id === boost.mode ? 'on' : '', m.label, () => {
+        this.tap();
+        boost.set(m.id);
+        BOOST_MODES.forEach((o, i) => btns[i].classList.toggle('on', o.id === m.id));
       }, seg),
     );
   }
