@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { PostFX } from './post';
+import { RippleOverlay, Ripples } from './ripple';
 import { RenderSettings } from './settings';
 import { ResolutionGovernor } from './governor';
 import { contactAO } from './ao';
@@ -69,6 +70,9 @@ export class Stage {
   readonly camera: THREE.PerspectiveCamera;
   /** Bloom and tone mapping (high quality only); without it the scene renders straight to the screen. */
   readonly post: PostFX | null = null;
+  /** Shockwaves that warp the screen on big hits: in the composite on high, an overlay otherwise. */
+  readonly ripples = new Ripples();
+  private rippleOverlay: RippleOverlay | null = null;
   readonly key: THREE.SpotLight;
   readonly hemi: THREE.HemisphereLight;
   readonly rims: THREE.PointLight[];
@@ -142,7 +146,8 @@ export class Stage {
 
     this.maxPixelRatio = quality === 'high' ? 2 : quality === 'med' ? 1.5 : 1;
     this.governor = new ResolutionGovernor(this.deviceRatio());
-    if (quality === 'high') this.post = new PostFX(this.renderer);
+    if (quality === 'high') this.post = new PostFX(this.renderer, this.ripples);
+    else this.rippleOverlay = new RippleOverlay(this.ripples);
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -266,10 +271,15 @@ export class Stage {
   }
 
   render() {
+    const size = this.renderer.getDrawingBufferSize(_size);
+    const box = this.ripples.prepare(this.camera, size.x / Math.max(1, size.y));
     if (this.post) this.post.render(this.scene, this.camera);
     else {
       this.renderer.setRenderTarget(null);
       this.renderer.render(this.scene, this.camera);
+      if (box) this.rippleOverlay?.render(this.renderer, box);
     }
   }
 }
+
+const _size = new THREE.Vector2();

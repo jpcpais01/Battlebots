@@ -253,7 +253,7 @@ export class Game {
         const h = data as HitInfo;
         const pal = PALETTES[this.match!.specs[h.attacker.index].palette % PALETTES.length];
         if (h.shielded) {
-          fx.ring(h.point, 0x3cffd8, 1.2, false, 0.35);
+          this.stage.ripples.add(h.point, 1.3, 0.8, 0x3cffd8, 0.5);
           fx.burst(h.point, 0x3cffd8, 40, 3);
           sfx?.shield();
         } else if (h.blocked) {
@@ -265,7 +265,7 @@ export class Game {
           const big = h.damage >= 55 || h.crit;
           fx.sparks(h.point, h.dir, big ? 34 : 16, big ? 0xffb347 : pal.accent, big ? 8 : 6, 1);
           fx.flash(h.point, big ? 0xffd28a : 0xffffff, big ? 1.4 : 0.8, big ? 0.2 : 0.12);
-          if (big) fx.ring(h.point, 0xffc070, 1.4, false, 0.3);
+          if (big) this.stage.ripples.add(h.point, h.crit ? 2.0 : 1.6, h.crit ? 1.4 : 1, 0xffc070);
           sfx?.hit(h.damage, h.zone, h.crit, h.move.kind, this.pan(h.point));
           this.director.shake(Math.min(0.75, 0.18 + h.damage / 160));
           if (big) this.director.punch(2.5);
@@ -396,6 +396,7 @@ export class Game {
     const shown = m && this.models.length === 2 ? this.models : this.showcase ? [this.showcase.model] : [];
     for (let i = 0; i < 2; i++) contactAO.set(i, shown[i]?.joints ?? null);
     this.fx.update(dt, this.stage.camera);
+    this.stage.ripples.update(dt);
     perf.lap('fx');
     this.arena.pressRopes(m && this.models.length === 2 ? [this.models[0].joints, this.models[1].joints] : []);
     const f = m?.fighters;
