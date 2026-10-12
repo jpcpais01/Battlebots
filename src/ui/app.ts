@@ -19,7 +19,7 @@ import {
   type Slot,
   type StatKey,
 } from '../game/items';
-import { PATCH_NOTES } from '../patchNotes';
+import { hourLabel, PATCH_NOTES } from '../patchNotes';
 import { PALETTES, randomBot, randomName, type BotSpec } from '../game/loadout';
 import { button, el, esc, hex } from './dom';
 import { Hud, pipsHtml } from './hud';
@@ -613,7 +613,7 @@ export class App {
 
   // ------------------------------------------------------------ patch notes
   private patchBtn(parent: HTMLElement) {
-    const latest = PATCH_NOTES[0] ? `${PATCH_NOTES[0].date}|${PATCH_NOTES[0].title}|${PATCH_NOTES[0].notes.length}` : '';
+    const latest = PATCH_NOTES[0] ? `${PATCH_NOTES[0].hour}|${PATCH_NOTES[0].title}|${PATCH_NOTES[0].notes.length}` : '';
     let seen = '';
     try {
       seen = localStorage.getItem('bb.notesSeen') ?? '';
@@ -633,7 +633,7 @@ export class App {
       box.classList.add('notes');
       const list = el('div', 'notes-list', '', box);
       for (const p of PATCH_NOTES) {
-        el('div', 'note', `<div class="note-head"><b>${esc(p.title)}</b><span>${esc(p.date)}</span></div><ul>${p.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>`, list);
+        el('div', 'note', `<div class="note-head"><b>${esc(p.title)}</b><span>${esc(hourLabel(p.hour))}</span></div><ul>${p.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>`, list);
       }
       button('btn cyan', 'Close', () => this.closeModal(), box);
     });
