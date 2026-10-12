@@ -185,7 +185,6 @@ export class Brain {
   private comboCount = 0;
   private aimNoise = new Vector3();
   private aimUid = -1;
-  private tauntTimer = 0;
   private lastEventT = -10;
 
   onEvent: ((e: BrainEvent) => void) | null = null;
@@ -920,15 +919,8 @@ export class Brain {
     // showboating / relaxing far away
     let drop = 0;
     if (d > 2.2) drop = 0.35;
-    if (p.state === 'down') {
-      drop = 0.6;
-      this.tauntTimer -= 1 / 120;
-      if (this.tauntTimer <= 0 && this.confidence > 0.5 && this.rng.chance(this.traits.showboat * 0.01)) {
-        this.tauntTimer = 4;
-        me.taunt = 1;
-        this.say('taunt', `${me.name} plays to the crowd.`, 12);
-      }
-    }
+    // taunts over a downed opponent belong to the Showman (emote.ts)
+    if (p.state === 'down') drop = 0.6;
     if (this.confidence > 0.75 && this.traits.showboat > 0.7 && d > 1.6) drop = Math.max(drop, 0.45);
     me.guardDrop = lerp(me.guardDrop, drop, 0.05);
     me.taunt = Math.max(0, me.taunt - 1 / 120 / 1.5);
