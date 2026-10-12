@@ -1,8 +1,9 @@
 import { BANK, renderImpact, type ImpactKind } from './impacts';
+import { Crowd, type CrowdState } from './crowd';
 
 /**
  * Tiny synthesized sound kit (WebAudio, no assets): metallic impacts, whooshes,
- * crowd bed with swells, bell, and UI blips. Impacts come from a bank of
+ * a live crowd that reacts to the fight (crowd.ts), bell, and UI blips. Impacts come from a bank of
  * procedurally rendered metal hits (see impacts.ts), played back with random
  * variation, pitch and pan so no two punches sound the same.
  */
@@ -10,8 +11,7 @@ export class Sfx {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
-  private crowdGain: GainNode | null = null;
-  private crowdFilter: BiquadFilterNode | null = null;
+  private crowd: Crowd | null = null;
   private crowdLevel = 0;
   muted = false;
   private lastStep = [0, 0];
@@ -46,8 +46,9 @@ export class Sfx {
     this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = this.noiseBuf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-    this.startCrowd();
     this.buildBank();
+    this.crowd = new Crowd(ctx, this.master);
+    this.crowd.ambience(this.crowdLevel);
   }
 
   /**
@@ -169,7 +170,6 @@ export class Sfx {
       // a second, brighter plate somewhere on the frame
       this.impact('block', 0.12 + k * 0.12, 1.15 + Math.random() * 0.25, pan, 0.008 + Math.random() * 0.02);
     }
-    this.crowd(0.15 + k * 0.4);
   }
 
   block(damage: number, pan = 0, guardBreak = false) {
@@ -246,7 +246,6 @@ export class Sfx {
     this.impact('thud', 0.5, 0.85, 0, 0.12);
     this.tone('sine', 110, 28, 1.0, 0.7);
     this.noise(0.6, 'lowpass', 1200, 0.5, 0.35, 0, 200);
-    this.crowd(1.5);
   }
 
   ui(kind: 'tap' | 'select' | 'back' | 'start' = 'tap') {
@@ -259,39 +258,20 @@ export class Sfx {
     else this.tone('triangle', 880, 900, 0.05, 0.07);
   }
 
-  // ------------------------------------------------------------- crowd bed
-  private startCrowd() {
-    const ctx = this.ctx!;
-    const src = ctx.createBufferSource();
-    src.buffer = this.noiseBuf;
-    src.loop = true;
-    const f = ctx.createBiquadFilter();
-    f.type = 'bandpass';
-    f.frequency.value = 700;
-    f.Q.value = 0.6;
-    const g = ctx.createGain();
-    g.gain.value = 0;
-    src.connect(f).connect(g).connect(this.master!);
-    src.start();
-    this.crowdGain = g;
-    this.crowdFilter = f;
-  }
-
-  /** Base crowd ambience level (0 menus, ~1 during fights). */
+  // ------------------------------------------------------------------ crowd
+  /** Crowd volume (0 silent, ~0.25 menus, 1 during fights). */
   ambience(level: number) {
-    if (!this.ctx || !this.crowdGain) return;
     this.crowdLevel = level;
-    this.crowdGain.gain.setTargetAtTime(0.03 * level, this.ctx.currentTime, 0.5);
+    this.crowd?.ambience(level);
   }
 
-  crowd(swell: number) {
-    if (!this.ctx || !this.crowdGain || !this.crowdFilter) return;
-    const t = this.ctx.currentTime;
-    const base = 0.03 * this.crowdLevel;
-    this.crowdGain.gain.cancelScheduledValues(t);
-    this.crowdGain.gain.setTargetAtTime(base + 0.06 * swell, t, 0.05);
-    this.crowdGain.gain.setTargetAtTime(base, t + 0.4 + swell * 0.6, 0.6);
-    this.crowdFilter.frequency.setTargetAtTime(700 + swell * 400, t, 0.1);
-    this.crowdFilter.frequency.setTargetAtTime(700, t + 0.6, 0.6);
+  /** Match events the crowd reacts to (hits, knockdowns, KOs...). */
+  crowdEvent(type: string, data?: unknown) {
+    this.crowd?.event(type, data);
+  }
+
+  /** Per-frame crowd update; state is null outside a fight. */
+  crowdTick(dt: number, state: CrowdState | null) {
+    this.crowd?.tick(dt, state);
   }
 }

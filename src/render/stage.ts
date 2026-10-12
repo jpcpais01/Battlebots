@@ -36,6 +36,10 @@ export class Stage {
   private maxPixelRatio = 2;
   private governor: ResolutionGovernor;
   private sized = { w: 0, h: 0, pr: 0 };
+  /** Resolution the governor asked for but that waits for a camera cut, so the switch is not seen. */
+  private pendingFor = 0;
+  /** Field of view the director builds its lenses from; the director owns `camera.fov`. */
+  baseFov = 38;
   onResize: ((w: number, h: number) => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement, quality: Quality) {
@@ -122,16 +126,33 @@ export class Stage {
       }
       this.sized = { w, h, pr };
     }
-    this.camera.aspect = w / h;
-    // keep the horizontal framing stable on narrow screens
-    this.camera.fov = w / h < 1.2 ? 55 : 38;
-    this.camera.updateProjectionMatrix();
+    // keep the horizontal framing stable on narrow screens; the director applies it, so a resize
+    // between its update and the render can't flash a frame at the wrong zoom
+    this.baseFov = w / h < 1.2 ? 55 : 38;
+    if (this.camera.aspect !== w / h) {
+      this.camera.aspect = w / h;
+      this.camera.updateProjectionMatrix();
+    }
     this.onResize?.(w, h * pr);
   }
 
-  /** Lower resolution if frames are consistently slow, raise it when there is headroom. */
-  govern(dt: number) {
-    if (this.governor.sample(dt, this.deviceRatio())) this.resize();
+  /**
+   * Lower resolution if frames are consistently slow, raise it when there is headroom.
+   * A switch changes sharpness and glow and costs a hitch, so it waits for a camera cut or screen
+   * change (`cut`), where nobody notices; a drop goes through anyway if no cut comes soon.
+   */
+  govern(dt: number, cut = false) {
+    if (this.governor.ratio === this.sized.pr) {
+      this.pendingFor = 0;
+      this.governor.sample(dt, this.deviceRatio());
+      if (this.governor.ratio === this.sized.pr) return;
+    }
+    this.pendingFor += dt;
+    const dropping = this.governor.ratio < this.sized.pr;
+    if (cut || (dropping && this.pendingFor > 2.5)) {
+      this.pendingFor = 0;
+      this.resize();
+    }
   }
 
   render() {

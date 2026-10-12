@@ -143,6 +143,14 @@ button {
 .icon-btn:active {
   transform: scale(0.92);
 }
+.icon-btn.spinning svg {
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 /* ------------------------------------------------------------ home */
 .logo {
@@ -1136,4 +1144,69 @@ button {
 .results .actions .btn {
   font-size: 0.82em;
   padding: 0.7em 1.15em;
+}
+
+/* patch notes */
+.notes-btn {
+  display: block;
+  margin-top: 0.7em;
+  position: relative;
+  font-family: var(--body);
+  font-weight: 700;
+  font-size: 0.72em;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0.3em 0.8em;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  font-style: normal;
+}
+.notes-btn.new::after {
+  content: '';
+  position: absolute;
+  top: -0.2em;
+  right: -0.2em;
+  width: 0.55em;
+  height: 0.55em;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+}
+.modal .box.notes {
+  width: min(30em, calc(100vw - 2 * var(--pad)));
+  max-height: calc(100dvh - 2em);
+}
+.notes-list {
+  overflow-y: auto;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9em;
+  padding-right: 0.3em;
+}
+.note-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1em;
+  font-family: var(--display);
+  font-size: 0.9em;
+}
+.note-head b {
+  font-weight: 400;
+  color: var(--cyan);
+}
+.note-head span {
+  color: var(--muted);
+  font-family: var(--body);
+}
+.note ul {
+  margin: 0.35em 0 0;
+  padding-left: 1.1em;
+  font-size: 0.9em;
+  line-height: 1.35;
+}
+.note li + li {
+  margin-top: 0.25em;
 }

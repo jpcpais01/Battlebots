@@ -47,6 +47,8 @@ export class Game {
   fixedDt: number | null = null;
   /** Debug: frames are driven externally via frame(). */
   manual = false;
+  private lastCuts = 0;
+  private lastMode = '';
   cb: GameCallbacks = {};
 
   constructor(canvas: HTMLCanvasElement, quality: Quality) {
@@ -60,7 +62,7 @@ export class Game {
       this.fx.setPixelScale(h);
       this.arena.setPixelScale(h);
       const narrow = w / Math.max(1, h / (window.devicePixelRatio || 1)) < 1.2;
-      this.director.setBaseFov(this.stage.camera.fov, narrow);
+      this.director.setBaseFov(this.stage.baseFov, narrow);
     };
     this.stage.resize();
     requestAnimationFrame(this.loop);
@@ -155,6 +157,7 @@ export class Game {
     const fx = this.fx;
     const sfx = this.sfx;
     this.director.cue(type, data);
+    sfx?.crowdEvent(type, data);
     switch (type) {
       case 'hit': {
         const h = data as HitInfo;
@@ -184,12 +187,10 @@ export class Game {
           this.director.shake(0.6);
           this.director.punch(4);
           this.arena.excite(1);
-          sfx?.crowd(1);
         }
         break;
       }
       case 'stagger':
-        sfx?.crowd(0.5);
         this.arena.excite(0.4);
         break;
       case 'static': {
@@ -237,7 +238,6 @@ export class Game {
         break;
       case 'getUp':
         this.arena.excite(0.5);
-        sfx?.crowd(0.6);
         break;
     }
     this.cb.onMatchEvent?.(type, data);
@@ -299,8 +299,15 @@ export class Game {
     this.fx.update(dt, this.stage.camera);
     this.arena.update(dt, this.time);
     this.director.update(dt, m);
+    if (this.sfx) {
+      const f = m?.fighters;
+      this.sfx.crowdTick(dt, m && f && !this.paused ? { phase: m.phase, clock: m.clock, hp: [f[0].hpRatio, f[1].hpRatio] } : null);
+    }
     if (!render) return;
-    this.stage.govern(dt);
+    const cut = this.director.cuts !== this.lastCuts || this.director.mode !== this.lastMode;
+    this.lastCuts = this.director.cuts;
+    this.lastMode = this.director.mode;
+    this.stage.govern(dt, cut);
     this.stage.render();
     this.cb.onFrame?.(dt);
   }
