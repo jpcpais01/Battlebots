@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-12 21:00',
     title: 'New health bars, emotes, cleaner hits and a clean load',
     notes: [
+      'Battle damage shows much sooner and bigger: a few hits already scuff and dent the plating, and a badly damaged part caves in, tears open to burnt innards with glowing split edges, and pours sparks and smoke.',
       'Ropes and barriers around the ring never turn see-through any more, even when the camera is right next to them.',
       'New health bars: a steel frame in your bot\'s colours, ten cells, and a live HP number. Damage now leaves a striped chip behind that hangs while the hits keep coming, then drains away, and the flurry\'s total shows by the name. Big hits flash and shake the bar.',
       'New Emotes tab in the garage: equip up to 3 celebrations and 3 taunts, and tap any of them to watch your bot perform it. Your bot only uses the ones you equip (and they show on your opponent\'s screen online). Leave a list empty and it picks its own.',
