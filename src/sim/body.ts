@@ -75,6 +75,20 @@ const BRACES: [number, number][] = [
   [J.ShR, J.Head],
 ];
 
+/** Corner radius of the octagonal ring (the posts); matches the rendered arena. */
+export const RING_CORNER = 5.0;
+/** Distance from the ring centre to each side's ropes. */
+export const ROPE_LINE = RING_CORNER * Math.cos(Math.PI / 8);
+/** How far a body can sink into the ropes before they stop giving. */
+export const ROPE_GIVE = 0.4;
+/** Fraction of the stretch the ropes take back per solver pass (their springiness). */
+const ROPE_SPRING = 0.05;
+/** Outward unit normals of the octagon's sides (side k faces angle k*45 degrees). */
+export const SIDE_NX = Array.from({ length: 8 }, (_, k) => Math.cos((k * Math.PI) / 4));
+export const SIDE_NZ = Array.from({ length: 8 }, (_, k) => Math.sin((k * Math.PI) / 4));
+/** The side (0..7) whose ropes a point is up against. */
+export const ropeSide = (x: number, z: number) => ((Math.round(Math.atan2(z, x) / (Math.PI / 4)) % 8) + 8) % 8;
+
 const _a = new Vector3();
 const _b = new Vector3();
 const _c = new Vector3();
@@ -217,7 +231,6 @@ export class Body {
   }
 
   private collideWorld() {
-    const R = this.arenaRadius;
     for (let i = 0; i < JOINT_COUNT; i++) {
       const p = this.pos[i];
       const r = RADII[i];
@@ -230,8 +243,27 @@ export class Body {
         q.x += (p.x - q.x) * f;
         q.z += (p.z - q.z) * f;
       } else this.grounded[i] = 0;
+      // the ropes are elastic: they give as a body leans or is thrown into them,
+      // and spring it back in (moving pos but not prev turns the push into velocity)
+      const side = ropeSide(p.x, p.z);
+      const nx = SIDE_NX[side], nz = SIDE_NZ[side];
+      const pen = p.x * nx + p.z * nz - (ROPE_LINE - r);
+      if (pen > 0) {
+        let push = pen * ROPE_SPRING;
+        if (pen - push > ROPE_GIVE) push = pen - ROPE_GIVE;
+        p.x -= nx * push;
+        p.z -= nz * push;
+        // stretching rope soaks up some outward speed
+        const q = this.prev[i];
+        const vout = (p.x - q.x) * nx + (p.z - q.z) * nz;
+        if (vout > 0) {
+          q.x += nx * vout * 0.1;
+          q.z += nz * vout * 0.1;
+        }
+      }
+      // and nothing slips out past the corner posts
       const d2 = p.x * p.x + p.z * p.z;
-      const lim = R - r;
+      const lim = RING_CORNER - 0.2 - r;
       if (d2 > lim * lim) {
         const d = Math.sqrt(d2);
         p.x *= lim / d;
