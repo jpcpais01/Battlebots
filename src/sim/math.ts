@@ -1,4 +1,5 @@
 import { Vector3 } from 'three';
+import { DM } from './dmath';
 
 export const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
 export const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -15,17 +16,17 @@ export const minJerk = (t: number) => {
   const k = t < 0 ? 0 : t > 1 ? 1 : t;
   return k * k * k * (10 - 15 * k + 6 * k * k);
 };
-export const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+export const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - DM.pow(-2 * t + 2, 2) / 2);
 export const easeOutBack = (t: number) => {
   const c1 = 1.4;
   const c3 = c1 + 1;
-  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+  return 1 + c3 * DM.pow(t - 1, 3) + c1 * DM.pow(t - 1, 2);
 };
-export const sigmoid = (x: number) => 1 / (1 + Math.exp(-x));
+export const sigmoid = (x: number) => 1 / (1 + DM.exp(-x));
 
 /** Frame-rate independent exponential approach. */
 export const damp = (cur: number, target: number, lambda: number, dt: number) =>
-  lerp(cur, target, 1 - Math.exp(-lambda * dt));
+  lerp(cur, target, 1 - DM.exp(-lambda * dt));
 
 export const wrapAngle = (a: number) => {
   while (a > Math.PI) a -= Math.PI * 2;
@@ -34,13 +35,17 @@ export const wrapAngle = (a: number) => {
 };
 
 export const dampAngle = (cur: number, target: number, lambda: number, dt: number) =>
-  cur + wrapAngle(target - cur) * (1 - Math.exp(-lambda * dt));
+  cur + wrapAngle(target - cur) * (1 - DM.exp(-lambda * dt));
 
 /** Seeded PRNG (mulberry32). */
 export class Rng {
   private s: number;
-  constructor(seed = (Math.random() * 2 ** 32) >>> 0) {
+  constructor(seed = (Math.random() * 4294967296) >>> 0) { // det-ok: only unseeded Rngs (menus) roll their own seed
     this.s = seed >>> 0;
+  }
+  /** Current internal state (for sync checks). */
+  get state() {
+    return this.s;
   }
   next(): number {
     let t = (this.s += 0x6d2b79f5);
@@ -95,7 +100,7 @@ export function softmaxPick(utils: number[], temperature: number, rng: Rng): num
   const t = Math.max(0.01, temperature);
   let sum = 0;
   const w = utils.map((u) => {
-    const e = Math.exp((u - max) / t);
+    const e = DM.exp((u - max) / t);
     sum += e;
     return e;
   });
@@ -121,7 +126,7 @@ export function closestOnSegment(p: Vector3, a: Vector3, b: Vector3, out: Vector
 
 /** Ease towards target with exponential smoothing, vectors. */
 export function dampVec(cur: Vector3, target: Vector3, lambda: number, dt: number) {
-  const k = 1 - Math.exp(-lambda * dt);
+  const k = 1 - DM.exp(-lambda * dt);
   cur.x += (target.x - cur.x) * k;
   cur.y += (target.y - cur.y) * k;
   cur.z += (target.z - cur.z) * k;
