@@ -30,6 +30,7 @@ import { AD_ASPECT, AD_COLS, AD_COUNT, AD_ROWS, adAtlas } from './ads';
 import { Crowd, glowPoints } from './crowd';
 import { RenderSettings } from './settings';
 import { contactAO } from './ao';
+import { house, HOUSE_GLSL } from './house';
 
 /**
  * The indoor arena around the ring: a two-tier seating bowl with a suite level, LED ribbon
@@ -599,16 +600,20 @@ export class Venue {
     stands.strip(back, ROOF_Y, roofIn, ROOF_Y + 5, roof);
     const standMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
     const spots = this.spots;
+    // lit by the house lights in its own shader, so the roaming spots stay bright on the dimmed bowl
+    standMat.userData.house = false;
     standMat.onBeforeCompile = (sh) => {
       sh.uniforms.uSpots = { value: spots };
+      sh.uniforms.uHouse = house.uniforms.uHouse;
       sh.vertexShader = sh.vertexShader
         .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
         .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
       sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying vec3 vWPos; uniform vec4 uSpots[3];')
+        .replace('#include <common>', `#include <common>\nvarying vec3 vWPos; uniform vec4 uSpots[3];\n${HOUSE_GLSL}`)
         .replace(
           '#include <opaque_fragment>',
-          `for (int i = 0; i < 3; i++) {
+          `outgoingLight *= houseLight(vWPos);
+           for (int i = 0; i < 3; i++) {
              vec4 sp = uSpots[i];
              outgoingLight += vec3(1.0, 0.95, 0.85) * 0.22 * sp.w * smoothstep(sp.z, sp.z * 0.55, distance(vWPos.xz, sp.xy)) * step(vWPos.y, 22.0);
            }

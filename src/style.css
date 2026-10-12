@@ -48,6 +48,13 @@ body {
   height: 100%;
   display: block;
 }
+/* lens falloff over the 3D view: the eye stays on the lit ring (a static layer, no GPU pass) */
+#vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 75% 70% at 50% 55%, transparent 55%, rgba(0, 0, 0, 0.42) 100%);
+}
 #ui {
   position: fixed;
   inset: 0;

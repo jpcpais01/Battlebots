@@ -17,6 +17,7 @@ import type { Sfx } from '../audio/sfx';
 import { perf } from '../perf';
 import { RenderProbe } from '../render/renderProbe';
 import { contactAO } from '../render/ao';
+import { house } from '../render/house';
 
 export interface GameCallbacks {
   onMatchEvent?: (type: string, data: unknown) => void;
@@ -70,6 +71,8 @@ export class Game {
     // the stands start past the farthest the camera ever goes, so they stay out of ClearView:
     // its dither would only cost fill rate (and early depth rejection) on the biggest surfaces
     this.stage.scene.add(this.arena.venue.group);
+    // the house sits in the dark around the lit ring
+    house.apply(this.arena.venue.group);
     this.fx = new Fx();
     this.stage.scene.add(this.fx.group);
     this.tagParts();
@@ -354,7 +357,13 @@ export class Game {
     if (m && this.director.mode === 'match') {
       for (let i = 0; i < 2; i++) this.chests[i].copy(m.fighters[i].body.pos[J.Chest]);
       this.clearView.update(this.stage.camera, this.chests);
-    } else this.clearView.update(this.stage.camera, []);
+      // expose for the ring: the closer the shot on the fighters, the darker the house
+      _v.addVectors(this.chests[0], this.chests[1]).multiplyScalar(0.5);
+      house.update(dt, this.stage.camera.position.distanceTo(_v));
+    } else {
+      this.clearView.update(this.stage.camera, []);
+      house.update(dt, null);
+    }
     perf.lap('camera');
     this.sfx?.crowdTick(dt, crowdState);
     perf.lap('audio');

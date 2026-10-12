@@ -102,7 +102,7 @@ export class Stage {
     // the overhead rig: one warm spot pools on the ring and falls off past the apron, so the robots
     // stand in the light while the floor around the stage sinks into shadow. No distance decay, so
     // it lights like the sun it replaced, and it costs the same (one light, one shadow map).
-    this.key = new THREE.SpotLight(0xfff1e0, 3.0, 0, 0.62, 0.8, 0);
+    this.key = new THREE.SpotLight(0xfff1e0, 3.4, 0, 0.62, 0.8, 0);
     this.key.position.set(2.2, 13, 3);
     this.key.target.position.set(0, 0, 0);
     this.key.castShadow = quality !== 'low';
