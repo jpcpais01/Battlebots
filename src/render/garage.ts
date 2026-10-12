@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { Rng } from '../sim/math';
 import { PALETTES } from '../game/loadout';
 import { Baker, bakedGlowMaterial, surf, vertexPBR, type GlowKey, type Surface, type Surfaces } from './bake';
-import { buildFist, buildFoot, buildForearm, buildHead, buildShin, buildThigh, buildToe, buildTorso, buildUpperArm, G, type PB } from './parts';
+import { buildFist, buildFoot, buildForearm, buildHead, buildShin, buildShinGuard, buildThigh, buildToe, buildTorso, buildUpperArm, G, type PB } from './parts';
 import { RenderSettings } from './settings';
 import { contactAO } from './ao';
 import type { Fx } from './fx';
@@ -1121,7 +1121,7 @@ export class Garage {
     k.part(buildTorso(2), 0, 1.55, 0, 0, 0.35, 0, SPARES[1]);
     k.part(buildUpperArm(2, 1), -0.6, 0.94, 0.12, Math.PI / 2, 0.3, Math.PI / 2, SPARES[1]);
     k.part(buildThigh(2), 0.62, 0.92, 0.16, 0, 0.4, Math.PI / 2, SPARES[1]);
-    k.part(buildShin(2, 2), 0.55, 0.92, -0.18, 0, -0.2, Math.PI / 2, SPARES[1]);
+    k.part(buildShin(2).merge(buildShinGuard(2)), 0.55, 0.92, -0.18, 0, -0.2, Math.PI / 2, SPARES[1]);
     k.pop();
     // industrial welding arm (orange) reaching over to the chassis' shoulder
     k.push(-0.25, 0, 1.15);
@@ -1162,7 +1162,7 @@ export class Garage {
     k.cyl(0.33, 0.38, 0.75, 0.42, 0.48, S.black, Math.PI / 2, 0, 0, 18);
     crate(-0.85, 0.97, 0.6);
     k.part(buildThigh(0), 0.2, 1.08, 0.46, 0, 0, Math.PI / 2, SPARES[2]);
-    k.part(buildShin(0, 0), 0.64, 1.08, 0.46, 0, 0, Math.PI / 2, SPARES[2]);
+    k.part(buildShin(0).merge(buildShinGuard(0)), 0.64, 1.08, 0.46, 0, 0, Math.PI / 2, SPARES[2]);
     k.cbox(0.5, 0.3, 0.6, -0.8, 2.11, 0.46, S.cardboard, 0.01);
     k.cbox(0.45, 0.4, 0.6, -0.2, 2.16, 0.46, S.cardboard, 0.01);
     k.cbox(0.6, 0.35, 0.6, 0.65, 2.135, 0.46, S.cardboard, 0.01);

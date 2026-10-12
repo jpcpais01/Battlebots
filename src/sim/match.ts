@@ -2,6 +2,7 @@ import { Vector3 } from 'three';
 import { Brain, type BrainEvent } from './brain';
 import { J, RING_CORNER, ROPE_LINE, ropeSide, SIDE_NX, SIDE_NZ } from './body';
 import { Fighter, type StrikeAction } from './fighter';
+import { Showman } from './emote';
 import type { MoveDef, Zone } from './moves';
 import { clamp, closestOnSegment, lerp, Rng, smoothstep } from './math';
 import { armPart, CUT_JOINTS, legPart, LOOSE, P, PART_COUNT, type LossReason } from './damage';
@@ -81,6 +82,8 @@ const _d = new Vector3();
 export class Match {
   readonly fighters: [Fighter, Fighter];
   readonly brains: [Brain, Brain];
+  /** Celebrations and taunts. */
+  readonly shows: [Showman, Showman];
   readonly specs: [BotSpec, BotSpec];
   readonly rng: Rng;
   time = 0;
@@ -113,6 +116,7 @@ export class Match {
     ba.rival = bb;
     bb.rival = ba;
     this.brains = [ba, bb];
+    this.shows = [new Showman(fa, fb, ba), new Showman(fb, fa, bb)];
     for (const f of this.fighters) {
       f.hooks = {
         time: 0,
@@ -122,6 +126,11 @@ export class Match {
     for (const br of this.brains) br.onEvent = (e: BrainEvent) => this.emit('brain', e);
     fa.place(new Vector3(-1.7, 0, 0), Math.PI / 2);
     fb.place(new Vector3(1.7, 0, 0), -Math.PI / 2);
+  }
+
+  /** Seconds of fighting so far. */
+  get fightTime() {
+    return ROUND_TIME - this.clock;
   }
 
   on(fn: MatchListener) {
@@ -173,7 +182,8 @@ export class Match {
         break;
       case 'ko':
         this.slowmo = this.phaseTime < 1.6 ? 0.3 : lerp(0.3, 1, smoothstep(1.6, 2.4, this.phaseTime));
-        if (this.phaseTime > 1.2 && this.winner && this.winner.state !== 'win' && !this.winner.isDown) {
+        // a beat to watch them fall, then the celebration (it opens in the slow-mo)
+        if (this.phaseTime > 0.45 && this.winner && this.winner.state !== 'win' && !this.winner.isDown) {
           this.winner.setState('win');
           this.winner.action = null;
         }
@@ -193,6 +203,8 @@ export class Match {
       this.brains[1].update(dt, this.time);
       perf.add('ai', t0);
     }
+    this.shows[0].update(dt, this);
+    this.shows[1].update(dt, this);
     this.fighters[0].update(dt);
     this.fighters[1].update(dt);
     this.separate();

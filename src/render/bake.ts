@@ -15,6 +15,8 @@ export type Surfaces = Record<OpaqueKey, Surface>;
 export const surf = (hex: number, metal: number, rough: number): Surface => ({ color: new THREE.Color(hex), metal, rough });
 
 const _v = new THREE.Vector3();
+/** Index offsets that swap the 2nd and 3rd corner of each triangle (winding flip). */
+export const FLIP = [0, 1, -1];
 const _m = new THREE.Matrix4();
 const _nm = new THREE.Matrix3();
 
@@ -35,8 +37,11 @@ export class Baker {
     _nm.getNormalMatrix(m);
     const n = idx ? idx.count : pos.count;
     const o = this.o;
+    // a mirroring transform turns triangles inside out: swap two corners of each
+    const flip = m.determinant() < 0;
     for (let k = 0; k < n; k++) {
-      const i = idx ? idx.getX(k) : k;
+      const j = flip ? k + FLIP[k % 3] : k;
+      const i = idx ? idx.getX(j) : j;
       _v.fromBufferAttribute(pos, i).applyMatrix4(m);
       o.pos.push(_v.x, _v.y, _v.z);
       _v.fromBufferAttribute(nor, i).applyMatrix3(_nm).normalize();
@@ -51,8 +56,10 @@ export class Baker {
     const pos = g.attributes.position as THREE.BufferAttribute;
     const idx = g.index;
     const n = idx ? idx.count : pos.count;
+    const flip = m.determinant() < 0;
     for (let k = 0; k < n; k++) {
-      _v.fromBufferAttribute(pos, idx ? idx.getX(k) : k).applyMatrix4(m);
+      const j = flip ? k + FLIP[k % 3] : k;
+      _v.fromBufferAttribute(pos, idx ? idx.getX(j) : j).applyMatrix4(m);
       this.e.pos.push(_v.x, _v.y, _v.z);
       this.e.col.push(c.r, c.g, c.b);
     }

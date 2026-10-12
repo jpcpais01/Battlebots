@@ -10,6 +10,7 @@ import {
   buildPelvis,
   buildRocketPiston,
   buildShin,
+  buildShinGuard,
   buildThigh,
   buildToe,
   buildTorso,
@@ -75,7 +76,7 @@ function shotFor(item: ItemDef, rarity: Rarity, lo: Loadout): Shot {
     case 'head': {
       return {
         parts: [
-          { pb: buildHead(look), m: at(0, 0, 0), rarity },
+          { pb: buildHead(look, rarity), m: at(0, 0, 0), rarity },
           // a stub of the neck under the helmet
           { pb: buildNeck(), m: at(0, -0.16, -0.01).multiply(new THREE.Matrix4().makeScale(1, 0.1, 1)), rarity },
         ],
@@ -85,8 +86,8 @@ function shotFor(item: ItemDef, rarity: Rarity, lo: Loadout): Shot {
     }
     case 'fist': {
       const parts: Placed[] = [
-        { pb: buildForearm(look), m: at(0, 0, 0), rarity },
-        { pb: buildFist(look, 1), m: at(0, FOREARM, 0), rarity },
+        { pb: buildForearm(look, rarity), m: at(0, 0, 0), rarity },
+        { pb: buildFist(look, 1, rarity), m: at(0, FOREARM, 0), rarity },
       ];
       if (look === 3) parts.push({ pb: buildRocketPiston(), m: at(0, 0.2, 0).multiply(new THREE.Matrix4().makeScale(1, FOREARM - 0.2, 1)), rarity });
       // a jab thrown past the viewer's shoulder: the fist comes forward and fills the frame
@@ -94,7 +95,7 @@ function shotFor(item: ItemDef, rarity: Rarity, lo: Loadout): Shot {
     }
     case 'core': {
       // only the chest-mounted reactor, not the back unit
-      const full = buildCore(look, lookOf(lo, 'chest'));
+      const full = buildCore(look, lookOf(lo, 'chest'), rarity);
       const front = new PB();
       for (const e of full.entries) if (e.m.elements[14] > 0) front.entries.push(e);
       return { parts: [{ pb: front, m: at(0, 0, 0), rarity }], yaw: 0.5, pitch: 0.2 };
@@ -103,10 +104,10 @@ function shotFor(item: ItemDef, rarity: Rarity, lo: Loadout): Shot {
       const core = lo.core;
       return {
         parts: [
-          { pb: buildTorso(look), m: at(0, 0, 0), rarity },
-          { pb: buildCore(lookOf(lo, 'core'), look), m: at(0, 0, 0), rarity: core.rarity },
-          { pb: buildUpperArm(look, -1), m: limb(0.31, 0.1, 0, 0.22, 0.05), rarity },
-          { pb: buildUpperArm(look, 1), m: limb(-0.31, 0.1, 0, -0.22, 0.05), rarity },
+          { pb: buildTorso(look, rarity), m: at(0, 0, 0), rarity },
+          { pb: buildCore(lookOf(lo, 'core'), look, core.rarity), m: at(0, 0, 0), rarity: core.rarity },
+          { pb: buildUpperArm(look, -1, rarity), m: limb(0.31, 0.1, 0, 0.22, 0.05), rarity },
+          { pb: buildUpperArm(look, 1, rarity), m: limb(-0.31, 0.1, 0, -0.22, 0.05), rarity },
         ],
         yaw: 0.55,
         pitch: 0.12,
@@ -114,17 +115,19 @@ function shotFor(item: ItemDef, rarity: Rarity, lo: Loadout): Shot {
     }
     case 'legs': {
       const kick = lookOf(lo, 'kick');
-      const parts: Placed[] = [{ pb: buildPelvis(look), m: at(0, 0, 0), rarity }];
+      const kr = lo.kick.rarity;
+      const parts: Placed[] = [{ pb: buildPelvis(look, rarity), m: at(0, 0, 0), rarity }];
       for (const side of [1, -1]) {
         const thigh = limb(side * 0.15, -0.07, 0, side * 0.08, 0.2);
         const knee = limbEnd(thigh, LIMB);
         const shin = limb(knee.x, knee.y, knee.z, side * 0.08, -0.2);
         const ankle = limbEnd(shin, LIMB);
         parts.push(
-          { pb: buildThigh(look), m: thigh, rarity },
-          { pb: buildShin(look, kick), m: shin, rarity },
-          { pb: buildFoot(kick), m: at(ankle.x, ankle.y, ankle.z, 0, side * 0.12, 0), rarity: lo.kick.rarity },
-          { pb: buildToe(kick), m: at(ankle.x, ankle.y, ankle.z, 0, side * 0.12, 0).multiply(at(TOE_OFFSET.x, TOE_OFFSET.y, TOE_OFFSET.z)), rarity: lo.kick.rarity },
+          { pb: buildThigh(look, rarity), m: thigh, rarity },
+          { pb: buildShin(look, rarity), m: shin, rarity },
+          { pb: buildShinGuard(kick, kr), m: shin, rarity: kr },
+          { pb: buildFoot(kick, kr), m: at(ankle.x, ankle.y, ankle.z, 0, side * 0.12, 0), rarity: kr },
+          { pb: buildToe(kick, kr), m: at(ankle.x, ankle.y, ankle.z, 0, side * 0.12, 0).multiply(at(TOE_OFFSET.x, TOE_OFFSET.y, TOE_OFFSET.z)), rarity: kr },
         );
       }
       return { parts, yaw: 0.5, pitch: 0.1 };
@@ -134,9 +137,10 @@ function shotFor(item: ItemDef, rarity: Rarity, lo: Loadout): Shot {
       const ankle = limbEnd(shin, LIMB);
       return {
         parts: [
-          { pb: buildShin(lookOf(lo, 'legs'), look), m: shin, rarity },
-          { pb: buildFoot(look), m: at(ankle.x, ankle.y, ankle.z), rarity },
-          { pb: buildToe(look), m: at(ankle.x, ankle.y, ankle.z).multiply(at(TOE_OFFSET.x, TOE_OFFSET.y, TOE_OFFSET.z)), rarity },
+          { pb: buildShin(lookOf(lo, 'legs'), lo.legs.rarity), m: shin, rarity: lo.legs.rarity },
+          { pb: buildShinGuard(look, rarity), m: shin, rarity },
+          { pb: buildFoot(look, rarity), m: at(ankle.x, ankle.y, ankle.z), rarity },
+          { pb: buildToe(look, rarity), m: at(ankle.x, ankle.y, ankle.z).multiply(at(TOE_OFFSET.x, TOE_OFFSET.y, TOE_OFFSET.z)), rarity },
         ],
         yaw: 0.6,
         pitch: 0.12,
@@ -183,7 +187,7 @@ export class PartThumbs {
   /** A data URL picture of `item` at `rarity`, painted in `palette`, on a bot wearing `lo`. */
   get(item: ItemDef, rarity: Rarity, palette: number, lo: Loadout): string {
     const deps =
-      item.slot === 'core' ? lookOf(lo, 'chest') : item.slot === 'chest' ? `${lookOf(lo, 'core')}${lo.core.rarity}` : item.slot === 'legs' ? `${lookOf(lo, 'kick')}${lo.kick.rarity}` : item.slot === 'kick' ? lookOf(lo, 'legs') : '';
+      item.slot === 'core' ? lookOf(lo, 'chest') : item.slot === 'chest' ? `${lookOf(lo, 'core')}${lo.core.rarity}` : item.slot === 'legs' ? `${lookOf(lo, 'kick')}${lo.kick.rarity}` : item.slot === 'kick' ? `${lookOf(lo, 'legs')}${lo.legs.rarity}` : '';
     const key = `${item.id}|${rarity}|${palette}|${deps}`;
     let url = this.cache.get(key);
     if (!url) {
