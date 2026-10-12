@@ -6,7 +6,7 @@ import type { BrainEvent } from '../sim/brain';
 import { MOVES, type MoveId } from '../sim/moves';
 import { J } from '../sim/body';
 import { ITEM_BY_ID, RARITIES, SLOTS } from '../game/items';
-import type { BotSpec } from '../game/loadout';
+import { PALETTES, type BotSpec } from '../game/loadout';
 import { button, el, esc } from './dom';
 import { ABILITY_ICON, ICON, SLOT_ICON } from './icons';
 
@@ -25,6 +25,24 @@ interface BarEls {
   abs: { el: HTMLElement; cd: HTMLElement; move?: MoveId; core?: boolean }[];
   lagV: number;
   shownHp: number;
+}
+
+const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
+const luma = (c: number) => (0.2126 * ((c >> 16) & 255) + 0.7152 * ((c >> 8) & 255) + 0.0722 * (c & 255)) / 255;
+
+/**
+ * Two bar colours from a bot's paint: its main and second colour, with any colour too
+ * dark to read on the bar's dark track swapped for the bright trim colour. Returns
+ * [leading edge, outer end].
+ */
+export function barColors(palette: number): [string, string] {
+  const p = PALETTES[palette % PALETTES.length];
+  const ok = (c: number) => (luma(c) < 0.3 ? p.accent : c);
+  const a = ok(p.primary);
+  let b = ok(p.secondary);
+  if (b === a) b = p.accent === a ? p.primary : p.accent;
+  // the deeper colour leads, so the bar's edge stands out from the white damage trail
+  return luma(a) <= luma(b) ? [hex(a), hex(b)] : [hex(b), hex(a)];
 }
 
 /** The finishing word, split into the pieces that slam in one by one. */
@@ -136,6 +154,11 @@ export class Hud {
       const spec = m.specs[i];
       const right = i === 1;
       const root = el('div', `fbar ${right ? 'right' : 'p1'}`);
+      const [ca, cb] = barColors(spec.palette);
+      root.style.setProperty('--c1', ca);
+      root.style.setProperty('--c2', cb);
+      // the referee count and finisher pick up the same colours
+      this.root.style.setProperty(`--bot${i}`, ca);
       const nm = el('div', 'nm', right ? `<small>PWR ${f.build.rating}</small>${esc(spec.name)}` : `${esc(spec.name)}<small>PWR ${f.build.rating}</small>`, root);
       this.kdEls.push(el('span', 'kd', '<i></i><i></i><i></i>', nm));
       const hp = el('div', 'hp', '', root);
@@ -233,7 +256,7 @@ export class Hud {
       if (m.time - f.lastHitTime > 0.6 || hp > b.lagV) b.lagV += (hp - b.lagV) * Math.min(1, dt * 3);
       b.fill.style.transform = `scaleX(${b.shownHp})`;
       b.lag.style.transform = `scaleX(${Math.max(b.lagV, b.shownHp)})`;
-      b.fill.classList.toggle('low', hp < 0.25);
+      b.fill.parentElement!.classList.toggle('low', hp < 0.25 && hp > 0);
       b.st.style.transform = `scaleX(${Math.max(0, f.staminaRatio)})`;
       for (const a of b.abs) {
         if (a.move) {

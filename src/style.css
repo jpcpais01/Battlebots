@@ -572,13 +572,44 @@ button {
   opacity: 0.85;
 }
 .hp .fill {
-  background: linear-gradient(180deg, #ffd36b, #ff8a1f 60%, #e2620b);
+  /* the bot's own paint: second colour at the outer end, main colour at the leading edge, with a gloss on top */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0.22)),
+    linear-gradient(90deg, var(--c2, #1590c4), var(--c1, #20b9e8));
 }
-.fbar.p1 .hp .fill {
-  background: linear-gradient(180deg, #7cf0ff, #20b9e8 60%, #1590c4);
+.fbar.right .hp .fill {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0.22)),
+    linear-gradient(270deg, var(--c2, #e2620b), var(--c1, #ff8a1f));
 }
-.hp .fill.low {
-  background: linear-gradient(180deg, #ff8a8a, #ff3f5e 60%, #c81f3b);
+/* low health: the bar keeps its colours but pulses, and the track glows red */
+.hp::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(255, 40, 70, 0.45), rgba(255, 40, 70, 0.1));
+  opacity: 0;
+  pointer-events: none;
+}
+.fbar.right .hp::after {
+  background: linear-gradient(270deg, rgba(255, 40, 70, 0.45), rgba(255, 40, 70, 0.1));
+}
+.hp.low {
+  border-color: var(--red);
+}
+.hp.low::after {
+  animation: hpLow 0.7s ease-in-out infinite alternate;
+}
+.hp.low .fill {
+  animation: hpLowFill 0.7s ease-in-out infinite alternate;
+}
+@keyframes hpLow {
+  to {
+    opacity: 1;
+  }
+}
+@keyframes hpLowFill {
+  to {
+    opacity: 0.55;
+  }
 }
 .st {
   width: 82%;
@@ -791,7 +822,7 @@ button {
 
 /* referee count: tucked under the clock, out of the action */
 .refcount {
-  --side: var(--cyan);
+  --side: var(--bot0, var(--cyan));
   position: absolute;
   left: 50%;
   top: calc(max(8px, env(safe-area-inset-top)) + 3.3em);
@@ -805,7 +836,7 @@ button {
   pointer-events: none;
 }
 .refcount.p2 {
-  --side: var(--orange);
+  --side: var(--bot1, var(--orange));
 }
 .refcount.on {
   opacity: 1;
@@ -1039,11 +1070,11 @@ button {
   border-radius: 999px;
   background: rgba(8, 10, 18, 0.85);
   border: 1px solid rgba(255, 255, 255, 0.14);
-  border-left: 4px solid var(--cyan);
+  border-left: 4px solid var(--bot0, var(--cyan));
   animation: fxSub 0.45s 0.75s cubic-bezier(0.2, 1, 0.3, 1) both;
 }
 .finish.p2 .fx-sub {
-  border-left-color: var(--orange);
+  border-left-color: var(--bot1, var(--orange));
 }
 /* TKO: same idea, a notch calmer */
 .finish.tko .fx-band {
