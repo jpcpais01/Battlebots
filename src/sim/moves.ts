@@ -66,7 +66,18 @@ export interface MoveDef {
   vfx?: 'shock' | 'rocket' | 'jet' | 'fire' | 'spin';
 }
 
-const M = (d: MoveDef) => d;
+/**
+ * Strike tempo. The table below is authored at a snappy arcade pace; these stretch
+ * every move towards human fight timing (a visible load, a committed swing and an
+ * unhurried return to guard). The AI reads the scaled values, so it stays in sync.
+ */
+const TEMPO = { windup: 1.25, active: 1.2, recovery: 1.25 };
+const M = (d: MoveDef): MoveDef => ({
+  ...d,
+  windup: d.windup * TEMPO.windup,
+  active: d.active * TEMPO.active,
+  recovery: d.recovery * TEMPO.recovery,
+});
 
 export const MOVES: Record<MoveId, MoveDef> = {
   jab: M({

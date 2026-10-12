@@ -10,6 +10,11 @@ export const smoothstep = (a: number, b: number, v: number) => {
 };
 export const easeOutQuad = (t: number) => 1 - (1 - t) * (1 - t);
 export const easeInQuad = (t: number) => t * t;
+/** Minimum-jerk profile: the bell-shaped speed curve of a natural human reach. */
+export const minJerk = (t: number) => {
+  const k = t < 0 ? 0 : t > 1 ? 1 : t;
+  return k * k * k * (10 - 15 * k + 6 * k * k);
+};
 export const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 export const easeOutBack = (t: number) => {
   const c1 = 1.4;

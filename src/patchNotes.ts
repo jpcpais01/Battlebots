@@ -32,6 +32,7 @@ export const PATCH_NOTES: PatchNote[] = [
       'Titan Hammers: the Guard Breaker now rises overhead and chops down onto the head.',
       'Brawler Knuckles: the haymaker winds back and loops round from the side.',
       'Jet Knees: the Jet Knee now leaps up off the canvas and drives the knee in, with a clean landing.',
+      'All punches and kicks move at a more human pace: a visible wind-up, weight behind the shot and a smooth return to guard.',
     ],
   },
   {

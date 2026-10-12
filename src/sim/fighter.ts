@@ -10,6 +10,7 @@ import {
   easeInOut,
   easeOutQuad,
   lerp,
+  minJerk,
   Noise1,
   Rng,
   smoothstep,
@@ -471,7 +472,7 @@ export class Fighter {
     if (prev) {
       // A follow-up off the other hand is "loaded" by the previous rotation.
       const alt = prev.side !== side && move.kind === 'punch' && prev.move.kind === 'punch';
-      windupMul = alt ? 0.55 : 0.85;
+      windupMul = alt ? 0.7 : 0.9;
       speed *= 1 + this.passive('whiplash');
     }
     const s: StrikeAction = {
@@ -1520,27 +1521,32 @@ export class Fighter {
     const cock = m.kind === 'kick' ? 0.25 : m.path === 'overhand' ? 0.55 : m.path === 'hammer' ? 0.4 : m.path === 'hook' ? 0.35 : m.path === 'upper' ? 0.3 : m.id === 'jab' || m.multi ? 0.1 : 0.25;
     p.ret = 0;
     p.ext = 0;
+    // limbs move on minimum-jerk curves (speed builds, peaks and settles, like a
+    // human reach) instead of leaving the guard at full speed
     if (s.phase === 'windup') {
       const k = clamp01(s.t / s.windup);
       p.k = k;
-      p.load = smoothstep(0, 0.75, k);
+      // cock fully a beat before the release: the loaded pause reads as weight
+      p.load = minJerk(k / 0.8);
       p.sh = -cock * p.load;
       p.hip = -cock * 0.5 * p.load + 0.55 * smoothstep(0.55, 1, k);
     } else if (s.phase === 'active') {
       const k = clamp01(s.t / s.active);
       p.k = k;
       p.load = 1 - smoothstep(0, 0.6, k);
-      p.ext = easeOutQuad(k);
-      p.hip = lerp(0.55 - cock * 0.5, 1, easeOutQuad(Math.min(1, k * 1.6)));
-      p.sh = lerp(-cock, 1, easeOutQuad(k));
+      // still moving at contact: the target point sits inside the opponent
+      p.ext = 0.75 * minJerk(k) + 0.25 * k;
+      // kinetic chain: hips lead, shoulders follow, the fist arrives last
+      p.hip = lerp(0.55 - cock * 0.5, 1, minJerk(k * 1.5));
+      p.sh = lerp(-cock, 1, minJerk(k * 1.2));
     } else {
       const k = clamp01(s.t / s.recovery);
       p.k = k;
       p.load = 0;
       p.ext = 1;
       p.ret = k;
-      p.sh = 1 - easeInOut(Math.min(1, k * 1.15));
-      p.hip = 1 - easeInOut(k);
+      p.sh = 1 - minJerk(k * 1.1);
+      p.hip = 1 - minJerk(k);
     }
     return p;
   }
@@ -1649,7 +1655,8 @@ export class Fighter {
     const k = clamp01(s.t / s.recovery);
     const idx = s.side === 'L' ? 0 : 1;
     if (m.extend) this.extend[idx] = m.extend * (1 - smoothstep(0, 0.6, k));
-    const r = 1 - Math.pow(1 - k, 3);
+    // the fist leaves the target unhurried, then settles back into the guard
+    const r = 0.8 * minJerk(k) + 0.2 * easeOutQuad(k);
     out.copy(s.recoverFrom).lerp(guard, r);
     // retract along a slightly lower line so the fist doesn't float back
     out.y -= Math.sin(Math.PI * r) * 0.03;
