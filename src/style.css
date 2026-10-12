@@ -765,6 +765,387 @@ button {
     transform: translate(-50%, -50%) scale(0.9);
   }
 }
+/* knockdown marks beside a fighter's name: three is a TKO */
+.fbar .kd {
+  display: none;
+  gap: 0.2em;
+  align-self: center;
+}
+.fbar .kd.on {
+  display: inline-flex;
+}
+.fbar.right .kd {
+  order: -1;
+}
+.kd i {
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 1px;
+  transform: skewX(-14deg);
+  background: rgba(255, 255, 255, 0.18);
+}
+.kd i.on {
+  background: var(--red);
+  box-shadow: 0 0 6px rgba(255, 63, 94, 0.6);
+}
+
+/* referee count: tucked under the clock, out of the action */
+.refcount {
+  --side: var(--cyan);
+  position: absolute;
+  left: 50%;
+  top: calc(max(8px, env(safe-area-inset-top)) + 3.3em);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3em;
+  opacity: 0;
+  transform: translateX(-50%) scale(0.85);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: none;
+}
+.refcount.p2 {
+  --side: var(--orange);
+}
+.refcount.on {
+  opacity: 1;
+  transform: translateX(-50%);
+}
+.rc-ring {
+  position: relative;
+  width: 5.4em;
+  height: 5.4em;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 10, 18, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+.rc-ring i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0.3em;
+  height: 0.62em;
+  margin: -0.31em 0 0 -0.15em;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.13);
+  transform: rotate(calc(var(--k) * 36deg)) translateY(-2.14em);
+  transition: background 0.2s ease;
+}
+.rc-ring i.on {
+  background: var(--side);
+  box-shadow: 0 0 6px var(--side);
+}
+.rc-ring b {
+  font-family: var(--display);
+  font-size: 2.7em;
+  font-weight: 400;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 0 14px rgba(255, 255, 255, 0.35);
+}
+.rc-ring b.pop {
+  animation: rcPop 0.35s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+@keyframes rcPop {
+  from {
+    opacity: 0.2;
+    transform: scale(1.8);
+  }
+}
+.rc-txt {
+  display: flex;
+  gap: 0.4em;
+  align-items: baseline;
+  font-family: var(--display);
+  font-size: 0.85em;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  padding: 0.22em 0.8em;
+  border-radius: 999px;
+  background: rgba(8, 10, 18, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.rc-name {
+  color: var(--side);
+  max-width: 13em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rc-state {
+  color: var(--red);
+}
+.rc-kd {
+  display: flex;
+  gap: 0.25em;
+  align-items: center;
+  font-size: 0.72em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+}
+.rc-kd span {
+  margin-right: 0.2em;
+}
+.rc-kd em {
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 1px;
+  transform: skewX(-14deg);
+  background: rgba(8, 10, 18, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.rc-kd em.on {
+  border-color: var(--red);
+  background: var(--red);
+}
+.refcount.last .rc-kd em.on {
+  animation: rcWarn 0.6s ease-in-out infinite alternate;
+}
+@keyframes rcWarn {
+  to {
+    opacity: 0.35;
+  }
+}
+.refcount.up {
+  --side: var(--green);
+}
+.refcount.up .rc-ring {
+  border-color: var(--green);
+}
+.refcount.up .rc-ring b {
+  font-size: 1.9em;
+  color: var(--green);
+}
+.refcount.up .rc-state {
+  color: var(--green);
+}
+
+/* KO / TKO finisher */
+.hud-top {
+  transition: opacity 0.4s ease;
+}
+.hud.finished .hud-top {
+  opacity: 0.4;
+}
+.hud.finished .callout {
+  display: none;
+}
+.finish {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+}
+.finish > * {
+  grid-area: 1 / 1;
+}
+.finish.go {
+  opacity: 1;
+}
+.finish.out {
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+.fx-vig {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 45%, rgba(0, 0, 0, 0) 30%, rgba(0, 0, 0, 0.55) 100%);
+  animation: fxFade 0.5s ease both;
+}
+.fx-flash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 45%, rgba(255, 244, 228, 0.95), rgba(255, 110, 60, 0.4) 38%, rgba(255, 60, 60, 0) 72%);
+  animation: fxFlash 0.6s 0.2s ease-out both;
+}
+.fx-ring {
+  width: 44vh;
+  height: 44vh;
+  margin-top: -6vh;
+  border-radius: 50%;
+  border: 0.7vh solid rgba(255, 226, 190, 0.95);
+  box-shadow: 0 0 3vh rgba(255, 90, 60, 0.7);
+  animation: fxRing 0.75s 0.3s cubic-bezier(0.1, 0.7, 0.3, 1) both;
+}
+.fx-ring.two {
+  animation-delay: 0.42s;
+  border-color: rgba(255, 120, 80, 0.8);
+}
+.fx-band {
+  width: 112%;
+  height: 26vh;
+  margin-top: -6vh;
+  transform: skewY(-4deg);
+  background: linear-gradient(90deg, rgba(120, 6, 28, 0) 0%, rgba(150, 10, 34, 0.8) 18%, rgba(196, 20, 44, 0.9) 50%, rgba(150, 10, 34, 0.8) 82%, rgba(120, 6, 28, 0) 100%);
+  border-top: 2px solid rgba(255, 170, 120, 0.55);
+  border-bottom: 2px solid rgba(255, 170, 120, 0.55);
+  animation: fxBand 0.45s 0.05s cubic-bezier(0.2, 1, 0.3, 1) both;
+}
+.fx-c {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: -6vh;
+}
+.fx-word {
+  display: flex;
+  font-family: var(--display);
+  font-style: italic;
+  font-size: min(30vh, 20vw);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  animation: fxShake 0.45s 0.36s linear both;
+}
+.fx-word span {
+  position: relative;
+  display: inline-block;
+  color: #4a0612;
+  text-shadow: 0 0.05em 0 #2a030a, 0 0.12em 0.2em rgba(0, 0, 0, 0.55), 0 0 0.4em rgba(255, 63, 94, 0.55);
+  animation: fxSlam 0.4s calc(var(--i) * 0.14s + 0.05s) cubic-bezier(0.3, 0, 0.4, 1) both;
+}
+.fx-word span::after {
+  content: attr(data-t);
+  position: absolute;
+  left: 0;
+  top: -0.045em;
+  color: transparent;
+  text-shadow: none;
+  background: linear-gradient(180deg, #fff 0%, #fff4dc 36%, #ffc04a 52%, #ff6a2a 76%, #ff2d55 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+.fx-sub {
+  margin-top: 0.6em;
+  padding: 0.35em 1.1em;
+  font-family: var(--display);
+  font-size: 1.15em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  max-width: 90vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #fff;
+  border-radius: 999px;
+  background: rgba(8, 10, 18, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-left: 4px solid var(--cyan);
+  animation: fxSub 0.45s 0.75s cubic-bezier(0.2, 1, 0.3, 1) both;
+}
+.finish.p2 .fx-sub {
+  border-left-color: var(--orange);
+}
+/* TKO: same idea, a notch calmer */
+.finish.tko .fx-band {
+  height: 17vh;
+  background: linear-gradient(90deg, rgba(90, 50, 0, 0) 0%, rgba(110, 62, 6, 0.7) 20%, rgba(140, 82, 10, 0.8) 50%, rgba(110, 62, 6, 0.7) 80%, rgba(90, 50, 0, 0) 100%);
+  border-color: rgba(255, 210, 140, 0.45);
+}
+.finish.tko .fx-word {
+  font-size: min(19vh, 13vw);
+  animation: none;
+}
+.finish.tko .fx-word span {
+  color: #4a2a02;
+  text-shadow: 0 0.05em 0 #2a1601, 0 0.12em 0.2em rgba(0, 0, 0, 0.5), 0 0 0.35em rgba(255, 180, 58, 0.45);
+  animation: fxSweep 0.4s calc(var(--i) * 0.09s + 0.05s) cubic-bezier(0.2, 1, 0.3, 1) both;
+}
+.finish.tko .fx-word span::after {
+  background: linear-gradient(180deg, #fff 0%, #fff6e0 40%, #ffd27a 62%, #ffa630 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+.finish.tko .fx-sub {
+  animation-delay: 0.45s;
+}
+@keyframes fxFade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes fxFlash {
+  0% {
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes fxRing {
+  from {
+    opacity: 1;
+    transform: scale(0.15);
+  }
+  to {
+    opacity: 0;
+    transform: scale(2.6);
+  }
+}
+@keyframes fxBand {
+  from {
+    transform: skewY(-4deg) scaleX(0);
+  }
+}
+@keyframes fxSlam {
+  0% {
+    opacity: 0;
+    transform: scale(3.4);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(0.9);
+  }
+  78% {
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes fxSweep {
+  from {
+    opacity: 0;
+    transform: translateX(-0.6em) scale(1.25);
+  }
+}
+@keyframes fxShake {
+  0%,
+  100% {
+    transform: none;
+  }
+  15% {
+    transform: translate(-0.045em, 0.025em);
+  }
+  35% {
+    transform: translate(0.04em, -0.02em);
+  }
+  55% {
+    transform: translate(-0.025em, 0.015em);
+  }
+  75% {
+    transform: translate(0.012em, 0);
+  }
+}
+@keyframes fxSub {
+  from {
+    opacity: 0;
+    transform: translateY(0.8em);
+  }
+}
 .dmg-layer {
   position: absolute;
   inset: 0;
