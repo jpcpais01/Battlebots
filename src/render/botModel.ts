@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { J } from '../sim/body';
 import type { Fighter } from '../sim/fighter';
-import { ITEM_BY_ID, RARITIES, type Loadout, type Slot } from '../game/items';
+import { ITEM_BY_ID, RARITIES, SLOTS, type Loadout, type Slot } from '../game/items';
 import { PALETTES } from '../game/loadout';
 import {
   buildCore,
@@ -9,20 +9,73 @@ import {
   buildFoot,
   buildForearm,
   buildHead,
+  buildNeck,
   buildPelvis,
+  buildPistonBarrel,
+  buildPistonRod,
+  buildRocketPiston,
   buildShin,
+  buildSpine,
   buildThigh,
+  buildToe,
   buildTorso,
   buildUpperArm,
-  pistonGeometry,
-  segmentGeometry,
+  EMISSIVE_KEYS,
   type MatKey,
+  type PB,
 } from './parts';
 import { RenderSettings } from './settings';
 
 const CORE_COLORS = [0x49c6ff, 0xff4a2a, 0x3cffd8, 0x52ff6a, 0xc77dff];
 
-const _b = new THREE.Vector3();
+/** Bones of the rigid skin. Every bone is a direct child of the model root. */
+const enum B {
+  Torso,
+  Pelvis,
+  Head,
+  Spine,
+  Neck,
+  UpL,
+  UpR,
+  ForeL,
+  ForeR,
+  FistL,
+  FistR,
+  ThighL,
+  ThighR,
+  ShinL,
+  ShinR,
+  FootL,
+  FootR,
+  ToeL,
+  ToeR,
+  ArmBarL,
+  ArmBarR,
+  ArmRodL,
+  ArmRodR,
+  LegBarL,
+  LegBarR,
+  LegRodL,
+  LegRodR,
+  RocketL,
+  RocketR,
+}
+const BONE_COUNT = 29;
+
+/** Emissive channels: glow, core, then one per slot's rarity colour. */
+const CH_GLOW = 0;
+const CH_CORE = 1;
+const CH_RARITY = 2;
+
+// piston anchors, in their parent bone's frame
+const ARM_A = new THREE.Vector3(0, 0.1, -0.075);
+const ARM_B = new THREE.Vector3(0, -0.06, 0);
+const LEG_A = new THREE.Vector3(0, 0.14, -0.075);
+const LEG_B = new THREE.Vector3(0, 0.12, -0.08);
+const ARM_BAR = 0.13, ARM_ROD = 0.17, ARM_R = 0.018;
+const LEG_BAR = 0.2, LEG_ROD = 0.25, LEG_R = 0.024;
+const TOE_OFFSET = new THREE.Vector3(0, -0.048, 0.072);
+
 const _x = new THREE.Vector3();
 const _y = new THREE.Vector3();
 const _z = new THREE.Vector3();
@@ -30,84 +83,182 @@ const _m = new THREE.Matrix4();
 const _fwd = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const HOT = new THREE.Color(1, 0.13, 0.05);
-const _hot = new THREE.Color();
 const _look = new THREE.Vector3();
 const _dl = new THREE.Vector3();
 const _tmp = new THREE.Vector3();
+const _tmp2 = new THREE.Vector3();
+const _tz = new THREE.Vector3();
+const _tx = new THREE.Vector3();
 const _tup = new THREE.Vector3();
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
+const _qa = new THREE.Quaternion();
+const _qb = new THREE.Quaternion();
+const _qc = new THREE.Quaternion();
 
 /** Interpolated joint positions for rendering. */
 const P: THREE.Vector3[] = Array.from({ length: 16 }, () => new THREE.Vector3());
 
+function setBasis(obj: THREE.Object3D, x: THREE.Vector3, y: THREE.Vector3, z: THREE.Vector3) {
+  _m.makeBasis(x, y, z);
+  obj.quaternion.setFromRotationMatrix(_m);
+}
+
+/** Y along a→b, Z towards zHint. */
 function orientSegment(obj: THREE.Object3D, a: THREE.Vector3, b: THREE.Vector3, zHint: THREE.Vector3, fallback: THREE.Vector3) {
   _y.subVectors(b, a);
   const len = _y.length();
+  obj.position.copy(a);
   if (len < 1e-5) return len;
   _y.multiplyScalar(1 / len);
   _z.copy(zHint).addScaledVector(_y, -zHint.dot(_y));
   if (_z.lengthSq() < 1e-4) _z.copy(fallback).addScaledVector(_y, -fallback.dot(_y));
   _z.normalize();
   _x.crossVectors(_y, _z);
-  _m.makeBasis(_x, _y, _z);
-  obj.quaternion.setFromRotationMatrix(_m);
-  obj.position.copy(a);
+  setBasis(obj, _x, _y, _z);
   return len;
 }
 
-/** Frame with X along a→b (left), Y roughly up. */
+/** Frame with X along xb→xa (the bot's left), Y roughly up. */
 function orientFrame(obj: THREE.Object3D, pos: THREE.Vector3, xa: THREE.Vector3, xb: THREE.Vector3, ua: THREE.Vector3, ub: THREE.Vector3) {
   _x.subVectors(xa, xb).normalize();
   _y.subVectors(ub, ua);
   _y.addScaledVector(_x, -_y.dot(_x)).normalize();
   _z.crossVectors(_x, _y);
-  _m.makeBasis(_x, _y, _z);
-  obj.quaternion.setFromRotationMatrix(_m);
+  setBasis(obj, _x, _y, _z);
   obj.position.copy(pos);
 }
 
-export interface BotMaterials {
-  mats: Record<MatKey, THREE.Material>;
-  rarity: Record<Slot, THREE.MeshBasicMaterial>;
-  all: THREE.Material[];
+/** Point obj's +Y from `from` towards `to`. */
+function aim(obj: THREE.Object3D, from: THREE.Vector3, to: THREE.Vector3) {
+  _y.subVectors(to, from);
+  const len = _y.length();
+  obj.position.copy(from);
+  if (len < 1e-5) return len;
+  _y.multiplyScalar(1 / len);
+  obj.quaternion.setFromUnitVectors(_up, _y);
+  return len;
 }
 
-function makeMaterials(paletteIdx: number, loadout: Loadout): BotMaterials {
-  const pal = PALETTES[paletteIdx % PALETTES.length];
-  const paint = new THREE.MeshStandardMaterial({ color: pal.primary, metalness: 0.35, roughness: 0.36 });
-  const paint2 = new THREE.MeshStandardMaterial({ color: pal.secondary, metalness: 0.45, roughness: 0.42 });
-  const metal = new THREE.MeshStandardMaterial({ color: 0x3a3f4a, metalness: 0.85, roughness: 0.32 });
-  const chrome = new THREE.MeshStandardMaterial({ color: 0xd8dde6, metalness: 1, roughness: 0.16 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x15181f, metalness: 0.6, roughness: 0.5 });
-  const glow = new THREE.MeshBasicMaterial({ color: new THREE.Color(pal.accent).multiplyScalar(RenderSettings.glow(3.4)), toneMapped: false });
-  const coreItem = ITEM_BY_ID.get(loadout.core.id)!;
-  const core = new THREE.MeshBasicMaterial({ color: new THREE.Color(CORE_COLORS[coreItem.look]).multiplyScalar(RenderSettings.glow(4)), toneMapped: false });
-  const rarity = {} as Record<Slot, THREE.MeshBasicMaterial>;
-  for (const slot of Object.keys(loadout) as Slot[]) {
-    const r = RARITIES[loadout[slot].rarity];
-    rarity[slot] = new THREE.MeshBasicMaterial({ color: new THREE.Color(r.glow).multiplyScalar(RenderSettings.glow(3)), toneMapped: false });
+interface Surface {
+  color: THREE.Color;
+  metal: number;
+  rough: number;
+}
+
+/** Accumulates parts into one rigidly skinned geometry per material family. */
+class SkinBuilder {
+  private o = { pos: [] as number[], nor: [] as number[], col: [] as number[], mr: [] as number[], bone: [] as number[] };
+  private e = { pos: [] as number[], ch: [] as number[], bone: [] as number[] };
+  private nm = new THREE.Matrix3();
+  private v = new THREE.Vector3();
+
+  constructor(private surfaces: Record<Exclude<MatKey, 'glow' | 'core' | 'rarity'>, Surface>) {}
+
+  add(pb: PB, bone: number, raritySlot: Slot) {
+    const rarityCh = CH_RARITY + SLOTS.indexOf(raritySlot);
+    for (const ent of pb.entries) {
+      const pos = ent.geo.attributes.position as THREE.BufferAttribute;
+      const nor = ent.geo.attributes.normal as THREE.BufferAttribute;
+      const n = pos.count;
+      const emissive = EMISSIVE_KEYS.has(ent.key);
+      if (emissive) {
+        const ch = ent.key === 'glow' ? CH_GLOW : ent.key === 'core' ? CH_CORE : rarityCh;
+        for (let i = 0; i < n; i++) {
+          this.v.fromBufferAttribute(pos, i).applyMatrix4(ent.m);
+          this.e.pos.push(this.v.x, this.v.y, this.v.z);
+          this.e.ch.push(ch);
+          this.e.bone.push(bone);
+        }
+        continue;
+      }
+      const s = this.surfaces[ent.key as keyof typeof this.surfaces];
+      this.nm.getNormalMatrix(ent.m);
+      // negative-determinant transforms would flip winding; parts never use them
+      for (let i = 0; i < n; i++) {
+        this.v.fromBufferAttribute(pos, i).applyMatrix4(ent.m);
+        this.o.pos.push(this.v.x, this.v.y, this.v.z);
+        this.v.fromBufferAttribute(nor, i).applyMatrix3(this.nm).normalize();
+        this.o.nor.push(this.v.x, this.v.y, this.v.z);
+        this.o.col.push(s.color.r, s.color.g, s.color.b);
+        this.o.mr.push(s.metal, s.rough);
+        this.o.bone.push(bone);
+      }
+    }
   }
-  const mats: Record<MatKey, THREE.Material> = { paint, paint2, metal, chrome, dark, glow, rarity: rarity.head, core };
-  return { mats, rarity, all: [paint, paint2, metal, chrome, dark, glow, core, ...Object.values(rarity)] };
+
+  private static skin(g: THREE.BufferGeometry, bones: number[]) {
+    const n = bones.length;
+    const idx = new Uint16Array(n * 4);
+    const w = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      idx[i * 4] = bones[i];
+      w[i * 4] = 1;
+    }
+    g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(idx, 4));
+    g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(w, 4));
+  }
+
+  build() {
+    const opaque = new THREE.BufferGeometry();
+    opaque.setAttribute('position', new THREE.Float32BufferAttribute(this.o.pos, 3));
+    opaque.setAttribute('normal', new THREE.Float32BufferAttribute(this.o.nor, 3));
+    opaque.setAttribute('color', new THREE.Float32BufferAttribute(this.o.col, 3));
+    opaque.setAttribute('mr', new THREE.Float32BufferAttribute(this.o.mr, 2));
+    SkinBuilder.skin(opaque, this.o.bone);
+    const emissive = new THREE.BufferGeometry();
+    emissive.setAttribute('position', new THREE.Float32BufferAttribute(this.e.pos, 3));
+    emissive.setAttribute('ech', new THREE.Float32BufferAttribute(this.e.ch, 1));
+    SkinBuilder.skin(emissive, this.e.bone);
+    return { opaque, emissive };
+  }
+}
+
+/** Standard PBR material reading colour, metalness and roughness per vertex. */
+function makeOpaqueMaterial() {
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 1, roughness: 1 });
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec2 mr;\nvarying vec2 vMR;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvMR = mr;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vMR;')
+      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = vMR.y;')
+      .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = vMR.x;')
+      // keep painted metal under the bloom threshold: only emissive parts glow
+      .replace('#include <opaque_fragment>', 'outgoingLight = min( outgoingLight, vec3( 2.2 ) );\n#include <opaque_fragment>');
+  };
+  m.customProgramCacheKey = () => 'bot-opaque';
+  return m;
+}
+
+/** Unlit material whose colour comes from a small per-bot palette (animated glow channels). */
+function makeEmissiveMaterial(cols: THREE.Color[]) {
+  const m = new THREE.MeshBasicMaterial({ toneMapped: false });
+  const uniform = { value: cols };
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uCols = uniform;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float ech;\nvarying float vEch;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvEch = ech;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>\nuniform vec3 uCols[${cols.length}];\nvarying float vEch;`)
+      .replace('vec4 diffuseColor = vec4( diffuse, opacity );', 'vec4 diffuseColor = vec4( uCols[ int( vEch + 0.5 ) ], opacity );');
+  };
+  m.customProgramCacheKey = () => `bot-emissive-${cols.length}`;
+  return m;
 }
 
 export class BotModel {
   readonly root = new THREE.Group();
-  readonly materials: BotMaterials;
-  private torso = new THREE.Group();
-  private pelvis = new THREE.Group();
-  private head = new THREE.Group();
-  private upper: THREE.Group[] = [];
-  private fore: THREE.Group[] = [];
-  private fists: THREE.Group[] = [];
-  private thighs: THREE.Group[] = [];
-  private shins: THREE.Group[] = [];
-  private feet: THREE.Group[] = [];
-  private spine: THREE.Mesh;
-  private neck: THREE.Mesh;
-  private pistons: THREE.Mesh[] = [];
+  private bones: THREE.Bone[] = [];
+  private opaque: THREE.SkinnedMesh;
+  private emissive: THREE.SkinnedMesh;
   private shieldMesh: THREE.Mesh;
+  private cols: THREE.Color[];
   private baseGlow: THREE.Color;
   private baseCore: THREE.Color;
+  private rocket = [false, false];
   readonly loadout: Loadout;
   readonly palette: number;
   /** World-space interpolated joints (valid after update). */
@@ -116,53 +267,66 @@ export class BotModel {
   constructor(loadout: Loadout, palette: number) {
     this.loadout = loadout;
     this.palette = palette;
-    this.materials = makeMaterials(palette, loadout);
+    const pal = PALETTES[palette % PALETTES.length];
     const look = (slot: Slot) => ITEM_BY_ID.get(loadout[slot].id)!.look;
-    const M = this.materials.mats;
-    const withRarity = (slot: Slot) => ({ ...M, rarity: this.materials.rarity[slot] });
+    const surf = (hex: number, metal: number, rough: number): Surface => ({ color: new THREE.Color(hex), metal, rough });
+    const sb = new SkinBuilder({
+      paint: surf(pal.primary, 0.25, 0.34),
+      paint2: surf(pal.secondary, 0.35, 0.42),
+      metal: surf(0x4a505a, 0.85, 0.34),
+      chrome: surf(0xd9dee6, 1, 0.14),
+      dark: surf(0x16191f, 0.45, 0.58),
+      joint: surf(0x2b3039, 0.8, 0.38),
+    });
 
-    this.root.add(this.torso, this.pelvis, this.head);
-    this.torso.add(buildTorso(look('chest')).build(withRarity('chest')));
-    this.torso.add(buildCore(look('core')).build(withRarity('core')));
-    this.head.add(buildHead(look('head')).build(withRarity('head')));
-    this.pelvis.add(buildPelvis(look('legs')).build(withRarity('legs')));
-
-    const metal = M.metal;
-    this.spine = new THREE.Mesh(segmentGeometry(0.1), metal);
-    this.neck = new THREE.Mesh(segmentGeometry(0.06), metal);
-    this.spine.castShadow = true;
-    this.root.add(this.spine, this.neck);
-
+    sb.add(buildTorso(look('chest')), B.Torso, 'chest');
+    sb.add(buildCore(look('core'), look('chest')), B.Torso, 'core');
+    sb.add(buildHead(look('head')), B.Head, 'head');
+    sb.add(buildNeck(), B.Neck, 'head');
+    sb.add(buildSpine(), B.Spine, 'chest');
+    sb.add(buildPelvis(look('legs')), B.Pelvis, 'legs');
     for (let side = 0; side < 2; side++) {
-      const sx = side === 0 ? 1 : -1; // bot's left = +X in local frames
-      const ua = new THREE.Group();
-      ua.add(buildUpperArm(look('chest'), sx).build(withRarity('chest')));
-      const fa = new THREE.Group();
-      fa.add(buildForearm(look('fist')).build(withRarity('fist')));
-      const fist = new THREE.Group();
-      fist.add(buildFist(look('fist')).build(withRarity('fist')));
-      fa.add(fist);
+      const L = side === 0;
+      sb.add(buildUpperArm(look('chest'), L ? -1 : 1), L ? B.UpL : B.UpR, 'chest');
+      sb.add(buildForearm(look('fist')), L ? B.ForeL : B.ForeR, 'fist');
+      sb.add(buildFist(look('fist'), L ? 1 : -1), L ? B.FistL : B.FistR, 'fist');
+      sb.add(buildThigh(look('legs')), L ? B.ThighL : B.ThighR, 'legs');
+      sb.add(buildShin(look('legs'), look('kick')), L ? B.ShinL : B.ShinR, 'kick');
+      sb.add(buildFoot(look('kick')), L ? B.FootL : B.FootR, 'kick');
+      sb.add(buildToe(look('kick')), L ? B.ToeL : B.ToeR, 'kick');
+      const heavyLegs = look('legs') === 3;
+      sb.add(buildPistonBarrel(ARM_BAR, ARM_R), L ? B.ArmBarL : B.ArmBarR, 'chest');
+      sb.add(buildPistonRod(ARM_ROD, ARM_R), L ? B.ArmRodL : B.ArmRodR, 'chest');
+      sb.add(buildPistonBarrel(LEG_BAR, heavyLegs ? LEG_R * 1.35 : LEG_R), L ? B.LegBarL : B.LegBarR, 'legs');
+      sb.add(buildPistonRod(LEG_ROD, heavyLegs ? LEG_R * 1.35 : LEG_R), L ? B.LegRodL : B.LegRodR, 'legs');
       if (look('fist') === 3) {
-        const p = new THREE.Mesh(pistonGeometry(), M.chrome);
-        p.position.y = 0.2;
-        p.visible = false;
-        fa.add(p);
-        this.pistons[side] = p;
+        sb.add(buildRocketPiston(), L ? B.RocketL : B.RocketR, 'fist');
+        this.rocket[side] = true;
       }
-      const th = new THREE.Group();
-      th.add(buildThigh(look('legs')).build(withRarity('legs')));
-      const sh = new THREE.Group();
-      sh.add(buildShin(look('legs'), look('kick')).build(withRarity('kick')));
-      const ft = new THREE.Group();
-      ft.add(buildFoot(look('kick')).build(withRarity('kick')));
-      this.upper.push(ua);
-      this.fore.push(fa);
-      this.fists.push(fist);
-      this.thighs.push(th);
-      this.shins.push(sh);
-      this.feet.push(ft);
-      this.root.add(ua, fa, th, sh, ft);
     }
+
+    for (let i = 0; i < BONE_COUNT; i++) {
+      const bone = new THREE.Bone();
+      this.bones.push(bone);
+      this.root.add(bone);
+    }
+    const skeleton = new THREE.Skeleton(this.bones, this.bones.map(() => new THREE.Matrix4()));
+    const { opaque, emissive } = sb.build();
+
+    const coreItem = ITEM_BY_ID.get(loadout.core.id)!;
+    this.baseGlow = new THREE.Color(pal.accent).multiplyScalar(RenderSettings.glow(3.4));
+    this.baseCore = new THREE.Color(CORE_COLORS[coreItem.look]).multiplyScalar(RenderSettings.glow(3.2));
+    this.cols = [this.baseGlow.clone(), this.baseCore.clone()];
+    for (const slot of SLOTS) this.cols.push(new THREE.Color(RARITIES[loadout[slot].rarity].glow).multiplyScalar(RenderSettings.glow(3)));
+
+    this.opaque = new THREE.SkinnedMesh(opaque, makeOpaqueMaterial());
+    this.emissive = new THREE.SkinnedMesh(emissive, makeEmissiveMaterial(this.cols));
+    for (const mesh of [this.opaque, this.emissive]) {
+      mesh.bind(skeleton, new THREE.Matrix4());
+      mesh.frustumCulled = false;
+      this.root.add(mesh);
+    }
+    this.opaque.castShadow = true;
 
     // Aegis bubble
     const shieldMat = new THREE.ShaderMaterial({
@@ -181,8 +345,6 @@ export class BotModel {
     this.shieldMesh.scale.set(0.75, 1.15, 0.75);
     this.shieldMesh.visible = false;
     this.root.add(this.shieldMesh);
-    this.baseGlow = (M.glow as THREE.MeshBasicMaterial).color.clone();
-    this.baseCore = (M.core as THREE.MeshBasicMaterial).color.clone();
   }
 
   /** Pose from a fighter's physical body with interpolation alpha. */
@@ -190,58 +352,114 @@ export class BotModel {
     const body = f.body;
     for (let i = 0; i < 16; i++) P[i].lerpVectors(body.last[i], body.pos[i], alpha);
     for (let i = 0; i < 16; i++) this.joints[i].copy(P[i]);
-    this.poseFromJoints(f.faceYaw, oppHead, f.extend);
+    this.pose(f, oppHead);
     this.effects(f, time);
   }
 
-  /** Pose from raw joints (used for the garage preview too). */
-  poseFromJoints(yaw: number, lookAt?: THREE.Vector3, extend: number[] = [0, 0]) {
+  private pose(f: Fighter, lookAt?: THREE.Vector3) {
+    const bn = this.bones;
+    const yaw = f.faceYaw;
     _fwd.set(Math.sin(yaw), 0, Math.cos(yaw));
-    orientFrame(this.torso, P[J.Chest], P[J.ShL], P[J.ShR], P[J.Pelvis], P[J.Neck]);
-    orientFrame(this.pelvis, P[J.Pelvis], P[J.HipL], P[J.HipR], P[J.Pelvis], P[J.Chest]);
-    const torsoZ = _b.set(0, 0, 1).applyQuaternion(this.torso.quaternion);
-    const torsoUp = _tup.set(0, 1, 0).applyQuaternion(this.torso.quaternion);
+    const torso = bn[B.Torso];
+    orientFrame(torso, P[J.Chest], P[J.ShL], P[J.ShR], P[J.Pelvis], P[J.Neck]);
+    orientFrame(bn[B.Pelvis], P[J.Pelvis], P[J.HipL], P[J.HipR], P[J.Pelvis], P[J.Chest]);
+    const torsoX = _tx.set(1, 0, 0).applyQuaternion(torso.quaternion);
+    const torsoZ = _tz.set(0, 0, 1).applyQuaternion(torso.quaternion);
+    const torsoUp = _tup.set(0, 1, 0).applyQuaternion(torso.quaternion);
+
     // head: look toward the opponent
     const look = _look.copy(torsoZ);
     if (lookAt) {
       const d = _dl.subVectors(lookAt, P[J.Head]);
       if (d.lengthSq() > 1e-4) look.lerp(d.normalize(), 0.6);
     }
-    orientSegment(this.head, P[J.Neck], P[J.Head], look, torsoZ);
-    this.head.position.copy(P[J.Head]);
-    // spine + neck
-    const sl = orientSegment(this.spine, P[J.Pelvis], P[J.Chest], torsoZ, _fwd);
-    this.spine.scale.set(1, sl, 1);
-    const nl = orientSegment(this.neck, P[J.Neck], P[J.Head], torsoZ, _fwd);
-    this.neck.scale.set(1, nl * 0.7, 1);
+    orientSegment(bn[B.Head], P[J.Neck], P[J.Head], look, torsoZ);
+    bn[B.Head].position.copy(P[J.Head]);
+    const sl = orientSegment(bn[B.Spine], P[J.Pelvis], P[J.Chest], torsoZ, _fwd);
+    bn[B.Spine].scale.set(1, sl, 1);
+    const nl = orientSegment(bn[B.Neck], P[J.Neck], P[J.Head], torsoZ, _fwd);
+    bn[B.Neck].scale.set(1, nl * 0.75, 1);
 
-    const tmp = _tmp;
     for (let side = 0; side < 2; side++) {
-      const sh = P[side === 0 ? J.ShL : J.ShR];
-      const el = P[side === 0 ? J.ElL : J.ElR];
-      const hd = P[side === 0 ? J.HandL : J.HandR];
+      const L = side === 0;
+      const sh = P[L ? J.ShL : J.ShR];
+      const el = P[L ? J.ElL : J.ElR];
+      const hd = P[L ? J.HandL : J.HandR];
+      const up = bn[L ? B.UpL : B.UpR];
+      const fore = bn[L ? B.ForeL : B.ForeR];
+      const fist = bn[L ? B.FistL : B.FistR];
       // upper arm: front faces the bend
-      tmp.subVectors(hd, el).normalize();
-      orientSegment(this.upper[side], sh, el, tmp, torsoZ);
-      // forearm: back of hand faces up/forward
-      tmp.copy(torsoUp).addScaledVector(torsoZ, 0.6);
-      const len = orientSegment(this.fore[side], el, hd, tmp, torsoZ);
-      this.fists[side].position.set(0, len, 0);
-      const pis = this.pistons[side];
-      if (pis) {
-        const ext = extend[side];
-        pis.visible = ext > 0.02;
-        pis.scale.set(1, Math.max(0.01, len - 0.2), 1);
+      _tmp.subVectors(hd, el).normalize();
+      orientSegment(up, sh, el, _tmp, torsoZ);
+      // forearm: the back of the hand turns from "outward" (vertical fist) by the roll
+      _tmp.subVectors(hd, el);
+      const len = _tmp.length();
+      _tmp.multiplyScalar(1 / Math.max(1e-5, len));
+      const outward = _tmp2.copy(torsoX).multiplyScalar(L ? 1 : -1);
+      outward.addScaledVector(_tmp, -outward.dot(_tmp)).normalize();
+      _a.crossVectors(_tmp, outward);
+      const phi = f.handRoll[side] * (Math.PI / 2) * (L ? 1 : -1);
+      _b.copy(outward).multiplyScalar(Math.cos(phi)).addScaledVector(_a, Math.sin(phi));
+      if (_b.lengthSq() < 1e-4) _b.copy(torsoUp);
+      orientSegment(fore, el, hd, _b, torsoUp);
+      fist.position.copy(hd);
+      fist.quaternion.copy(fore.quaternion);
+      if (this.rocket[side]) {
+        const rp = bn[L ? B.RocketL : B.RocketR];
+        rp.quaternion.copy(fore.quaternion);
+        rp.position.copy(el).addScaledVector(_tmp, 0.2);
+        rp.scale.set(1, Math.max(0.001, len - 0.2), 1);
       }
-      // legs
-      const hip = P[side === 0 ? J.HipL : J.HipR];
-      const knee = P[side === 0 ? J.KneeL : J.KneeR];
-      const foot = P[side === 0 ? J.FootL : J.FootR];
-      tmp.copy(torsoZ).addScaledVector(_up, 0.15);
-      orientSegment(this.thighs[side], hip, knee, tmp, _up);
-      orientSegment(this.shins[side], knee, foot, tmp, _up);
-      // foot: up along the shin, toes forward
-      orientSegment(this.feet[side], foot, knee, _fwd, torsoZ);
+      // triceps piston
+      up.updateMatrix();
+      fore.updateMatrix();
+      _a.copy(ARM_A).applyMatrix4(up.matrix);
+      _b.copy(ARM_B).applyMatrix4(fore.matrix);
+      aim(bn[L ? B.ArmBarL : B.ArmBarR], _a, _b);
+      aim(bn[L ? B.ArmRodL : B.ArmRodR], _b, _a);
+
+      // legs: the front of thigh and shin faces where the knee points
+      const hip = P[L ? J.HipL : J.HipR];
+      const knee = P[L ? J.KneeL : J.KneeR];
+      const foot = P[L ? J.FootL : J.FootR];
+      _tmp.addVectors(hip, foot).multiplyScalar(0.5);
+      _tmp.subVectors(knee, _tmp).multiplyScalar(5).add(torsoZ);
+      const thigh = bn[L ? B.ThighL : B.ThighR];
+      const shin = bn[L ? B.ShinL : B.ShinR];
+      orientSegment(thigh, hip, knee, _tmp, torsoZ);
+      orientSegment(shin, knee, foot, _tmp, torsoZ);
+      thigh.updateMatrix();
+      shin.updateMatrix();
+      _a.copy(LEG_A).applyMatrix4(thigh.matrix);
+      _b.copy(LEG_B).applyMatrix4(shin.matrix);
+      aim(bn[L ? B.LegBarL : B.LegBarR], _a, _b);
+      aim(bn[L ? B.LegRodL : B.LegRodR], _b, _a);
+
+      // foot: flat on the floor when planted (with heel lift), hinged off the shin in the air
+      const fb = bn[L ? B.FootL : B.FootR];
+      const toe = bn[L ? B.ToeL : B.ToeR];
+      const fy = f.footYaw[side];
+      _qa.setFromAxisAngle(_up, fy);
+      _qc.copy(_qa);
+      _qb.setFromAxisAngle(_x.set(1, 0, 0), f.footHeel[side]);
+      _qa.multiply(_qb);
+      const air = f.footAir[side];
+      if (air > 0.001) {
+        // shin frame: Y up the shin, Z the shin's front
+        _y.subVectors(knee, foot).normalize();
+        _z.set(0, 0, 1).applyQuaternion(shin.quaternion);
+        _z.addScaledVector(_y, -_z.dot(_y)).normalize();
+        _x.crossVectors(_y, _z);
+        _m.makeBasis(_x, _y, _z);
+        _qb.setFromRotationMatrix(_m);
+        _qb.multiply(_qc.setFromAxisAngle(_tmp.set(1, 0, 0), f.footFlex[side]));
+        _qa.slerp(_qb, air);
+        _qc.setFromAxisAngle(_up, fy).slerp(_qa, air);
+      }
+      fb.position.copy(foot);
+      fb.quaternion.copy(_qa);
+      toe.position.copy(TOE_OFFSET).applyQuaternion(_qa).add(foot);
+      toe.quaternion.copy(_qc);
     }
   }
 
@@ -257,27 +475,31 @@ export class BotModel {
       sm.uniforms.uAlpha.value *= 0.9 + Math.sin(time * 9) * 0.05 + 0.05;
     }
     // overdrive: glow runs hot
-    const glow = this.materials.mats.glow as THREE.MeshBasicMaterial;
-    const core = this.materials.mats.core as THREE.MeshBasicMaterial;
     const od = f.overdrive > 0 ? 0.5 + 0.5 * Math.sin(time * 14) : 0;
-    glow.color.copy(this.baseGlow).lerp(_hot.copy(HOT).multiplyScalar(RenderSettings.glow(6)), od * 0.6);
+    this.cols[CH_GLOW].copy(this.baseGlow).lerp(_hotScaled(), od * 0.6);
     const pulse = 1 + Math.sin(time * 3 + f.index) * 0.15 + (f.shockTime > 0 ? 1.5 : 0);
-    core.color.copy(this.baseCore).multiplyScalar(f.isDown && f.state === 'ko' ? 0.15 : pulse);
+    this.cols[CH_CORE].copy(this.baseCore).multiplyScalar(f.state === 'ko' ? 0.15 : pulse);
     // mythic items shimmer
-    for (const slot of Object.keys(this.materials.rarity) as Slot[]) {
-      if (this.loadout[slot].rarity === 4) {
-        const m = this.materials.rarity[slot];
-        const k = RenderSettings.glow(2.6 + Math.sin(time * 5 + slot.length) * 1.2);
-        m.color.setHex(RARITIES[4].glow).multiplyScalar(k);
+    for (let i = 0; i < SLOTS.length; i++) {
+      if (this.loadout[SLOTS[i]].rarity === 4) {
+        const k = RenderSettings.glow(2.6 + Math.sin(time * 5 + SLOTS[i].length) * 1.2);
+        this.cols[CH_RARITY + i].setHex(RARITIES[4].glow).multiplyScalar(k);
       }
     }
   }
 
   dispose() {
-    this.root.traverse((o) => {
-      if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).geometry.dispose();
-    });
-    for (const m of this.materials.all) m.dispose();
+    this.opaque.geometry.dispose();
+    this.emissive.geometry.dispose();
+    (this.opaque.material as THREE.Material).dispose();
+    (this.emissive.material as THREE.Material).dispose();
+    this.opaque.skeleton.dispose();
+    this.shieldMesh.geometry.dispose();
     (this.shieldMesh.material as THREE.Material).dispose();
   }
+}
+
+const _hot = new THREE.Color();
+function _hotScaled() {
+  return _hot.copy(HOT).multiplyScalar(RenderSettings.glow(6));
 }
