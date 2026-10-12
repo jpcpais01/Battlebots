@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Seat } from './bowl';
 import { RenderSettings } from './settings';
+import { house, HOUSE_GLSL } from './house';
 
 /**
  * The crowd: one instanced draw of camera-facing sprites cut from a sprite sheet painted at
@@ -732,6 +733,7 @@ const vert = /* glsl */ `
   attribute vec3 iAccent; // trim, prints and props
   uniform float uTime, uHype, uWave, uWaveA, uFlash;
   uniform float uExcite, uBoo;
+  ${HOUSE_GLSL}
   uniform vec2 uJoy, uDismay;
   uniform vec4 uSpots[3];
   uniform vec3 uSkin[7];
@@ -808,6 +810,8 @@ const vert = /* glsl */ `
     vec3 L = mix(vec3(0.44, 0.42, 0.45), vec3(0.15, 0.17, 0.25), sqrt(hgt));
     float sx = clamp(iPos.x / max(1.0, length(iPos.xz)), -1.0, 1.0);
     L += mix(vec3(1.0, 0.45, 0.12), vec3(0.15, 0.7, 1.0), sx * 0.5 + 0.5) * (0.2 * (1.0 - hgt * 0.6));
+    // the house is dark: only spill from the ring reaches the seats (the spots below cut through it)
+    L *= houseLight(iPos);
     for (int i = 0; i < 3; i++) {
       vec4 sp = uSpots[i];
       float k = smoothstep(sp.z, sp.z * 0.55, distance(iPos.xz, sp.xy));
@@ -981,6 +985,7 @@ export class Crowd {
     u.uTime = uniforms.uTime;
     u.uHype = uniforms.uHype;
     u.uFlash = uniforms.uFlash;
+    u.uHouse = house.uniforms.uHouse;
     const mesh = new THREE.Mesh(geo, this.mat);
     mesh.frustumCulled = false;
     this.group.add(mesh);
