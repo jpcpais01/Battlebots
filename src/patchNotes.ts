@@ -58,6 +58,7 @@ export const PATCH_NOTES: PatchNote[] = [
       'Knockdown marks next to each bot\'s name show how close they are to a TKO (three knockdowns ends the fight).',
       'New get-up after a knockdown: bots sit up or push up off the canvas, take a knee, plant a foot and rise back into their guard.',
       'Health bars now wear each bot\'s own paint colours, and flash red when a bot is close to going down.',
+      'The K.O. and T.K.O. letters now slam in for a moment, then shrink to a title at the top, so you can watch the knockout fall and the winner celebrate.',
       'Arena lighting: a spotlight over the ring puts the robots in a pool of light, with the arena floor falling away into shadow.',
       'Ambient occlusion: robots cast soft contact shadows on the canvas (a big dark pool when one goes down), shade each other up close and darken where limbs tuck in. Posts, stands and the stage base get it too, and it stays light on phones.',
       'Fixed the hard-edged circle on the canvas around each robot: its contact shadow now fades out softly.',
