@@ -94,6 +94,9 @@ export interface Seat {
   row: number;
   /** Angle around the arena. */
   a: number;
+  /** Outward direction the seat backs onto (away from the ring). */
+  nx?: number;
+  nz?: number;
 }
 
 const SEAT_W = 0.6;
@@ -101,20 +104,42 @@ const AISLE = 1.0;
 /** Lower rows that the two entrance tunnels cut through. */
 export const TUNNEL_ROWS = 6;
 export const TUNNEL_W = 3.8;
-/** Lower rows cut by the four vomitories (the stairwells fans walk in through), mid-bowl on each side. */
+/** Rows cut by the vomitories (the stairwells fans walk in through), mid-way along each side of both tiers. */
 export const VOM_ROW0 = 8;
 export const VOM_ROW1 = 12;
+export const VOM_UP0 = LOWER_ROWS + 7;
+export const VOM_UP1 = LOWER_ROWS + 11;
 export const VOM_W = 2.6;
+const inVom = (ri: number) => (ri >= VOM_ROW0 && ri < VOM_ROW1) || (ri >= VOM_UP0 && ri < VOM_UP1);
 
-/** Centre of each vomitory's mouth on the bowl and its outward direction. */
-export function vomitories(): { x: number; z: number; nx: number; nz: number }[] {
-  const r = RC + ROWS[VOM_ROW0].d;
-  return [
-    { x: SX + r, z: 0, nx: 1, nz: 0 },
-    { x: -SX - r, z: 0, nx: -1, nz: 0 },
-    { x: 0, z: SZ + r, nx: 0, nz: 1 },
-    { x: 0, z: -SZ - r, nx: 0, nz: -1 },
-  ];
+export interface Vom {
+  /** Centre of the mouth on the bowl. */
+  x: number;
+  z: number;
+  /** Outward direction. */
+  nx: number;
+  nz: number;
+  /** First row cut, and the first row above the stairwell. */
+  row0: number;
+  row1: number;
+}
+
+/** Every vomitory: four in the lower tier, four in the upper. */
+export function vomitories(): Vom[] {
+  const out: Vom[] = [];
+  for (const [row0, row1] of [
+    [VOM_ROW0, VOM_ROW1],
+    [VOM_UP0, VOM_UP1],
+  ]) {
+    const r = RC + ROWS[row0].d;
+    out.push(
+      { x: SX + r, z: 0, nx: 1, nz: 0, row0, row1 },
+      { x: -SX - r, z: 0, nx: -1, nz: 0, row0, row1 },
+      { x: 0, z: SZ + r, nx: 0, nz: 1, row0, row1 },
+      { x: 0, z: -SZ - r, nx: 0, nz: -1, row0, row1 },
+    );
+  }
+  return out;
 }
 
 /**
@@ -128,9 +153,9 @@ export function seats(): Seat[] {
     const r = RC + d;
     const fan = row.upper ? 6 : 3;
     const tunnel = ri < TUNNEL_ROWS;
-    const vom = ri >= VOM_ROW0 && ri < VOM_ROW1;
+    const vom = inVom(ri);
     // straight sides: [x0,z0] -> [x1,z1] with one middle aisle
-    const place = (x0: number, z0: number, x1: number, z1: number, gap0: number, gap1: number) => {
+    const place = (x0: number, z0: number, x1: number, z1: number, gap0: number, gap1: number, nx: number, nz: number) => {
       const len = Math.hypot(x1 - x0, z1 - z0);
       const free = len - gap0 - gap1;
       const n = Math.floor(free / SEAT_W);
@@ -139,7 +164,7 @@ export function seats(): Seat[] {
       for (let i = 0; i < n; i++) {
         const t = (start + i * SEAT_W) / len;
         const x = x0 + (x1 - x0) * t, z = z0 + (z1 - z0) * t;
-        out.push({ x, y: row.y, z, row: ri, a: Math.atan2(z, x) });
+        out.push({ x, y: row.y, z, row: ri, a: Math.atan2(z, x), nx, nz });
       }
     };
     const half = AISLE / 2;
@@ -147,13 +172,13 @@ export function seats(): Seat[] {
     const mid = tunnel ? TUNNEL_W / 2 + 0.3 : vom ? VOM_W / 2 + 0.35 : half;
     for (const sx of [1, -1]) {
       const x = sx * (SX + r);
-      place(x, -SZ, x, 0, half, mid);
-      place(x, 0, x, SZ, mid, half);
+      place(x, -SZ, x, 0, half, mid, sx, 0);
+      place(x, 0, x, SZ, mid, half, sx, 0);
     }
     for (const sz of [1, -1]) {
       const z = sz * (SZ + r);
-      place(-SX, z, 0, z, half, vom ? VOM_W / 2 + 0.35 : half);
-      place(0, z, SX, z, vom ? VOM_W / 2 + 0.35 : half, half);
+      place(-SX, z, 0, z, half, vom ? VOM_W / 2 + 0.35 : half, 0, sz);
+      place(0, z, SX, z, vom ? VOM_W / 2 + 0.35 : half, half, 0, sz);
     }
     // corners: arcs split into `fan` sections
     for (let k = 0; k < 4; k++) {
@@ -168,11 +193,44 @@ export function seats(): Seat[] {
           const t = (half + (free - n * SEAT_W) / 2 + SEAT_W / 2 + i * SEAT_W) / len;
           const a = a0 + (a1 - a0) * t;
           const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
-          out.push({ x, y: row.y, z, row: ri, a: Math.atan2(z, x) });
+          out.push({ x, y: row.y, z, row: ri, a: Math.atan2(z, x), nx: Math.cos(a), nz: Math.sin(a) });
         }
       }
     }
   });
+  return out;
+}
+
+export interface AislePt {
+  x: number;
+  z: number;
+  /** Outward direction, up the aisle. */
+  nx: number;
+  nz: number;
+}
+
+/**
+ * Centre line of every aisle crossing row `ri`, at offset `d` from the front-row outline. Middle
+ * aisles stop where the tunnels and vomitories cut through.
+ */
+export function aislesAt(ri: number, d: number): AislePt[] {
+  const row = ROWS[ri];
+  const r = RC + d;
+  const out: AislePt[] = [];
+  const vom = inVom(ri) || inVom(ri + 1);
+  for (const sx of [1, -1]) {
+    for (const z of [-SZ, SZ]) out.push({ x: sx * (SX + r), z, nx: sx, nz: 0 });
+    if (ri >= TUNNEL_ROWS && !vom) out.push({ x: sx * (SX + r), z: 0, nx: sx, nz: 0 });
+  }
+  for (const sz of [1, -1]) for (const x of [-SX, 0, SX]) if (x || !vom) out.push({ x, z: sz * (SZ + r), nx: 0, nz: sz });
+  const fan = row.upper ? 6 : 3;
+  for (let k = 0; k < 4; k++) {
+    const [cx, cz] = CORNERS[k];
+    for (let f = 1; f < fan; f++) {
+      const a = ((k + f / fan) * Math.PI) / 2;
+      out.push({ x: cx + Math.cos(a) * r, z: cz + Math.sin(a) * r, nx: Math.cos(a), nz: Math.sin(a) });
+    }
+  }
   return out;
 }
 
@@ -181,24 +239,7 @@ export function aisleLights(): number[] {
   const out: number[] = [];
   ROWS.forEach((row, ri) => {
     if (ri === LOWER_ROWS - 1 || ri === ROWS.length - 1) return;
-    const d = row.d + row.depth - 0.02;
-    const r = RC + d;
-    const y = row.y + 0.08;
-    const push = (x: number, z: number) => out.push(x, y, z);
-    const vom = ri >= VOM_ROW0 - 1 && ri < VOM_ROW1;
-    for (const sx of [1, -1]) {
-      for (const z of [-SZ, SZ]) push(sx * (SX + r), z);
-      if (ri >= TUNNEL_ROWS && !vom) push(sx * (SX + r), 0);
-    }
-    for (const sz of [1, -1]) for (const x of [-SX, 0, SX]) if (x || !vom) push(x, sz * (SZ + r));
-    const fan = row.upper ? 6 : 3;
-    for (let k = 0; k < 4; k++) {
-      const [cx, cz] = CORNERS[k];
-      for (let f = 1; f < fan; f++) {
-        const a = ((k + f / fan) * Math.PI) / 2;
-        push(cx + Math.cos(a) * r, cz + Math.sin(a) * r);
-      }
-    }
+    for (const p of aislesAt(ri, row.d + row.depth - 0.02)) out.push(p.x, row.y + 0.08, p.z);
   });
   return out;
 }
@@ -206,7 +247,7 @@ export function aisleLights(): number[] {
 /**
  * Handrails down the middle of the aisles: for each aisle and tier, the two ends of a rail
  * (x, y, z, x, y, z) running from the front row to the back row at hand height.
- * Middle aisles of the lower tier are left clear for the tunnels and vomitories.
+ * Middle aisles are left clear for the tunnels and vomitories.
  */
 export function aisleRails(): number[][] {
   const out: number[][] = [];
@@ -219,9 +260,8 @@ export function aisleRails(): number[][] {
     };
     for (const sx of [1, -1]) {
       for (const z of [-SZ, SZ]) ends((r) => [sx * (SX + r), z]);
-      if (upper) ends((r) => [sx * (SX + r), 0]);
     }
-    for (const sz of [1, -1]) for (const x of upper ? [-SX, 0, SX] : [-SX, SX]) ends((r) => [x, sz * (SZ + r)]);
+    for (const sz of [1, -1]) for (const x of [-SX, SX]) ends((r) => [x, sz * (SZ + r)]);
     const fan = upper ? 6 : 3;
     for (let k = 0; k < 4; k++) {
       const [cx, cz] = CORNERS[k];
