@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-12 20:00',
+    title: 'Clearer ringside camera',
+    notes: [
+      'Ropes and barriers now only turn see-through when the camera is right up against them (within about a metre); farther away they stay solid.',
+    ],
+  },
+  {
     hour: '2026-10-12 19:00',
     title: 'Settings that fit your phone',
     notes: [
@@ -94,7 +101,6 @@ export const PATCH_NOTES: PatchNote[] = [
       'Footwork moves in steps and pauses instead of a constant glide, and every fighting style moves differently.',
       'Bots react to each other: they meet an opponent stepping in with a jab, back off or cover up after a big shot, fire back when angry, and use feints and stutter steps to draw a reaction.',
       'Clear view: ropes, posts and anything else between the camera and the robots fade away, so nothing blocks the fight.',
-      'Ropes and barriers now only turn see-through when the camera is right up against them (within about a metre); farther away they stay solid.',
       'Arms no longer pass through chest plates, their own or the opponent\'s.',
       'Elbows and knees no longer snap to the wrong side mid-punch or mid-kick.',
       'Guarding hands stay tucked at the chin through the whole strike, and bots no longer sink into each other up close.',
