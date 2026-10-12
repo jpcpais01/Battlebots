@@ -170,6 +170,19 @@ class Foot {
   /** Driven by a kick (or airborne): position is set directly. */
   locked = false;
   arc = 0.08;
+  /** World yaw the toes point along while planted. */
+  yaw = 0;
+  fromYaw = 0;
+  toYaw = 0;
+}
+
+interface StrikeProg {
+  k: number;
+  load: number;
+  sh: number;
+  hip: number;
+  ext: number;
+  ret: number;
 }
 
 export interface MatchHooks {
@@ -220,6 +233,21 @@ export class Fighter {
   private pitch = 0;
   private roll = 0;
   private twist = 0;
+  private hipTwist = 0;
+  private leanV = new Vector3();
+  private pivot = [0, 0];
+  private heel = [0, 0];
+  private _pivotT = [0, 0];
+  private _heelT = [0, 0];
+  private handRollT = [0, 0];
+  private footAirT = [0, 0];
+  private footFlexT = [0, 0];
+  private _prog: StrikeProg = { k: 0, load: 0, sh: 0, hip: 0, ext: 0, ret: 0 };
+  private _kb = { roll: 0, pitch: 0, shiftX: 0, shiftZ: 0, crouch: 0 };
+  private _g = new Vector3();
+  private _c = new Vector3();
+  private _c1 = new Vector3();
+  private _c2 = new Vector3();
   private headOff = new Vector3();
   private pelvisOff = new Vector3();
   flinch = new SpringVec(150, 11);
@@ -255,13 +283,20 @@ export class Fighter {
   // render-facing state
   trailActive = [false, false, false, false]; // handL handR footL footR
   glow = 0;
+  /** Fist roll per side: 0 vertical fist, 1 palm down (corkscrew), -1 palm up. */
+  handRoll = [0, 0];
+  /** World yaw each foot points along while planted. */
+  footYaw = [0, 0];
+  /** Heel lift (radians) while the ball of the foot stays planted. */
+  footHeel = [0, 0];
+  /** 0 = planted flat, 1 = foot hinges off the shin (airborne / kicking). */
+  footAir = [0, 0];
+  /** Ankle angle relative to the shin when airborne (positive points the toes). */
+  footFlex = [0, 0];
 
   // scratch locals for pose
   private _hd = new Vector3();
   private _pd = new Vector3();
-  private _sh = new Vector3();
-  private _sp = new Vector3();
-  private _oh = new Vector3();
   private L: Vector3[] = Array.from({ length: JOINT_COUNT }, () => new Vector3());
 
   constructor(index: number, name: string, build: FighterBuild, rng: Rng) {
@@ -357,9 +392,11 @@ export class Fighter {
     this.body.teleport(world);
     this.feet[0].pos.copy(world[J.FootL]);
     this.feet[1].pos.copy(world[J.FootR]);
-    for (const f of this.feet) {
+    for (let i = 0; i < 2; i++) {
+      const f = this.feet[i];
       f.stepping = false;
       f.locked = false;
+      f.yaw = yaw + this.stanceFootYaw(i);
     }
   }
 
@@ -652,6 +689,7 @@ export class Fighter {
     this.computeLocalPose(0);
     this.toWorld(this.L[J.FootL], this.feet[0].pos);
     this.toWorld(this.L[J.FootR], this.feet[1].pos);
+    for (let i = 0; i < 2; i++) this.feet[i].yaw = this.yaw + this.stanceFootYaw(i);
   }
 
   // ---------------------------------------------------------------- actions
@@ -793,6 +831,13 @@ export class Fighter {
     return out;
   }
 
+  /** Planted toe direction relative to the body: lead toes slightly in, rear foot turned out. */
+  private stanceFootYaw(i: number) {
+    if (this.state === 'win') return 0;
+    const isLead = (i === 0) === (this.stance < 0);
+    return this.stance * (isLead ? 0.22 : 0.7);
+  }
+
   private updateFeet(dt: number) {
     if (this.state === 'down' || this.state === 'ko') return;
     const moving = this.rootVel.length();
@@ -805,9 +850,11 @@ export class Fighter {
         const k = easeInOut(clamp01(f.t));
         f.pos.lerpVectors(f.from, f.to, k);
         f.pos.y = lerp(f.from.y, f.to.y, k) + Math.sin(Math.PI * clamp01(f.t)) * f.arc;
+        f.yaw = f.fromYaw + wrapAngle(f.toYaw - f.fromYaw) * smoothstep(0, 0.8, f.t);
         if (f.t >= 1) {
           f.stepping = false;
           f.pos.copy(f.to);
+          f.yaw = f.toYaw;
           this.hooks?.emit('step', { f: this, foot: i });
         }
       }
@@ -817,13 +864,19 @@ export class Fighter {
     const anyStepping = this.feet[0].stepping || this.feet[1].stepping;
     let best = -1;
     let bestErr = 0;
+    const vx = moving > 0.3 ? this.rootVel.x / moving : 0;
+    const vz = moving > 0.3 ? this.rootVel.z / moving : 0;
     for (let i = 0; i < 2; i++) {
       const f = this.feet[i];
       if (f.locked || f.stepping) continue;
       this.stanceFoot(i, _p);
       this.toWorld(_p, _q, this.yaw);
       _q.addScaledVector(this.rootVel, 0.12);
-      const err = Math.hypot(_q.x - f.pos.x, _q.z - f.pos.z);
+      let err = Math.hypot(_q.x - f.pos.x, _q.z - f.pos.z);
+      // planted feet that end up twisted against the body get re-placed (pivot steps)
+      err += Math.max(0, Math.abs(wrapAngle(this.yaw + this.stanceFootYaw(i) - f.yaw)) - 0.45) * 0.3;
+      // step with the foot that leads the movement: lead foot first going forward, rear going back
+      if (moving > 0.3) err += 0.035 * Math.max(0, ((_q.x - this.root.x) * vx + (_q.z - this.root.z) * vz) / 0.25);
       if (err > bestErr) {
         bestErr = err;
         best = i;
@@ -846,6 +899,8 @@ export class Fighter {
     f.to.y = FOOT_Y;
     f.t = 0;
     f.arc = 0.05 + Math.min(0.12, bestErr * 0.18);
+    f.fromYaw = f.yaw;
+    f.toYaw = this.yaw + this.stanceFootYaw(best);
     f.stepping = true;
   }
 
@@ -858,50 +913,94 @@ export class Fighter {
     const d = this.dodge;
     const t = this.hooksTime;
     const tired = 1 - this.staminaRatio;
+    const fighting = this.state === 'fight';
 
     // ---------- desired body params
     let crouch = 0.06 + tired * 0.04;
     let pitch = 0.1 + tired * 0.06;
     let roll = 0;
     const blade = -st * 0.38;
-    let twist = blade;
+    let shTw = blade;
+    let hipTw = blade * 0.75;
     const hd = this._hd.set(0, 0, 0); // head offset
     const pd = this._pd.set(0, 0, 0); // pelvis offset
+    const pivot = this._pivotT;
+    const heel = this._heelT;
+    pivot[0] = pivot[1] = 0;
+    // on the balls of the feet: rear heel up, both heels lift with the bounce
+    const rearI = st < 0 ? 1 : 0;
+    const onToes = fighting ? 0.08 + 0.1 * this.bounce * (0.5 + 0.5 * Math.sin(this.bobPhase)) : 0;
+    heel[0] = heel[1] = onToes;
+    heel[rearI] += fighting ? 0.14 : 0;
 
-    let strikeHand: { side: 'L' | 'R'; pos: Vector3; pole: Vector3 } | null = null;
-    let kickFoot: { side: 'L' | 'R'; pos: Vector3; pole: Vector3 } | null = null;
-    let otherHandOverride: Vector3 | null = null;
-
+    let prog: StrikeProg | null = null;
     if (s) {
       const m = s.move;
-      const lead = m.limb === 'lead';
-      // twist sign: positive move.twist drives rear shoulder forward
-      const prog = this.strikeProfile(s);
-      twist = blade + st * m.twist * prog.drive;
-      pitch += m.lean * prog.drive;
-      crouch += m.crouch * Math.max(prog.load, prog.drive);
+      prog = this.strikeProfile(s);
+      const tw = this.strikeTwist(s);
+      shTw = blade + st * tw * prog.sh;
+      hipTw = m.kind === 'kick' ? blade + st * tw * prog.hip : blade * 0.75 + st * tw * 0.75 * prog.hip;
+      pitch += m.lean * prog.sh;
       if (m.kind === 'punch') {
-        strikeHand = { side: s.side, pos: this._sh, pole: this._sp };
-        this.punchPath(s, prog, strikeHand.pos, strikeHand.pole);
+        const lead = s.side === this.leadSide;
+        const w = Math.max(0, prog.sh);
+        const sxp = s.side === 'L' ? -1 : 1;
+        crouch += m.crouch * Math.max(prog.load, w);
+        switch (m.path) {
+          case 'straight':
+            pd.z += (lead ? 0.04 : 0.085) * w;
+            pd.x += st * (lead ? 0.012 : 0.04) * w;
+            break;
+          case 'hook':
+            pd.x += (lead ? -st * 0.04 : st * 0.04) * w;
+            pd.z += 0.03 * w;
+            roll -= sxp * 0.1 * w;
+            break;
+          case 'upper':
+            pd.z += 0.03 * w;
+            pd.x += sxp * 0.03 * prog.load;
+            roll += sxp * 0.08 * prog.load - sxp * 0.05 * w;
+            crouch -= 0.07 * prog.ext * (1 - prog.ret);
+            pitch -= 0.06 * w;
+            break;
+          case 'overhand':
+            pd.z += 0.1 * w;
+            pd.x += st * 0.04 * w;
+            roll += -sxp * 0.14 * w + sxp * 0.08 * prog.load;
+            pitch += 0.12 * w - 0.12 * prog.load;
+            break;
+          case 'hammer':
+            pitch += 0.2 * w - 0.14 * prog.load;
+            pd.z += 0.09 * w;
+            break;
+          default:
+            break;
+        }
         // reaching for a far target leans the body in
         if (s.phase === 'active') {
           const shIdx = s.side === 'L' ? J.ShL : J.ShR;
           const deficit = this.body.pos[shIdx].distanceTo(s.endWorld) - (UPPER + FORE + this.extend[s.side === 'L' ? 0 : 1]);
-          pitch += clamp(deficit, 0, 0.3) * 0.7 * prog.drive;
-          pd.z += clamp(deficit, 0, 0.3) * 0.25 * prog.drive;
+          pitch += clamp(deficit, 0, 0.3) * 0.7 * prog.ext;
+          pd.z += clamp(deficit, 0, 0.3) * 0.25 * prog.ext;
         }
-        if (m.path === 'hammer') pitch += 0.2 * prog.drive;
-        pd.z += (lead ? 0.05 : 0.08) * prog.drive;
+        // chin tucks behind the shoulder, head slides off the centre line
+        hd.y -= 0.02 * w;
+        hd.x += st * 0.03 * w;
+        // drive off the floor: rear heel turns out on rear power shots, lead foot pivots on lead hooks
+        if (!lead && m.power) {
+          heel[rearI] = Math.max(heel[rearI], 0.6 * w);
+          pivot[rearI] = -st * 0.45 * w;
+        } else if (lead && m.path === 'hook') {
+          heel[1 - rearI] = Math.max(heel[1 - rearI], 0.45 * w);
+          pivot[1 - rearI] = st * 0.6 * w;
+        } else if (lead && m.path === 'upper') heel[1 - rearI] = Math.max(heel[1 - rearI], 0.25 * w);
       } else {
-        kickFoot = { side: s.side, pos: this._sh, pole: this._sp };
-        const k = this.kickPath(s, prog, kickFoot.pos, kickFoot.pole);
+        const k = this.kickBody(s, prog, pivot, heel);
         roll += k.roll;
         pitch += k.pitch;
         pd.x += k.shiftX;
         pd.z += k.shiftZ;
         crouch += k.crouch;
-        // counterbalance arm on the kicking side drops back
-        otherHandOverride = this._oh.set(0.42, 0.95, -0.25);
       }
     }
     if (d) {
@@ -912,8 +1011,9 @@ export class Fighter {
           hd.x += d.dir * 0.3 * env;
           hd.y -= 0.06 * env;
           roll += d.dir * 0.32 * env;
-          crouch += 0.1 * env;
-          twist += d.dir * st * 0.15 * env;
+          crouch += 0.12 * env;
+          shTw += d.dir * st * 0.2 * env;
+          hipTw += d.dir * st * 0.08 * env;
           break;
         case 'duck':
           crouch += 0.3 * env;
@@ -924,6 +1024,7 @@ export class Fighter {
           pitch -= 0.38 * env;
           pd.z -= 0.08 * env;
           hd.z -= 0.1 * env;
+          heel[rearI] = 0;
           break;
         case 'backstep':
           pitch -= 0.12 * env;
@@ -943,6 +1044,7 @@ export class Fighter {
       crouch += 0.1;
       pitch += 0.12 + this.noise.at(t * 1.3) * 0.12;
       roll += this.noise.at(t * 1.1 + 5) * 0.2;
+      hd.x += this.noise.at(t * 1.7 + 9) * 0.05;
     }
     if (this.state === 'getup') {
       const k = clamp01(this.stateTime / 1.1);
@@ -951,17 +1053,44 @@ export class Fighter {
     }
     if (this.state === 'win') {
       pitch = -0.12;
-      twist = Math.sin(t * 2) * 0.2;
+      shTw = Math.sin(t * 2) * 0.2;
+      hipTw = shTw * 0.4;
       crouch = 0.02 + Math.abs(Math.sin(t * 4)) * 0.04;
     }
     if (this.taunt > 0) {
       pitch -= 0.15 * this.taunt;
-      twist += Math.sin(t * 5) * 0.25 * this.taunt;
+      shTw += Math.sin(t * 5) * 0.25 * this.taunt;
     }
-    // flinch spring (local): pushes head + upper body
+    // locomotion: the upper body leans into the (lagged) travel direction
+    const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
+    const lvx = -cy * this.rootVel.x + sy * this.rootVel.z;
+    const lvz = sy * this.rootVel.x + cy * this.rootVel.z;
+    if (dt > 0) {
+      this.leanV.x = damp(this.leanV.x, lvx, 6, dt);
+      this.leanV.z = damp(this.leanV.z, lvz, 6, dt);
+    } else this.leanV.set(lvx, 0, lvz);
+    if (this.state !== 'down' && this.state !== 'ko') {
+      pitch += clamp(this.leanV.z * 0.07, -0.12, 0.12);
+      roll += clamp(this.leanV.x * 0.06, -0.1, 0.1);
+      hd.x -= clamp(lvx - this.leanV.x, -0.6, 0.6) * 0.03;
+      hd.z -= clamp(lvz - this.leanV.z, -0.6, 0.6) * 0.03;
+      shTw += clamp(this.leanV.x, -1, 1) * 0.06 * -st;
+    }
+    // weight rides over the planted foot while the other one steps
+    for (let i = 0; i < 2; i++) {
+      const f = this.feet[i];
+      if (f.stepping && !this.feet[1 - i].stepping) pd.x += (i === 0 ? 0.025 : -0.025) * Math.sin(Math.PI * clamp01(f.t));
+    }
+    // idle head movement while fighting
+    if (fighting && !s && !d) {
+      hd.x += this.noise.at(t * 0.8 + 20) * 0.025;
+      hd.y += this.noise.at(t * 0.6 + 40) * 0.012;
+    }
+    // flinch spring (local): pushes head + upper body, hooks spin the torso
     hd.add(this.flinch.v);
     pitch += -this.flinch.v.z * 0.8;
     roll += this.flinch.v.x * 0.6;
+    shTw -= this.flinch.v.x * 0.9;
 
     // ---------- smoothing
     if (dt > 0) {
@@ -969,25 +1098,36 @@ export class Fighter {
       this.crouch = damp(this.crouch, crouch, lam, dt);
       this.pitch = damp(this.pitch, pitch, lam, dt);
       this.roll = damp(this.roll, roll, lam, dt);
-      this.twist = damp(this.twist, twist, s ? 32 : 14, dt);
+      this.twist = damp(this.twist, shTw, s ? 34 : 14, dt);
+      this.hipTwist = damp(this.hipTwist, hipTw, s ? 40 : 12, dt);
       const hl = d ? 48 : 26;
       this.headOff.x = damp(this.headOff.x, hd.x, hl, dt);
       this.headOff.y = damp(this.headOff.y, hd.y, hl, dt);
       this.headOff.z = damp(this.headOff.z, hd.z, hl, dt);
-      this.pelvisOff.x = damp(this.pelvisOff.x, pd.x, 18, dt);
-      this.pelvisOff.z = damp(this.pelvisOff.z, pd.z, 18, dt);
+      const pl = s ? 26 : 16;
+      this.pelvisOff.x = damp(this.pelvisOff.x, pd.x, pl, dt);
+      this.pelvisOff.z = damp(this.pelvisOff.z, pd.z, pl, dt);
+      for (let i = 0; i < 2; i++) {
+        this.pivot[i] = damp(this.pivot[i], pivot[i], 24, dt);
+        this.heel[i] = damp(this.heel[i], heel[i], 24, dt);
+      }
     } else {
       this.crouch = crouch;
       this.pitch = pitch;
       this.roll = roll;
-      this.twist = twist;
+      this.twist = shTw;
+      this.hipTwist = hipTw;
       this.headOff.copy(hd);
       this.pelvisOff.copy(pd);
+      for (let i = 0; i < 2; i++) {
+        this.pivot[i] = pivot[i];
+        this.heel[i] = heel[i];
+      }
     }
 
     // ---------- bob (bouncing on the toes)
     if (dt > 0) this.bobPhase += dt * (5.2 + this.bounce * 2.2 + tired * 1.5 + this.rootVel.length() * 1.2);
-    const bobAmp = (this.state === 'fight' ? 0.012 + 0.016 * this.bounce : 0.008) + tired * 0.01;
+    const bobAmp = (fighting ? 0.012 + 0.016 * this.bounce : 0.008) + tired * 0.01;
     const bob = Math.sin(this.bobPhase) * bobAmp;
 
     // ---------- skeleton (local)
@@ -1000,7 +1140,7 @@ export class Fighter {
       const hx = (i === 0 ? -0.15 : 0.15) + this.pelvisOff.x;
       const horiz = Math.hypot(_p.x - hx, _p.z - this.pelvisOff.z);
       const reach = (THIGH + SHIN) * 0.985;
-      const maxH = _p.y + Math.sqrt(Math.max(0, reach * reach - horiz * horiz)) + 0.07;
+      const maxH = _p.y + this.heelLift(i) + Math.sqrt(Math.max(0, reach * reach - horiz * horiz)) + 0.07;
       if (pelvisH > maxH) pelvisH = maxH;
     }
     pelvisH = Math.max(0.35, pelvisH);
@@ -1017,7 +1157,7 @@ export class Fighter {
     _p.set(Math.cos(tw), 0, -Math.sin(tw)); // shoulder axis (towards +x = right)
     L[J.ShR].copy(L[J.Chest]).addScaledVector(_v, 0.1).addScaledVector(_p, 0.31);
     L[J.ShL].copy(L[J.Chest]).addScaledVector(_v, 0.1).addScaledVector(_p, -0.31);
-    const htw = tw * 0.4;
+    const htw = this.hipTwist;
     _q.set(Math.cos(htw), 0, -Math.sin(htw));
     L[J.HipR].copy(L[J.Pelvis]).addScaledVector(_q, 0.15);
     L[J.HipL].copy(L[J.Pelvis]).addScaledVector(_q, -0.15);
@@ -1029,9 +1169,10 @@ export class Fighter {
     this.updateGuardWeights(dt);
     const gw = this.guardW;
     const lower = clamp01(this.guardDrop + tired * 0.35 + (this.state === 'stun' ? 0.25 : 0) + (this.state === 'stagger' ? 0.7 : 0));
-    const paw = this.state === 'fight' ? 1 : 0.3;
+    const paw = fighting ? 1 : 0.3;
     for (let side = 0; side < 2; side++) {
       const sx = side === 0 ? -1 : 1; // -1 left
+      const sideCh = side === 0 ? 'L' : 'R';
       const isLead = (side === 0) === (st < 0);
       const handIdx = side === 0 ? J.HandL : J.HandR;
       const elIdx = side === 0 ? J.ElL : J.ElR;
@@ -1047,10 +1188,10 @@ export class Fighter {
       hand.set(head.x + hx, head.y + hy - lower * 0.38, head.z + hz - lower * 0.05);
       if (isLead) {
         hand.x += Math.sin(t * 2.3 + this.index) * 0.025 * paw;
-        hand.y += Math.cos(t * 2.9 + this.index) * 0.02 * paw;
+        hand.y += Math.cos(t * 2.9 + this.index) * 0.02 * paw + bob * 0.6;
         hand.z += Math.sin(t * 1.7) * 0.04 * paw;
       } else {
-        hand.y += Math.sin(t * 1.9 + 1) * 0.012 * paw;
+        hand.y += Math.sin(t * 1.9 + 1) * 0.012 * paw + bob * 0.4;
       }
       if (this.state === 'win') {
         hand.set(sx * 0.38, 2.15 + Math.sin(t * 6 + side) * 0.06, 0.12);
@@ -1059,17 +1200,23 @@ export class Fighter {
         const k = this.state === 'getup' ? 1 - smoothstep(0.3, 1, this.stateTime / 1.1) : 0.5;
         hand.lerp(_p.set(sx * 0.32, 0.75, 0.25), k);
       }
-      if (otherHandOverride && s && ((s.side === 'L') === (side === 0))) {
-        hand.copy(otherHandOverride);
-        hand.x = sx * Math.abs(hand.x);
-      }
-      // pole: elbows down and out (hooks raise the elbow)
+      // pole: elbows down and out
       const pole = _q.set(sx * 0.55, -1, -0.35);
-      if (strikeHand && strikeHand.side === (side === 0 ? 'L' : 'R')) {
-        hand.copy(strikeHand.pos);
-        pole.copy(strikeHand.pole);
-        pole.x *= sx;
+      let roll = isLead ? 0.1 : 0.15;
+      if (s && prog) {
+        if (s.move.kind === 'punch' && s.side === sideCh) {
+          roll = this.punchHand(s, prog, hand, pole, sx);
+        } else if (s.move.kind === 'punch') {
+          // the other hand shells up at the chin
+          const w = Math.max(prog.load, prog.sh, 0) * (1 - lower * 0.6);
+          _p.set(head.x + sx * 0.09, head.y - 0.085, head.z + 0.13);
+          hand.lerp(_p, clamp01(w));
+          pole.set(sx * 0.35, -1, -0.15);
+        } else {
+          roll = this.kickArm(s, prog, side, hand, pole, head);
+        }
       }
+      this.handRollT[side] = roll;
       const fore = FORE + this.extend[side];
       ik2(L[shIdx], hand, UPPER, fore, pole, L[elIdx], hand);
     }
@@ -1083,27 +1230,44 @@ export class Fighter {
       const hipIdx = side === 0 ? J.HipL : J.HipR;
       const foot = L[footIdx];
       const pole = _q.set(sx * 0.25, 0.1, 1);
-      if (kickFoot && kickFoot.side === (side === 0 ? 'L' : 'R')) {
-        foot.copy(kickFoot.pos);
-        pole.copy(kickFoot.pole);
+      this.footAirT[side] = 0;
+      this.footFlexT[side] = 0;
+      if (s && prog && s.move.kind === 'kick' && s.side === (side === 0 ? 'L' : 'R')) {
+        const flex = this.kickFoot(s, prog, foot, pole, L[hipIdx]);
         f.locked = true;
         this.toWorld(foot, f.pos);
-      } else if (this.lift > 0.01 || this.state === 'getup' && this.stateTime < 0.25) {
+        this.footAirT[side] = 1;
+        this.footFlexT[side] = flex;
+      } else if (this.lift > 0.01 || (this.state === 'getup' && this.stateTime < 0.25)) {
         this.stanceFoot(side, foot);
         foot.y += this.lift * 0.75;
         foot.z -= this.lift * 0.4;
         f.locked = true;
         this.toWorld(foot, f.pos);
+        this.footAirT[side] = clamp01(this.lift * 8);
+        this.footFlexT[side] = 0.6;
       } else {
         if (f.locked) {
           // landing: plant where it is
           f.locked = false;
           f.pos.y = FOOT_Y;
+          f.yaw = this.yaw + this.stanceFootYaw(side);
         }
         this.toLocal(f.pos, foot);
+        foot.y += this.heelLift(side);
+        if (f.stepping) {
+          const k = clamp01(f.t);
+          this.footAirT[side] = Math.sin(Math.PI * k) * 0.8;
+          this.footFlexT[side] = 0.25 * Math.sin(Math.PI * k);
+        }
       }
       ik2(L[hipIdx], foot, THIGH, SHIN, pole, L[kneeIdx], foot);
     }
+  }
+
+  /** Ankle rise from lifting the heel while the ball of the foot stays planted. */
+  private heelLift(i: number) {
+    return this.feet[i].locked ? 0 : Math.sin(this.heel[i]) * 0.075;
   }
 
   private updateGuardWeights(dt: number) {
@@ -1115,121 +1279,164 @@ export class Fighter {
     });
   }
 
-  /** Normalised strike timeline. load: anticipation pull, drive: commitment, ret: recovery. */
-  private strikeProfile(s: StrikeAction) {
-    let load = 0, drive = 0;
-    if (s.phase === 'windup') {
-      const k = clamp01(s.t / s.windup);
-      load = easeOutQuad(k);
-      drive = -0.35 * load;
-    } else if (s.phase === 'active') {
-      const k = clamp01(s.t / s.active);
-      load = 1 - k;
-      drive = lerp(-0.35, 1, easeOutQuad(k));
-    } else {
-      const k = clamp01(s.t / s.recovery);
-      drive = 1 - easeInOut(k);
-    }
-    return { load, drive };
+  /** Torso rotation through a strike (positive drives the rear shoulder forward). */
+  private strikeTwist(s: StrikeAction) {
+    const m = s.move;
+    if (m.multi) return s.side === this.rearSide ? Math.abs(m.twist) : -Math.abs(m.twist) * 0.6;
+    if (m.id === 'jab') return -0.3;
+    return m.twist;
   }
 
-  /** Local-space hand target for punches. */
-  private punchPath(s: StrikeAction, prog: { load: number; drive: number }, out: Vector3, pole: Vector3) {
+  /**
+   * Strike timeline as a kinetic chain. load: anticipation (wind/cock), hip and sh:
+   * hip and shoulder commitment (hips fire first, shoulders follow, the limb snaps
+   * last), ext: limb travel along its path, ret: recovery progress.
+   */
+  private strikeProfile(s: StrikeAction): StrikeProg {
+    const p = this._prog;
     const m = s.move;
-    const sx = s.side === 'L' ? -1 : 1;
-    const C = _p.copy(s.chamber);
-    // anticipation offsets
+    const cock = m.kind === 'kick' ? 0.25 : m.path === 'overhand' ? 0.55 : m.path === 'hammer' ? 0.4 : m.path === 'hook' ? 0.35 : m.path === 'upper' ? 0.3 : m.id === 'jab' || m.multi ? 0.1 : 0.25;
+    p.ret = 0;
+    p.ext = 0;
+    if (s.phase === 'windup') {
+      const k = clamp01(s.t / s.windup);
+      p.k = k;
+      p.load = smoothstep(0, 0.75, k);
+      p.sh = -cock * p.load;
+      p.hip = -cock * 0.5 * p.load + 0.55 * smoothstep(0.55, 1, k);
+    } else if (s.phase === 'active') {
+      const k = clamp01(s.t / s.active);
+      p.k = k;
+      p.load = 1 - smoothstep(0, 0.6, k);
+      p.ext = easeOutQuad(k);
+      p.hip = lerp(0.55 - cock * 0.5, 1, easeOutQuad(Math.min(1, k * 1.6)));
+      p.sh = lerp(-cock, 1, easeOutQuad(k));
+    } else {
+      const k = clamp01(s.t / s.recovery);
+      p.k = k;
+      p.load = 0;
+      p.ext = 1;
+      p.ret = k;
+      p.sh = 1 - easeInOut(Math.min(1, k * 1.15));
+      p.hip = 1 - easeInOut(k);
+    }
+    return p;
+  }
+
+  /** Hand target, elbow pole and fist roll for a punch. Returns the roll. */
+  private punchHand(s: StrikeAction, prog: StrikeProg, out: Vector3, pole: Vector3, sx: number) {
+    const m = s.move;
+    // `out` arrives holding this hand's guard position (recovery returns there)
+    const guard = this._g.copy(out);
+    const C = this._c.copy(s.chamber);
+    // anticipation: where the fist cocks to
     const load = _v.set(0, 0, 0);
     switch (m.path) {
       case 'straight':
-        load.set(0, -0.02, -0.07);
+        load.set(0, -0.025, m.id === 'jab' || m.multi ? -0.03 : -0.07);
         break;
       case 'hook':
-        load.set(sx * 0.12, 0.02, -0.04);
+        load.set(sx * 0.08, 0.02, -0.05);
         break;
       case 'upper':
-        load.set(sx * 0.02, -0.26, -0.02);
+        load.set(sx * 0.03, -0.3, -0.03);
         break;
       case 'overhand':
-        load.set(sx * 0.14, 0.12, -0.2);
+        load.set(sx * 0.14, 0.14, -0.22);
         break;
       case 'hammer':
-        load.set(sx * 0.05, 0.42, -0.12);
+        load.set(sx * 0.06, 0.44, -0.12);
         break;
       default:
         break;
     }
-    pole.set(0.55, -1, -0.35);
-    if (m.path === 'hook') pole.set(1, 0.25, -0.2);
-    if (m.path === 'overhand' || m.path === 'hammer') pole.set(1, 0.6, -0.3);
-    if (m.path === 'upper') pole.set(0.4, -1, 0.1);
+    pole.set(sx * 0.5, -1, -0.3);
+    if (m.path === 'hook') pole.set(sx * 1, 0.35, -0.25);
+    else if (m.path === 'overhand') pole.set(sx * 1, 0.8, -0.3);
+    else if (m.path === 'hammer') pole.set(sx * 0.8, 0.7, -0.5);
+    else if (m.path === 'upper') pole.set(sx * 0.3, -1, 0.35);
 
     if (s.phase === 'windup') {
       out.copy(C).addScaledVector(load, prog.load);
-      return;
+      return m.path === 'upper' ? -0.6 * prog.load : m.path === 'hook' ? 0.3 * prog.load : 0.05;
     }
     const start = C.add(load);
     const end = this.toLocal(s.endWorld, _w);
     if (s.phase === 'active') {
-      const k = easeOutQuad(clamp01(s.t / s.active));
-      // control point by path
-      const ctrl = _q.addVectors(start, end).multiplyScalar(0.5);
+      const k = prog.ext;
+      const a = 1 - k;
+      // cubic bezier with path-shaped control points
+      const c1 = this._c1.lerpVectors(start, end, 0.33);
+      const c2 = this._c2.lerpVectors(start, end, 0.66);
       switch (m.path) {
+        case 'straight':
+          c1.y -= 0.02;
+          break;
         case 'hook':
-          ctrl.x += sx * 0.5;
-          ctrl.z -= 0.08;
-          ctrl.y = end.y + 0.02;
+          c1.x += sx * 0.32;
+          c1.z -= 0.06;
+          c1.y = lerp(start.y, end.y, 0.7) + 0.02;
+          c2.x += sx * 0.3;
+          c2.y = end.y + 0.02;
           break;
         case 'upper':
-          ctrl.set(end.x * 0.7 + start.x * 0.3, start.y - 0.04, end.z - 0.12);
+          c1.set(lerp(start.x, end.x, 0.4), start.y - 0.06, lerp(start.z, end.z, 0.55));
+          c2.set(lerp(start.x, end.x, 0.85), lerp(start.y, end.y, 0.55), end.z - 0.08);
           break;
         case 'overhand':
-          ctrl.x += sx * 0.22;
-          ctrl.y += 0.4;
+          c1.x += sx * 0.25;
+          c1.y += 0.32;
+          c2.x += sx * 0.1;
+          c2.y += 0.28;
           break;
         case 'hammer':
-          ctrl.set(end.x, Math.max(start.y, end.y) + 0.5, (start.z + end.z) * 0.5);
+          c1.set(lerp(start.x, end.x, 0.4), Math.max(start.y, end.y) + 0.3, lerp(start.z, end.z, 0.45));
+          c2.set(end.x, end.y + 0.24, lerp(start.z, end.z, 0.85));
           break;
         default:
           break;
       }
-      // quadratic bezier
-      const a = 1 - k;
+      const b0 = a * a * a, b1 = 3 * a * a * k, b2 = 3 * a * k * k, b3 = k * k * k;
       out.set(
-        a * a * start.x + 2 * a * k * ctrl.x + k * k * end.x,
-        a * a * start.y + 2 * a * k * ctrl.y + k * k * end.y,
-        a * a * start.z + 2 * a * k * ctrl.z + k * k * end.z,
+        b0 * start.x + b1 * c1.x + b2 * c2.x + b3 * end.x,
+        b0 * start.y + b1 * c1.y + b2 * c2.y + b3 * end.y,
+        b0 * start.z + b1 * c1.z + b2 * c2.z + b3 * end.z,
       );
       if (m.extend) {
         const idx = s.side === 'L' ? 0 : 1;
         this.extend[idx] = m.extend * smoothstep(0.1, 0.7, k);
       }
-      return;
+      if (m.path === 'upper') return -0.85;
+      if (m.path === 'hook') return lerp(0.3, 0.9, k);
+      if (m.path === 'overhand') return lerp(0.2, 0.8, k);
+      if (m.path === 'hammer') return -0.2;
+      return smoothstep(0.25, 0.95, k);
     }
-    // recovery: from where the strike ended back to the chamber/guard
-    const k = easeInOut(clamp01(s.t / s.recovery));
+    // recovery: snap back off the target, then settle into the guard
+    const k = clamp01(s.t / s.recovery);
     const idx = s.side === 'L' ? 0 : 1;
     if (m.extend) this.extend[idx] = m.extend * (1 - smoothstep(0, 0.6, k));
-    out.copy(s.recoverFrom).lerp(this.guardLocal(s.side, _q), k);
+    const r = 1 - Math.pow(1 - k, 3);
+    out.copy(s.recoverFrom).lerp(guard, r);
+    // retract along a slightly lower line so the fist doesn't float back
+    out.y -= Math.sin(Math.PI * r) * 0.03;
+    const from = m.path === 'upper' ? -0.85 : m.path === 'straight' ? 1 : m.path === 'hammer' ? -0.2 : 0.8;
+    return lerp(from, 0.12, smoothstep(0, 0.7, k));
   }
 
-  /** Approximate local guard position for a hand (used for recovery blending). */
-  private guardLocal(side: 'L' | 'R', out: Vector3) {
-    const isLead = side === this.leadSide;
-    const sx = side === 'L' ? -1 : 1;
-    const hy = PELVIS_H - this.crouch + 0.86;
-    return out.set(sx * (isLead ? 0.14 : 0.11), hy - (isLead ? 0.1 : 0.12), isLead ? 0.33 : 0.22);
-  }
-
-  private kickPath(
-    s: StrikeAction,
-    prog: { load: number; drive: number },
-    out: Vector3,
-    pole: Vector3,
-  ): { roll: number; pitch: number; shiftX: number; shiftZ: number; crouch: number } {
+  /** Body adjustments for kicks (balance over the support leg, lean, hip turnover). */
+  private kickBody(s: StrikeAction, prog: StrikeProg, pivot: number[], heel: number[]) {
     const m = s.move;
     const sx = s.side === 'L' ? -1 : 1;
-    const res = { roll: 0, pitch: 0, shiftX: -sx * 0.1 * Math.max(prog.load, prog.drive), shiftZ: 0, crouch: 0 };
+    const support = s.side === 'L' ? 1 : 0;
+    const w = Math.max(prog.load, prog.sh, 0);
+    const res = this._kb;
+    res.roll = 0;
+    res.pitch = 0;
+    res.shiftX = -sx * 0.09 * w;
+    res.shiftZ = 0;
+    res.crouch = 0;
+    heel[s.side === 'L' ? 0 : 1] = 0;
     // spin kick rotates the whole frame
     if (m.spin) {
       const dir = -this.stance;
@@ -1245,52 +1452,89 @@ export class Fighter {
       else if (s.phase === 'active') this.lift = Math.sin(Math.PI * clamp01(s.t / s.active)) * m.jump;
       else this.lift = Math.max(0, (1 - clamp01(s.t / (s.recovery * 0.3))) * 0.05);
     }
-    const end = this.toLocal(s.endWorld, _w);
-    const C = _p;
     switch (m.path) {
       case 'frontKick':
-        C.set(sx * 0.12, 0.55, 0.12);
-        pole.set(0, 1, 1);
-        res.pitch = -0.3 * prog.drive;
-        res.shiftZ = 0.06 * prog.drive;
+        // chamber the knee to the chest, then drive the hips through the target
+        res.pitch = -0.08 * prog.load - 0.32 * prog.ext * (1 - prog.ret);
+        res.shiftZ = 0.1 * prog.ext * (1 - prog.ret) - 0.03 * prog.load;
+        heel[support] = 0.1 * w;
         break;
       case 'roundKick':
-        C.set(sx * 0.6, 0.62, -0.08);
-        pole.set(sx * 0.4, 1, 0.5);
-        res.roll = -sx * 0.45 * Math.max(prog.load * 0.5, prog.drive);
-        res.pitch = -0.12 * prog.drive;
-        res.crouch = -0.06 * prog.drive;
+        // pivot on the support foot, turn the hips over and lean away
+        res.roll = -sx * 0.42 * w;
+        res.pitch = -0.14 * w;
+        res.crouch = -0.04 * w;
+        pivot[support] = -this.stance * 1.05 * w;
+        heel[support] = 0.4 * w;
         break;
       case 'sweepKick':
-        C.set(sx * 0.55, 0.14, -0.3);
-        pole.set(sx * 0.3, 0.5, 1);
-        res.crouch = 0.3 * Math.max(prog.load, prog.drive);
-        res.pitch = 0.2 * Math.max(prog.load, prog.drive);
-        res.shiftX = -sx * 0.16 * Math.max(prog.load, prog.drive);
+        res.crouch = 0.34 * w;
+        res.pitch = 0.24 * w;
+        res.shiftX = -sx * 0.16 * w;
+        res.roll = sx * 0.1 * w;
+        pivot[support] = -this.stance * 0.6 * w;
+        break;
+      case 'backKick':
+        res.pitch = 0.22 * Math.max(0, prog.sh);
+        res.shiftX = -sx * 0.05 * w;
+        heel[support] = 0.3 * w;
+        break;
+      case 'knee':
+        res.pitch = -0.12 * w + 0.1 * prog.ext * (1 - prog.ret);
+        res.shiftZ = 0.06 * w;
+        break;
+      default:
+        break;
+    }
+    return res;
+  }
+
+  /** Kicking foot target (local) and knee pole. Returns the ankle flex (positive points the toes). */
+  private kickFoot(s: StrikeAction, prog: StrikeProg, out: Vector3, pole: Vector3, hip: Vector3) {
+    const m = s.move;
+    const sx = s.side === 'L' ? -1 : 1;
+    const home = this.stanceFoot(s.side === 'L' ? 0 : 1, this._c);
+    const end = this.toLocal(s.endWorld, this._g);
+    // chamber: where the foot tucks with the knee loaded, and the knee pole there
+    const C = this._c1;
+    let flex = 0;
+    switch (m.path) {
+      case 'frontKick':
+        C.set(sx * 0.1, 0.5, 0.12);
+        pole.set(0, 0.35, 1);
+        flex = s.phase === 'windup' ? 0.4 * prog.load : -0.9;
+        break;
+      case 'roundKick':
+        C.set(sx * 0.46, 0.66, -0.12);
+        pole.set(sx * 0.9, 0.5, 0.55);
+        flex = 0.9;
+        break;
+      case 'sweepKick':
+        C.set(sx * 0.62, 0.13, -0.32);
+        pole.set(sx * 0.3, 0.6, 1);
+        flex = 0.35;
         break;
       case 'backKick':
         C.set(sx * 0.1, 0.6, 0.15);
-        pole.set(0, 1, 1);
-        res.pitch = 0.25 * prog.drive;
+        pole.set(0, 0.25, 1);
+        flex = s.phase === 'windup' ? 0.3 : -0.55;
         break;
       case 'knee':
-        C.set(sx * 0.1, 0.45, -0.3);
+        C.set(sx * 0.1, 0.42, -0.24);
         pole.set(0, 0.6, 1);
-        res.pitch = -0.1;
+        flex = 0.9;
         break;
       default:
         C.set(0, 0.5, 0.1);
     }
-    // start: where the foot is planted (stance position)
-    const home = this.stanceFoot(s.side === 'L' ? 0 : 1, _q);
     if (s.phase === 'windup') {
       const k = easeInOut(clamp01(s.t / s.windup));
       out.lerpVectors(home, C, k);
-      out.y += Math.sin(Math.PI * k) * 0.08;
-      return res;
+      out.y += Math.sin(Math.PI * k) * 0.06;
+      return flex;
     }
     if (s.phase === 'active') {
-      const k = easeOutQuad(clamp01(s.t / s.active));
+      const k = prog.ext;
       let tx = end.x, ty = end.y, tz = end.z;
       if (m.path === 'knee') {
         // drive the knee into the target: foot sits below and behind it
@@ -1298,14 +1542,26 @@ export class Fighter {
         tz = end.z - 0.28;
       }
       const ctrl = _v.set((C.x + tx) * 0.5, (C.y + ty) * 0.5, (C.z + tz) * 0.5);
-      if (m.path === 'roundKick') {
-        ctrl.x = sx * Math.max(0.75, Math.abs(tx) + 0.6);
-        ctrl.y = ty * 0.92;
-        ctrl.z = tz * 0.55;
-      } else if (m.path === 'sweepKick') {
-        ctrl.x = sx * 0.95;
-        ctrl.y = 0.12;
-        ctrl.z = tz * 0.7;
+      switch (m.path) {
+        case 'roundKick':
+          // the shin whips around the outside at target height
+          ctrl.x = sx * Math.max(0.78, Math.abs(tx) + 0.6);
+          ctrl.y = ty * 0.95;
+          ctrl.z = tz * 0.55;
+          pole.set(sx * 0.6, 0.9, 0.7);
+          break;
+        case 'sweepKick':
+          ctrl.x = sx * 0.95;
+          ctrl.y = 0.12;
+          ctrl.z = tz * 0.7;
+          break;
+        case 'frontKick':
+          // extend from the chamber: the knee leads, the foot snaps out level
+          ctrl.y = Math.max(C.y, ty) + 0.04;
+          ctrl.z = lerp(C.z, tz, 0.35);
+          break;
+        default:
+          break;
       }
       const a = 1 - k;
       out.set(
@@ -1313,14 +1569,67 @@ export class Fighter {
         a * a * C.y + 2 * a * k * ctrl.y + k * k * ty,
         a * a * C.z + 2 * a * k * ctrl.z + k * k * tz,
       );
-      return res;
+      return flex;
     }
-    // recovery: retract to chamber then step down home
+    // recovery: re-chamber then step down home
     const k = clamp01(s.t / s.recovery);
     const from = s.recoverFrom;
-    if (k < 0.5) out.lerpVectors(from, C, easeInOut(k / 0.5));
-    else out.lerpVectors(C, home, easeInOut((k - 0.5) / 0.5));
-    return res;
+    if (k < 0.45) out.lerpVectors(from, C, easeOutQuad(k / 0.45));
+    else {
+      const k2 = easeInOut((k - 0.45) / 0.55);
+      out.lerpVectors(C, home, k2);
+      out.y += Math.sin(Math.PI * k2) * 0.04;
+      flex *= 1 - k2;
+    }
+    void hip;
+    return flex;
+  }
+
+  /** Arms during kicks: guard the face, counterbalance, post or clinch. Returns the fist roll. */
+  private kickArm(s: StrikeAction, prog: StrikeProg, side: number, hand: Vector3, pole: Vector3, head: Vector3) {
+    const m = s.move;
+    const sx = side === 0 ? -1 : 1;
+    const kickSide = (s.side === 'L') === (side === 0);
+    const w = clamp01(Math.max(prog.load, prog.sh, 0));
+    switch (m.path) {
+      case 'roundKick':
+      case 'backKick':
+        if (kickSide) {
+          // swing the arm down and back to whip the hips round
+          _p.set(sx * 0.42, head.y - 0.62, -0.28);
+          hand.lerp(_p, w);
+          pole.set(sx * 0.6, -0.4, -1);
+        } else {
+          _p.set(head.x + sx * 0.1, head.y - 0.06, head.z + 0.14);
+          hand.lerp(_p, w);
+        }
+        break;
+      case 'sweepKick':
+        if (kickSide) {
+          // post a hand towards the canvas
+          _p.set(sx * 0.32, 0.28, 0.22);
+          hand.lerp(_p, w * 0.85);
+          pole.set(sx * 0.8, 0.2, -0.6);
+        } else {
+          _p.set(head.x + sx * 0.1, head.y - 0.08, head.z + 0.14);
+          hand.lerp(_p, w);
+        }
+        break;
+      case 'knee': {
+        // reach for the opponent's head and pull it down onto the knee
+        const pull = prog.ext * (1 - prog.ret);
+        _p.set(sx * 0.13, head.y + 0.02 - pull * 0.3, head.z + 0.42 - pull * 0.12);
+        hand.lerp(_p, w);
+        pole.set(sx * 1, -0.2, -0.3);
+        return 0.9 * w;
+      }
+      default:
+        // push kick: hands stay up and tight
+        _p.set(head.x + sx * 0.1, head.y - 0.07, head.z + 0.17);
+        hand.lerp(_p, w * 0.7);
+        break;
+    }
+    return 0.12;
   }
 
   private writeTargets(dt: number) {
@@ -1331,6 +1640,16 @@ export class Fighter {
     for (const c of cs) {
       if (c.a === J.ElL && c.b === J.HandL) c.rest = FORE + this.extend[0];
       if (c.a === J.ElR && c.b === J.HandR) c.rest = FORE + this.extend[1];
+    }
+    // render-facing extras (no effect on the simulation)
+    const k = dt > 0 ? 1 - Math.exp(-30 * dt) : 1;
+    for (let i = 0; i < 2; i++) {
+      const f = this.feet[i];
+      this.footYaw[i] = (f.locked ? this.faceYaw + this.stanceFootYaw(i) * 0.5 : f.yaw) + this.pivot[i];
+      this.footHeel[i] = f.locked ? 0 : this.heel[i];
+      this.footAir[i] += (this.footAirT[i] - this.footAir[i]) * k;
+      this.footFlex[i] += (this.footFlexT[i] - this.footFlex[i]) * k;
+      this.handRoll[i] += (this.handRollT[i] - this.handRoll[i]) * (dt > 0 ? 1 - Math.exp(-40 * dt) : 1);
     }
     // trails
     const s = this.strike;
