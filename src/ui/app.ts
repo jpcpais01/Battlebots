@@ -317,7 +317,24 @@ export class App {
         best = b;
       }
     }
+    best!.palette = this.contrastingPalette(this.player.palette);
     return best!;
+  }
+
+  /** A random palette that reads clearly against the player's at fight distance. */
+  private contrastingPalette(mine: number) {
+    const rgb = (c: number) => [(c >> 16) & 255, (c >> 8) & 255, c & 255];
+    const dist = (a: number, b: number) => {
+      const x = rgb(a), y = rgb(b);
+      return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]);
+    };
+    const pm = PALETTES[mine];
+    const ok = PALETTES.map((_, i) => i).filter((i) => {
+      if (i === mine) return false;
+      const p = PALETTES[i];
+      return Math.min(dist(p.primary, pm.primary), dist(p.secondary, pm.primary) * 1.4, dist(p.primary, pm.secondary) * 1.4) > 150;
+    });
+    return ok.length ? this.rng.pick(ok) : (mine + 5) % PALETTES.length;
   }
 
   private fight(sameOpponent = false) {

@@ -11,6 +11,19 @@ const POSTS = Array.from({ length: 8 }, (_, i) => {
   return [Math.cos(a) * 5, Math.sin(a) * 5];
 });
 
+const OFFSETS = [0, 0.25, -0.25, 0.5, -0.5, 0.8, -0.8, 1.1, -1.1, 1.35, -1.35];
+/** Radius the fight camera tries to stay within (inside the ropes). */
+const CAM_R = 4.5;
+
+/** Longest distance <= dist along (dx,dz) from (mx,mz) that stays within CAM_R (never shorter than 3). */
+function fitInside(mx: number, mz: number, dx: number, dz: number, dist: number) {
+  const md = mx * dx + mz * dz;
+  const disc = md * md - (mx * mx + mz * mz) + CAM_R * CAM_R;
+  if (disc < 0) return dist;
+  const k = -md + Math.sqrt(disc);
+  return clamp(k, Math.min(dist, 3), dist);
+}
+
 /** How badly ring posts block the view from (cx,cz) to (tx,tz). */
 function postOcclusion(cx: number, cz: number, tx: number, tz: number) {
   let score = 0;
@@ -22,6 +35,11 @@ function postOcclusion(cx: number, cz: number, tx: number, tz: number) {
     const qx = cx + dx * t - px, qz = cz + dz * t - pz;
     const d = Math.sqrt(qx * qx + qz * qz);
     if (d < 0.9) score += (0.9 - d) * 4;
+  }
+  // never park the lens right next to a post
+  for (const [px, pz] of POSTS) {
+    const d = Math.hypot(cx - px, cz - pz);
+    if (d < 1.5) score += (1.5 - d) * 3;
   }
   return score;
 }
@@ -129,11 +147,14 @@ export class Director {
       const dir = this.dir;
       let best = drift;
       let bestScore = Infinity;
-      for (const off of [0, 0.25, -0.25, 0.5, -0.5, 0.8, -0.8]) {
+      for (const off of OFFSETS) {
         const ang = drift + off;
         dir.copy(perp).applyAxisAngle(UP, ang);
-        const cx = mid.x + dir.x * dist, cz = mid.z + dir.z * dist;
-        const score = postOcclusion(cx, cz, mid.x, mid.z) + Math.abs(off) * 0.4 + Math.abs(ang - this.lastAng) * 0.6;
+        const k = fitInside(mid.x, mid.z, dir.x, dir.z, dist);
+        const cx = mid.x + dir.x * k, cz = mid.z + dir.z * k;
+        // prefer shots from inside the ropes, then clear of posts, then steady
+        const outside = Math.max(0, Math.hypot(cx, cz) - CAM_R);
+        const score = postOcclusion(cx, cz, mid.x, mid.z) + outside * 1.2 + (dist - k) * 0.25 + Math.abs(off) * 0.3 + Math.abs(ang - this.lastAng) * 0.6;
         if (score < bestScore) {
           bestScore = score;
           best = ang;
@@ -141,6 +162,7 @@ export class Director {
       }
       this.lastAng += (best - this.lastAng) * Math.min(1, dt * 1.2);
       dir.copy(perp).applyAxisAngle(UP, this.lastAng);
+      dist = fitInside(mid.x, mid.z, dir.x, dir.z, dist);
       wantLook.copy(mid).setY(1.05);
 
       if (match.phase === 'intro') {

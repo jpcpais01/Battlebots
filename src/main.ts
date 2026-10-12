@@ -1,6 +1,6 @@
-import '@fontsource/russo-one/400.css';
-import '@fontsource/rajdhani/600.css';
-import '@fontsource/rajdhani/700.css';
+import '@fontsource/russo-one/latin-400.css';
+import '@fontsource/rajdhani/latin-600.css';
+import '@fontsource/rajdhani/latin-700.css';
 import './style.css';
 import { registerSW } from 'virtual:pwa-register';
 import { Game } from './game/game';

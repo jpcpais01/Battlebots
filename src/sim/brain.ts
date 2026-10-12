@@ -97,6 +97,9 @@ export class Brain {
   private guardHoldUntil = 0;
   private holdGuard: GuardMode = 'normal';
   private punishUntil = 0;
+  /** After a combo, step back out of range (hit and move). */
+  private exitUntil = 0;
+  private baseRangeBias = 0;
 
   // learning
   private moveVal = new Map<string, Ema>();
@@ -135,6 +138,7 @@ export class Brain {
     this.noise = new Noise1(rng);
     for (let i = 0; i < PERCEPTION_BUFFER; i++) this.buf.push(makeObservation());
     this.traits = this.rollTraits();
+    this.baseRangeBias = this.traits.rangeBias;
     this.reactionNow = me.build.stats.reaction;
     this.circleDir = rng.sign();
   }
@@ -406,7 +410,7 @@ export class Brain {
     let bounce = 0.6;
     switch (this.plan) {
       case 'pressure':
-        target = myReach * 0.82 + this.traits.rangeBias * 0.3;
+        target = myReach * 0.9 + this.traits.rangeBias * 0.3;
         lateral = this.cutOff(tx, tz) * 0.8;
         bounce = 0.4;
         break;
@@ -432,7 +436,7 @@ export class Brain {
         bounce = 0.3;
         break;
       case 'swarm':
-        target = myReach * 0.75;
+        target = myReach * 0.8;
         lateral = this.cutOff(tx, tz) * 0.4;
         speed *= 1.1;
         bounce = 0.2;
@@ -449,6 +453,10 @@ export class Brain {
     }
     // during a whiff-punish window, step in
     if (this.time < this.punishUntil) target = Math.min(target, myReach * 0.85);
+    else if (this.time < this.exitUntil && !me.strike) {
+      target = Math.max(target, myReach + 0.3);
+      lateral += this.circleDir * 0.7;
+    }
 
     // radial
     const err = d - target;
@@ -880,9 +888,12 @@ export class Brain {
     if (s.result !== 'hit') {
       this.punishUntil = 0;
     }
+    const t = this.traits;
+    const exit = 0.18 + this.effCaution() * 0.35 + t.skill * 0.2 - this.effAggression() * 0.25 + (s.result === 'blocked' ? 0.12 : 0);
+    if (this.plan !== 'swarm' && this.rng.chance(clamp(exit, 0.05, 0.75))) this.exitUntil = this.time + this.rng.range(0.35, 0.75);
     if (s.result === 'whiff' && !inRange) {
       // misjudged distance: become a touch more careful
-      this.traits.rangeBias = lerp(this.traits.rangeBias, this.traits.rangeBias - 0.02, 0.5);
+      this.traits.rangeBias = Math.max(this.baseRangeBias - 0.12, this.traits.rangeBias - 0.01);
     }
   }
 
