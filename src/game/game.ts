@@ -153,6 +153,7 @@ export class Game {
   private onEvent(type: string, data: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
     const fx = this.fx;
     const sfx = this.sfx;
+    this.director.cue(type, data);
     switch (type) {
       case 'hit': {
         const h = data as HitInfo;
