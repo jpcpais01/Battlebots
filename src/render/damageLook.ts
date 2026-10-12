@@ -7,8 +7,8 @@ import { PART_COUNT } from '../sim/damage';
  * Each vertex carries the part it belongs to. As a part wears down its plates crumple (a
  * smooth noise field bends the shell, the same at shared corners so nothing cracks open),
  * its normals go lumpy so the light catches the dents, paint chips off to bare steel, soot
- * and scorch marks spread, and a wrecked part shows glowing cracks. A part that was just hit
- * hard flashes hot for a moment. Noise is read from the part's own rest-space coordinates,
+ * and scorch marks spread, and a wrecked part shows glowing cracks. Noise is read from the
+ * part's own rest-space coordinates,
  * so the damage stays stuck to the metal as it moves (and on a torn-off piece flying away).
  *
  * It costs nothing until a part is damaged (the branches skip clean parts), and only the
@@ -16,14 +16,12 @@ import { PART_COUNT } from '../sim/damage';
  */
 export interface DamageUniforms {
   uWear: { value: Float32Array };
-  uHot: { value: Float32Array };
   uTime: { value: number };
 }
 
 export function damageUniforms(): DamageUniforms {
   return {
     uWear: { value: new Float32Array(PART_COUNT) },
-    uHot: { value: new Float32Array(PART_COUNT) },
     uTime: { value: 0 },
   };
 }
@@ -59,7 +57,6 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
   mat.onBeforeCompile = (sh, renderer) => {
     prev.call(mat, sh, renderer);
     sh.uniforms.uWear = u.uWear;
-    sh.uniforms.uHot = u.uHot;
     sh.uniforms.uTime = u.uTime;
     sh.vertexShader = sh.vertexShader
       .replace(
@@ -70,10 +67,8 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
           attribute vec3 dpos;
         #endif
         uniform float uWear[${PART_COUNT}];
-        uniform float uHot[${PART_COUNT}];
         varying vec3 vDmgP;
         varying float vWear;
-        varying float vHot;
         ${NOISE}`,
       )
       .replace(
@@ -82,7 +77,6 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
         ${DP}
         int dmgI = int(part + 0.5);
         vWear = uWear[dmgI];
-        vHot = uHot[dmgI];
         vDmgP = dmgP;
         vec3 dmgBend = vec3(0.0);
         if (vWear > 0.02) {
@@ -109,13 +103,12 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
         uniform float uTime;
         varying vec3 vDmgP;
         varying float vWear;
-        varying float vHot;
         ${NOISE}`,
       )
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
-        if (vWear > 0.02 || vHot > 0.01) {
+        if (vWear > 0.02) {
           float w = vWear;
           // damage gathers in a few hot spots (where the blows landed) and spreads from them
           float spot = dmgNoise(vDmgP * 5.5 + 1.3);
@@ -135,8 +128,6 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
           float crack = smoothstep(0.93, 0.985, ridge) * smoothstep(0.7, 1.0, w) * (0.4 + scorch);
           float flick = 0.65 + 0.35 * sin(uTime * 23.0 + vDmgP.y * 40.0) * sin(uTime * 7.0 + vDmgP.x * 30.0);
           totalEmissiveRadiance += vec3(1.0, 0.32, 0.06) * crack * flick * 1.8;
-          // just got hit hard: the metal flares hot
-          totalEmissiveRadiance += vec3(1.0, 0.42, 0.12) * vHot * (0.25 + spot * 0.9);
         }`,
       );
   };
