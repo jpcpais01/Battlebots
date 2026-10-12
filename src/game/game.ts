@@ -16,6 +16,7 @@ import { PALETTES, type BotSpec } from './loadout';
 import type { Sfx } from '../audio/sfx';
 import { perf } from '../perf';
 import { RenderProbe } from '../render/renderProbe';
+import { FramePacer } from '../render/pacer';
 import { contactAO } from '../render/ao';
 import { house } from '../render/house';
 import { warnNonFinite } from '../render/finite';
@@ -42,6 +43,8 @@ export class Game {
   /** The arena's mood, the same model the crowd audio runs, so what fans do matches what you hear. */
   private crowdMood = new CrowdMood();
   readonly probe: RenderProbe;
+  /** Display refresh rate and the player's frame-rate cap. */
+  readonly pacer = new FramePacer();
   private chests = [new THREE.Vector3(), new THREE.Vector3()];
   readonly fx: Fx;
   readonly director: Director;
@@ -334,6 +337,7 @@ export class Game {
   // ------------------------------------------------------------------- loop
   private loop = (now: number) => {
     requestAnimationFrame(this.loop);
+    if (!this.pacer.tick(now)) return;
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
     if (document.hidden || this.manual) return;
@@ -428,7 +432,7 @@ export class Game {
     const cut = this.director.cuts !== this.lastCuts || this.director.mode !== this.lastMode;
     this.lastCuts = this.director.cuts;
     this.lastMode = this.director.mode;
-    this.stage.govern(dt, cut);
+    this.stage.govern(dt, cut, this.pacer.target);
     this.probe.begin();
     this.stage.render();
     this.probe.end();

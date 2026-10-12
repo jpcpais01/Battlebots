@@ -250,11 +250,11 @@ export class Stage {
    * A switch changes sharpness and glow and costs a hitch, so it waits for a camera cut or screen
    * change (`cut`), where nobody notices; a drop goes through anyway if no cut comes soon.
    */
-  govern(dt: number, cut = false) {
+  govern(dt: number, cut = false, targetFps = 60) {
     if (this.fixedRatio !== null) return;
     if (this.governor.ratio === this.sized.pr) {
       this.pendingFor = 0;
-      this.governor.sample(dt, this.deviceRatio());
+      this.governor.sample(dt, this.deviceRatio(), targetFps);
       if (this.governor.ratio === this.sized.pr) return;
     }
     this.pendingFor += dt;
