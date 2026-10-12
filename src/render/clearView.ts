@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 
 /**
- * Keeps the garage camera's view of the bot clear: workshop scenery (gantry, benches, racks) that
- * sits between the camera and the bot is dissolved with a screen-door dither, so only the bot itself
- * can stand in front of it. The fight arena is not patched: its ropes and barriers always draw solid.
+ * Keeps the camera's view of the fight clear: ring scenery (ropes, posts, crowd, rigging) that sits
+ * between the camera and the robots is dissolved with a screen-door dither, so only the robots
+ * themselves can stand in front of the fight.
  *
  * Works on any material, including custom shader ones. Floor-level meshes (canvas, apron, stage
  * base, ground) are left alone so the ring never shows holes underfoot.
@@ -90,8 +90,8 @@ void main() {
   }
 
   /**
-   * Clears everything nearer to `camera` than the nearest of `points` (the showcased bot's chest).
-   * Pass no points to switch the effect off.
+   * Clears everything nearer to `camera` than the nearest of `points` (the fighters' chests).
+   * Pass no points to switch the effect off (menus, garage).
    */
   update(camera: THREE.PerspectiveCamera, points: readonly THREE.Vector3[]) {
     const u = this.uniforms;

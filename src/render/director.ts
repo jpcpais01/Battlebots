@@ -19,9 +19,9 @@ export const ZOOM: Record<CamZoom, { dist: number; fov: number }> = {
 };
 
 /**
- * Radius the camera roams within. The ring edge is no obstacle: the camera moves as if the ropes
- * and posts weren't there and they always draw solid. Only the stands are (front row at 10 m
- * along the short side of the bowl).
+ * Radius the camera roams within. The ropes and posts fade out when they come between the lens
+ * and the robots (clearView.ts), so the ring edge is no obstacle; only the stands are (front row
+ * at 10 m along the short side of the bowl).
  */
 const FREE_R = 9;
 /** Joints used to frame a fighter. */
