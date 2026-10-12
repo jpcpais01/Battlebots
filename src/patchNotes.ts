@@ -21,6 +21,7 @@ export const PATCH_NOTES: PatchNote[] = [
       'Refresh button on the home screen (circular arrow next to sound and settings) reloads the app on the latest version.',
       'A live crowd that cheers, gasps and roars with the fight.',
       'Action camera: the fight is now shot like a broadcast, with cuts and close-ups on the big hits.',
+      'Clear view: ropes, posts and anything else between the camera and the robots fade away, so nothing blocks the fight.',
       'Metal impact sounds: punches, kicks, blocks and knockdowns all clang differently.',
       'Rebuilt robot models with smoother, weightier punches and kicks.',
       'Installed app opens as a normal window and goes fullscreen in landscape on first tap.',
