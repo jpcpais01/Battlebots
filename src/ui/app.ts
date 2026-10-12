@@ -1,5 +1,6 @@
 import type { Game } from '../game/game';
 import type { Quality } from '../render/stage';
+import { enterLandscape } from '../fullscreen';
 import { Rng } from '../sim/math';
 import { MOVES } from '../sim/moves';
 import type { Fighter } from '../sim/fighter';
@@ -339,21 +340,13 @@ export class App {
 
   private fight(sameOpponent = false) {
     this.tap('start');
-    this.goFullscreen();
+    void enterLandscape();
     this.closeResults();
     if (!sameOpponent || !this.opponent) this.opponent = this.makeOpponent();
     const m = this.game.startMatch(this.player, this.opponent, (Math.random() * 2 ** 32) >>> 0);
     this.hud.resetSpeed();
     this.hud.attach(m);
     this.go('fight');
-  }
-
-  private goFullscreen() {
-    if (!matchMedia('(pointer: coarse)').matches || document.fullscreenElement) return;
-    const de = document.documentElement;
-    de.requestFullscreen?.({ navigationUI: 'hide' })
-      .then(() => (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape'))
-      .catch(() => {});
   }
 
   private pause() {
