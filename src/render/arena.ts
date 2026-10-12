@@ -1,9 +1,19 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RenderSettings } from './settings';
+import { RING_CORNER, ROPE_LINE, ropeSide as sideOf, SIDE_NX, SIDE_NZ } from '../sim/body';
 
-export const RING_RADIUS = 5.0; // corner radius of the octagon
+export const RING_RADIUS = RING_CORNER; // corner radius of the octagon
 const SIDES = 8;
+const ROPE_HEIGHTS = [0.55, 0.95, 1.35];
+const ROPES = SIDES * ROPE_HEIGHTS.length;
+/** Half the length of one side's ropes, post to post. */
+const ROPE_HALF = RING_RADIUS * Math.sin(Math.PI / SIDES);
+/** Rough armour radius around each physics joint, for pressing into the ropes. */
+const PRESS_RADII = [0.3, 0.36, 0.14, 0.24, 0.2, 0.13, 0.16, 0.2, 0.13, 0.16, 0.17, 0.14, 0.12, 0.17, 0.14, 0.12];
+/** Rope spring: stiffness (wobbles about 3.5 times a second) and damping. */
+const ROPE_K = 480;
+const ROPE_C = 5;
 
 function matTexture(): THREE.CanvasTexture {
   const s = 1024;
@@ -91,6 +101,15 @@ export class Arena {
   private ropeMat: THREE.MeshBasicMaterial;
   private ropeBase = new THREE.Color(0x52e6ff).multiplyScalar(0.9);
   private ropeFlash = 0;
+  /**
+   * Per rope (side * 3 + height): where along it the push lands (0..1 post to post),
+   * how far it is bowed out, and how much it is swinging free (sine) rather than
+   * pressed into a V by a body. Packed as vec4s for the vertex shader.
+   */
+  private ropeU = { value: new Float32Array(ROPES * 4) };
+  private ropeVel = new Float32Array(ROPES);
+  private ropePress = new Float32Array(ROPES);
+  private ropeAt = new Float32Array(ROPES);
   private beams: THREE.Mesh[] = [];
   readonly uniforms = { uTime: { value: 0 }, uHype: { value: 0.3 } };
   private hype = 0.3;
@@ -168,18 +187,39 @@ export class Arena {
       cap.translate(c.x, 1.76, c.z);
       capGeos.push(cap);
     }
-    const heights = [0.55, 0.95, 1.35];
+    // ropes: 16 segments each so they can bow; the vertex shader bends them
     for (let i = 0; i < SIDES; i++) {
       const p0 = corners[i];
       const p1 = corners[(i + 1) % SIDES];
       const len = p0.distanceTo(p1);
-      for (const h of heights) {
-        const rope = new THREE.CylinderGeometry(0.016, 0.016, len, 6, 1, true);
+      // side i runs between corners i and i+1, so it faces halfway between them
+      const side = (i + 1) % SIDES;
+      const nx = SIDE_NX[side], nz = SIDE_NZ[side];
+      for (let h = 0; h < ROPE_HEIGHTS.length; h++) {
+        const rope = new THREE.CylinderGeometry(0.016, 0.016, len, 6, 16, true);
         rope.rotateZ(Math.PI / 2);
         rope.rotateY(-Math.atan2(p1.z - p0.z, p1.x - p0.x));
-        rope.translate((p0.x + p1.x) / 2, h, (p0.z + p1.z) / 2);
+        rope.translate((p0.x + p1.x) / 2, ROPE_HEIGHTS[h], (p0.z + p1.z) / 2);
+        const pos = rope.attributes.position;
+        const n = pos.count;
+        const idx = new Float32Array(n).fill(side * ROPE_HEIGHTS.length + h);
+        const t = new Float32Array(n);
+        const out = new Float32Array(n * 2);
+        for (let v = 0; v < n; v++) {
+          const u = -pos.getX(v) * nz + pos.getZ(v) * nx;
+          t[v] = Math.min(1, Math.max(0, (u + ROPE_HALF) / (2 * ROPE_HALF)));
+          out[v * 2] = nx;
+          out[v * 2 + 1] = nz;
+        }
+        rope.setAttribute('aRope', new THREE.BufferAttribute(idx, 1));
+        rope.setAttribute('aT', new THREE.BufferAttribute(t, 1));
+        rope.setAttribute('aOut', new THREE.BufferAttribute(out, 2));
         ropeGeos.push(rope);
       }
+    }
+    for (let k = 0; k < ROPES; k++) {
+      this.ropeU.value[k * 4] = 0.5;
+      this.ropeU.value[k * 4 + 2] = 1;
     }
     const posts = new THREE.Mesh(
       mergeGeometries(postGeos)!,
@@ -194,7 +234,30 @@ export class Arena {
       ),
     );
     this.ropeMat = new THREE.MeshBasicMaterial({ color: this.ropeBase.clone(), toneMapped: false });
-    g.add(new THREE.Mesh(mergeGeometries(ropeGeos)!, this.ropeMat));
+    const ropeU = this.ropeU;
+    this.ropeMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uRope = ropeU;
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+           attribute float aRope; attribute float aT; attribute vec2 aOut; uniform vec4 uRope[${ROPES}];`,
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+           vec4 rp = uRope[int(aRope + 0.5)];
+           // pressed: straight lines from each post to the contact (a V); free: a swinging arc
+           float s = clamp(rp.x, 0.08, 0.92);
+           float vee = aT < s ? aT / s : (1.0 - aT) / (1.0 - s);
+           float shape = mix(vee, sin(3.14159265 * aT), rp.z);
+           transformed.xz += aOut * rp.y * shape;`,
+        );
+    };
+    const ropes = new THREE.Mesh(mergeGeometries(ropeGeos)!, this.ropeMat);
+    // bowing ropes reach past the merged bounds; they ring the camera's subject anyway
+    ropes.frustumCulled = false;
+    g.add(ropes);
 
     // stands + crowd
     this.buildCrowd(quality);
@@ -354,6 +417,101 @@ export class Arena {
     this.ropeFlash = Math.min(1.5, this.ropeFlash + k);
   }
 
+  /** A fighter slammed into the ropes: that side's ropes twang outwards. */
+  ropeHit(x: number, z: number, strength: number) {
+    const side = sideOf(x, z);
+    const at = (-x * SIDE_NZ[side] + z * SIDE_NX[side] + ROPE_HALF) / (2 * ROPE_HALF);
+    for (let h = 0; h < ROPE_HEIGHTS.length; h++) {
+      const k = side * ROPE_HEIGHTS.length + h;
+      this.ropeVel[k] += Math.min(3, strength) * (h === 1 ? 0.5 : 0.35);
+      this.ropeU.value[k * 4] = Math.min(0.92, Math.max(0.08, at));
+    }
+  }
+
+  /**
+   * Let the fighters' bodies press into the ropes. Each joint is treated as a ball
+   * the size of the armour around it; where it crosses a rope's line, that rope is
+   * pushed out to meet it. Cheap: 32 balls against the 3 ropes of their nearest side.
+   */
+  pressRopes(bodies: readonly (readonly THREE.Vector3[])[]) {
+    const press = this.ropePress.fill(0);
+    const at = this.ropeAt;
+    const nH = ROPE_HEIGHTS.length;
+    for (const joints of bodies) {
+      for (let j = 0; j < joints.length; j++) {
+        const p = joints[j];
+        const rad = PRESS_RADII[j] ?? 0.15;
+        const side = sideOf(p.x, p.z);
+        const nx = SIDE_NX[side], nz = SIDE_NZ[side];
+        const reach = p.x * nx + p.z * nz - ROPE_LINE;
+        if (reach + rad <= 0) continue;
+        const along = (-p.x * nz + p.z * nx + ROPE_HALF) / (2 * ROPE_HALF);
+        for (let h = 0; h < nH; h++) {
+          const dy = p.y - ROPE_HEIGHTS[h];
+          if (Math.abs(dy) >= rad) continue;
+          // the ball's width at the rope's height
+          const d = reach + Math.sqrt(rad * rad - dy * dy);
+          const k = side * nH + h;
+          if (d > press[k]) {
+            press[k] = d;
+            at[k] = along;
+          }
+        }
+      }
+    }
+    // the ropes are tied together at the posts and sag together: neighbours follow a little
+    for (let side = 0; side < SIDES; side++) {
+      const k = side * nH;
+      const mid = press[k + 1];
+      if (press[k] < mid * 0.35) {
+        press[k] = mid * 0.35;
+        at[k] = at[k + 1];
+      }
+      if (press[k + 2] < mid * 0.35) {
+        press[k + 2] = mid * 0.35;
+        at[k + 2] = at[k + 1];
+      }
+      const hi = Math.max(press[k], press[k + 2]);
+      if (press[k + 1] < hi * 0.35) {
+        press[k + 1] = hi * 0.35;
+        at[k + 1] = press[k] > press[k + 2] ? at[k] : at[k + 2];
+      }
+    }
+  }
+
+  private updateRopes(dt: number) {
+    if (dt <= 0) return;
+    const u = this.ropeU.value;
+    const step = Math.min(dt, 1 / 30);
+    for (let k = 0; k < ROPES; k++) {
+      let x = u[k * 4 + 1];
+      let v = this.ropeVel[k];
+      const press = this.ropePress[k];
+      // springs back (overshooting a touch into the ring), then settles
+      v += (-ROPE_K * x - ROPE_C * v) * step;
+      x += v * step;
+      if (press > x) {
+        // a body is leaning on it: the rope stays wrapped against the armour
+        v = Math.max(v, Math.min(4, (press - x) / step));
+        x = press;
+        u[k * 4] += (this.ropeAt[k] - u[k * 4]) * Math.min(1, step * 20);
+        u[k * 4 + 2] = Math.max(0, u[k * 4 + 2] - step * 8);
+      } else {
+        // let go: it swings in its natural arc
+        u[k * 4 + 2] = Math.min(1, u[k * 4 + 2] + step * 2.5);
+      }
+      if (x > 0.7) {
+        x = 0.7;
+        v = Math.min(v, 0);
+      } else if (x < -0.2) {
+        x = -0.2;
+        v = Math.max(v, 0);
+      }
+      u[k * 4 + 1] = x;
+      this.ropeVel[k] = v;
+    }
+  }
+
   excite(k: number) {
     this.hype = Math.min(1.5, this.hype + k);
   }
@@ -364,9 +522,11 @@ export class Arena {
     this.uniforms.uHype.value = this.hype;
     this.ropeFlash = Math.max(0, this.ropeFlash - dt * 3);
     this.ropeMat.color.copy(this.ropeBase).multiplyScalar(1 + this.ropeFlash * 1.6);
+    this.updateRopes(dt);
     for (let i = 0; i < this.beams.length; i++) {
       const b = this.beams[i];
       b.rotation.z = Math.sin(time * 0.3 + i) * 0.04;
     }
   }
 }
+

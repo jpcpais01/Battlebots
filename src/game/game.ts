@@ -225,6 +225,7 @@ export class Game {
         break;
       case 'ropes':
         this.arena.flashRopes(0.8);
+        this.arena.ropeHit(data.x, data.z, data.strength);
         sfx?.ropes();
         break;
       case 'ko':
@@ -302,6 +303,7 @@ export class Game {
       model.update(fighter, this.showAcc / SIM_DT, this.time);
     }
     this.fx.update(dt, this.stage.camera);
+    this.arena.pressRopes(m && this.models.length === 2 ? [this.models[0].joints, this.models[1].joints] : []);
     this.arena.update(dt, this.time);
     this.director.update(dt, m);
     if (m && this.director.mode === 'match') {
