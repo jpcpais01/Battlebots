@@ -5,6 +5,7 @@ import { Fighter, resetUids, type StrikeAction } from './fighter';
 import { Showman } from './emote';
 import type { MoveDef, Zone } from './moves';
 import { clamp, closestOnSegment, lerp, Rng, smoothstep } from './math';
+import { armPart, CUT_JOINTS, legPart, LOOSE, P, PART_COUNT, type LossReason } from './damage';
 import { computeBuild } from '../game/items';
 import type { BotSpec } from '../game/loadout';
 import { perf } from '../perf';
@@ -14,6 +15,7 @@ export const SIM_DT = 1 / 120;
 export const ROUND_TIME = 99;
 
 export type MatchPhase = 'intro' | 'countdown' | 'fight' | 'ko' | 'end';
+export type FinishKind = 'KO' | 'TKO' | 'Dismantled';
 
 export interface HitInfo {
   attacker: Fighter;
@@ -31,6 +33,32 @@ export interface HitInfo {
   stagger: boolean;
   shielded: boolean;
   guardBreak: boolean;
+  /** The defender's body part that took it (for a block, the forearm or upper arm). */
+  part: number;
+  /** Part condition after the hit (1 = pristine). */
+  partCond: number;
+  /** A part was torn off by this hit (the part that was hit, not everything it carried). */
+  tore: number;
+}
+
+/** A part torn off a robot. */
+export interface DetachInfo {
+  f: Fighter;
+  by: Fighter;
+  part: number;
+  point: Vector3;
+  dir: Vector3;
+  /** How hard it was hit (damage before blocking). */
+  strength: number;
+  /** This loss ends the fight. */
+  fatal: LossReason | null;
+}
+
+/** A part crossed into a worse state: 0 dented (<70%), 1 damaged (<LOOSE), 2 wrecked (0%). */
+export interface WearInfo {
+  f: Fighter;
+  part: number;
+  level: 0 | 1 | 2;
 }
 
 export type MatchListener = (type: string, data: any) => void; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -69,7 +97,11 @@ export class Match {
   /** Suggested slow-motion factor for the renderer's clock. */
   slowmo = 1;
   winner: Fighter | null = null;
-  result: 'KO' | 'TKO' | 'Decision' | 'Draw' | null = null;
+  result: FinishKind | 'Decision' | 'Draw' | null = null;
+  /** For a 'Dismantled' finish: what was lost. */
+  lossReason: LossReason | null = null;
+  /** Wear level already announced per fighter and part (see WearInfo). */
+  private wearSeen = [new Int8Array(PART_COUNT).fill(-1), new Int8Array(PART_COUNT).fill(-1)];
   private listeners: MatchListener[] = [];
   private ropeCooldown = [0, 0];
   introLength = 2.6;
@@ -298,15 +330,20 @@ export class Match {
     const db = def.body.pos;
     const legsMove = s.zone === 'legs';
     const canGuard = (def.state === 'fight' || def.state === 'stun') && !legsMove;
+    const dp = def.parts;
     for (let k = 1; k <= 3; k++) {
       _p.lerpVectors(from, to, k / 3);
       let hit: 'block' | Zone | null = null;
       let blockHand = -1;
+      // which of the defender's parts it touched
+      let part: number = P.Chest;
       if (canGuard) {
         for (let side = 0; side < 2; side++) {
           const ds = def.strike;
           const sideCh = side === 0 ? 'L' : 'R';
           if (ds && ds.side === sideCh && ds.move.kind === 'punch' && ds.phase !== 'windup') continue;
+          // a torn-off arm guards nothing
+          if (dp.armOut(side)) continue;
           const el = db[side === 0 ? J.ElL : J.ElR];
           const hd = db[side === 0 ? J.HandL : J.HandR];
           const sh = db[side === 0 ? J.ShL : J.ShR];
@@ -316,6 +353,7 @@ export class Match {
           if (_c.distanceTo(_p) < r * 0.85 + 0.048) {
             hit = 'block';
             blockHand = side;
+            part = armPart(side, 1);
             break;
           }
           if (s.zone === 'body') {
@@ -323,46 +361,60 @@ export class Match {
             if (_c.distanceTo(_p) < r * 0.85 + 0.048) {
               hit = 'block';
               blockHand = side;
+              part = armPart(side, 0);
               break;
             }
           }
         }
       }
-      if (!hit && _p.distanceTo(db[J.Head]) < r + 0.17) hit = 'head';
+      if (!hit && _p.distanceTo(db[J.Head]) < r + 0.17) {
+        hit = 'head';
+        part = P.Head;
+      }
       if (!hit) {
-        closestOnSegment(_p, db[J.Pelvis], db[J.Chest], _c);
-        if (_c.distanceTo(_p) < r + 0.25) hit = 'body';
-        else if (_p.distanceTo(db[J.Neck]) < r + 0.1) hit = 'head';
+        const pv = db[J.Pelvis], ch = db[J.Chest];
+        closestOnSegment(_p, pv, ch, _c);
+        if (_c.distanceTo(_p) < r + 0.25) {
+          hit = 'body';
+          // upper half of the trunk is the chest plate, lower half the waist and hips
+          const len = pv.distanceTo(ch);
+          part = len > 1e-4 && _c.distanceTo(pv) / len > 0.6 ? P.Chest : P.Torso;
+        } else if (_p.distanceTo(db[J.Neck]) < r + 0.1) {
+          hit = 'head';
+          part = P.Head;
+        }
       }
       if (!hit && legsMove) {
-        for (const [h, kn, ft] of [
-          [J.HipL, J.KneeL, J.FootL],
-          [J.HipR, J.KneeR, J.FootR],
-        ]) {
+        for (let side = 0; side < 2; side++) {
+          const h = side ? J.HipR : J.HipL, kn = side ? J.KneeR : J.KneeL, ft = side ? J.FootR : J.FootL;
           closestOnSegment(_p, db[kn], db[ft], _c);
           const d1 = _c.distanceTo(_p);
+          const shinT = _c.distanceTo(db[kn]) / Math.max(1e-4, db[kn].distanceTo(db[ft]));
           closestOnSegment(_p, db[h], db[kn], _c);
           const d2 = _c.distanceTo(_p);
           if (Math.min(d1, d2) < r + 0.09) {
             hit = 'legs';
+            part = d2 < d1 ? legPart(side, 0) : shinT > 0.78 ? legPart(side, 2) : legPart(side, 1);
             break;
           }
         }
       }
       if (hit) {
-        this.resolveHit(att, def, s, hit === 'block' ? s.zone : hit, hit === 'block', _p.clone(), blockHand);
+        this.resolveHit(att, def, s, hit === 'block' ? s.zone : hit, hit === 'block', _p.clone(), blockHand, part);
         return;
       }
     }
   }
 
   // ---------------------------------------------------------------- damage
-  private resolveHit(att: Fighter, def: Fighter, s: StrikeAction, zone: Zone, blocked: boolean, point: Vector3, blockHand: number) {
+  private resolveHit(att: Fighter, def: Fighter, s: StrikeAction, zone: Zone, blocked: boolean, point: Vector3, blockHand: number, part: number) {
     const m = s.move;
     const ast = att.build.stats;
     const dst = def.build.stats;
     const rng = this.rng;
-    const power = m.kind === 'punch' ? ast.punchPower : ast.kickPower;
+    const side = s.side === 'L' ? 0 : 1;
+    // a cracked fist or foot hits softer
+    const power = m.kind === 'punch' ? ast.punchPower * att.parts.fistPower(side) : ast.kickPower * att.parts.footPower(side);
     const timing = 0.55 + 0.45 * smoothstep(0.08, 0.6, s.activeProgress);
     let dmg = m.damage * power * timing;
     if (zone === 'head') dmg *= 1.15;
@@ -385,6 +437,8 @@ export class Match {
     dmg *= 1 - dst.armor;
     if (zone === 'head') dmg *= (1 - dst.headGuard) * (1 - def.passive('ironChin'));
     let guardBreak = false;
+    /** How hard it landed before the guard soaked it up (what the parts feel). */
+    const strength = dmg;
     if (blocked) {
       dmg *= (m.guardBreak ? 0.45 : 0.16) * (1 - def.passive('plating'));
     }
@@ -408,6 +462,28 @@ export class Match {
     def.hp = Math.max(0, def.hp - dmg);
     def.poise -= poiseDmg;
     def.lastHitTime = this.time;
+
+    // locational damage: the part it landed on wears down; a block wears the guarding arm
+    // and the fist or foot thrown into it
+    let tore = -1;
+    let partCond = def.parts.cond[part];
+    if (!shielded) {
+      const strikerPart = this.strikerPart(s);
+      if (blocked) {
+        partCond = def.parts.damage(part, strength * (m.guardBreak ? 0.6 : 0.38));
+        this.wearCheck(def, part);
+        if (strikerPart >= 0) {
+          att.parts.damage(strikerPart, strength * 0.24);
+          this.wearCheck(att, strikerPart);
+        }
+      } else {
+        partCond = def.parts.damage(part, dmg);
+        this.wearCheck(def, part);
+      }
+      // a strong enough shot on a part hanging on by a thread rips it off
+      const chance = def.parts.tearChance(part, (blocked ? strength * 0.6 : strength) * (crit ? 1.25 : 1) * (m.ability ? 1.15 : 1));
+      if (chance > 0 && rng.chance(chance)) tore = part;
+    }
     if (!blocked) {
       att.stats.dealt += dmg;
       att.stats.landed++;
@@ -477,12 +553,30 @@ export class Match {
     // stun / stagger / knockdown
     let knockdown = false;
     let stagger = false;
-    const heavy = dmg >= 55 || crit || !!m.ability;
-    if (def.hp <= 0) {
+    const heavy = dmg >= 55 || crit || !!m.ability || tore >= 0;
+    let fatal: LossReason | null = null;
+    if (tore >= 0) {
+      def.parts.detach(tore);
+      def.body.sever(CUT_JOINTS[tore]);
+      // the torn part flies off with the blow
+      for (const j of CUT_JOINTS[tore]) {
+        _b.copy(dir).multiplyScalar(3 + strength * 0.03);
+        _b.y += 1.5;
+        def.body.addVelocity(j, _b, SIM_DT);
+      }
+      fatal = def.parts.lossReason();
+      if (def.strike && def.strike.move.kind === 'punch' && def.parts.armOut(def.strike.side === 'L' ? 0 : 1)) def.finishStrike(def.strike, true, 'interrupted');
+      const info: DetachInfo = { f: def, by: att, part: tore, point: point.clone(), dir: dir.clone(), strength, fatal };
+      this.emit('detach', info);
+    }
+    if (def.hp <= 0 || fatal) {
       knockdown = true;
-      def.hp = 0;
-      def.knockDown(dir, 2.5 + kb * 0.8);
-      this.ko(att, def, 'KO');
+      if (def.hp <= 0) def.hp = 0;
+      def.knockDown(dir, fatal === 'head' ? 1.2 : 2.5 + kb * 0.8, !fatal);
+      if (fatal) {
+        this.lossReason = fatal;
+        this.ko(att, def, 'Dismantled');
+      } else this.ko(att, def, 'KO');
     } else if (!blocked && zone === 'legs' && m.trip && rng.chance(clamp(m.trip + att.passive('trip') * 0.5 + (def.poise < 0 ? 0.25 : 0), 0, 0.9))) {
       knockdown = true;
       def.knockDown(_c.copy(dir).negate(), 1.2, false);
@@ -558,6 +652,9 @@ export class Match {
     if (knockdown) this.hitstop = Math.max(this.hitstop, 0.12);
 
     const info: HitInfo = {
+      part,
+      partCond,
+      tore,
       attacker: att,
       defender: def,
       move: m,
@@ -586,6 +683,30 @@ export class Match {
     } else ab.onMyStrikeEnd(s, dmg);
     const wasExposed = !!ds && ds.phase !== 'windup';
     dbn.onTaken(dmg, blocked, wasExposed, m);
+    if (tore >= 0 && !fatal) {
+      ab.onTore(tore);
+      dbn.onLost(tore);
+    }
+  }
+
+  /** The attacker's part that does the hitting (a knee strike lands with the thigh). */
+  private strikerPart(s: StrikeAction) {
+    const side = s.side === 'L' ? 0 : 1;
+    if (s.move.striker === 'hand') return armPart(side, 2);
+    if (s.move.striker === 'knee') return legPart(side, 0);
+    return legPart(side, 2);
+  }
+
+  /** Announce a part crossing into a worse state (dented, hanging loose, wrecked) once. */
+  private wearCheck(f: Fighter, part: number) {
+    const c = f.parts.cond[part];
+    const level = c <= 0 ? 2 : c < LOOSE ? 1 : c < 0.7 ? 0 : -1;
+    const seen = this.wearSeen[f.index];
+    if (level > seen[part]) {
+      seen[part] = level;
+      const info: WearInfo = { f, part, level: level as 0 | 1 | 2 };
+      this.emit('wear', info);
+    }
   }
 
   private stagger(f: Fighter, dur: number) {
@@ -598,7 +719,7 @@ export class Match {
     f.body.tone = 0.5;
   }
 
-  private ko(winner: Fighter, loser: Fighter, kind: 'KO' | 'TKO') {
+  private ko(winner: Fighter, loser: Fighter, kind: FinishKind) {
     if (this.phase !== 'fight') return;
     this.winner = winner;
     this.result = kind;
@@ -609,7 +730,7 @@ export class Match {
     if (winner.strike) winner.finishStrike(winner.strike, true, 'interrupted');
     winner.action = null;
     this.setPhase('ko');
-    this.emit('ko', { winner, loser, kind });
+    this.emit('ko', { winner, loser, kind, reason: kind === 'Dismantled' ? this.lossReason : null });
   }
 
   private decision() {

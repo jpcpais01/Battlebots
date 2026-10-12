@@ -780,7 +780,7 @@ export class App {
     // the win record is for fights against the AI
     if (!net) this.tally(won, draw);
     const verdict = draw ? 'DRAW' : won ? 'VICTORY' : 'DEFEAT';
-    const how = out.kind === 'Decision' ? 'on points' : out.kind === 'TKO' ? 'by TKO' : out.kind === 'KO' ? 'by knockout' : '';
+    const how = out.kind === 'Decision' ? 'on points' : out.kind === 'TKO' ? 'by TKO' : out.kind === 'KO' ? 'by knockout' : out.kind === 'Dismantled' ? 'by tearing it apart' : '';
     const who = draw ? 'Split down the middle' : `<b>${esc(m.fighters[out.winner].name)}</b> wins ${how}`;
     const acc = (f: Fighter) => (f.stats.thrown ? `${Math.round((f.stats.landed / f.stats.thrown) * 100)}%` : '–');
     const row = (label: string, va: number | string, vb: number | string, higher = true) => {

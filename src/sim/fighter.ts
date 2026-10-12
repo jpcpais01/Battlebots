@@ -1,6 +1,7 @@
 import { Vector3 } from 'three';
 import { Body, J, JOINT_COUNT } from './body';
 import { MOVES, type MoveDef, type MoveId, type Zone } from './moves';
+import { Parts } from './damage';
 import type { FighterBuild, PassiveId } from '../game/items';
 import {
   clamp,
@@ -308,6 +309,8 @@ export class Fighter {
   getupDur = 1.5;
   private _gk = { py: 0, pz: 0, pitch: 0, roll: 0, w: 0, feet: [0, 0, 0, 0, 0, 0], hands: [0, 0, 0, 0, 0, 0], knee: [0, 0], elbow: 0 };
   knockdowns = 0;
+  /** Condition of every body part (locational damage). */
+  readonly parts: Parts;
 
   // brain-controlled intent
   intentVel = new Vector3();
@@ -408,6 +411,7 @@ export class Fighter {
     this.build = build;
     this.rng = rng;
     this.noise = new Noise1(rng);
+    this.parts = new Parts(build.loadout);
     this.hp = build.stats.maxHp;
     this.stamina = build.stats.stamina;
     this.poise = this.maxPoise;
@@ -427,7 +431,7 @@ export class Fighter {
     return this.build.stats;
   }
   get maxPoise() {
-    return 200 * this.build.stats.stability;
+    return 200 * this.build.stats.stability * this.parts.balance();
   }
   passive(id: PassiveId) {
     return this.build.passives.get(id) ?? 0;
@@ -519,6 +523,20 @@ export class Fighter {
     return m;
   }
 
+  /** The limb a move would be thrown with now: a torn-off arm hands its punches to the other one. */
+  strikeSide(move: MoveDef): 'L' | 'R' {
+    let side: 'L' | 'R' = move.limb === 'lead' ? this.leadSide : this.rearSide;
+    if (move.kind === 'punch' && this.parts.armOut(side === 'L' ? 0 : 1)) side = side === 'L' ? 'R' : 'L';
+    return side;
+  }
+
+  /** Speed multiplier a move would be thrown at (a damaged arm or leg is slower). */
+  strikeSpeed(move: MoveDef, side = this.strikeSide(move)) {
+    const i = side === 'L' ? 0 : 1;
+    if (move.kind === 'kick') return (this.build.stats.punchSpeed * 0.5 + 0.5) * (1 + this.overdrive) * this.parts.legSpeed(i);
+    return this.speedMult() * this.parts.armSpeed(i);
+  }
+
   /** Can a new strike start right now (fresh or as a chained follow-up)? */
   canStrike(chain = false): boolean {
     if (this.state !== 'fight') return false;
@@ -537,9 +555,9 @@ export class Fighter {
     if ((this.cooldowns[id] ?? 0) > 0) return false;
     if (this.stamina < move.stamina * 0.6 && !feint) return false;
     const prev = this.strike;
-    let speed = this.speedMult();
-    if (move.kind === 'kick') speed = (this.build.stats.punchSpeed * 0.5 + 0.5) * (1 + this.overdrive);
-    const side: 'L' | 'R' = move.limb === 'lead' ? this.leadSide : this.rearSide;
+    const side = this.strikeSide(move);
+    if (move.kind === 'punch' && this.parts.armOut(side === 'L' ? 0 : 1)) return false;
+    let speed = this.strikeSpeed(move, side);
     let windupMul = 1;
     if (prev) {
       // A follow-up off the other hand is "loaded" by the previous rotation.
@@ -593,7 +611,7 @@ export class Fighter {
       if (s.phase !== 'windup' || s.t > s.windup * 0.6) return false;
       this.finishStrike(s, false, 'interrupted');
     } else if (this.action) return false;
-    const agility = this.build.stats.agility * (1 + this.passive('lightFeet'));
+    const agility = this.build.stats.agility * (1 + this.passive('lightFeet')) * this.parts.mobility();
     const cost = 5 * (1 - this.passive('slipstream'));
     if (this.stamina < cost) return false;
     this.stamina -= cost;
@@ -697,6 +715,7 @@ export class Fighter {
       let regen = st.staminaRegen;
       if (this.staminaRatio < 0.3) regen *= 1 + this.passive('secondWind');
       if (this.state === 'stagger') regen *= 0.4;
+      regen *= this.parts.regen();
       this.stamina = Math.min(st.stamina, this.stamina + regen * dt);
     }
     if (t - this.lastHitTime > 1.0) this.poise = Math.min(this.maxPoise, this.poise + 32 * dt);
@@ -845,7 +864,8 @@ export class Fighter {
         if (s.move.multi && s.sub < s.move.multi - 1) {
           // next piston punch, other hand
           s.sub++;
-          s.side = s.side === 'L' ? 'R' : 'L';
+          const other = s.side === 'L' ? 'R' : 'L';
+          if (!this.parts.armOut(other === 'L' ? 0 : 1)) s.side = other;
           s.phase = 'windup';
           s.t = 0;
           s.hasHit = false;
@@ -883,9 +903,10 @@ export class Fighter {
   private updateRoot(dt: number) {
     const st = this.build.stats;
     if (this.state === 'down' || this.state === 'ko') return;
-    let maxSpd = st.moveSpeed * (1 + this.overdrive * 0.5);
+    const legs = this.parts.mobility();
+    let maxSpd = st.moveSpeed * (1 + this.overdrive * 0.5) * legs;
     if (this.staminaRatio < 0.2) maxSpd *= 0.8;
-    let accel = 10 * st.agility;
+    let accel = 10 * st.agility * legs;
     const s = this.strike;
     if (s) {
       maxSpd *= s.phase === 'recovery' ? 0.5 : 0.3;
@@ -1067,7 +1088,7 @@ export class Fighter {
     const f = this.feet[best];
     this.stanceFoot(best, _p);
     this.toWorld(_p, _q, this.yaw);
-    f.dur = clamp(0.24 / Math.sqrt(this.build.stats.agility * (moving > 1.2 ? 1.4 : 1)), 0.12, kick ? 0.13 : 0.26);
+    f.dur = clamp(0.24 / Math.sqrt(this.build.stats.agility * this.parts.mobility() * (moving > 1.2 ? 1.4 : 1)), 0.12, kick ? 0.13 : 0.3);
     _q.addScaledVector(this.rootVel, f.dur * 0.8);
     f.from.copy(f.pos);
     f.to.copy(_q);

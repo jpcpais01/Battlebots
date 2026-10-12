@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { RenderSettings } from './settings';
 
 const MAX_PARTICLES = 700;
+/** Smoke puffs and metal flakes (alpha blended, so they can be dark). */
+const MAX_SMOKE = 260;
 
 function glowTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');
@@ -51,6 +53,22 @@ export class Fx {
   private flameMat: THREE.MeshBasicMaterial;
   private flameUsed = 0;
   pixelScale = 600;
+  // smoke and shrapnel: a second, normally blended particle pool
+  private sPos = new Float32Array(MAX_SMOKE * 3);
+  private sVel = new Float32Array(MAX_SMOKE * 3);
+  private sCol = new Float32Array(MAX_SMOKE * 3);
+  private sLife = new Float32Array(MAX_SMOKE);
+  private sMax = new Float32Array(MAX_SMOKE);
+  private sSize = new Float32Array(MAX_SMOKE);
+  private sGrow = new Float32Array(MAX_SMOKE);
+  private sGrav = new Float32Array(MAX_SMOKE);
+  private sDrag = new Float32Array(MAX_SMOKE);
+  private sAlpha = new Float32Array(MAX_SMOKE);
+  private sShown = new Float32Array(MAX_SMOKE);
+  private sPeak = new Float32Array(MAX_SMOKE);
+  private sNext = 0;
+  private smokeGeo: THREE.BufferGeometry;
+  private smokePts: THREE.Points;
 
   constructor() {
     this.geo = new THREE.BufferGeometry();
@@ -73,6 +91,30 @@ export class Fx {
     this.points = new THREE.Points(this.geo, mat);
     this.points.frustumCulled = false;
     this.group.add(this.points);
+
+    this.smokeGeo = new THREE.BufferGeometry();
+    this.smokeGeo.setAttribute('position', new THREE.BufferAttribute(this.sPos, 3).setUsage(THREE.DynamicDrawUsage));
+    this.smokeGeo.setAttribute('color', new THREE.BufferAttribute(this.sCol, 3).setUsage(THREE.DynamicDrawUsage));
+    this.smokeGeo.setAttribute('size', new THREE.BufferAttribute(this.sShown, 1).setUsage(THREE.DynamicDrawUsage));
+    this.smokeGeo.setAttribute('alpha', new THREE.BufferAttribute(this.sAlpha, 1).setUsage(THREE.DynamicDrawUsage));
+    this.smokePts = new THREE.Points(
+      this.smokeGeo,
+      new THREE.ShaderMaterial({
+        uniforms: { uScale: { value: 600 }, uTex: { value: this.tex } },
+        vertexShader: /* glsl */ `
+          attribute vec3 color; attribute float size; attribute float alpha; varying vec3 vC; varying float vA; uniform float uScale;
+          void main(){ vC = color; vA = alpha; vec4 mv = modelViewMatrix*vec4(position,1.); gl_PointSize = size * uScale / -mv.z; gl_Position = projectionMatrix*mv; }`,
+        fragmentShader: /* glsl */ `
+          uniform sampler2D uTex; varying vec3 vC; varying float vA;
+          void main(){ float a = texture2D(uTex, gl_PointCoord).a * vA; if (a < 0.01) discard; gl_FragColor = vec4(vC, a); }`,
+        transparent: true,
+        depthWrite: false,
+      }),
+    );
+    this.smokePts.frustumCulled = false;
+    this.smokePts.renderOrder = 1;
+    this.smokePts.visible = false;
+    this.group.add(this.smokePts);
 
     this.arcGeo = new THREE.BufferGeometry();
     this.arcGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(400 * 3), 3).setUsage(THREE.DynamicDrawUsage));
@@ -103,6 +145,46 @@ export class Fx {
 
   setPixelScale(h: number) {
     (this.points.material as THREE.ShaderMaterial).uniforms.uScale.value = h * 0.5;
+    (this.smokePts.material as THREE.ShaderMaterial).uniforms.uScale.value = h * 0.5;
+  }
+
+  private emitSmoke(p: THREE.Vector3, vx: number, vy: number, vz: number, gray: number, life: number, size: number, grow: number, alpha: number, grav: number, drag: number) {
+    const i = this.sNext;
+    this.sNext = (this.sNext + 1) % MAX_SMOKE;
+    this.sPos[i * 3] = p.x;
+    this.sPos[i * 3 + 1] = p.y;
+    this.sPos[i * 3 + 2] = p.z;
+    this.sVel[i * 3] = vx;
+    this.sVel[i * 3 + 1] = vy;
+    this.sVel[i * 3 + 2] = vz;
+    this.sCol[i * 3] = gray;
+    this.sCol[i * 3 + 1] = gray;
+    this.sCol[i * 3 + 2] = gray * 1.05;
+    this.sLife[i] = life;
+    this.sMax[i] = life;
+    this.sSize[i] = size;
+    this.sGrow[i] = grow;
+    this.sPeak[i] = alpha;
+    this.sGrav[i] = grav;
+    this.sDrag[i] = drag;
+  }
+
+  /** Dark smoke rising from damaged machinery. `heat` 0..1 thickens and darkens it. */
+  smoke(p: THREE.Vector3, count = 1, heat = 0.5) {
+    for (let i = 0; i < count; i++) {
+      _v.set(p.x + (Math.random() - 0.5) * 0.06, p.y + (Math.random() - 0.5) * 0.06, p.z + (Math.random() - 0.5) * 0.06);
+      const g = 0.05 + Math.random() * 0.08 + (1 - heat) * 0.12;
+      this.emitSmoke(_v, (Math.random() - 0.5) * 0.25, 0.35 + Math.random() * 0.35, (Math.random() - 0.5) * 0.25, g, 1.1 + Math.random() * 0.9, 0.12 + heat * 0.08, 0.32 + heat * 0.2, 0.35 + heat * 0.3, -0.25, 1.2);
+    }
+  }
+
+  /** Bits of plating knocked loose: small dark flakes that tumble to the canvas. */
+  shrapnel(p: THREE.Vector3, dir: THREE.Vector3, count: number, speed = 3) {
+    for (let i = 0; i < count; i++) {
+      const s = speed * (0.4 + Math.random() * 0.8);
+      const g = 0.1 + Math.random() * 0.25;
+      this.emitSmoke(p, dir.x * s + (Math.random() - 0.5) * speed, dir.y * s + Math.random() * speed * 0.8, dir.z * s + (Math.random() - 0.5) * speed, g, 0.7 + Math.random() * 0.6, 0.025 + Math.random() * 0.025, 0, 1, 9, 0.6);
+    }
   }
 
   makeTrail(color: THREE.ColorRepresentation, width = 0.16): Trail {
@@ -247,6 +329,39 @@ export class Fx {
     this.geo.attributes.color.needsUpdate = true;
     this.geo.attributes.size.needsUpdate = true;
     this.geo.attributes.alpha.needsUpdate = true;
+    let anySmoke = false;
+    for (let i = 0; i < MAX_SMOKE; i++) {
+      if (this.sLife[i] <= 0) {
+        this.sAlpha[i] = 0;
+        continue;
+      }
+      anySmoke = true;
+      this.sLife[i] -= dt;
+      const k = Math.max(0, this.sLife[i] / this.sMax[i]);
+      const drag = Math.exp(-this.sDrag[i] * dt);
+      this.sVel[i * 3] *= drag;
+      this.sVel[i * 3 + 1] = this.sVel[i * 3 + 1] * drag - this.sGrav[i] * dt;
+      this.sVel[i * 3 + 2] *= drag;
+      this.sPos[i * 3] += this.sVel[i * 3] * dt;
+      this.sPos[i * 3 + 1] += this.sVel[i * 3 + 1] * dt;
+      this.sPos[i * 3 + 2] += this.sVel[i * 3 + 2] * dt;
+      if (this.sPos[i * 3 + 1] < 0.015) {
+        this.sPos[i * 3 + 1] = 0.015;
+        this.sVel[i * 3 + 1] *= -0.2;
+        this.sVel[i * 3] *= 0.5;
+        this.sVel[i * 3 + 2] *= 0.5;
+      }
+      this.sShown[i] = this.sSize[i] * (1 + (1 - k) * this.sGrow[i] * 6);
+      // puffs fade in quickly and thin out as they spread
+      this.sAlpha[i] = this.sPeak[i] * Math.min(1, (1 - k) * 8) * k;
+    }
+    this.smokePts.visible = anySmoke;
+    if (anySmoke) {
+      this.smokeGeo.attributes.position.needsUpdate = true;
+      this.smokeGeo.attributes.color.needsUpdate = true;
+      this.smokeGeo.attributes.size.needsUpdate = true;
+      this.smokeGeo.attributes.alpha.needsUpdate = true;
+    }
 
     for (const f of this.flashes) {
       if (f.t >= f.life) continue;

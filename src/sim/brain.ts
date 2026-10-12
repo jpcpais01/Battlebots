@@ -3,6 +3,7 @@ import { Fighter, makeObservation, type DodgeType, type GuardMode, type Observat
 import { BASIC_PUNCHES, MOVES, type MoveDef, type MoveId, type Zone } from './moves';
 import { clamp, clamp01, lerp, Rng, smoothstep, sigmoid, softmaxPick } from './math';
 import { J } from './body';
+import { armPart, LOOSE, P } from './damage';
 import { DM } from './dmath';
 
 /**
@@ -265,7 +266,9 @@ export class Brain {
     return clamp(a, 0.05, 1);
   }
   private effCaution() {
-    return clamp(this.traits.caution + this.fear * 0.5 - this.anger * 0.35 + this.tired * 0.25, 0.05, 1);
+    // a cracked head makes anyone careful: one more big shot could take it off
+    const head = this.me.parts.wear(P.Head);
+    return clamp(this.traits.caution + this.fear * 0.5 - this.anger * 0.35 + this.tired * 0.25 + Math.max(0, head - 0.35) * 0.5, 0.05, 1);
   }
   private band(d: number) {
     return d < 0.95 ? 0 : d < 1.45 ? 1 : 2;
@@ -286,7 +289,8 @@ export class Brain {
     this.reactionTimer -= dt;
     if (this.reactionTimer <= 0) {
       this.reactionTimer = this.rng.range(0.15, 0.3);
-      const base = this.me.build.stats.reaction;
+      // a battered head reacts late
+      const base = this.me.build.stats.reaction * this.me.parts.reflexes();
       const jitter = clamp(1 + this.rng.gauss() * 0.18, 0.7, 1.5);
       const fatigue = 1 + this.tired * 0.35;
       const d = this.perceivedDist();
@@ -909,6 +913,8 @@ export class Brain {
     const inThreat = d < this.oppAttackRange.v + 0.25;
     if (inThreat && this.effCaution() > 0.55 && this.plan !== 'swarm') mode = 'high';
     if (this.plan === 'retreat' && inThreat) mode = 'high';
+    // shell up over a head that is about to come off
+    if (inThreat && me.parts.cond[P.Head] < LOOSE + 0.1 && this.plan !== 'swarm') mode = 'high';
     if (this.time < this.coverUntil && inThreat) mode = 'high';
     me.guardMode = mode;
     // a showboat who just landed a combo plays to the crowd once clear
@@ -928,13 +934,13 @@ export class Brain {
   }
 
   // ------------------------------------------------------------------- attack
-  private zoneAim(zone: Zone, obs: Observation, out: Vector3) {
+  private zoneAim(zone: Zone, obs: Observation, out: Vector3, move?: MoveDef) {
     const lead = this.reactionNow * (0.3 + this.traits.skill * 0.5);
     if (zone === 'head') out.copy(obs.head);
     else if (zone === 'body') out.copy(obs.chest).setY(obs.chest.y - 0.16);
     else {
-      // shin of whichever leg is nearer
-      out.set(obs.pos.x, 0.26, obs.pos.z);
+      // shin of whichever leg is nearer (a low kick chops in at the knee)
+      out.set(obs.pos.x, move?.path === 'roundKick' ? 0.6 : 0.26, obs.pos.z);
       const dx = this.me.root.x - obs.pos.x, dz = this.me.root.z - obs.pos.z;
       const l = DM.hypot(dx, dz) || 1;
       out.x += (dx / l) * 0.15;
@@ -951,7 +957,7 @@ export class Brain {
       const err = (1 - this.me.build.stats.accuracy) * 0.16 * (1 + this.tired * 0.8);
       this.aimNoise.set(this.rng.gauss() * err, this.rng.gauss() * err * 0.7, this.rng.gauss() * err * 0.5);
     }
-    this.zoneAim(s.zone, this.perceived, s.aim);
+    this.zoneAim(s.zone, this.perceived, s.aim, s.move);
     s.aim.add(this.aimNoise);
   }
 
@@ -972,7 +978,7 @@ export class Brain {
     const punish = this.time < this.punishUntil;
 
     const opts: { id: MoveId; zone: Zone; u: number; feint: boolean }[] = [];
-    const candidates: MoveId[] = [...BASIC_PUNCHES, me.build.fistAbility, me.build.kickAbility];
+    const candidates: MoveId[] = [...BASIC_PUNCHES, 'lowKick', me.build.fistAbility, me.build.kickAbility];
     for (const id of candidates) {
       const m = MOVES[id];
       if (me.cooldownLeft(id) > 0) continue;
@@ -1048,7 +1054,7 @@ export class Brain {
     const temp = 3 + this.traits.creativity * 18 + this.tired * 4;
     const viable = opts.filter((o) => o.u > best - temp * 2.5);
     const pick = viable[softmaxPick(viable.map((o) => o.u), temp, this.rng)];
-    const aim = this.zoneAim(pick.zone, p, new Vector3());
+    const aim = this.zoneAim(pick.zone, p, new Vector3(), MOVES[pick.id]);
     if (!me.tryStrike(pick.id, pick.zone, aim, pick.feint)) return false;
     if (pick.feint) this.lastFeint = { t: now, uid: me.strike!.uid };
     else if (chain) this.comboCount++;
@@ -1082,7 +1088,8 @@ export class Brain {
   ): number {
     const me = this.me;
     const p = this.perceived;
-    const speed = me.speedMult();
+    const side = me.strikeSide(m) === 'L' ? 0 : 1;
+    const speed = me.strikeSpeed(m);
     const windup = m.windup / speed;
     const tImpact = windup + (m.active / speed) * 0.5;
     // predicted distance at impact
@@ -1111,7 +1118,8 @@ export class Brain {
 
     const acc = 0.7 + 0.3 * me.build.stats.accuracy;
     const pHit = pReach * (1 - def) * acc;
-    const power = m.kind === 'punch' ? me.build.stats.punchPower : me.build.stats.kickPower;
+    const mp = me.parts;
+    const power = m.kind === 'punch' ? me.build.stats.punchPower * mp.fistPower(side) : me.build.stats.kickPower * mp.footPower(side);
     let dmg = m.damage * power * (zone === 'head' ? 1.15 : zone === 'legs' ? 0.85 : 1);
     // knockdown potential
     const finish = this.opp.hpRatio < 0.3 ? 1.25 : 1;
@@ -1155,9 +1163,46 @@ export class Brain {
     // variety: humans avoid repeating the same thing over and over
     if (!last && me.lastAction && me.lastAction.move.id === m.id) flow -= 3;
     if (m.ability) flow += 2 + (this.opp.hpRatio < 0.3 ? 6 : 0);
+    flow += this.partValue(m, zone, side, power, def);
 
     const noise = this.rng.gauss() * (2 + this.traits.creativity * 10);
     return ev * (0.6 + agg * 0.8) - risk * (0.4 + cau * 0.9) - cost + learned + flow + noise;
+  }
+
+  /**
+   * Locational damage in the choice of shot: go after the opponent's damaged parts (a part
+   * hanging loose is worth a big shot, it might come off), break down a guard whose arms are
+   * failing, and spare my own cracked fist or foot.
+   */
+  private partValue(m: MoveDef, zone: Zone, side: number, power: number, def: number) {
+    const op = this.opp.parts;
+    const t = this.traits;
+    const read = 0.5 + t.skill;
+    // chopping the legs: mix levels, and they can't block it with their hands
+    let v = m.id === 'lowKick' ? 11 + (1 - this.opp.parts.mobility()) * 20 : 0;
+    let target = -1;
+    if (zone === 'head') target = P.Head;
+    else if (zone === 'body') target = op.cond[P.Chest] < op.cond[P.Torso] ? P.Chest : P.Torso;
+    else {
+      // go for the worse leg
+      const l = Math.min(op.cond[P.ShinL], op.cond[P.ThighL]), r = Math.min(op.cond[P.ShinR], op.cond[P.ThighR]);
+      target = l < r ? (op.cond[P.ShinL] < op.cond[P.ThighL] ? P.ShinL : P.ThighL) : op.cond[P.ShinR] < op.cond[P.ThighR] ? P.ShinR : P.ThighR;
+    }
+    v += op.wear(target) * 7 * read;
+    // a hard shot at a part that's hanging loose could end it
+    const strength = m.damage * power * (m.ability ? 1.15 : 1);
+    const tear = op.tearChance(target, strength);
+    if (tear > 0) v += tear * (zone === 'body' ? 25 : 60) * read * (1 - def);
+    // their guard arms are failing: power shots into the guard can rip one off
+    if (zone !== 'legs' && m.power) {
+      const g = Math.max(op.tearChance(armPart(0, 1), strength * 0.6), op.tearChance(armPart(1, 1), strength * 0.6));
+      v += g * 30 * read * def;
+    }
+    // my own cracked fist or foot: every shot with it hurts me too
+    const mp = this.me.parts;
+    const mine = m.kind === 'punch' ? mp.wear(armPart(side, 2)) : mp.wear(P.FootL + side * 3);
+    v -= mine * mine * 9 * (0.6 + this.effCaution());
+    return v;
   }
 
   // ------------------------------------------------------------------ defense
@@ -1184,7 +1229,7 @@ export class Brain {
     this.recordOppAttack(move, DM.hypot(p.pos.x - me.root.x, p.pos.z - me.root.z));
 
     // did we notice?
-    const notice = clamp(0.5 + this.traits.skill * 0.45 - this.tired * 0.25 + (this.plan === 'counter' ? 0.1 : 0), 0.25, 0.97);
+    const notice = clamp(0.5 + this.traits.skill * 0.45 - this.tired * 0.25 + (this.plan === 'counter' ? 0.1 : 0) - me.parts.wear(P.Head) * 0.18, 0.25, 0.97);
     if (!this.rng.chance(notice)) return;
 
     const elapsed = this.time - p.t;
@@ -1227,6 +1272,8 @@ export class Brain {
       if (r === 'counter') v *= 0.5 + agg + this.anger * 0.4;
       if (r === 'counter' && d > MOVES.jab.range[1] + me.build.stats.reach) v *= 0.2;
       if (r === 'block' && move.guardBreak) v *= 0.4;
+      // my guard arms are wrecked: blocking with them might cost me an arm
+      if (r === 'block') v *= 1 - 0.55 * DM.pow(Math.max(me.parts.wear(armPart(0, 1)), me.parts.wear(armPart(1, 1))), 1.5) - 0.2 * me.parts.armsLost;
       if (r === 'block' && move.kind === 'kick' && move.knockback > 3) v *= 0.6;
       if ((r === 'backstep' || r === 'sidestep') && me.staminaRatio < 0.15) v *= 0.4;
       if (r === 'backstep') {
@@ -1414,6 +1461,21 @@ export class Brain {
       this.exitLat = this.circleDir * 0.6;
       this.tempo *= 0.3;
     }
+  }
+
+  /** I tore one of their parts off. */
+  onTore(_part: number) {
+    this.confidence = clamp01(this.confidence + 0.25);
+    this.tempo = Math.max(this.tempo, 0.8);
+  }
+
+  /** One of my parts was torn off. */
+  onLost(_part: number) {
+    this.fear = clamp01(this.fear + 0.35 * (1 - this.traits.temper));
+    this.anger = clamp01(this.anger + 0.4 * this.traits.temper);
+    this.coverUntil = this.time + 0.8;
+    this.exitUntil = this.time + 1;
+    this.circleDir = this.chooseCircleDir();
   }
 
   /** Opponent's strike missed or was dodged while I was responding. */
