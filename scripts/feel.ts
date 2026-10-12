@@ -27,6 +27,8 @@ let rangeSwaps = 0;
 let speedSamples = 0;
 const accSamples: number[] = [];
 let turnDiff = 0, turnN = 0;
+// stand-offs: nobody has started a strike for over 1.5s, split by distance
+let closeStall = 0, farStall = 0, longestClose = 0;
 
 for (let i = 0; i < N; i++) {
   const m = new Match(randomBot(rng), randomBot(rng), rng.int(0, 1e9));
@@ -36,6 +38,7 @@ for (let i = 0; i < N; i++) {
   m.on((type, d) => {
     if (type === 'strikeStart' && !d.s.feint && m.phase === 'fight') {
       starts[d.f.index].push(m.time);
+      lastStrike = m.time;
       if (!d.s.chained) bursts[d.f.index].push(m.time);
       strikes++;
       if (d.s.chained) chained++;
@@ -44,6 +47,7 @@ for (let i = 0; i < N; i++) {
   const dist: number[] = [];
   let zone = -1;
   const prevV = [0, 0];
+  let lastStrike = 0, closeRun = 0;
   let steps = 0;
   while (m.phase !== 'end' && steps < 140 * 120) {
     m.step(SIM_DT);
@@ -55,6 +59,14 @@ for (let i = 0; i < N; i++) {
       if (a.isDown || b.isDown) continue;
       const d = a.distTo(b);
       dist.push(d);
+      if (m.time - lastStrike > 1.5) {
+        if (d < 1.35) {
+          closeStall += 6 * SIM_DT;
+          closeRun += 6 * SIM_DT;
+          longestClose = Math.max(longestClose, closeRun);
+        } else farStall += 6 * SIM_DT;
+      }
+      if (d >= 1.35 || m.time - lastStrike <= 1.5) closeRun = 0;
       const z = d < 1.25 ? 0 : d > 1.65 ? 1 : zone;
       if (zone >= 0 && z !== zone) rangeSwaps++;
       zone = z;
@@ -104,4 +116,5 @@ console.log(`gaps between combos: CV ${mean(burstCv).toFixed(2)} (low = attacks 
 console.log(`pace: ${((strikes / fightTime / 2) * 60).toFixed(0)} strikes per bot per minute`);
 console.log(`combos: ${pct(chained, strikes)} of strikes chained | exchanges/min ${((exchanges / fightTime) * 60).toFixed(1)} | lulls(>2.5s)/min ${((lulls / fightTime) * 60).toFixed(1)}`);
 console.log(`footwork: still ${pct(speedBins[0], speedSamples)} slow ${pct(speedBins[1], speedSamples)} walk ${pct(speedBins[2], speedSamples)} fast ${pct(speedBins[3], speedSamples)} | mean |accel| ${mean(accSamples).toFixed(2)} m/s²`);
+console.log(`stand-offs (nobody striking >1.5s): close ${((closeStall / fightTime) * 60).toFixed(1)} s/min, at range ${((farStall / fightTime) * 60).toFixed(1)} s/min, longest close ${longestClose.toFixed(1)}s`);
 console.log(`range: distance std ${mean(dStd).toFixed(2)}m | in/out range changes/min ${((rangeSwaps / fightTime) * 60).toFixed(1)} | mean facing error ${((turnDiff / turnN) * 57.3).toFixed(1)}°`);
