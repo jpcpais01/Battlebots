@@ -23,7 +23,8 @@ import {
 import { hourLabel, PATCH_NOTES } from '../patchNotes';
 import { PALETTES, randomBot, randomName, type BotSpec } from '../game/loadout';
 import { button, el, esc, hex } from './dom';
-import { Hud, pipsHtml } from './hud';
+import { Hud } from './hud';
+import { botCardInner, paintOf } from './botCard';
 import { PerfOverlay } from './perfOverlay';
 import { ABILITY_ICON, ICON, SLOT_ICON } from './icons';
 import { forceUpdate } from '../update';
@@ -172,7 +173,7 @@ export class App {
     const left = el('div', 'home-left', '', s);
     const logo = el('div', 'logo', `<span class="l1">BATTLE</span><span class="l2">BOTS</span><span class="tag">ROBOT BOXING ARENA</span>`, left);
     this.patchBtn(logo);
-    this.homeCard = el('div', 'botcard interactive', '', left);
+    this.homeCard = el('div', 'bcard l home interactive', '', left);
     this.homeCard.addEventListener('click', () => {
       this.tap('select');
       this.go('garage');
@@ -201,10 +202,9 @@ export class App {
   private refreshHome() {
     const p = this.player;
     const b = computeBuild(p.loadout);
-    this.homeCard!.innerHTML = `
-      <div class="name">${esc(p.name)}</div>
-      <div class="sub"><span>Power <b>${b.rating}</b></span><span>${MOVES[b.fistAbility].name}</span><span>${MOVES[b.kickAbility].name}</span></div>
-      <div class="pips">${pipsHtml(p)}</div>`;
+    const card = this.homeCard!;
+    card.style.setProperty('--paint', paintOf(p));
+    card.innerHTML = botCardInner(this.game, p, b, { side: 'l', tag: 'Your bot', delay: 0.15 });
     const r = this.record;
     this.homeRecord!.innerHTML = `W <b>${r.wins}</b> · L <b>${r.losses}</b>${r.draws ? ` · D <b>${r.draws}</b>` : ''}${r.streak > 1 ? ` · Streak <b>${r.streak}</b>` : ''}`;
   }

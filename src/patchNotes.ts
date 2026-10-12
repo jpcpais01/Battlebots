@@ -17,11 +17,16 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-12 20:00',
-    title: 'Clearer ringside camera',
+    title: 'Rebuilt robots, new bot cards and better kicks',
     notes: [
       'Every robot part has been rebuilt with far more mechanical detail: bolts, vents, layered plates, springs, pistons and lit sensors, and each item now has its own silhouette.',
       'Each power core now has its own back reactor: twin exhaust stacks, a hex generator, collector tanks or a coil tower.',
       'Rarity now shows on the robot itself: Epic parts add bolted armour, Legendary adds chrome trim, and Mythic adds signature fins, blades and a V-crest lit in the rarity colour.',
+      'Reworked kicks: the push kick lifts the knee and drives the foot straight out, the roundhouse turns the hips over and whips the shin in at head height, and the spinning heel turns on the planted foot and drives the heel back.',
+      'Kicking legs no longer fold up, flip at the knee or cross the standing leg, even up close or when the opponent steps aside.',
+      'The standing foot stays planted and pivots through every kick, and the sweep and Jet Knee recover more cleanly.',
+      'Your bot card on the home screen has the same new look: real renders of all six fitted parts in your paint and rarity, plus your power and moves. Tap it to open the garage.',
+      'New fight intro: each bot gets a versus card at the side of the screen with its real parts in its own paint and rarity, its power and its two moves, so the robots in the ring stay in view.',
       'Ropes and barriers now only turn see-through when the camera is right up against them (within about a metre); farther away they stay solid.',
     ],
   },
