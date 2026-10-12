@@ -6,7 +6,9 @@ import { Director } from '../render/director';
 import { ClearView } from '../render/clearView';
 import { CrowdMood } from '../audio/crowd';
 import { BotModel } from '../render/botModel';
-import { Match, SIM_DT, type HitInfo } from '../sim/match';
+import { Match, SIM_DT, type DetachInfo, type HitInfo } from '../sim/match';
+import { CUT_JOINTS, P, PART_COUNT } from '../sim/damage';
+import { Debris } from '../render/debris';
 import { Fighter } from '../sim/fighter';
 import { J } from '../sim/body';
 import { Rng } from '../sim/math';
@@ -34,6 +36,39 @@ export interface GameCallbacks {
 const _v = new THREE.Vector3();
 const _u = new THREE.Vector3();
 const _pan = new THREE.Vector3();
+const _dp = new THREE.Vector3();
+const _up = new THREE.Vector3(0, 1, 0);
+
+/** Where each body part sits on the robot: one joint, or the middle of two. */
+const PART_AT: [number, number][] = [
+  [J.Head, J.Head],
+  [J.Chest, J.Chest],
+  [J.Pelvis, J.Chest],
+  [J.ShL, J.ElL],
+  [J.ElL, J.HandL],
+  [J.HandL, J.HandL],
+  [J.ShR, J.ElR],
+  [J.ElR, J.HandR],
+  [J.HandR, J.HandR],
+  [J.HipL, J.KneeL],
+  [J.KneeL, J.FootL],
+  [J.FootL, J.FootL],
+  [J.HipR, J.KneeR],
+  [J.KneeR, J.FootR],
+  [J.FootR, J.FootR],
+];
+/** The joint a torn-off part leaves its stump at. */
+const STUMP: Partial<Record<number, number>> = {
+  [P.Head]: J.Neck,
+  [P.UpL]: J.ShL,
+  [P.ForeL]: J.ElL,
+  [P.UpR]: J.ShR,
+  [P.ForeR]: J.ElR,
+  [P.ThighL]: J.HipL,
+  [P.ShinL]: J.KneeL,
+  [P.ThighR]: J.HipR,
+  [P.ShinR]: J.KneeR,
+};
 
 /** Owns the 3D world and runs matches. UI lives elsewhere and listens. */
 export class Game {
@@ -74,6 +109,11 @@ export class Game {
   private _thumbs: PartThumbs | null = null;
   place: Place = 'arena';
   private onLift = { name: '', power: 0, palette: 0 };
+  /** Torn-off robot parts lying about the ring. */
+  readonly debris = new Debris();
+  /** Per fighter: stumps left by torn parts (joint, age in seconds). */
+  private stumps: { joint: number; age: number }[][] = [[], []];
+  private feet: THREE.Vector3[] = [];
 
   constructor(canvas: HTMLCanvasElement, quality: Quality) {
     this.stage = new Stage(canvas, quality);
@@ -89,6 +129,7 @@ export class Game {
     if (import.meta.env.DEV) warnNonFinite(this.stage.scene);
     this.fx = new Fx();
     this.stage.scene.add(this.fx.group);
+    this.stage.scene.add(this.debris.group);
     this.tagParts();
     this.director = new Director(this.stage.camera);
     this.stage.onResize = (w, h) => {
@@ -108,6 +149,7 @@ export class Game {
     p.tag(this.arena.venue.group, 'venue');
     p.tag(this.arena.venue.crowd.group, 'crowd');
     p.tag(this.fx.group, 'effects');
+    p.tag(this.debris.group, 'bots');
     this.arena.group.traverse((o) => {
       if (o.name === 'ropes' || o.name === 'beams') p.tag(o, o.name);
     });
@@ -239,6 +281,8 @@ export class Game {
     this.trails = [];
     this.models = [];
     this.match = null;
+    this.debris.clear();
+    this.stumps = [[], []];
   }
 
   private onEvent(type: string, data: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -273,6 +317,7 @@ export class Game {
           if (h.attacker.passive('siphon') > 0) fx.siphon(h.defender.body.pos[J.Chest], h.attacker.body.pos[J.Chest], 0x52ff6a);
         }
         if (h.move.vfx === 'shock' && !h.blocked) fx.arc(h.defender.body.pos[J.Head], 0.9);
+        this.partHit(h);
         if (h.knockdown) {
           this.director.shake(0.6);
           this.director.punch(4);
@@ -282,6 +327,9 @@ export class Game {
       }
       case 'stagger':
         this.arena.excite(0.4);
+        break;
+      case 'detach':
+        this.tearOff(data as DetachInfo);
         break;
       case 'static': {
         fx.arc(data.to.body.pos[J.Chest], 0.4, 0xc77dff);
@@ -374,7 +422,15 @@ export class Game {
         } else model.root.position.set(0, 0, 0);
         this.updateTrailsAndFlames(i);
         this.groundImpacts(i);
+        this.damageEffects(i, dt * this.speed * m.slowmo);
       }
+      this.feet.length = 0;
+      for (let i = 0; i < 2; i++) {
+        const f = m.fighters[i];
+        if (!f.parts.legOut(0)) this.feet.push(this.models[i].joints[J.FootL]);
+        if (!f.parts.legOut(1)) this.feet.push(this.models[i].joints[J.FootR]);
+      }
+      this.debris.update(dt * this.speed * m.slowmo, this.fx, this.feet, (p, sp) => this.sfx?.thud(Math.min(0.7, sp / 6), this.pan(p)));
       perf.lap('bots');
     }
     if (this.showcase) {
@@ -474,6 +530,87 @@ export class Game {
         const h = model.joints[s.side === 'L' ? J.HandL : J.HandR];
         this.fx.sparks(h, _v.set(0, 0.5, 0), 2, 0xff7a2a, 1.5, 0.6);
       }
+    }
+  }
+
+  // ------------------------------------------------------------- battle damage
+  /** The hit part flares hot; a hit on a battered part knocks bits of plating loose. */
+  private partHit(h: HitInfo) {
+    if (h.shielded) return;
+    const md = this.models[h.defender.index];
+    const am = this.models[h.attacker.index];
+    if (!md || !am) return;
+    if (h.blocked) {
+      md.flare(h.part, Math.min(0.5, h.damage / 40));
+      const s = h.attacker.lastAction;
+      if (s) {
+        const side = s.side === 'L' ? 0 : 1;
+        am.flare(s.move.kind === 'punch' ? P.FistL + side * 3 : P.FootL + side * 3, 0.35);
+      }
+    } else md.flare(h.part, Math.min(1, 0.25 + h.damage / 90));
+    const wear = 1 - h.partCond;
+    if (wear > 0.3 && h.damage >= 8) {
+      this.fx.shrapnel(h.point, h.dir, Math.round(3 + wear * 9 + h.damage / 20), 2.5 + wear * 2);
+      if (wear > 0.55) this.fx.smoke(h.point, 2, wear);
+    }
+  }
+
+  /** A part comes off: the piece flies, the stump bursts with sparks, the arena erupts. */
+  private tearOff(d: DetachInfo) {
+    const i = d.f.index;
+    const model = this.models[i];
+    if (!model) return;
+    const piece = model.tearOff(d.part);
+    if (piece) {
+      const anchor = this.debris.spawn(piece, d.dir, d.strength);
+      for (const j of CUT_JOINTS[d.part]) model.anchors[j] = anchor;
+    }
+    const stump = STUMP[d.part] ?? J.Chest;
+    this.stumps[i].push({ joint: stump, age: 0 });
+    const at = model.joints[stump];
+    this.fx.sparks(at, _dp.copy(d.dir).setY(0.6).normalize(), 60, 0xffc070, 9, 1.4);
+    this.fx.sparks(at, _up, 24, 0x9ad8ff, 5, 1.6);
+    this.fx.flash(at, 0xffe0b0, 2.2, 0.28);
+    this.fx.arc(at, 1.2);
+    this.fx.shrapnel(at, d.dir, 26, 5);
+    this.fx.smoke(at, 6, 1);
+    this.stage.ripples.add(at, 2.2, 1.5, 0xffb070);
+    this.director.shake(0.85);
+    this.director.punch(5);
+    this.arena.excite(1.4);
+    this.arena.venue.strobe?.(0.6);
+    const pan = this.pan(at);
+    this.sfx?.hit(160, 'head', true, 'kick', pan);
+    this.sfx?.zap();
+  }
+
+  /**
+   * Wrecked parts spit sparks and smoke, worse the more wrecked they are; stumps of torn
+   * parts arc and smoke, settling to a steady smoulder.
+   */
+  private damageEffects(i: number, dt: number) {
+    if (dt <= 0) return;
+    const f = this.match!.fighters[i];
+    const J0 = this.models[i].joints;
+    const parts = f.parts;
+    for (let p = 0; p < PART_COUNT; p++) {
+      if (parts.off[p]) continue;
+      const w = 1 - parts.cond[p];
+      if (w < 0.6) continue;
+      const k = (w - 0.6) / 0.4;
+      const [a, b] = PART_AT[p];
+      _dp.lerpVectors(J0[a], J0[b], 0.5);
+      if (Math.random() < dt * (0.6 + k * 3.5)) this.fx.sparks(_dp, _up, 3 + Math.round(k * 5), 0xffb050, 2.4, 1.3);
+      if (w > 0.75 && Math.random() < dt * (1 + k * 6)) this.fx.smoke(_dp, 1, k);
+      if (w > 0.9 && Math.random() < dt * 0.8) this.fx.arc(_dp, 0.12);
+    }
+    for (const s of this.stumps[i]) {
+      s.age += dt;
+      const heat = Math.max(0.15, 1 - s.age / 5);
+      const at = J0[s.joint];
+      if (Math.random() < dt * 9 * heat) this.fx.sparks(at, _up, 2 + Math.round(heat * 6), 0xffb050, 2 + heat * 3, 1.4);
+      if (Math.random() < dt * 7 * heat) this.fx.smoke(at, 1, heat);
+      if (Math.random() < dt * 2.5 * heat) this.fx.arc(at, 0.15);
     }
   }
 

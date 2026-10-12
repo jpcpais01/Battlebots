@@ -2258,3 +2258,147 @@ button {
   font-weight: 400;
   white-space: normal;
 }
+
+/* ------------------------------------------------------------ x-ray condition panel */
+.xray {
+  position: absolute;
+  bottom: calc(max(10px, env(safe-area-inset-bottom)) + 3.25em);
+  width: 4.8em;
+  padding: 0.3em 0.4em 0.4em;
+  border-radius: 10px;
+  background: radial-gradient(ellipse at 50% 40%, rgba(40, 120, 170, 0.32), rgba(6, 16, 30, 0) 75%), rgba(5, 11, 22, 0.74);
+  border: 1px solid rgba(120, 220, 255, 0.22);
+  border-top: 2px solid var(--bot0, var(--cyan));
+  box-shadow: inset 0 0 14px rgba(60, 180, 255, 0.14), 0 4px 14px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+.xray.p1 {
+  left: var(--pad);
+}
+.xray.p2 {
+  right: var(--padr);
+  border-top-color: var(--bot1, var(--orange));
+}
+/* scan lines and a slow sweeping scan bar */
+.xray::before,
+.xray::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.xray::before {
+  background: repeating-linear-gradient(0deg, rgba(150, 225, 255, 0.07) 0 1px, transparent 1px 3px);
+}
+.xray::after {
+  height: 30%;
+  background: linear-gradient(180deg, rgba(120, 220, 255, 0), rgba(120, 220, 255, 0.12), rgba(120, 220, 255, 0));
+  animation: xrSweep 3.2s linear infinite;
+}
+@keyframes xrSweep {
+  from {
+    transform: translateY(-110%);
+  }
+  to {
+    transform: translateY(360%);
+  }
+}
+.xr-head {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  font-family: var(--display);
+  font-size: 0.5em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(190, 236, 255, 0.75);
+  margin-bottom: 0.35em;
+}
+.xr-head i {
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 50%;
+  background: var(--bot0, var(--cyan));
+  box-shadow: 0 0 6px var(--bot0, var(--cyan));
+}
+.xray.p2 .xr-head i {
+  background: var(--bot1, var(--orange));
+  box-shadow: 0 0 6px var(--bot1, var(--orange));
+}
+.xray svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.xp {
+  fill: var(--pc);
+  fill-opacity: 0.42;
+  stroke: var(--pc);
+  stroke-width: 1.1;
+  filter: drop-shadow(0 0 1.5px var(--pc));
+  transition: fill 0.3s ease, stroke 0.3s ease;
+}
+/* about to come off (or shattered): blink */
+.xp.loose {
+  animation: xrLoose 0.55s ease-in-out infinite alternate;
+}
+.xp.hit {
+  animation: xrHit 0.35s ease-out;
+}
+.xp.loose.hit {
+  animation: xrHit 0.35s ease-out, xrLoose 0.55s 0.35s ease-in-out infinite alternate;
+}
+.xp.off {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-dasharray: 2 2;
+  filter: none;
+  animation: none;
+}
+@keyframes xrLoose {
+  to {
+    fill-opacity: 0.08;
+    stroke-opacity: 0.45;
+  }
+}
+@keyframes xrHit {
+  0% {
+    fill: #fff;
+    fill-opacity: 0.95;
+  }
+}
+.xr-bone {
+  fill: none;
+  stroke: rgba(215, 245, 255, 0.4);
+  stroke-width: 0.8;
+  stroke-linecap: round;
+}
+.xr-joint {
+  fill: rgba(215, 245, 255, 0.55);
+}
+.hud.finished .xray {
+  opacity: 0.6;
+}
+
+/* Dismantled: the K.O. slam in torn steel, a longer word so a notch smaller */
+.finish.dsm {
+  --big: min(17vh, 11vw);
+  --dock: 0.5;
+}
+.finish.dsm .fx-band {
+  height: 19vh;
+  background: linear-gradient(90deg, rgba(20, 26, 36, 0) 0%, rgba(30, 38, 52, 0.75) 18%, rgba(44, 54, 72, 0.85) 50%, rgba(30, 38, 52, 0.75) 82%, rgba(20, 26, 36, 0) 100%);
+  border-color: rgba(255, 160, 80, 0.7);
+}
+.finish.dsm .fx-word span {
+  color: #1a222e;
+  text-shadow: 0 0.05em 0 #0b0f15, 0 0.12em 0.2em rgba(0, 0, 0, 0.55), 0 0 0.4em rgba(255, 140, 50, 0.55);
+}
+.finish.dsm .fx-word span::after {
+  background: linear-gradient(180deg, #fff 0%, #e8f2ff 34%, #9fb4cc 52%, #ff9a3a 74%, #ff4a1a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}

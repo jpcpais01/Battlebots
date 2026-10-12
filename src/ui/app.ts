@@ -735,7 +735,7 @@ export class App {
     const won = m.winner === a;
     this.tally(won, draw);
     const verdict = draw ? 'DRAW' : won ? 'VICTORY' : 'DEFEAT';
-    const how = m.result === 'Decision' ? 'on points' : m.result === 'TKO' ? 'by TKO' : m.result === 'KO' ? 'by knockout' : '';
+    const how = m.result === 'Decision' ? 'on points' : m.result === 'TKO' ? 'by TKO' : m.result === 'KO' ? 'by knockout' : m.result === 'Dismantled' ? 'by tearing it apart' : '';
     const who = draw ? 'Split down the middle' : `<b>${esc(m.winner!.name)}</b> wins ${how}`;
     const acc = (f: Fighter) => (f.stats.thrown ? `${Math.round((f.stats.landed / f.stats.thrown) * 100)}%` : '–');
     const row = (label: string, va: number | string, vb: number | string, higher = true) => {

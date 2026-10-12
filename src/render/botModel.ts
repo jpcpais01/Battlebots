@@ -28,6 +28,8 @@ import { RenderSettings } from './settings';
 import { surf, vertexPBR, type GlowKey, type Surfaces } from './bake';
 import { contactAO } from './ao';
 import { contactStats, Hull, partRadius, pushOut, samplePB, tally, type PlacedHull } from './contact';
+import { damageUniforms, patchDamage, patchDamageGlow, type DamageUniforms } from './damageLook';
+import { P, PART_COUNT } from '../sim/damage';
 
 const CORE_COLORS = [0x49c6ff, 0xff4a2a, 0x3cffd8, 0x52ff6a, 0xc77dff];
 
@@ -64,6 +66,19 @@ const enum B {
   RocketR,
 }
 const BONE_COUNT = 29;
+
+/** Bones that leave the body when a part is torn off (the part and everything below it). */
+const TORN_BONES: Partial<Record<number, B[]>> = {
+  [P.Head]: [B.Head, B.Neck],
+  [P.UpL]: [B.UpL, B.ForeL, B.FistL, B.ArmBarL, B.ArmRodL, B.RocketL],
+  [P.ForeL]: [B.ForeL, B.FistL, B.ArmBarL, B.ArmRodL, B.RocketL],
+  [P.UpR]: [B.UpR, B.ForeR, B.FistR, B.ArmBarR, B.ArmRodR, B.RocketR],
+  [P.ForeR]: [B.ForeR, B.FistR, B.ArmBarR, B.ArmRodR, B.RocketR],
+  [P.ThighL]: [B.ThighL, B.ShinL, B.FootL, B.ToeL, B.LegBarL, B.LegRodL],
+  [P.ShinL]: [B.ShinL, B.FootL, B.ToeL, B.LegBarL, B.LegRodL],
+  [P.ThighR]: [B.ThighR, B.ShinR, B.FootR, B.ToeR, B.LegBarR, B.LegRodR],
+  [P.ShinR]: [B.ShinR, B.FootR, B.ToeR, B.LegBarR, B.LegRodR],
+};
 
 /** Emissive channels: glow, core, then one per slot's rarity colour. */
 const CH_GLOW = 0;
@@ -162,14 +177,15 @@ export function botGlows(palette: number, coreLook: number, rarity: number): Rec
 
 /** Accumulates parts into one rigidly skinned geometry per material family. */
 class SkinBuilder {
-  private o = { pos: [] as number[], nor: [] as number[], col: [] as number[], mr: [] as number[], bone: [] as number[] };
-  private e = { pos: [] as number[], ch: [] as number[], bone: [] as number[] };
+  private o = { pos: [] as number[], nor: [] as number[], col: [] as number[], mr: [] as number[], bone: [] as number[], part: [] as number[] };
+  private e = { pos: [] as number[], ch: [] as number[], bone: [] as number[], part: [] as number[] };
   private nm = new THREE.Matrix3();
   private v = new THREE.Vector3();
 
   constructor(private surfaces: Surfaces) {}
 
-  add(pb: PB, bone: number, raritySlot: Slot) {
+  /** Add a part's pieces to `bone`; `part` is the body part (locational damage) they belong to. */
+  add(pb: PB, bone: number, raritySlot: Slot, part: number) {
     const rarityCh = CH_RARITY + SLOTS.indexOf(raritySlot);
     for (const ent of pb.entries) {
       const pos = ent.geo.attributes.position as THREE.BufferAttribute;
@@ -183,6 +199,7 @@ class SkinBuilder {
           this.e.pos.push(this.v.x, this.v.y, this.v.z);
           this.e.ch.push(ch);
           this.e.bone.push(bone);
+          this.e.part.push(part);
         }
         continue;
       }
@@ -197,6 +214,7 @@ class SkinBuilder {
         this.o.col.push(s.color.r, s.color.g, s.color.b);
         this.o.mr.push(s.metal, s.rough);
         this.o.bone.push(bone);
+        this.o.part.push(part);
       }
     }
   }
@@ -219,18 +237,20 @@ class SkinBuilder {
     opaque.setAttribute('normal', new THREE.Float32BufferAttribute(this.o.nor, 3));
     opaque.setAttribute('color', new THREE.Float32BufferAttribute(this.o.col, 3));
     opaque.setAttribute('mr', new THREE.Float32BufferAttribute(this.o.mr, 2));
+    opaque.setAttribute('part', new THREE.Float32BufferAttribute(this.o.part, 1));
     SkinBuilder.skin(opaque, this.o.bone);
     const emissive = new THREE.BufferGeometry();
     emissive.setAttribute('position', new THREE.Float32BufferAttribute(this.e.pos, 3));
     emissive.setAttribute('ech', new THREE.Float32BufferAttribute(this.e.ch, 1));
+    emissive.setAttribute('part', new THREE.Float32BufferAttribute(this.e.part, 1));
     SkinBuilder.skin(emissive, this.e.bone);
     return { opaque, emissive };
   }
 }
 
 /** Standard PBR material reading colour, metalness and roughness per vertex. */
-function makeOpaqueMaterial() {
-  const m = vertexPBR(new THREE.MeshStandardMaterial(), 'bot-opaque');
+function makeOpaqueMaterial(dmg: DamageUniforms) {
+  const m = patchDamage(vertexPBR(new THREE.MeshStandardMaterial(), 'bot-opaque'), dmg);
   // limbs, torsos and the opponent shade each other; legs and feet darken towards the canvas
   return contactAO.patch(m, { spheres: true, strength: 1.8, ground: { y: 0, height: 0.5, k: 0.5 }, direct: 0.6 });
 }
@@ -366,6 +386,16 @@ export class BotModel {
   private torsoX = new THREE.Vector3();
   private torsoZ = new THREE.Vector3();
   private torsoUp = new THREE.Vector3();
+  /** Per-part wear, hit flare and clock for the damage shading (shared by both materials and any torn-off pieces). */
+  readonly dmg: DamageUniforms = damageUniforms();
+  /** Bones of torn-off parts: collapsed to nothing on the body. */
+  private hidden = new Set<number>();
+  /**
+   * Where the particles of torn-off parts are drawn from (the flying piece), so contact
+   * shadows and rope contact follow the debris instead of an invisible limb.
+   */
+  readonly anchors: (THREE.Vector3 | null)[] = Array.from({ length: 16 }, () => null);
+  private lastTime = 0;
 
   constructor(loadout: Loadout, palette: number) {
     this.loadout = loadout;
@@ -378,12 +408,12 @@ export class BotModel {
     const corePB = buildCore(look('core'), look('chest'));
     const headPB = buildHead(look('head'));
     const pelvisPB = buildPelvis(look('legs'));
-    sb.add(torsoPB, B.Torso, 'chest');
-    sb.add(corePB, B.Torso, 'core');
-    sb.add(headPB, B.Head, 'head');
-    sb.add(buildNeck(), B.Neck, 'head');
-    sb.add(buildSpine(), B.Spine, 'chest');
-    sb.add(pelvisPB, B.Pelvis, 'legs');
+    sb.add(torsoPB, B.Torso, 'chest', P.Chest);
+    sb.add(corePB, B.Torso, 'core', P.Chest);
+    sb.add(headPB, B.Head, 'head', P.Head);
+    sb.add(buildNeck(), B.Neck, 'head', P.Head);
+    sb.add(buildSpine(), B.Spine, 'chest', P.Torso);
+    sb.add(pelvisPB, B.Pelvis, 'legs', P.Torso);
     // contact hulls from the real armour (shoulder and hip axles belong to the limbs)
     const skipAxles = new Set<MatKey>(['joint']);
     this.hullPts.torso = samplePB(corePB, undefined, samplePB(torsoPB, skipAxles));
@@ -401,20 +431,22 @@ export class BotModel {
     this.radii.shin = partRadius(band(samplePB(buildShin(look('legs'), look('kick'))), 0.1, 0.38), 0.6);
     for (let side = 0; side < 2; side++) {
       const L = side === 0;
-      sb.add(buildUpperArm(look('chest'), L ? -1 : 1), L ? B.UpL : B.UpR, 'chest');
-      sb.add(buildForearm(look('fist')), L ? B.ForeL : B.ForeR, 'fist');
-      sb.add(buildFist(look('fist'), L ? 1 : -1), L ? B.FistL : B.FistR, 'fist');
-      sb.add(buildThigh(look('legs')), L ? B.ThighL : B.ThighR, 'legs');
-      sb.add(buildShin(look('legs'), look('kick')), L ? B.ShinL : B.ShinR, 'kick');
-      sb.add(buildFoot(look('kick')), L ? B.FootL : B.FootR, 'kick');
-      sb.add(buildToe(look('kick')), L ? B.ToeL : B.ToeR, 'kick');
+      const arm = L ? P.UpL : P.UpR;
+      const leg = L ? P.ThighL : P.ThighR;
+      sb.add(buildUpperArm(look('chest'), L ? -1 : 1), L ? B.UpL : B.UpR, 'chest', arm);
+      sb.add(buildForearm(look('fist')), L ? B.ForeL : B.ForeR, 'fist', arm + 1);
+      sb.add(buildFist(look('fist'), L ? 1 : -1), L ? B.FistL : B.FistR, 'fist', arm + 2);
+      sb.add(buildThigh(look('legs')), L ? B.ThighL : B.ThighR, 'legs', leg);
+      sb.add(buildShin(look('legs'), look('kick')), L ? B.ShinL : B.ShinR, 'kick', leg + 1);
+      sb.add(buildFoot(look('kick')), L ? B.FootL : B.FootR, 'kick', leg + 2);
+      sb.add(buildToe(look('kick')), L ? B.ToeL : B.ToeR, 'kick', leg + 2);
       const heavyLegs = look('legs') === 3;
-      sb.add(buildPistonBarrel(ARM_BAR, ARM_R), L ? B.ArmBarL : B.ArmBarR, 'chest');
-      sb.add(buildPistonRod(ARM_ROD, ARM_R), L ? B.ArmRodL : B.ArmRodR, 'chest');
-      sb.add(buildPistonBarrel(LEG_BAR, heavyLegs ? LEG_R * 1.35 : LEG_R), L ? B.LegBarL : B.LegBarR, 'legs');
-      sb.add(buildPistonRod(LEG_ROD, heavyLegs ? LEG_R * 1.35 : LEG_R), L ? B.LegRodL : B.LegRodR, 'legs');
+      sb.add(buildPistonBarrel(ARM_BAR, ARM_R), L ? B.ArmBarL : B.ArmBarR, 'chest', arm);
+      sb.add(buildPistonRod(ARM_ROD, ARM_R), L ? B.ArmRodL : B.ArmRodR, 'chest', arm + 1);
+      sb.add(buildPistonBarrel(LEG_BAR, heavyLegs ? LEG_R * 1.35 : LEG_R), L ? B.LegBarL : B.LegBarR, 'legs', leg);
+      sb.add(buildPistonRod(LEG_ROD, heavyLegs ? LEG_R * 1.35 : LEG_R), L ? B.LegRodL : B.LegRodR, 'legs', leg + 1);
       if (look('fist') === 3) {
-        sb.add(buildRocketPiston(), L ? B.RocketL : B.RocketR, 'fist');
+        sb.add(buildRocketPiston(), L ? B.RocketL : B.RocketR, 'fist', arm + 1);
         this.rocket[side] = true;
       }
     }
@@ -439,8 +471,8 @@ export class BotModel {
     this.cols = [this.baseGlow.clone(), this.baseCore.clone()];
     for (const slot of SLOTS) this.cols.push(new THREE.Color(RARITIES[loadout[slot].rarity].glow).multiplyScalar(RenderSettings.glow(3)));
 
-    this.opaque = new THREE.SkinnedMesh(opaque, makeOpaqueMaterial());
-    this.emissive = new THREE.SkinnedMesh(emissive, makeEmissiveMaterial(this.cols));
+    this.opaque = new THREE.SkinnedMesh(opaque, makeOpaqueMaterial(this.dmg));
+    this.emissive = new THREE.SkinnedMesh(emissive, patchDamageGlow(makeEmissiveMaterial(this.cols), this.dmg));
     for (const mesh of [this.opaque, this.emissive]) {
       mesh.bind(skeleton, new THREE.Matrix4());
       mesh.frustumCulled = false;
@@ -476,7 +508,11 @@ export class BotModel {
   /** Interpolate the body and place torso, pelvis and head (everything the opponent's contact pass needs). */
   begin(f: Fighter, alpha: number, oppHead?: THREE.Vector3) {
     const body = f.body;
-    for (let i = 0; i < 16; i++) this.joints[i].lerpVectors(body.last[i], body.pos[i], alpha);
+    for (let i = 0; i < 16; i++) {
+      const a = this.anchors[i];
+      if (a) this.joints[i].copy(a);
+      else this.joints[i].lerpVectors(body.last[i], body.pos[i], alpha);
+    }
     this.poseCore(f, oppHead);
   }
 
@@ -484,6 +520,7 @@ export class BotModel {
   end(f: Fighter, time: number, opp?: BotModel) {
     this.solveContacts(f, opp);
     this.poseLimbs(f);
+    for (const b of this.hidden) this.bones[b].scale.setScalar(0);
     this.effects(f, time);
   }
 
@@ -524,8 +561,9 @@ export class BotModel {
     for (let side = 0; side < 2; side++) {
       const L = side === 0;
       const lead = (side === 0) === (f.stance < 0);
+      if (f.parts.armOut(side)) continue;
       worst = Math.max(worst, solveLimb(P[L ? J.ShL : J.ShR], P[L ? J.ElL : J.ElR], P[L ? J.HandL : J.HandR], arms, 3, r.upper, r.fore, r.fist, 0.02, lead ? 'leadArm/' : 'rearArm/'));
-      if (f.footAir[side] > 0.3) {
+      if (f.footAir[side] > 0.3 && !f.parts.legOut(side)) {
         const legs = opp ? [own.torso, opp.hulls.torso, opp.hulls.pelvis, opp.hulls.head] : [own.torso];
         worst = Math.max(worst, solveLimb(P[L ? J.HipL : J.HipR], P[L ? J.KneeL : J.KneeR], P[L ? J.FootL : J.FootR], legs, 1, r.thigh, r.shin, r.shin, 0, 'leg/'));
       }
@@ -564,8 +602,9 @@ export class BotModel {
       const up = bn[L ? B.UpL : B.UpR];
       const fore = bn[L ? B.ForeL : B.ForeR];
       const fist = bn[L ? B.FistL : B.FistR];
-      // upper arm: front faces the bend
-      _tmp.subVectors(hd, el).normalize();
+      // upper arm: front faces the bend (a stump just hangs off the shoulder)
+      if (this.anchors[L ? J.HandL : J.HandR]) _tmp.copy(torsoZ);
+      else _tmp.subVectors(hd, el).normalize();
       orientSegment(up, sh, el, _tmp, torsoZ);
       // forearm: the back of the hand turns from "outward" (vertical fist) by the roll
       _tmp.subVectors(hd, el);
@@ -640,6 +679,16 @@ export class BotModel {
   }
 
   private effects(f: Fighter, time: number) {
+    // battle damage shading follows the parts' condition; hit flares cool off
+    const dt = Math.min(0.1, Math.max(0, time - this.lastTime));
+    this.lastTime = time;
+    const wear = this.dmg.uWear.value;
+    const hot = this.dmg.uHot.value;
+    for (let i = 0; i < PART_COUNT; i++) {
+      wear[i] = 1 - f.parts.cond[i];
+      hot[i] = Math.max(0, hot[i] - dt * 2.5);
+    }
+    this.dmg.uTime.value = time;
     // Aegis shield bubble
     const sm = this.shieldMesh.material as THREE.ShaderMaterial;
     const target = f.shield && !f.isDown ? 1 : 0;
@@ -662,6 +711,98 @@ export class BotModel {
         this.cols[CH_RARITY + i].setHex(RARITIES[4].glow).multiplyScalar(k);
       }
     }
+  }
+
+  /** A hit flares the metal of a part hot for a moment. */
+  flare(part: number, k: number) {
+    const hot = this.dmg.uHot.value;
+    hot[part] = Math.min(1, Math.max(hot[part], k));
+  }
+
+  /**
+   * Tear a part off: its bones (and everything below) vanish from the body, and the same
+   * metal, dents and all, comes back as a separate rigid piece centred on its middle.
+   * Returns the piece's opaque and glow meshes (positioned in world space) or null.
+   */
+  tearOff(part: number): THREE.Group | null {
+    const bones = TORN_BONES[part];
+    if (!bones) return null;
+    const set = new Set<number>(bones.filter((b) => !this.hidden.has(b)));
+    if (!set.size) return null;
+    this.root.updateMatrixWorld(true);
+    const opaque = this.extract(this.opaque.geometry, set, true);
+    const glow = this.extract(this.emissive.geometry, set, false);
+    for (const b of set) this.hidden.add(b);
+    if (!opaque) return null;
+    const g = new THREE.Group();
+    g.position.copy(opaque.center);
+    const om = new THREE.Mesh(opaque.geo, this.opaque.material);
+    om.castShadow = true;
+    om.frustumCulled = false;
+    g.add(om);
+    if (glow) {
+      glow.geo.translate(glow.center.x - opaque.center.x, glow.center.y - opaque.center.y, glow.center.z - opaque.center.z);
+      const em = new THREE.Mesh(glow.geo, this.emissive.material);
+      em.frustumCulled = false;
+      g.add(em);
+    }
+    return g;
+  }
+
+  /** Copy the triangles skinned to `bones` out into a standalone geometry around their centre. */
+  private extract(src: THREE.BufferGeometry, bones: Set<number>, opaque: boolean) {
+    const si = src.attributes.skinIndex as THREE.BufferAttribute;
+    const pos = src.attributes.position as THREE.BufferAttribute;
+    const n = pos.count;
+    const idx: number[] = [];
+    for (let i = 0; i < n; i++) if (bones.has(si.getX(i))) idx.push(i);
+    if (!idx.length) return null;
+    const out = new Float32Array(idx.length * 3);
+    const nor = opaque ? new Float32Array(idx.length * 3) : null;
+    const dpos = new Float32Array(idx.length * 3);
+    const center = new THREE.Vector3();
+    const v = new THREE.Vector3();
+    const nm = new THREE.Matrix3();
+    const srcN = src.attributes.normal as THREE.BufferAttribute | undefined;
+    for (let k = 0; k < idx.length; k++) {
+      const i = idx[k];
+      const bone = this.bones[si.getX(i)];
+      v.fromBufferAttribute(pos, i);
+      dpos[k * 3] = v.x;
+      dpos[k * 3 + 1] = v.y;
+      dpos[k * 3 + 2] = v.z;
+      v.applyMatrix4(bone.matrixWorld);
+      out[k * 3] = v.x;
+      out[k * 3 + 1] = v.y;
+      out[k * 3 + 2] = v.z;
+      center.add(v);
+      if (nor && srcN) {
+        nm.getNormalMatrix(bone.matrixWorld);
+        v.fromBufferAttribute(srcN, i).applyMatrix3(nm).normalize();
+        nor[k * 3] = v.x;
+        nor[k * 3 + 1] = v.y;
+        nor[k * 3 + 2] = v.z;
+      }
+    }
+    center.multiplyScalar(1 / idx.length);
+    for (let k = 0; k < idx.length; k++) {
+      out[k * 3] -= center.x;
+      out[k * 3 + 1] -= center.y;
+      out[k * 3 + 2] -= center.z;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(out, 3));
+    if (nor) geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute('dpos', new THREE.BufferAttribute(dpos, 3));
+    for (const name of opaque ? ['color', 'mr', 'part'] : ['ech', 'part']) {
+      const a = src.attributes[name] as THREE.BufferAttribute;
+      const w = a.itemSize;
+      const arr = new Float32Array(idx.length * w);
+      for (let k = 0; k < idx.length; k++) for (let c = 0; c < w; c++) arr[k * w + c] = a.array[idx[k] * w + c] as number;
+      geo.setAttribute(name, new THREE.BufferAttribute(arr, w));
+    }
+    geo.computeBoundingSphere();
+    return { geo, center };
   }
 
   dispose() {

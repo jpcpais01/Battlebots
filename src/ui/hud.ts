@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Game } from '../game/game';
-import type { Match, HitInfo } from '../sim/match';
+import type { Match, HitInfo, DetachInfo, FinishKind, WearInfo } from '../sim/match';
+import { DETACHABLE, LOOSE, P, PART_COUNT, PART_NAME, type LossReason } from '../sim/damage';
 import type { Fighter } from '../sim/fighter';
 import type { BrainEvent } from '../sim/brain';
 import { MOVES, type MoveId } from '../sim/moves';
@@ -50,7 +51,49 @@ export function barColors(palette: number): [string, string] {
 const FINISH_DELAY = 0.9;
 
 /** The finishing word, split into the pieces that slam in one by one. */
-const FINISH_WORD = { KO: ['K.', 'O.'], TKO: ['T.', 'K.', 'O.'] };
+const FINISH_WORD: Record<FinishKind, string[]> = { KO: ['K.', 'O.'], TKO: ['T.', 'K.', 'O.'], Dismantled: ['DIS', 'MAN', 'TLED'] };
+
+/** What was lost, for the finisher's subtitle. */
+const LOSS_TEXT: Record<LossReason, string> = { head: 'Head torn off', leg: 'Leg torn off', arms: 'Both arms torn off' };
+
+/**
+ * The x-ray condition display: a front-on schematic of the robot (its left arm on the right,
+ * as you look at it), one shape per body part, coloured by condition. Parts that could be torn
+ * off by the next big hit blink, torn-off parts become a dashed ghost.
+ */
+const XRAY_SHAPES: string[] = [
+  '<rect x="25" y="3" width="14" height="14" rx="4"/>',
+  '<path d="M17 21h30l-3 23H20z"/>',
+  '<path d="M21 47h22l-2 15H23z"/>',
+  '<rect x="49" y="22" width="7" height="19" rx="3"/>',
+  '<rect x="50" y="43" width="7" height="17" rx="3"/>',
+  '<rect x="49.5" y="62" width="8" height="8" rx="2.5"/>',
+  '<rect x="8" y="22" width="7" height="19" rx="3"/>',
+  '<rect x="7" y="43" width="7" height="17" rx="3"/>',
+  '<rect x="6.5" y="62" width="8" height="8" rx="2.5"/>',
+  '<rect x="33.5" y="65" width="8" height="23" rx="3"/>',
+  '<rect x="34" y="91" width="7" height="24" rx="3"/>',
+  '<rect x="33" y="117" width="11" height="6" rx="2"/>',
+  '<rect x="22.5" y="65" width="8" height="23" rx="3"/>',
+  '<rect x="23" y="91" width="7" height="24" rx="3"/>',
+  '<rect x="20" y="117" width="11" height="6" rx="2"/>',
+];
+/** The frame inside, drawn over the plates like bones on an x-ray. */
+const XRAY_BONES =
+  '<path class="xr-bone" d="M32 17v45M20 24h24M23 55h18M52.5 24v18M53.5 44v16M11.5 24v18M10.5 44v16M37.5 62v26M37.5 91v24M26.5 62v26M26.5 91v24"/>' +
+  '<g class="xr-joint"><circle cx="32" cy="18" r="1.3"/><circle cx="52.5" cy="23" r="1.3"/><circle cx="11.5" cy="23" r="1.3"/><circle cx="53" cy="42.5" r="1.2"/><circle cx="11" cy="42.5" r="1.2"/><circle cx="37.5" cy="64" r="1.3"/><circle cx="26.5" cy="64" r="1.3"/><circle cx="37.5" cy="89.5" r="1.2"/><circle cx="26.5" cy="89.5" r="1.2"/></g>';
+
+/** Condition colour: teal when healthy, through yellow and orange to red. */
+function condColor(c: number) {
+  const hue = c > 0.5 ? 50 + (c - 0.5) * 2 * 115 : c * 2 * 50;
+  return `hsl(${Math.round(hue)}, 95%, ${Math.round(55 + c * 5)}%)`;
+}
+
+interface XrayEls {
+  root: HTMLElement;
+  shapes: SVGElement[];
+  shown: Float32Array;
+}
 
 /**
  * Fight overlay: health/stamina bars, clock, ability cooldowns, VS card, countdown,
@@ -75,7 +118,7 @@ export class Hud {
   private kdSeen = [0, 0];
   private kdEls: HTMLElement[] = [];
   private finishing = false;
-  private pendingFinish: { kind: 'KO' | 'TKO'; winner: Fighter } | null = null;
+  private pendingFinish: { kind: FinishKind; winner: Fighter; reason: LossReason | null } | null = null;
   private dmgLayer: HTMLElement;
   private commentary: HTMLElement;
   private vs: HTMLElement | null = null;
@@ -92,6 +135,7 @@ export class Hud {
   private hpPrev = [0, 0];
   private healAcc = [0, 0];
   private dmgCount = 0;
+  private xrays: XrayEls[] = [];
   onPause: () => void = () => {};
 
   constructor(private game: Game, parent: HTMLElement) {
@@ -153,6 +197,7 @@ export class Hud {
     this.root.querySelector('.hud-top')?.remove();
     this.root.querySelector('.hud-bl')?.remove();
     this.root.querySelector('.hud-br')?.remove();
+    for (const x of this.root.querySelectorAll('.xray')) x.remove();
     const top = el('div', 'hud-top', '', this.root);
     this.bars = [];
     this.kdEls = [];
@@ -193,6 +238,19 @@ export class Hud {
     top.appendChild(mk(0));
     this.timer = el('div', 'timer', '99', top);
     top.appendChild(mk(1));
+
+    this.xrays = [0, 1].map((i) => {
+      const root = el(
+        'div',
+        `xray ${i ? 'p2' : 'p1'}`,
+        `<div class="xr-head"><i></i>Condition</div><svg viewBox="0 0 64 126">${XRAY_SHAPES.map((sh) => sh.replace('/>', ' class="xp"/>')).join('')}${XRAY_BONES}</svg>`,
+        this.root,
+      );
+      root.title = `${m.fighters[i].name}: condition of each part`;
+      const shapes = [...root.querySelectorAll<SVGElement>('.xp')];
+      shapes.forEach((sh) => sh.style.setProperty('--pc', condColor(1)));
+      return { root, shapes, shown: new Float32Array(PART_COUNT).fill(1) };
+    });
 
     const bl = el('div', 'hud-bl', '', this.root);
     button('icon-btn', ICON.pause, () => this.onPause(), bl);
@@ -307,11 +365,13 @@ export class Hud {
       }
     }
 
+    for (let i = 0; i < 2; i++) this.updateXray(m.fighters[i], this.xrays[i]);
+
     this.updateCount(m);
     const pf = this.pendingFinish;
     if (pf && (m.phase !== 'ko' || m.phaseTime >= FINISH_DELAY)) {
       this.pendingFinish = null;
-      if (m.phase === 'ko') this.finish(pf.kind, pf.winner);
+      if (m.phase === 'ko') this.finish(pf.kind, pf.winner, pf.reason);
     }
     if (this.finishing && m.phase === 'end') {
       this.finishing = false;
@@ -323,6 +383,33 @@ export class Hud {
     if (this.commentT <= 0 && this.commentary.classList.contains('on')) {
       this.commentary.classList.remove('on');
       this.commentPri = 0;
+    }
+  }
+
+  /** Recolour the x-ray where a part's condition changed; flash it if it just took damage. */
+  private updateXray(f: Fighter, x: XrayEls | undefined) {
+    if (!x) return;
+    const parts = f.parts;
+    for (let p = 0; p < PART_COUNT; p++) {
+      const c = parts.cond[p];
+      const sh = x.shapes[p];
+      if (parts.off[p]) {
+        if (!sh.classList.contains('off')) {
+          sh.classList.remove('loose', 'hit');
+          sh.classList.add('off');
+        }
+        continue;
+      }
+      if (Math.abs(c - x.shown[p]) < 0.004) continue;
+      if (c < x.shown[p] - 0.01) {
+        // restart the flash
+        sh.classList.remove('hit');
+        void sh.getBoundingClientRect();
+        sh.classList.add('hit');
+      }
+      x.shown[p] = c;
+      sh.style.setProperty('--pc', condColor(c));
+      sh.classList.toggle('loose', DETACHABLE[p] ? c < LOOSE : c <= 0);
     }
   }
 
@@ -403,6 +490,44 @@ export class Hud {
       }
       case 'shieldUp':
         break;
+      case 'detach': {
+        const d = data as DetachInfo;
+        const what = d.part === P.Head ? 'HEAD' : d.part === P.UpL || d.part === P.UpR ? 'ARM' : d.part === P.ForeL || d.part === P.ForeR ? 'FOREARM' : 'LEG';
+        this.callout(`${what} RIPPED OFF!`, 'red', 1500);
+        this.comment(
+          d.fatal
+            ? d.fatal === 'head'
+              ? `${d.by.name} takes ${d.f.name}'s head clean off!`
+              : d.fatal === 'leg'
+                ? `${d.f.name}'s ${PART_NAME[d.part].split(' ')[0]} leg is gone! It can't stand!`
+                : `${d.f.name} has no arms left to fight with!`
+            : this.pick([`${d.by.name} tears off ${d.f.name}'s ${PART_NAME[d.part]}!`, `The ${PART_NAME[d.part]} goes flying! ${d.f.name} fights on one-armed!`]),
+          4,
+        );
+        break;
+      }
+      case 'wear': {
+        const w = data as WearInfo;
+        if (m.phase !== 'fight') break;
+        const name = w.f.name;
+        const part = PART_NAME[w.part];
+        const side = part.split(' ')[0];
+        let text = '';
+        if (w.level === 1) {
+          if (w.part === P.Head) text = `${name}'s head is hanging by a thread!`;
+          else if (w.part === P.Chest) text = `${name}'s chest plate is caving in. The core is leaking!`;
+          else if (w.part === P.Torso) text = `${name}'s waist is buckling!`;
+          else if (DETACHABLE[w.part] && w.part >= P.ThighL) text = `${name}'s ${side} leg is barely holding on!`;
+          else if (DETACHABLE[w.part]) text = `${name}'s ${side} arm is coming apart!`;
+          else text = `${name}'s ${part} is cracked!`;
+        } else if (w.level === 2) {
+          if (w.part === P.FistL || w.part === P.FistR) text = `${name}'s ${part} is shattered!`;
+          else if (w.part === P.FootL || w.part === P.FootR) text = `${name}'s ${part} is crushed!`;
+          else if (!DETACHABLE[w.part]) text = `${name}'s ${part} is wrecked!`;
+        }
+        if (text) this.comment(text, w.part === P.Head ? 3 : 1);
+        break;
+      }
       case 'getUp': {
         const f = (data as { f: Fighter }).f;
         if (f.state !== 'ko') this.comment(this.pick([`${f.name} beats the count!`, `${f.name} is back up!`, `${f.name} wants more!`]), 2);
@@ -416,12 +541,12 @@ export class Hud {
         break;
       }
       case 'ko': {
-        const d = data as { winner: Fighter; loser: Fighter; kind: 'KO' | 'TKO' };
+        const d = data as { winner: Fighter; loser: Fighter; kind: FinishKind; reason: LossReason | null };
         this.endCount();
         if (d.kind === 'TKO') this.markKnockdowns(d.loser);
-        this.calloutEl.className = 'callout';
-        this.pendingFinish = { kind: d.kind, winner: d.winner };
-        this.comment(d.kind === 'TKO' ? `Three knockdowns. ${d.winner.name} wins by TKO!` : `${d.loser.name} is out cold!`, 5);
+        if (d.kind !== 'Dismantled') this.calloutEl.className = 'callout';
+        this.pendingFinish = { kind: d.kind, winner: d.winner, reason: d.reason };
+        if (d.kind !== 'Dismantled') this.comment(d.kind === 'TKO' ? `Three knockdowns. ${d.winner.name} wins by TKO!` : `${d.loser.name} is out cold!`, 5);
         break;
       }
       case 'decision': {
@@ -529,16 +654,21 @@ export class Hud {
    * Shown FINISH_DELAY after the knockout; after a beat it docks as a small title at the
    * top so the fall and celebration show.
    */
-  private finish(kind: 'KO' | 'TKO', winner: Fighter) {
+  private finish(kind: FinishKind, winner: Fighter, reason: LossReason | null = null) {
     const ko = kind === 'KO';
+    const dsm = kind === 'Dismantled';
     this.calloutEl.className = 'callout';
     const word = FINISH_WORD[kind].map((p, i) => `<span data-t="${p}" style="--i:${i}">${p}</span>`).join('');
-    const sub = ko ? `${esc(winner.name)} wins by knockout` : `Technical knockout · ${esc(winner.name)} wins`;
-    const fx = ko ? '<div class="fx-flash"></div><div class="fx-ring"></div><div class="fx-ring two"></div>' : '';
+    const sub = ko
+      ? `${esc(winner.name)} wins by knockout`
+      : dsm
+        ? `${reason ? LOSS_TEXT[reason] : 'Torn apart'} · ${esc(winner.name)} wins`
+        : `Technical knockout · ${esc(winner.name)} wins`;
+    const fx = ko || dsm ? '<div class="fx-flash"></div><div class="fx-ring"></div><div class="fx-ring two"></div>' : '';
     this.finishEl.className = 'finish';
     this.finishEl.innerHTML = `<div class="fx-vig"></div><div class="fx-top"></div>${fx}<div class="fx-band"></div><div class="fx-word">${word}</div><div class="fx-sub">${sub}</div>`;
     void this.finishEl.offsetWidth;
-    this.finishEl.className = `finish go ${ko ? 'ko' : 'tko'} ${winner.index ? 'p2' : 'p1'}`;
+    this.finishEl.className = `finish go ${ko ? 'ko' : dsm ? 'ko dsm' : 'tko'} ${winner.index ? 'p2' : 'p1'}`;
     this.root.classList.add('finished');
     this.finishing = true;
   }
