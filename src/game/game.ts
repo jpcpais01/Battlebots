@@ -3,6 +3,7 @@ import { Stage, type Quality } from '../render/stage';
 import { Arena } from '../render/arena';
 import { Fx, type Trail } from '../render/fx';
 import { Director } from '../render/director';
+import { ClearView } from '../render/clearView';
 import { BotModel } from '../render/botModel';
 import { Match, SIM_DT, type HitInfo } from '../sim/match';
 import { Fighter } from '../sim/fighter';
@@ -26,6 +27,8 @@ const _pan = new THREE.Vector3();
 export class Game {
   readonly stage: Stage;
   readonly arena: Arena;
+  private clearView = new ClearView();
+  private chests = [new THREE.Vector3(), new THREE.Vector3()];
   readonly fx: Fx;
   readonly director: Director;
   match: Match | null = null;
@@ -55,6 +58,7 @@ export class Game {
     this.stage = new Stage(canvas, quality);
     this.arena = new Arena(quality);
     this.stage.scene.add(this.arena.group);
+    this.clearView.apply(this.arena.group);
     this.fx = new Fx();
     this.stage.scene.add(this.fx.group);
     this.director = new Director(this.stage.camera);
@@ -122,6 +126,7 @@ export class Game {
     this.match = m;
     this.models = [new BotModel(a.loadout, a.palette), new BotModel(b.loadout, b.palette)];
     for (const md of this.models) this.stage.scene.add(md.root);
+    this.clearView.apply(this.arena.group);
     this.trails = [a, b].map((spec) => {
       const pal = PALETTES[spec.palette % PALETTES.length];
       return [0, 1, 2, 3].map(() => this.fx.makeTrail(pal.accent, 0.13));
@@ -299,6 +304,10 @@ export class Game {
     this.fx.update(dt, this.stage.camera);
     this.arena.update(dt, this.time);
     this.director.update(dt, m);
+    if (m && this.director.mode === 'match') {
+      for (let i = 0; i < 2; i++) this.chests[i].copy(m.fighters[i].body.pos[J.Chest]);
+      this.clearView.update(this.stage.camera, this.chests);
+    } else this.clearView.update(this.stage.camera, []);
     if (this.sfx) {
       const f = m?.fighters;
       this.sfx.crowdTick(dt, m && f && !this.paused ? { phase: m.phase, clock: m.clock, hp: [f[0].hpRatio, f[1].hpRatio] } : null);
