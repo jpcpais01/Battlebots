@@ -414,7 +414,8 @@ export class Game {
     this.director.update(dt, m);
     if (m && this.director.mode === 'match') {
       for (let i = 0; i < 2; i++) this.chests[i].copy(m.fighters[i].body.pos[J.Chest]);
-      this.clearView.update(this.stage.camera, this.chests);
+      // ropes and barriers stay solid in a fight unless the lens is right up against them
+      this.clearView.update(this.stage.camera, 'near');
       // expose for the ring: the closer the shot on the fighters, the darker the house
       _v.addVectors(this.chests[0], this.chests[1]).multiplyScalar(0.5);
       house.update(dt, this.stage.camera.position.distanceTo(_v));
