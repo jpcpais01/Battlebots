@@ -31,9 +31,12 @@ const MIDS: [number, number, number][] = [
   [13, 14, 0.14],
   [14, 15, 0.12],
 ];
-/** How far past a robot's spheres its occlusion is evaluated (falls off to almost nothing by then). */
-const REACH = 1.1;
-
+/**
+ * Each sphere's occlusion fades smoothly to exactly zero at this many radii from its centre, and a
+ * robot's bounding sphere encloses every sphere's full range. Without both, the shader's bounding
+ * test cut off the r²/d² tail mid-fade and drew a hard circle on the canvas around each robot.
+ */
+const RANGE = 4.5;
 export interface AOOptions {
   /** Darken near the robots' spheres. */
   spheres?: boolean;
@@ -96,11 +99,13 @@ class ContactAO {
     cy /= 16;
     cz /= 16;
     let r = 0;
-    for (let j = 0; j < 16; j++) r = Math.max(r, joints[j].distanceTo(_c.set(cx, cy, cz)) + RADII[j]);
+    for (let k = i * this.per * 4; k < o; k += 4) {
+      r = Math.max(r, Math.hypot(s[k] - cx, s[k + 1] - cy, s[k + 2] - cz) + s[k + 3] * RANGE);
+    }
     b[i * 4] = cx;
     b[i * 4 + 1] = cy;
     b[i * 4 + 2] = cz;
-    b[i * 4 + 3] = r + REACH;
+    b[i * 4 + 3] = r;
   }
 
   /**
@@ -172,12 +177,11 @@ class ContactAO {
   }
 }
 
-const _c = new THREE.Vector3();
-
 /**
  * Sphere occlusion (cosine-weighted solid angle, r²/d² · n·l), multiplied over the spheres of each
- * robot whose bounding sphere the point is inside. Faces pointing away from a sphere (including a
- * part's own outer surface around its joint) get nothing from it.
+ * robot whose bounding sphere the point is inside (the fade window makes that test exact). Faces
+ * pointing away from a sphere (including a part's own outer surface around its joint) get nothing
+ * from it.
  */
 function sphereGLSL(per: number) {
   return /* glsl */ `
@@ -194,7 +198,10 @@ float aoSpheres(vec3 p, vec3 n, float k) {
       vec3 d = s.xyz - p;
       float l2 = dot(d, d);
       float nl = dot(n, d) * inversesqrt(l2);
-      float o = max(nl, 0.0) * s.w * s.w / max(l2, 1e-4);
+      float r2 = s.w * s.w;
+      // cosine-weighted solid angle, windowed to reach exactly zero at RANGE radii
+      float fade = max(1.0 - l2 / (r2 * ${(RANGE * RANGE).toFixed(2)}), 0.0);
+      float o = max(nl, 0.0) * r2 / max(l2, 1e-4) * fade * fade;
       occ *= 1.0 - min(o * k, 0.9);
     }
   }

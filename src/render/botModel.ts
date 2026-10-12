@@ -226,7 +226,7 @@ function makeOpaqueMaterial() {
   };
   m.customProgramCacheKey = () => 'bot-opaque';
   // limbs, torsos and the opponent shade each other; legs and feet darken towards the canvas
-  return contactAO.patch(m, { spheres: true, strength: 1.5, ground: { y: 0, height: 0.5, k: 0.5 }, direct: 0.6 });
+  return contactAO.patch(m, { spheres: true, strength: 1.8, ground: { y: 0, height: 0.5, k: 0.5 }, direct: 0.6 });
 }
 
 /** Unlit material whose colour comes from a small per-bot palette (animated glow channels). */
