@@ -125,9 +125,6 @@ export class Game {
     this.probe = new RenderProbe(this.stage);
     this.arena = new Arena(quality);
     this.stage.scene.add(this.arena.group);
-    this.clearView.apply(this.arena.group);
-    // the stands start past the farthest the camera ever goes, so they stay out of ClearView:
-    // its dither would only cost fill rate (and early depth rejection) on the biggest surfaces
     this.stage.scene.add(this.arena.venue.group);
     // the house sits in the dark around the lit ring
     house.apply(this.arena.venue.group);
@@ -264,7 +261,6 @@ export class Game {
       this.probe.tag(md.root, 'bots');
       this.stage.scene.add(md.root);
     }
-    this.clearView.apply(this.arena.group);
     this.trails = [a, b].map((spec) => {
       const pal = PALETTES[spec.palette % PALETTES.length];
       return [0, 1, 2, 3].map(() => this.fx.makeTrail(pal.accent, 0.13));
@@ -517,8 +513,7 @@ export class Game {
     this.director.update(dt, m);
     if (m && this.director.mode === 'match') {
       for (let i = 0; i < 2; i++) this.chests[i].copy(m.fighters[i].body.pos[J.Chest]);
-      // ropes and barriers stay solid in a fight unless the lens is right up against them
-      this.clearView.update(this.stage.camera, 'near');
+      this.clearView.update(this.stage.camera, []);
       // expose for the ring: the closer the shot on the fighters, the darker the house
       _v.addVectors(this.chests[0], this.chests[1]).multiplyScalar(0.5);
       house.update(dt, this.stage.camera.position.distanceTo(_v));
