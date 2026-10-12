@@ -31,6 +31,7 @@ import { Crowd, glowPoints } from './crowd';
 import { RenderSettings } from './settings';
 import { contactAO } from './ao';
 import { house, HOUSE_GLSL } from './house';
+import { FloorShow } from './floor';
 
 /**
  * The indoor arena around the ring: a two-tier seating bowl with a suite level, LED ribbon
@@ -508,6 +509,7 @@ function ringsideDesks() {
 export class Venue {
   readonly group = new THREE.Group();
   readonly crowd: Crowd;
+  readonly floor: FloorShow;
   readonly uniforms: Uniforms & { uFlash: { value: number } };
   private spots: THREE.Vector4[];
   private steady: THREE.ShaderMaterial;
@@ -519,7 +521,9 @@ export class Venue {
     this.uniforms = { uTime: u.uTime, uHype: u.uHype, uFlash: { value: 0 } };
     const U = this.uniforms;
     const desks = ringsideDesks();
-    this.crowd = new Crowd([...seats(), ...desks.flatMap((d) => d.seats)], quality, this.uniforms);
+    this.floor = new FloorShow(u);
+    g.add(this.floor.group);
+    this.crowd = new Crowd([...seats(), ...desks.flatMap((d) => d.seats), ...this.floor.people], quality, this.uniforms);
     this.spots = this.crowd.spots;
     const hookLed = (m: THREE.ShaderMaterial) => {
       m.uniforms.uTime = U.uTime;
@@ -902,7 +906,14 @@ export class Venue {
 
   setPixelScale(h: number) {
     this.crowd.setPixelScale(h);
+    this.floor.setPixelScale(h);
     this.steady.uniforms.uScale.value = h;
+  }
+
+  /** Match events for everyone in the building: the crowd and the photographers on the floor. */
+  event(type: string, data?: unknown) {
+    this.crowd.event(type, data);
+    this.floor.event(type, data);
   }
 
   /** What the centre-hung screens show: the live fight, or the arena logo (null). */
@@ -916,6 +927,7 @@ export class Venue {
   }
 
   update(dt: number, time: number, hype: number) {
+    this.floor.update(dt);
     this.flash = Math.max(0, this.flash - dt * 0.8);
     this.uniforms.uFlash.value = this.flash;
     // follow spots roaming the stands, livelier with the crowd

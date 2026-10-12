@@ -17,6 +17,7 @@ export const PATCH_NOTES: PatchNote[] = [
     date: '2026-10-12',
     title: 'Fight night upgrade',
     notes: [
+      'Fight night on the arena floor: pit crews with tool chests and chargers by each tunnel, ringside VIP seats, photographers whose flashes go off on big hits, camera operators, officials, patrolling security, walkout carpets and floor lights.',
       'Arena realism pass: fans now have faces, beards, glasses, jerseys, jackets, scarves and foam fingers, lit by the ring.',
       'The arena gains exit stairwells, aisle handrails, a glass rail on the upper tier, roof catwalks, speaker stacks and press and judges desks.',
       'The big screen over the ring now shows both robots, their health and the fight clock live.',

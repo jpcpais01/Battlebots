@@ -195,7 +195,7 @@ export class Game {
     this.director.cue(type, data);
     sfx?.crowdEvent(type, data);
     this.crowdMood.event(type, data);
-    this.arena.venue.crowd.event(type, data);
+    this.arena.venue.event(type, data);
     switch (type) {
       case 'hit': {
         const h = data as HitInfo;
