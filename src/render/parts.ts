@@ -303,7 +303,9 @@ export function buildTorso(look: number): PB {
   // shared chassis: waist, inner frame, shoulder axle, neck collar
   b.add(G.loft([[-0.37, 0.24, 0.19], [-0.25, 0.28, 0.21], [-0.12, 0.33, 0.23]], 0.3), 'metal', 0, 0, -0.005);
   b.addSym(G.loft([[-0.33, 0.04, 0.15], [-0.15, 0.05, 0.18]], 0.3), 'paint2', 0.135, 0, -0.005);
-  b.add(G.loft([[-0.14, 0.32, 0.22], [0.2, 0.44, 0.25]], 0.3), 'dark', 0, 0, -0.01);
+  // inner frame stays just inside every chest shell: its top used to sit flush with the
+  // shell caps (y 0.2) and z-fought with them, flickering dark patches on the chest top
+  b.add(G.loft([[-0.14, 0.32, 0.22], [0.185, 0.43, 0.23]], 0.3), 'dark', 0, 0, -0.01);
   b.addAxle(0.062, 0.62, 'joint', 0, 0.1, 0, 14);
   b.add(G.cyl(0.065, 0.08, 0.06, 12), 'metal', 0, 0.21, -0.015);
   b.add(G.cbox(0.16, 0.04, 0.12, 0.012), 'dark', 0, -0.31, 0.06);
