@@ -33,7 +33,7 @@ export class Game {
   private clearView = new ClearView();
   /** The arena's mood, the same model the crowd audio runs, so what fans do matches what you hear. */
   private crowdMood = new CrowdMood();
-  private probe: RenderProbe;
+  readonly probe: RenderProbe;
   private chests = [new THREE.Vector3(), new THREE.Vector3()];
   readonly fx: Fx;
   readonly director: Director;
@@ -62,7 +62,7 @@ export class Game {
 
   constructor(canvas: HTMLCanvasElement, quality: Quality) {
     this.stage = new Stage(canvas, quality);
-    this.probe = new RenderProbe(this.stage.renderer);
+    this.probe = new RenderProbe(this.stage);
     this.arena = new Arena(quality);
     this.stage.scene.add(this.arena.group);
     this.clearView.apply(this.arena.group);
@@ -71,6 +71,7 @@ export class Game {
     this.stage.scene.add(this.arena.venue.group);
     this.fx = new Fx();
     this.stage.scene.add(this.fx.group);
+    this.tagParts();
     this.director = new Director(this.stage.camera);
     this.stage.onResize = (w, h) => {
       this.fx.setPixelScale(h);
@@ -80,6 +81,18 @@ export class Game {
     };
     this.stage.resize();
     requestAnimationFrame(this.loop);
+  }
+
+  /** Which part of the scene each draw call is charged to in the performance overlay. */
+  private tagParts() {
+    const p = this.probe;
+    p.tag(this.arena.group, 'ring');
+    p.tag(this.arena.venue.group, 'venue');
+    p.tag(this.arena.venue.crowd.group, 'crowd');
+    p.tag(this.fx.group, 'effects');
+    this.arena.group.traverse((o) => {
+      if (o.name === 'ropes' || o.name === 'beams') p.tag(o, o.name);
+    });
   }
 
   // ------------------------------------------------------------- showcase
@@ -110,6 +123,7 @@ export class Game {
       },
     };
     const model = new BotModel(spec.loadout, spec.palette);
+    this.probe.tag(model.root, 'bots');
     this.stage.scene.add(model.root);
     this.showcase = { fighter, dummy, model };
   }
@@ -135,7 +149,10 @@ export class Game {
     const m = new Match(a, b, seed);
     this.match = m;
     this.models = [new BotModel(a.loadout, a.palette), new BotModel(b.loadout, b.palette)];
-    for (const md of this.models) this.stage.scene.add(md.root);
+    for (const md of this.models) {
+      this.probe.tag(md.root, 'bots');
+      this.stage.scene.add(md.root);
+    }
     this.clearView.apply(this.arena.group);
     this.trails = [a, b].map((spec) => {
       const pal = PALETTES[spec.palette % PALETTES.length];

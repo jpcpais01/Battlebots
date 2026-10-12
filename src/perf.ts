@@ -65,7 +65,7 @@ class Perf {
     const t = now();
     const gap = t - this.start;
     this.start = this.last = t;
-    if (!this.winStart || gap > 250) {
+    if (!this.winStart || gap > 1000) {
       // first frame, or back from a hidden tab: don't count the pause
       this.winStart = t;
       this.count = 0;
