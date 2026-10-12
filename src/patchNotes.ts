@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-12 19:00',
+    title: 'Settings that fit your phone',
+    notes: [
+      'Settings has a new two-column layout that fits a landscape phone screen, with bigger buttons, a close button and tap-outside-to-close. Graphics quality now has an Auto option, and resetting your record asks you to tap twice.',
+    ],
+  },
+  {
     hour: '2026-10-12 18:00',
     title: 'The new garage and fight night atmosphere',
     notes: [
