@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-12 20:00',
     title: 'Rebuilt robots, new bot cards and better kicks',
     notes: [
+      'Robots have joined the crowd: about one fan in ten is now a robot, sitting in little groups around the stands with softly glowing LED eyes, cheering, clapping and booing along with everyone else.',
       'Every robot part has been rebuilt with far more mechanical detail: bolts, vents, layered plates, springs, pistons and lit sensors, and each item now has its own silhouette.',
       'Each power core now has its own back reactor: twin exhaust stacks, a hex generator, collector tanks or a coil tower.',
       'Rarity now shows on the robot itself: Epic parts add bolted armour, Legendary adds chrome trim, and Mythic adds signature fins, blades and a V-crest lit in the rarity colour.',
