@@ -36,8 +36,6 @@ export class FramePacer {
   private lastRaf = 0;
   private nextDraw = 0;
   private fast = 0;
-  /** Smoothed rate the browser is calling us at right now (follows the screen down as well as up). */
-  rafHz = 60;
 
   /** Frames per second the game aims for. */
   get target() {
@@ -57,7 +55,6 @@ export class FramePacer {
     const gap = now - this.lastRaf;
     this.lastRaf = now;
     const period = 1000 / this.hz;
-    if (gap > 2 && gap < 100) this.rafHz += (1000 / gap - this.rafHz) * 0.05;
     if (this.ticks < 90 && this.samples.length < PROBE) {
       this.ticks++;
       if (gap > 2 && gap < 60) this.samples.push(gap);

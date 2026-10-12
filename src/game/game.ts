@@ -17,7 +17,6 @@ import type { Sfx } from '../audio/sfx';
 import { perf } from '../perf';
 import { RenderProbe } from '../render/renderProbe';
 import { FramePacer } from '../render/pacer';
-import { RefreshBoost } from '../render/refreshBoost';
 import { contactAO } from '../render/ao';
 import { house } from '../render/house';
 import { warnNonFinite } from '../render/finite';
@@ -46,8 +45,6 @@ export class Game {
   readonly probe: RenderProbe;
   /** Display refresh rate and the player's frame-rate cap. */
   readonly pacer = new FramePacer();
-  /** Experimental tricks to keep high-refresh screens fast without a finger on them. */
-  readonly boost = new RefreshBoost();
   private chests = [new THREE.Vector3(), new THREE.Vector3()];
   readonly fx: Fx;
   readonly director: Director;
