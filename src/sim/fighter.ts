@@ -259,6 +259,10 @@ export class Fighter {
   private twist = 0;
   private hipTwist = 0;
   private leanV = new Vector3();
+  /** Landing give after a step (extra crouch, decays). */
+  private stepDip = 0;
+  /** Guard counter-swing from the current step (+ when the right leg steps forward). */
+  private gaitSwing = 0;
   private pivot = [0, 0];
   private heel = [0, 0];
   private _pivotT = [0, 0];
@@ -881,7 +885,7 @@ export class Fighter {
       if (f.locked) continue;
       if (f.stepping) {
         f.t += dt / f.dur;
-        const k = easeInOut(clamp01(f.t));
+        const k = minJerk(f.t);
         f.pos.lerpVectors(f.from, f.to, k);
         f.pos.y = lerp(f.from.y, f.to.y, k) + Math.sin(Math.PI * clamp01(f.t)) * f.arc;
         f.yaw = f.fromYaw + wrapAngle(f.toYaw - f.fromYaw) * smoothstep(0, 0.8, f.t);
@@ -889,6 +893,8 @@ export class Fighter {
           f.stepping = false;
           f.pos.copy(f.to);
           f.yaw = f.toYaw;
+          // the knees give a little as the weight lands on the new foot
+          this.stepDip = Math.max(this.stepDip, 0.008 + f.arc * 0.12);
           this.hooks?.emit('step', { f: this, foot: i });
         }
       }
@@ -1114,11 +1120,31 @@ export class Fighter {
       hd.z -= clamp(lvz - this.leanV.z, -0.6, 0.6) * 0.03;
       shTw += clamp(this.leanV.x, -1, 1) * 0.06 * -st;
     }
-    // weight rides over the planted foot while the other one steps
+    // gait: the whole body rides each step. Weight moves over the planted foot, the
+    // body vaults up over it, hips turn with the stepping leg while the shoulders and
+    // guard counter-rotate, and the knees give as the foot lands.
+    let rise = 0;
+    let swing = 0;
     for (let i = 0; i < 2; i++) {
       const f = this.feet[i];
-      if (f.stepping && !this.feet[1 - i].stepping) pd.x += (i === 0 ? 0.025 : -0.025) * Math.sin(Math.PI * clamp01(f.t));
+      if (!f.stepping || this.feet[1 - i].stepping) continue;
+      const sw = Math.sin(Math.PI * clamp01(f.t));
+      const dx = f.to.x - f.from.x, dz = f.to.z - f.from.z;
+      const fwd = clamp(sy * dx + cy * dz, -0.4, 0.4);
+      const size = Math.min(1, Math.hypot(dx, dz) / 0.3);
+      const sxF = i === 0 ? -1 : 1;
+      pd.x -= sxF * 0.045 * sw * (0.4 + 0.6 * size);
+      roll -= sxF * 0.03 * sw * size;
+      rise += 0.014 * sw * size;
+      hipTw -= sxF * fwd * 0.55 * sw;
+      shTw += sxF * fwd * 0.25 * sw;
+      swing += sxF * fwd * sw;
     }
+    if (dt > 0) this.stepDip = damp(this.stepDip, 0, 9, dt);
+    crouch += this.stepDip - rise;
+    // the head rides steadier than the trunk
+    hd.y += rise * 0.4 - this.stepDip * 0.4;
+    this.gaitSwing = s ? 0 : swing;
     // idle head movement while fighting
     if (fighting && !s && !d) {
       hd.x += this.noise.at(t * 0.8 + 20) * 0.025;
@@ -1165,7 +1191,8 @@ export class Fighter {
 
     // ---------- bob (bouncing on the toes)
     if (dt > 0) this.bobPhase += dt * (5.2 + this.bounce * 2.2 + tired * 1.5 + this.rootVel.length() * 1.2);
-    const bobAmp = (fighting ? 0.012 + 0.016 * this.bounce : 0.008) + tired * 0.01;
+    // on the move the steps carry the bounce, so the idle toe-bounce fades out
+    const bobAmp = ((fighting ? 0.012 + 0.016 * this.bounce : 0.008) + tired * 0.01) / (1 + this.rootVel.length() * 1.5);
     const bob = Math.sin(this.bobPhase) * bobAmp;
 
     // ---------- skeleton (local)
@@ -1225,6 +1252,8 @@ export class Fighter {
       const hy = gw.normal * nY + gw.high * -0.03 + gw.body * -0.44 + gw.low * -0.5;
       const hz = gw.normal * nZ + gw.high * 0.16 + gw.body * 0.2 + gw.low * 0.2;
       hand.set(head.x + hx, head.y + hy - lower * 0.38, head.z + hz - lower * 0.05);
+      // the guard counter-swings a touch against the stepping leg
+      hand.z -= sx * this.gaitSwing * 0.08;
       if (isLead) {
         hand.x += Math.sin(t * 2.3 + this.index) * 0.025 * paw;
         hand.y += Math.cos(t * 2.9 + this.index) * 0.02 * paw + bob * 0.6;
