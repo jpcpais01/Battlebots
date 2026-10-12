@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     notes: [
       'Patch notes: this button on the home screen lists what changed in each update.',
       'Refresh button on the home screen (circular arrow next to sound and settings) reloads the app on the latest version.',
+      'The settings button now shows a proper gear instead of a sun.',
       'A live crowd that cheers, gasps and roars with the fight.',
       'Action camera: the fight is now shot like a broadcast, with cuts and close-ups on the big hits.',
       'Clear view: ropes, posts and anything else between the camera and the robots fade away, so nothing blocks the fight.',
