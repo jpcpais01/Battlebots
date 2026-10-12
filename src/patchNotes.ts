@@ -19,6 +19,9 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-12 20:00',
     title: 'Clearer ringside camera',
     notes: [
+      'Every robot part has been rebuilt with far more mechanical detail: bolts, vents, layered plates, springs, pistons and lit sensors, and each item now has its own silhouette.',
+      'Each power core now has its own back reactor: twin exhaust stacks, a hex generator, collector tanks or a coil tower.',
+      'Rarity now shows on the robot itself: Epic parts add bolted armour, Legendary adds chrome trim, and Mythic adds signature fins, blades and a V-crest lit in the rarity colour.',
       'Ropes and barriers now only turn see-through when the camera is right up against them (within about a metre); farther away they stay solid.',
     ],
   },
