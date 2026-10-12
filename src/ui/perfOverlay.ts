@@ -125,7 +125,9 @@ export class PerfOverlay {
     const renderer = this.game.stage.renderer;
     renderer.getDrawingBufferSize(this.size);
     const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+    const pacer = this.game.pacer;
     this.foot.textContent =
+      `display ${pacer.hz} Hz · aiming for ${pacer.target} FPS · ` +
       `${r.draws} draws · ${r.tris >= 1000 ? `${Math.round(r.tris / 1000)}k` : r.tris} tris · ` +
       `${this.size.x}×${this.size.y} @${renderer.getPixelRatio().toFixed(2)}x ${this.game.stage.resScale === null ? 'auto' : 'fixed'} · ${this.game.stage.quality}` +
       (mem ? ` · ${Math.round(mem.usedJSHeapSize / 1048576)} MB` : '') +

@@ -1,5 +1,6 @@
 import type { Game, Place } from '../game/game';
 import { resScaleChoices, type Quality, type ResScale } from '../render/stage';
+import type { FpsCap } from '../render/pacer';
 import { enterLandscape } from '../fullscreen';
 import { Rng } from '../sim/math';
 import { MOVES } from '../sim/moves';
@@ -569,6 +570,7 @@ export class App {
         location.reload();
       }, box);
       this.resolutionRow(box);
+      this.frameRateRow(box);
       const perfBtn = button('btn small', '', () => {
         this.perf.setVisible(!this.perf.visible);
         syncPerf();
@@ -609,6 +611,21 @@ export class App {
       label.textContent = `Render resolution: ${cur === null ? `auto, now ${+pr.toFixed(2)}x` : `fixed at ${cur}x`} (screen is ${native}x)`;
     };
     sync();
+  }
+
+  /** Frame rate: the display's own refresh rate, or a cap that saves battery. */
+  private frameRateRow(box: HTMLElement) {
+    const pacer = this.game.pacer;
+    el('div', 'muted', `Frame rate (screen is ${pacer.hz} Hz)`, box);
+    const seg = el('div', 'seg', '', box);
+    const opts: FpsCap[] = ['max', 60, 30];
+    const btns = opts.map((o) =>
+      button(o === pacer.cap ? 'on' : '', o === 'max' ? `Max (${pacer.hz})` : `${o}`, () => {
+        this.tap();
+        pacer.setCap(o);
+        opts.forEach((v, i) => btns[i].classList.toggle('on', v === o));
+      }, seg),
+    );
   }
 
   // ------------------------------------------------------------ patch notes

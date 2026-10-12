@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-12 18:00',
     title: 'The new garage and fight night atmosphere',
     notes: [
+      'The game now runs at your screen\'s full refresh rate (120 Hz and up) instead of settling at 60. New Frame rate setting: Max, 60 or 30 to save battery.',
       'Fixed glaring white light with black specks along the top of the boards around the ring: the front row\'s seat backs and aisle steps were broken on some phones.',
       'Patch notes are now grouped by the hour each update went live, shown in your local time.',
       'The garage is now its own robotics workshop: your bot stands on a turntable under a gantry crane, surrounded by workbenches, tool walls, shelves of spare parts and a welding robot at work.',
