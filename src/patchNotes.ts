@@ -26,6 +26,9 @@ export const PATCH_NOTES: PatchNote[] = [
       'Installed app opens as a normal window and goes fullscreen in landscape on first tap.',
       'Fixed the screen flickering on some phones.',
       'Fixed a brief zoom flicker during fights on phones; resolution changes now happen on camera cuts.',
+      'Arms no longer pass through chest plates, their own or the opponent\'s.',
+      'Elbows and knees no longer snap to the wrong side mid-punch or mid-kick.',
+      'Guarding hands stay tucked at the chin through the whole strike, and bots no longer sink into each other up close.',
     ],
   },
   {
