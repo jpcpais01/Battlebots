@@ -18,6 +18,7 @@ import {
   type Slot,
   type StatKey,
 } from '../game/items';
+import { PATCH_NOTES } from '../patchNotes';
 import { PALETTES, randomBot, randomName, type BotSpec } from '../game/loadout';
 import { button, el, esc, hex } from './dom';
 import { Hud, pipsHtml } from './hud';
@@ -105,7 +106,8 @@ export class App {
   private buildHome() {
     const s = el('div', 'screen home');
     const left = el('div', 'home-left', '', s);
-    el('div', 'logo', `<span class="l1">BATTLE</span><span class="l2">BOTS</span><span class="tag">ROBOT BOXING ARENA</span>`, left);
+    const logo = el('div', 'logo', `<span class="l1">BATTLE</span><span class="l2">BOTS</span><span class="tag">ROBOT BOXING ARENA</span>`, left);
+    this.patchBtn(logo);
     this.homeCard = el('div', 'botcard interactive', '', left);
     this.homeCard.addEventListener('click', () => {
       this.tap('select');
@@ -397,6 +399,34 @@ export class App {
         this.closeModal();
       }, box);
       button('btn cyan', 'Done', () => this.closeModal(), box);
+    });
+  }
+
+  // ------------------------------------------------------------ patch notes
+  private patchBtn(parent: HTMLElement) {
+    const latest = PATCH_NOTES[0] ? `${PATCH_NOTES[0].date}|${PATCH_NOTES[0].title}|${PATCH_NOTES[0].notes.length}` : '';
+    let seen = '';
+    try {
+      seen = localStorage.getItem('bb.notesSeen') ?? '';
+    } catch {}
+    const b = button(`notes-btn${latest && seen !== latest ? ' new' : ''}`, 'Patch notes', () => {
+      b.classList.remove('new');
+      try {
+        localStorage.setItem('bb.notesSeen', latest);
+      } catch {}
+      this.patchNotes();
+    }, parent);
+  }
+
+  private patchNotes() {
+    this.tap();
+    this.openModal('Patch notes', (box) => {
+      box.classList.add('notes');
+      const list = el('div', 'notes-list', '', box);
+      for (const p of PATCH_NOTES) {
+        el('div', 'note', `<div class="note-head"><b>${esc(p.title)}</b><span>${esc(p.date)}</span></div><ul>${p.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>`, list);
+      }
+      button('btn cyan', 'Close', () => this.closeModal(), box);
     });
   }
 
