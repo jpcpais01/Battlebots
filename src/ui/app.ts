@@ -531,7 +531,11 @@ export class App {
       });
       inp.addEventListener('change', () => {
         clearTimeout(t);
-        this.setPaint({ ...this.player.paint, [page]: parseInt(inp.value.slice(1), 16) });
+        // the live preview already set the colour: save it and redraw the tab
+        this.player.paint = { ...this.player.paint, [page]: parseInt(inp.value.slice(1), 16) };
+        this.tap('select');
+        this.commitPlayer();
+        this.game.garagePulse();
       });
     }
     g.items.scrollTop = scroll;
