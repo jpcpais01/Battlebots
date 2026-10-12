@@ -22,6 +22,7 @@ import { PALETTES, randomBot, randomName, type BotSpec } from '../game/loadout';
 import { button, el, esc, hex } from './dom';
 import { Hud, pipsHtml } from './hud';
 import { ABILITY_ICON, ICON, SLOT_ICON } from './icons';
+import { forceUpdate } from '../update';
 import { loadPlayer, loadQuality, loadRecord, savePlayer, saveQuality, saveRecord, type Record_ } from './store';
 
 type ScreenId = 'home' | 'garage' | 'fight';
@@ -113,6 +114,11 @@ export class App {
 
     const tr = el('div', 'home-top-right', '', s);
     this.soundBtns.push(button('icon-btn', '', () => this.toggleSound(), tr));
+    const refresh = button('icon-btn', ICON.refresh, () => {
+      refresh.classList.add('spinning');
+      void forceUpdate();
+    }, tr);
+    refresh.title = 'Check for updates';
     button('icon-btn', ICON.gear, () => this.settings(), tr);
     this.syncSound();
 
