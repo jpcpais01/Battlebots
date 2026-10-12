@@ -15,9 +15,9 @@ import {
   TUNNEL_W,
   UPPER_Y,
   VOM_ROW0,
-  VOM_ROW1,
   VOM_W,
   aisleLights,
+  aislesAt,
   aisleRails,
   outline,
   seats,
@@ -145,6 +145,31 @@ function vomTexture(section: number): THREE.CanvasTexture {
   g.font = 'bold 15px Arial, sans-serif';
   g.fillText('EXIT', 222, 20);
   return tex(c, false);
+}
+
+/** A moulded seat back: rounded shell, lighter top edge, a seat number plate. Alpha cuts its shape. */
+function seatBackTexture(): THREE.CanvasTexture {
+  const [c, g] = canvas(64, 64);
+  g.clearRect(0, 0, 64, 64);
+  const gr = g.createLinearGradient(0, 0, 0, 64);
+  gr.addColorStop(0, '#ffffff');
+  gr.addColorStop(0.25, '#d0d0d0');
+  gr.addColorStop(1, '#7a7a7a');
+  g.fillStyle = gr;
+  g.beginPath();
+  g.roundRect(6, 2, 52, 60, [14, 14, 6, 6]);
+  g.fill();
+  const side = g.createLinearGradient(6, 0, 58, 0);
+  side.addColorStop(0, 'rgba(0,0,0,0.35)');
+  side.addColorStop(0.5, 'rgba(0,0,0,0)');
+  side.addColorStop(1, 'rgba(0,0,0,0.35)');
+  g.fillStyle = side;
+  g.fillRect(6, 2, 52, 60);
+  g.fillStyle = '#e8e8e8';
+  g.fillRect(26, 8, 12, 6);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
 /** Upper concourse glimpsed through openings behind the top row: warm light, pillars, people. */
@@ -523,7 +548,14 @@ export class Venue {
     const desks = ringsideDesks();
     this.floor = new FloorShow(u);
     g.add(this.floor.group);
-    this.crowd = new Crowd([...seats(), ...desks.flatMap((d) => d.seats), ...this.floor.people], quality, this.uniforms);
+    const bowlSeats = seats();
+    // broadcast cameras on the platforms over the north and south lower vomitories
+    const platforms = vomitories().filter((v) => v.row0 === VOM_ROW0 && v.nz !== 0);
+    const platformCrew = platforms.map((v) => {
+      const x = v.x + v.nx * 1.5 + 0.5, z = v.z + v.nz * 1.5;
+      return { x, y: ROWS[v.row1].y, z, row: 0, a: Math.atan2(z, x), role: 'camera' as const };
+    });
+    this.crowd = new Crowd([...bowlSeats, ...desks.flatMap((d) => d.seats), ...this.floor.people, ...platformCrew], quality, this.uniforms);
     this.spots = this.crowd.spots;
     const hookLed = (m: THREE.ShaderMaterial) => {
       m.uniforms.uTime = U.uTime;
@@ -721,6 +753,29 @@ export class Venue {
       truss.push(bar(Math.cos(a) * r, 21.2, Math.sin(a) * r, Math.cos(a) * r, rigY, Math.sin(a) * r, 0.05));
       speakers.push(new THREE.BoxGeometry(1.3, 0.12, 0.9).rotateY(Math.PI / 2 - a).translate(Math.cos(a) * r, 21.2, Math.sin(a) * r));
     }
+    // follow-spot fixtures on the outer catwalk, one in each corner, trained on the ring
+    const lensGeo: THREE.BufferGeometry[] = [];
+    for (let k = 0; k < 4; k++) {
+      const o = outline(15);
+      const p = o[Math.round(((k + 0.5) * (o.length - 1)) / 4)];
+      const y = ROOF_Y - 0.6 + 1.25;
+      const to = new THREE.Vector3(-p.x, -y + 1, -p.z).normalize();
+      const body = new THREE.CylinderGeometry(0.28, 0.34, 1.2, 10).rotateX(Math.PI / 2);
+      const m = new THREE.Matrix4().lookAt(new THREE.Vector3(), to.clone().negate(), new THREE.Vector3(0, 1, 0));
+      body.applyMatrix4(m).translate(p.x, y, p.z);
+      speakers.push(body);
+      truss.push(bar(p.x, ROOF_Y - 0.6, p.z, p.x, y - 0.3, p.z, 0.08));
+      const lens = new THREE.CircleGeometry(0.26, 16);
+      lens.applyMatrix4(new THREE.Matrix4().lookAt(new THREE.Vector3(), to.clone().negate(), new THREE.Vector3(0, 1, 0)));
+      lens.translate(p.x + to.x * 0.61, y + to.y * 0.61, p.z + to.z * 0.61);
+      lensGeo.push(lens);
+    }
+    g.add(
+      new THREE.Mesh(
+        mergeGeometries(lensGeo)!,
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff1d6).multiplyScalar(RenderSettings.glow(1.4)), toneMapped: false }),
+      ),
+    );
     g.add(new THREE.Mesh(mergeGeometries(speakers)!, new THREE.MeshBasicMaterial({ color: 0x0e1014 })));
     g.add(new THREE.Mesh(mergeGeometries(truss)!, steel));
 
@@ -803,17 +858,17 @@ export class Venue {
     g.add(banners);
 
     // ---------------------------------------------------------------- vomitories
-    // stairwells cut into the middle of each side of the lower bowl
-    const vomD0 = ROWS[VOM_ROW0].d, vomD1 = ROWS[VOM_ROW1].d;
-    const vomY0 = ROWS[VOM_ROW0 - 1].y, vomY1 = ROWS[VOM_ROW1].y;
-    const vomDepth = vomD1 - vomD0, vomH = vomY1 - vomY0, vomW = VOM_W + 0.4;
+    // stairwells cut into the middle of each side of both tiers
+    const vomW = VOM_W + 0.4;
     const concrete: THREE.BufferGeometry[] = [];
     const rails: THREE.BufferGeometry[] = [];
     vomitories().forEach((v, i) => {
+      const vomDepth = ROWS[v.row1].d - ROWS[v.row0].d;
+      const vomY0 = ROWS[v.row0 - 1].y, vomY1 = ROWS[v.row1].y, vomH = vomY1 - vomY0;
       const along = v.nx !== 0;
       const cx = v.x + v.nx * vomDepth / 2, cz = v.z + v.nz * vomDepth / 2;
       concrete.push(new THREE.BoxGeometry(along ? vomDepth : vomW, vomH, along ? vomW : vomDepth).translate(cx, vomY0 + vomH / 2, cz));
-      const face = new THREE.Mesh(new THREE.PlaneGeometry(vomW, vomH), new THREE.MeshBasicMaterial({ map: vomTexture(101 + i * 7) }));
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(vomW, vomH), new THREE.MeshBasicMaterial({ map: vomTexture(i < 4 ? 101 + i * 7 : 201 + (i - 4) * 9) }));
       face.position.set(v.x - v.nx * 0.01, vomY0 + vomH / 2, v.z - v.nz * 0.01);
       face.rotation.y = Math.atan2(-v.nx, -v.nz);
       g.add(face);
@@ -834,6 +889,97 @@ export class Venue {
     const concreteMat = new THREE.MeshBasicMaterial({ color: vomCol });
     g.add(new THREE.Mesh(mergeGeometries(concrete)!, concreteMat));
 
+    // camera platforms on top of the lower north and south vomitories
+    for (const v of platforms) {
+      const y = ROWS[v.row1].y;
+      const tx = v.x + v.nx * 0.9 - 0.4, tz = v.z + v.nz * 0.9;
+      for (let k = 0; k < 3; k++) {
+        const la = (k / 3) * Math.PI * 2 + 0.4;
+        rails.push(bar(tx, y + 1.3, tz, tx + Math.cos(la) * 0.4, y, tz + Math.sin(la) * 0.4, 0.035));
+      }
+      concrete.push(new THREE.BoxGeometry(0.3, 0.32, 0.62).rotateY(Math.atan2(v.nx, v.nz)).translate(tx, y + 1.48, tz));
+      concrete.push(new THREE.BoxGeometry(0.2, 0.2, 0.25).rotateY(Math.atan2(v.nx, v.nz)).translate(tx - v.nx * 0.42, y + 1.48, tz - v.nz * 0.42));
+    }
+
+    // ---------------------------------------------------------------- stepped aisles and seat backs
+    // each aisle has a half step in every row, with a lit nosing on every step edge
+    {
+      const pos: number[] = [], col: number[] = [], idx: number[] = [];
+      const quad = (pts: number[][], c: Rgb) => {
+        const b = pos.length / 3;
+        for (const p of pts) {
+          pos.push(p[0], p[1], p[2]);
+          col.push(c[0], c[1], c[2]);
+        }
+        idx.push(b, b + 1, b + 2, b, b + 2, b + 3);
+      };
+      const half = 0.48;
+      ROWS.forEach((row, ri) => {
+        if (ri === LOWER_ROWS - 1 || ri === ROWS.length - 1) return;
+        const dm = row.d + row.depth / 2, ym = row.y + row.rise / 2;
+        const k = 1 - Math.sqrt(Math.min(1, row.y / 20)) * 0.6;
+        const top: Rgb = [0.07 * k, 0.074 * k, 0.085 * k];
+        const front: Rgb = [0.035 * k, 0.037 * k, 0.045 * k];
+        const nose: Rgb = [0.5 * k, 0.4 * k, 0.12 * k];
+        const at = aislesAt(ri, 0);
+        at.forEach((a0) => {
+          // positions along this aisle at offset d (corner aisles fan out radially)
+          const pt = (d: number): [number, number] => [a0.x + a0.nx * d, a0.z + a0.nz * d];
+          const tx = -a0.nz, tz = a0.nx;
+          const P = (d: number, y: number, side: number) => {
+            const [x, z] = pt(d);
+            return [x + tx * half * side, y, z + tz * half * side];
+          };
+          // riser and top of the half step
+          quad([P(dm, row.y, -1), P(dm, row.y, 1), P(dm, ym, 1), P(dm, ym, -1)], front);
+          quad([P(dm, ym, -1), P(dm, ym, 1), P(row.d + row.depth, ym, 1), P(row.d + row.depth, ym, -1)], top);
+          // nosings on the tread edge and on the half step
+          quad([P(row.d + 0.01, row.y + 0.006, -1), P(row.d + 0.01, row.y + 0.006, 1), P(row.d + 0.07, row.y + 0.006, 1), P(row.d + 0.07, row.y + 0.006, -1)], nose);
+          quad([P(dm + 0.01, ym + 0.006, -1), P(dm + 0.01, ym + 0.006, 1), P(dm + 0.07, ym + 0.006, 1), P(dm + 0.07, ym + 0.006, -1)], nose);
+        });
+      });
+      const sg = new THREE.BufferGeometry();
+      sg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      sg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      sg.setIndex(idx);
+      g.add(new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })));
+    }
+    {
+      // a folding seat back behind every seat, in the tier's colour
+      const n = bowlSeats.length;
+      const pos = new Float32Array(n * 12), col = new Float32Array(n * 12), uv = new Float32Array(n * 8);
+      const idx: number[] = [];
+      const lowC = new THREE.Color(0x5a1c22), upC = new THREE.Color(0x1d2c4c);
+      bowlSeats.forEach((st, i) => {
+        const nx = st.nx ?? 0, nz = st.nz ?? 0;
+        const row = ROWS[st.row];
+        const bx = st.x + nx * row.depth * 0.32, bz = st.z + nz * row.depth * 0.32;
+        const tx = -nz * 0.25, tz = nx * 0.25;
+        const y0 = st.y + 0.36, y1 = st.y + 0.86;
+        pos.set([bx - tx, y0, bz - tz, bx + tx, y0, bz + tz, bx + tx + nx * 0.06, y1, bz + tz + nz * 0.06, bx - tx + nx * 0.06, y1, bz - tz + nz * 0.06], i * 12);
+        uv.set([0, 0, 1, 0, 1, 1, 0, 1], i * 8);
+        const c = row.upper ? upC : lowC;
+        const k = (1 - Math.sqrt(Math.min(1, st.y / 20)) * 0.5) * (0.85 + 0.3 * (((i * 2654435761) >>> 0) % 100) / 100);
+        for (let v = 0; v < 4; v++) col.set([c.r * k, c.g * k, c.b * k], i * 12 + v * 3);
+        const b = i * 4;
+        idx.push(b, b + 1, b + 2, b, b + 2, b + 3);
+      });
+      const bg = new THREE.BufferGeometry();
+      bg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      bg.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      bg.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+      bg.setIndex(idx);
+      g.add(new THREE.Mesh(bg, new THREE.MeshBasicMaterial({ map: seatBackTexture(), vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide })));
+    }
+    // a rail along the back of the top row
+    {
+      const o = outline(BACK_D - 0.15);
+      for (let i = 0; i < o.length - 1; i++) {
+        rails.push(bar(o[i].x, TOP_Y + 1.05, o[i].z, o[i + 1].x, TOP_Y + 1.05, o[i + 1].z, 0.05));
+        if (i % 2 === 0) rails.push(bar(o[i].x, TOP_Y, o[i].z, o[i].x, TOP_Y + 1.05, o[i].z, 0.04));
+      }
+    }
+
     // ---------------------------------------------------------------- rails and glass
     for (const [ax, ay, az, bx, by, bz] of aisleRails()) {
       rails.push(bar(ax, ay, az, bx, by, bz, 0.045));
@@ -853,7 +999,7 @@ export class Venue {
     }
     g.add(new THREE.Mesh(mergeGeometries(rails)!, new THREE.MeshBasicMaterial({ color: 0x5d6574 })));
     const glass = new Strips();
-    glass.strip(glassLine, UPPER_Y, glassLine, UPPER_Y + 1.0, (_x, _y, _z, v) => [0.05 + 0.05 * v, 0.07 + 0.06 * v, 0.09 + 0.07 * v]);
+    glass.strip(glassLine, UPPER_Y, glassLine, UPPER_Y + 1.0, (_x, _y, _z, v) => [0.02 + 0.025 * v, 0.028 + 0.03 * v, 0.036 + 0.035 * v]);
     g.add(
       new THREE.Mesh(
         glass.geometry(),
