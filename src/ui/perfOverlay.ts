@@ -127,7 +127,7 @@ export class PerfOverlay {
     const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
     this.foot.textContent =
       `${r.draws} draws · ${r.tris >= 1000 ? `${Math.round(r.tris / 1000)}k` : r.tris} tris · ` +
-      `${this.size.x}×${this.size.y} @${renderer.getPixelRatio().toFixed(2)}x · ${this.game.stage.quality}` +
+      `${this.size.x}×${this.size.y} @${renderer.getPixelRatio().toFixed(2)}x ${this.game.stage.resScale === null ? 'auto' : 'fixed'} · ${this.game.stage.quality}` +
       (mem ? ` · ${Math.round(mem.usedJSHeapSize / 1048576)} MB` : '') +
       (perf.gpuSupported ? '' : ' · no GPU timer on this device');
     this.drawGraph();

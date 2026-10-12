@@ -110,7 +110,6 @@ export class Arena {
   private ropeVel = new Float32Array(ROPES);
   private ropePress = new Float32Array(ROPES);
   private ropeAt = new Float32Array(ROPES);
-  private beams: THREE.Mesh[] = [];
   readonly uniforms = { uTime: { value: 0 }, uHype: { value: 0.3 } };
   private hype = 0.3;
 
@@ -274,34 +273,93 @@ export class Arena {
     g.add(truss);
 
     // light beams (fake volumetrics)
-    const beamMat = new THREE.ShaderMaterial({
-      uniforms: { uColor: { value: new THREE.Color(0xbfdfff) }, uTime: this.uniforms.uTime },
+    if (quality !== 'low') g.add(this.buildBeams());
+  }
+
+  /**
+   * Six shafts of light from the truss, slanting down towards the ring, as one draw.
+   *
+   * The glow is brightest at the lamp and fades with distance, so the lower half of a shaft was
+   * nearly invisible yet, being the widest part and the part closest to the camera, it covered
+   * most of the pixels. The cones now stop above the robots' heads (fading out on the way) and
+   * draw only their front faces: one layer of blending per pixel instead of two, over a fraction
+   * of the area. Each shaft sways from its lamp in the vertex shader.
+   */
+  private buildBeams() {
+    const CUT = 0.6; // fraction of the way from the lamp to the floor that the shaft is drawn
+    const R_TOP = 0.15;
+    const R_FLOOR = 1.6;
+    const geos: THREE.BufferGeometry[] = [];
+    const down = new THREE.Vector3(0, -1, 0);
+    const q = new THREE.Quaternion();
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const top = new THREE.Vector3(Math.cos(a) * 6.3, 8.4, Math.sin(a) * 6.3);
+      const bottom = new THREE.Vector3(Math.cos(a + 0.6) * 1.6, 0, Math.sin(a + 0.6) * 1.6);
+      const dir = bottom.clone().sub(top);
+      const len = dir.length() * CUT;
+      dir.normalize();
+      const geo = new THREE.CylinderGeometry(R_TOP, R_TOP + (R_FLOOR - R_TOP) * CUT, len, 16, 1, true);
+      geo.deleteAttribute('uv');
+      // lamp at the origin, shaft hanging along -Y, then aimed and moved onto the truss
+      geo.translate(0, -len / 2, 0);
+      // 0 at the lamp, 1 at the cut
+      const pos = geo.attributes.position;
+      const along = new Float32Array(pos.count);
+      for (let v = 0; v < pos.count; v++) along[v] = -pos.getY(v) / len;
+      geo.setAttribute('aAlong', new THREE.BufferAttribute(along, 1));
+      geo.applyMatrix4(m.compose(top, q.setFromUnitVectors(down, dir), new THREE.Vector3(1, 1, 1)));
+      const sway = new Float32Array(pos.count * 4);
+      for (let v = 0; v < pos.count; v++) sway.set([top.x, top.y, top.z, i], v * 4);
+      geo.setAttribute('aSway', new THREE.BufferAttribute(sway, 4));
+      geos.push(geo);
+    }
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: new THREE.Color(0xbfdfff) }, uTime: this.uniforms.uTime, uCut: { value: CUT } },
       vertexShader: /* glsl */ `
+        attribute float aAlong;
+        attribute vec4 aSway;
+        uniform float uTime;
+        uniform float uCut;
         varying float vY; varying vec3 vN; varying vec3 vV;
-        void main(){ vY = uv.y; vec4 mv = modelViewMatrix*vec4(position,1.); vN = normalize(normalMatrix*normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }`,
+        // rotate about axis k (unit) by angle a
+        vec3 rot(vec3 v, vec3 k, float a) { float c = cos(a), s = sin(a); return v * c + cross(k, v) * s + k * dot(k, v) * (1.0 - c); }
+        void main() {
+          // the lamp pans side to side around the ring
+          vec3 k = normalize(vec3(aSway.x, 0.0, aSway.z));
+          float ang = sin(uTime * 0.3 + aSway.w) * 0.03;
+          vec3 p = aSway.xyz + rot(position - aSway.xyz, k, ang);
+          vec4 mv = modelViewMatrix * vec4(p, 1.0);
+          vN = normalize(normalMatrix * rot(normal, k, ang));
+          vV = normalize(-mv.xyz);
+          // 1 at the lamp, 0 on the floor (where the shaft would land if it went all the way)
+          vY = 1.0 - aAlong * uCut;
+          gl_Position = projectionMatrix * mv;
+        }`,
       fragmentShader: /* glsl */ `
-        uniform vec3 uColor; varying float vY; varying vec3 vN; varying vec3 vV;
-        void main(){ float edge = pow(abs(dot(vN, vV)), 1.5); float a = edge * (0.03 + 0.12 * vY * vY); gl_FragColor = vec4(uColor * a, a); }`,
+        uniform vec3 uColor; uniform float uCut;
+        varying float vY; varying vec3 vN; varying vec3 vV;
+        void main() {
+          // brightest looking through the middle of the shaft, nothing at its edges
+          float edge = pow(abs(dot(normalize(vN), normalize(vV))), 1.5);
+          float k = edge * (0.03 + 0.12 * vY * vY);
+          // the two faces of the old double-sided cone, in one; fading out before the cut
+          float a = 2.0 * k * k * smoothstep(1.0 - uCut, 1.0 - uCut + 0.22, vY);
+          gl_FragColor = vec4(uColor * a, 0.0);
+        }`,
       transparent: true,
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
+      blending: THREE.CustomBlending,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.OneFactor,
+      side: THREE.FrontSide,
     });
-    if (quality !== 'low') {
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2;
-        const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 1.6, 9, 20, 1, true), beamMat);
-        const top = new THREE.Vector3(Math.cos(a) * 6.3, 8.4, Math.sin(a) * 6.3);
-        const bottom = new THREE.Vector3(Math.cos(a + 0.6) * 1.6, 0, Math.sin(a + 0.6) * 1.6);
-        beam.position.copy(top).add(bottom).multiplyScalar(0.5);
-        beam.lookAt(bottom);
-        beam.rotateX(-Math.PI / 2);
-        beam.scale.y = top.distanceTo(bottom) / 9;
-        beam.name = 'beams';
-        this.beams.push(beam);
-        g.add(beam);
-      }
-    }
+    const beams = new THREE.Mesh(mergeGeometries(geos)!, mat);
+    // swaying pushes the shafts a little past the merged bounds
+    beams.frustumCulled = false;
+    beams.name = 'beams';
+    return beams;
   }
 
   setPixelScale(h: number) {
@@ -420,10 +478,6 @@ export class Arena {
     this.ropeFlash = Math.max(0, this.ropeFlash - dt * 3);
     this.ropeMat.color.copy(this.ropeBase).multiplyScalar(1 + this.ropeFlash * 1.6);
     this.updateRopes(dt);
-    for (let i = 0; i < this.beams.length; i++) {
-      const b = this.beams[i];
-      b.rotation.z = Math.sin(time * 0.3 + i) * 0.04;
-    }
   }
 }
 
