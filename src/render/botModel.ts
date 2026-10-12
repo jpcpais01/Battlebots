@@ -25,6 +25,7 @@ import {
   type PB,
 } from './parts';
 import { RenderSettings } from './settings';
+import { contactStats, Hull, partRadius, pushOut, samplePB, tally, type PlacedHull } from './contact';
 
 const CORE_COLORS = [0x49c6ff, 0xff4a2a, 0x3cffd8, 0x52ff6a, 0xc77dff];
 
@@ -87,17 +88,11 @@ const _look = new THREE.Vector3();
 const _dl = new THREE.Vector3();
 const _tmp = new THREE.Vector3();
 const _tmp2 = new THREE.Vector3();
-const _tz = new THREE.Vector3();
-const _tx = new THREE.Vector3();
-const _tup = new THREE.Vector3();
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _qa = new THREE.Quaternion();
 const _qb = new THREE.Quaternion();
 const _qc = new THREE.Quaternion();
-
-/** Interpolated joint positions for rendering. */
-const P: THREE.Vector3[] = Array.from({ length: 16 }, () => new THREE.Vector3());
 
 function setBasis(obj: THREE.Object3D, x: THREE.Vector3, y: THREE.Vector3, z: THREE.Vector3) {
   _m.makeBasis(x, y, z);
@@ -249,6 +244,99 @@ function makeEmissiveMaterial(cols: THREE.Color[]) {
   return m;
 }
 
+const _push = new THREE.Vector3();
+const _dm = new THREE.Vector3();
+const _de = new THREE.Vector3();
+const _s = new THREE.Vector3();
+const _ld = new THREE.Vector3();
+const _pole = new THREE.Vector3();
+const _perp = new THREE.Vector3();
+// the upper bone's first half lives under the pauldron/hip armour, where overlap is hidden
+const UPPER_T = [0.72, 1];
+const LOWER_T = [0.33, 0.66];
+
+/** Keep the larger of two pushes (several samples hitting the same plate shouldn't stack). */
+function keepMax(acc: THREE.Vector3, v: THREE.Vector3) {
+  if (v.lengthSq() > acc.lengthSq()) acc.copy(v);
+}
+
+/**
+ * Two-bone limb (root fixed) against armour hulls. Samples along both bones and
+ * the end effector; pushes become a new end target and elbow/knee pole, then the
+ * chain is re-solved with its current bone lengths. Returns the deepest contact.
+ */
+function solveLimb(root: THREE.Vector3, mid: THREE.Vector3, end: THREE.Vector3, hulls: PlacedHull[], nOwn: number, rUp: number, rLo: number, rEnd: number, endOff: number, tag: string) {
+  const la = root.distanceTo(mid);
+  const lb = mid.distanceTo(end);
+  if (la < 1e-4 || lb < 1e-4) return 0;
+  let worst = 0;
+  for (let it = 0; it < 6; it++) {
+    _dm.set(0, 0, 0);
+    _de.set(0, 0, 0);
+    let hit = false;
+    for (let hi = 0; hi < hulls.length; hi++) {
+      const h = hulls[hi];
+      const key = `${tag}${hi < nOwn ? '' : '>'}${h.name}`;
+      for (const t of UPPER_T) {
+        _s.lerpVectors(root, mid, t);
+        const d = pushOut(h, _s, rUp * (0.75 + 0.25 * t), _push);
+        if (d > 0) {
+          hit = true;
+          if (it === 0) {
+            worst = Math.max(worst, d);
+            tally(`${key}:up${t}`, d);
+          }
+          keepMax(_de, _ld.copy(_push).multiplyScalar(0.5 * t));
+          keepMax(_dm, _push.multiplyScalar(1 / t));
+        }
+      }
+      for (const t of LOWER_T) {
+        _s.lerpVectors(mid, end, t);
+        const d = pushOut(h, _s, rLo, _push);
+        if (d > 0) {
+          hit = true;
+          if (it === 0) {
+            worst = Math.max(worst, d);
+            tally(`${key}:lo${t}`, d);
+          }
+          const k = 1 / ((1 - t) * (1 - t) + t * t);
+          keepMax(_dm, _ld.copy(_push).multiplyScalar((1 - t) * k));
+          keepMax(_de, _push.multiplyScalar(t * k));
+        }
+      }
+      _ld.subVectors(end, mid).normalize();
+      _s.copy(end).addScaledVector(_ld, endOff);
+      const d = pushOut(h, _s, rEnd, _push);
+      if (d > 0) {
+        hit = true;
+        if (it === 0) {
+          worst = Math.max(worst, d);
+          tally(`${key}:end`, d);
+        }
+        keepMax(_de, _push);
+      }
+    }
+    if (!hit) break;
+    mid.add(_dm);
+    end.add(_de);
+    // re-solve the chain to the pushed end with the pushed elbow as the bend direction
+    _ld.subVectors(end, root);
+    let dist = _ld.length();
+    if (dist < 1e-5) break;
+    _ld.multiplyScalar(1 / dist);
+    dist = Math.min(Math.max(dist, Math.abs(la - lb) + 0.02), (la + lb) * 0.999);
+    end.copy(root).addScaledVector(_ld, dist);
+    const cosA = Math.min(1, Math.max(-1, (la * la + dist * dist - lb * lb) / (2 * la * dist)));
+    const sinA = Math.sqrt(1 - cosA * cosA);
+    _pole.subVectors(mid, root);
+    _perp.copy(_pole).addScaledVector(_ld, -_pole.dot(_ld));
+    if (_perp.lengthSq() < 1e-8) break;
+    _perp.normalize();
+    mid.copy(root).addScaledVector(_ld, la * cosA).addScaledVector(_perp, la * sinA);
+  }
+  return worst;
+}
+
 export class BotModel {
   readonly root = new THREE.Group();
   private bones: THREE.Bone[] = [];
@@ -261,8 +349,15 @@ export class BotModel {
   private rocket = [false, false];
   readonly loadout: Loadout;
   readonly palette: number;
-  /** World-space interpolated joints (valid after update). */
-  joints = P.map((v) => v.clone());
+  /** World-space interpolated joints (valid after update); limbs are slid out of armour. */
+  joints: THREE.Vector3[] = Array.from({ length: 16 }, () => new THREE.Vector3());
+  private hullPts = { torso: [] as number[], head: [] as number[], pelvis: [] as number[] };
+  /** Armour hulls placed by their bones; read by the opponent's contact pass. */
+  readonly hulls: { torso: PlacedHull; head: PlacedHull; pelvis: PlacedHull };
+  private radii = { upper: 0.06, fore: 0.06, fist: 0.07, thigh: 0.08, shin: 0.07 };
+  private torsoX = new THREE.Vector3();
+  private torsoZ = new THREE.Vector3();
+  private torsoUp = new THREE.Vector3();
 
   constructor(loadout: Loadout, palette: number) {
     this.loadout = loadout;
@@ -279,12 +374,31 @@ export class BotModel {
       joint: surf(0x2b3039, 0.8, 0.38),
     });
 
-    sb.add(buildTorso(look('chest')), B.Torso, 'chest');
-    sb.add(buildCore(look('core'), look('chest')), B.Torso, 'core');
-    sb.add(buildHead(look('head')), B.Head, 'head');
+    const torsoPB = buildTorso(look('chest'));
+    const corePB = buildCore(look('core'), look('chest'));
+    const headPB = buildHead(look('head'));
+    const pelvisPB = buildPelvis(look('legs'));
+    sb.add(torsoPB, B.Torso, 'chest');
+    sb.add(corePB, B.Torso, 'core');
+    sb.add(headPB, B.Head, 'head');
     sb.add(buildNeck(), B.Neck, 'head');
     sb.add(buildSpine(), B.Spine, 'chest');
-    sb.add(buildPelvis(look('legs')), B.Pelvis, 'legs');
+    sb.add(pelvisPB, B.Pelvis, 'legs');
+    // contact hulls from the real armour (shoulder and hip axles belong to the limbs)
+    const skipAxles = new Set<MatKey>(['joint']);
+    this.hullPts.torso = samplePB(corePB, undefined, samplePB(torsoPB, skipAxles));
+    this.hullPts.head = samplePB(headPB);
+    this.hullPts.pelvis = samplePB(pelvisPB, skipAxles);
+    const band = (pts: number[], lo: number, hi: number) => {
+      const o: number[] = [];
+      for (let i = 0; i < pts.length; i += 3) if (pts[i + 1] >= lo && pts[i + 1] <= hi) o.push(pts[i], pts[i + 1], pts[i + 2]);
+      return o;
+    };
+    this.radii.upper = partRadius(band(samplePB(buildUpperArm(look('chest'), 1)), 0.12, 0.3), 0.6);
+    this.radii.fore = partRadius(band(samplePB(buildForearm(look('fist'))), 0.08, 0.27), 0.6);
+    this.radii.fist = partRadius(samplePB(buildFist(look('fist'), 1)), 0.45, 0, 0.02, 0);
+    this.radii.thigh = partRadius(band(samplePB(buildThigh(look('legs'))), 0.12, 0.4), 0.6);
+    this.radii.shin = partRadius(band(samplePB(buildShin(look('legs'), look('kick'))), 0.1, 0.38), 0.6);
     for (let side = 0; side < 2; side++) {
       const L = side === 0;
       sb.add(buildUpperArm(look('chest'), L ? -1 : 1), L ? B.UpL : B.UpR, 'chest');
@@ -310,6 +424,12 @@ export class BotModel {
       this.bones.push(bone);
       this.root.add(bone);
     }
+    this.hulls = {
+      torso: { hull: new Hull(this.hullPts.torso), bone: this.bones[B.Torso], name: 'torso' },
+      head: { hull: new Hull(this.hullPts.head, 0.025), bone: this.bones[B.Head], name: 'head' },
+      pelvis: { hull: new Hull(this.hullPts.pelvis), bone: this.bones[B.Pelvis], name: 'pelvis' },
+    };
+    this.hullPts = { torso: [], head: [], pelvis: [] };
     const skeleton = new THREE.Skeleton(this.bones, this.bones.map(() => new THREE.Matrix4()));
     const { opaque, emissive } = sb.build();
 
@@ -347,25 +467,37 @@ export class BotModel {
     this.root.add(this.shieldMesh);
   }
 
-  /** Pose from a fighter's physical body with interpolation alpha. */
+  /** Pose from a fighter's physical body with interpolation alpha (no opponent contact). */
   update(f: Fighter, alpha: number, time: number, oppHead?: THREE.Vector3) {
+    this.begin(f, alpha, oppHead);
+    this.end(f, time);
+  }
+
+  /** Interpolate the body and place torso, pelvis and head (everything the opponent's contact pass needs). */
+  begin(f: Fighter, alpha: number, oppHead?: THREE.Vector3) {
     const body = f.body;
-    for (let i = 0; i < 16; i++) P[i].lerpVectors(body.last[i], body.pos[i], alpha);
-    for (let i = 0; i < 16; i++) this.joints[i].copy(P[i]);
-    this.pose(f, oppHead);
+    for (let i = 0; i < 16; i++) this.joints[i].lerpVectors(body.last[i], body.pos[i], alpha);
+    this.poseCore(f, oppHead);
+  }
+
+  /** Resolve limb contacts (own armour and, if given, the opponent's), then place the limbs. */
+  end(f: Fighter, time: number, opp?: BotModel) {
+    this.solveContacts(f, opp);
+    this.poseLimbs(f);
     this.effects(f, time);
   }
 
-  private pose(f: Fighter, lookAt?: THREE.Vector3) {
+  private poseCore(f: Fighter, lookAt?: THREE.Vector3) {
+    const P = this.joints;
     const bn = this.bones;
     const yaw = f.faceYaw;
     _fwd.set(Math.sin(yaw), 0, Math.cos(yaw));
     const torso = bn[B.Torso];
     orientFrame(torso, P[J.Chest], P[J.ShL], P[J.ShR], P[J.Pelvis], P[J.Neck]);
     orientFrame(bn[B.Pelvis], P[J.Pelvis], P[J.HipL], P[J.HipR], P[J.Pelvis], P[J.Chest]);
-    const torsoX = _tx.set(1, 0, 0).applyQuaternion(torso.quaternion);
-    const torsoZ = _tz.set(0, 0, 1).applyQuaternion(torso.quaternion);
-    const torsoUp = _tup.set(0, 1, 0).applyQuaternion(torso.quaternion);
+    this.torsoX.set(1, 0, 0).applyQuaternion(torso.quaternion);
+    const torsoZ = this.torsoZ.set(0, 0, 1).applyQuaternion(torso.quaternion);
+    this.torsoUp.set(0, 1, 0).applyQuaternion(torso.quaternion);
 
     // head: look toward the opponent
     const look = _look.copy(torsoZ);
@@ -379,7 +511,51 @@ export class BotModel {
     bn[B.Spine].scale.set(1, sl, 1);
     const nl = orientSegment(bn[B.Neck], P[J.Neck], P[J.Head], torsoZ, _fwd);
     bn[B.Neck].scale.set(1, nl * 0.75, 1);
+  }
 
+  /** Slide elbows, fists, knees and airborne feet out of armour they would pass through. */
+  private solveContacts(f: Fighter, opp?: BotModel) {
+    if (!contactStats.enabled) return;
+    const P = this.joints;
+    const r = this.radii;
+    const own = this.hulls;
+    const arms = opp ? [own.torso, own.pelvis, own.head, opp.hulls.torso, opp.hulls.head, opp.hulls.pelvis] : [own.torso, own.pelvis, own.head];
+    let worst = 0;
+    for (let side = 0; side < 2; side++) {
+      const L = side === 0;
+      const lead = (side === 0) === (f.stance < 0);
+      worst = Math.max(worst, solveLimb(P[L ? J.ShL : J.ShR], P[L ? J.ElL : J.ElR], P[L ? J.HandL : J.HandR], arms, 3, r.upper, r.fore, r.fist, 0.02, lead ? 'leadArm/' : 'rearArm/'));
+      if (f.footAir[side] > 0.3) {
+        const legs = opp ? [own.torso, opp.hulls.torso, opp.hulls.pelvis, opp.hulls.head] : [own.torso];
+        worst = Math.max(worst, solveLimb(P[L ? J.HipL : J.HipR], P[L ? J.KneeL : J.KneeR], P[L ? J.FootL : J.FootR], legs, 1, r.thigh, r.shin, r.shin, 0, 'leg/'));
+      }
+    }
+    if (contactStats.by) {
+      // profiling: what is still inside after solving
+      let res = 0;
+      for (let side = 0; side < 2; side++) {
+        const L = side === 0;
+        res = Math.max(res, solveLimb(P[L ? J.ShL : J.ShR], P[L ? J.ElL : J.ElR], P[L ? J.HandL : J.HandR], arms, 3, r.upper, r.fore, r.fist, 0.02, 'residual/'));
+      }
+      tally(res > 0.02 ? 'frames:residual>2cm' : 'frames:clean', 1);
+      if (res > 0.02) tally(`residual@${f.strike ? `${f.strike.move.id}:${f.strike.phase}` : f.dodge ? `dodge:${f.dodge.type}` : f.state}`, 1);
+      tally(worst > 0.02 ? 'frames:raw>2cm' : 'frames:rawclean', 1);
+    }
+    contactStats.frames++;
+    if (worst > 0.005) {
+      contactStats.hits++;
+      contactStats.sumDepth += worst;
+      contactStats.maxDepth = Math.max(contactStats.maxDepth, worst);
+    }
+    contactStats.worst = worst;
+  }
+
+  private poseLimbs(f: Fighter) {
+    const P = this.joints;
+    const bn = this.bones;
+    const torsoX = this.torsoX;
+    const torsoZ = this.torsoZ;
+    const torsoUp = this.torsoUp;
     for (let side = 0; side < 2; side++) {
       const L = side === 0;
       const sh = P[L ? J.ShL : J.ShR];
@@ -470,7 +646,7 @@ export class BotModel {
     sm.uniforms.uAlpha.value += (target - sm.uniforms.uAlpha.value) * 0.15;
     this.shieldMesh.visible = sm.uniforms.uAlpha.value > 0.02;
     if (this.shieldMesh.visible) {
-      this.shieldMesh.position.copy(P[J.Chest]).lerp(P[J.Pelvis], 0.35);
+      this.shieldMesh.position.copy(this.joints[J.Chest]).lerp(this.joints[J.Pelvis], 0.35);
       this.shieldMesh.rotation.y = time * 0.5;
       sm.uniforms.uAlpha.value *= 0.9 + Math.sin(time * 9) * 0.05 + 0.05;
     }

@@ -139,6 +139,29 @@ const _p = new Vector3();
 const _q = new Vector3();
 const _dir = new Vector3();
 const _perp = new Vector3();
+// trunk frame and scratch for keeping arms outside the armour
+const _tX = new Vector3();
+const _tU = new Vector3();
+const _tZ = new Vector3();
+const _bp = new Vector3();
+const _bs = new Vector3();
+const _bm = new Vector3();
+const _be = new Vector3();
+const _bd = new Vector3();
+/**
+ * Armoured trunk in the shoulder frame: height above the chest joint, half width,
+ * front and back depth of each section (rounded-box sections, interpolated).
+ * Covers waist to collar of the plated chest; the juggernaut adds TRUNK_BULK.
+ */
+/** How fast elbows and knees follow a new bend direction (1/s). */
+const POLE_RATE = 30;
+/** Fastest an elbow or knee may swing round its reach line (rad/s). */
+const BEND_RATE = 24;
+const TRUNK_Y = [-0.62, -0.5, -0.36, -0.2, -0.1, -0.02, 0.14, 0.22, 0.28];
+const TRUNK_W = [0.14, 0.2, 0.16, 0.17, 0.2, 0.25, 0.27, 0.22, 0.1];
+const TRUNK_F = [0.1, 0.13, 0.12, 0.14, 0.16, 0.21, 0.21, 0.1, 0.06];
+const TRUNK_B = [0.1, 0.13, 0.11, 0.12, 0.13, 0.25, 0.25, 0.1, 0.06];
+const TRUNK_BULK = [0, 0, 0, 0.02, 0.03, 0.05, 0.05, 0.04, 0];
 
 /** Analytic two-bone IK. Writes mid joint and (possibly clamped) end. */
 function ik2(root: Vector3, target: Vector3, la: number, lb: number, pole: Vector3, outMid: Vector3, outEnd: Vector3) {
@@ -249,12 +272,19 @@ export class Fighter {
   private _c1 = new Vector3();
   private _c2 = new Vector3();
   private headOff = new Vector3();
+  /** 1 for the bulky juggernaut chest (its armour sits further out). */
+  private bulk = 0;
   private pelvisOff = new Vector3();
   flinch = new SpringVec(150, 11);
   private bobPhase = 0;
   private noise: Noise1;
   private feet = [new Foot(), new Foot()]; // 0 = left, 1 = right
   extend = [0, 0]; // forearm telescoping per side (L, R)
+  /** Smoothed elbow/knee bend directions (arms in the shoulder frame, legs local): L arm, R arm, L leg, R leg. */
+  private poles = [new Vector3(), new Vector3(), new Vector3(), new Vector3()];
+  private poleSet = [false, false, false, false];
+  /** Each limb's bend direction last frame (local), the fallback when the pole lines up with the limb. */
+  private bends = [new Vector3(), new Vector3(), new Vector3(), new Vector3()];
 
   // passive / ability state
   cooldowns: Partial<Record<MoveId, number>> = {};
@@ -309,6 +339,7 @@ export class Fighter {
     this.stamina = build.stats.stamina;
     this.poise = this.maxPoise;
     this.stance = rng.chance(0.25) ? 1 : -1;
+    this.bulk = build.loadout?.chest?.id === 'juggernaut' ? 1 : 0;
     const shieldCd = this.passive('aegis');
     if (shieldCd > 0) {
       this.shield = true;
@@ -531,7 +562,9 @@ export class Fighter {
     if (!replaced && s.phase !== 'recovery') {
       s.phase = 'recovery';
       s.t = 0;
-      this.toLocal(this.body.pos[this.strikerJoint(s)], s.recoverFrom);
+      // the limb's end (a knee strike still recovers the foot)
+      const L = s.side === 'L';
+      this.toLocal(this.body.pos[s.move.kind === 'punch' ? (L ? J.HandL : J.HandR) : L ? J.FootL : J.FootR], s.recoverFrom);
     }
     if (replaced || result === 'interrupted') {
       this.releaseLimb(s);
@@ -1166,6 +1199,7 @@ export class Fighter {
 
     // ---------- arms
     const head = L[J.Head];
+    this.trunkFrame();
     this.updateGuardWeights(dt);
     const gw = this.guardW;
     const lower = clamp01(this.guardDrop + tired * 0.35 + (this.state === 'stun' ? 0.25 : 0) + (this.state === 'stagger' ? 0.7 : 0));
@@ -1209,16 +1243,21 @@ export class Fighter {
         } else if (s.move.kind === 'punch') {
           // the other hand shells up at the chin
           const w = Math.max(prog.load, prog.sh, 0) * (1 - lower * 0.6);
-          _p.set(head.x + sx * 0.09, head.y - 0.085, head.z + 0.13);
-          hand.lerp(_p, clamp01(w));
-          pole.set(sx * 0.35, -1, -0.15);
+          this.faceGuard(sx, hand, pole, clamp01(w));
         } else {
           roll = this.kickArm(s, prog, side, hand, pole, head);
         }
       }
       this.handRollT[side] = roll;
       const fore = FORE + this.extend[side];
+      // a pose switch (guard to strike, strike to guard) mustn't snap the elbow round
+      _bd.set(pole.dot(_tX), pole.dot(_tU), pole.dot(_tZ));
+      this.smoothPole(side, _bd, dt);
+      pole.copy(_tX).multiplyScalar(_bd.x).addScaledVector(_tU, _bd.y).addScaledVector(_tZ, _bd.z);
+      this.keepBend(side, L[shIdx], hand, pole);
       ik2(L[shIdx], hand, UPPER, fore, pole, L[elIdx], hand);
+      this.fitArm(shIdx, elIdx, handIdx, fore);
+      this.storeBend(side, L[shIdx], L[elIdx], hand, dt);
     }
 
     // ---------- legs
@@ -1261,7 +1300,184 @@ export class Fighter {
           this.footFlexT[side] = 0.25 * Math.sin(Math.PI * k);
         }
       }
+      this.smoothPole(2 + side, pole, dt);
+      this.keepBend(2 + side, L[hipIdx], foot, pole);
       ik2(L[hipIdx], foot, THIGH, SHIN, pole, L[kneeIdx], foot);
+      this.storeBend(2 + side, L[hipIdx], L[kneeIdx], foot, dt);
+    }
+  }
+
+  /** Ease a limb's bend direction toward `want` (normalised in place to the smoothed value). */
+  private smoothPole(i: number, want: Vector3, dt: number) {
+    const p = this.poles[i];
+    want.normalize();
+    if (!this.poleSet[i]) {
+      p.copy(want);
+      this.poleSet[i] = true;
+      return;
+    }
+    if (dt > 0) p.lerp(want, 1 - Math.exp(-POLE_RATE * dt));
+    if (p.lengthSq() < 0.04) p.copy(want);
+    else p.normalize();
+    want.copy(p);
+  }
+
+  /**
+   * When the reach line swings onto the pole there is no clear bend side and the
+   * elbow or knee would flip round: lean on last frame's bend direction instead.
+   */
+  private keepBend(i: number, root: Vector3, end: Vector3, pole: Vector3) {
+    const prev = this.bends[i];
+    if (prev.lengthSq() < 0.5) return;
+    _bs.subVectors(end, root);
+    const d = _bs.length();
+    if (d < 1e-4) return;
+    _bs.multiplyScalar(1 / d);
+    const pl = pole.length();
+    if (pl < 1e-6) return;
+    _bm.copy(pole).addScaledVector(_bs, -pole.dot(_bs));
+    const r = _bm.length() / pl;
+    if (r >= 0.45) return;
+    const k = r / 0.45;
+    _bm.multiplyScalar(r > 1e-6 ? k / _bm.length() : 0);
+    _be.copy(prev).addScaledVector(_bs, -prev.dot(_bs));
+    if (_be.lengthSq() > 1e-8) _bm.addScaledVector(_be.normalize(), 1 - k);
+    if (_bm.lengthSq() > 1e-8) pole.copy(_bm);
+  }
+
+  /**
+   * Remember which way the limb bends, and cap how fast that can swing round the
+   * reach line: whatever the targets do, an elbow or knee never pops to the other side.
+   */
+  private storeBend(i: number, root: Vector3, mid: Vector3, end: Vector3, dt: number) {
+    _bs.subVectors(end, root).normalize();
+    _bm.subVectors(mid, root);
+    const along = _bm.dot(_bs);
+    _bm.addScaledVector(_bs, -along);
+    const r = _bm.length();
+    // only a clearly bent limb says which side it bends to
+    if (r < 0.05) return;
+    _bm.multiplyScalar(1 / r);
+    const prev = this.bends[i];
+    if (dt > 0 && prev.lengthSq() > 0.5) {
+      _be.copy(prev).addScaledVector(_bs, -prev.dot(_bs));
+      if (_be.lengthSq() > 1e-6) {
+        _be.normalize();
+        const cos = clamp(_be.dot(_bm), -1, 1);
+        const ang = Math.acos(cos);
+        const max = BEND_RATE * dt;
+        if (ang > max) {
+          // turn from the old side towards the new one by at most `max`
+          _bd.copy(_bm).addScaledVector(_be, -cos);
+          if (_bd.lengthSq() < 1e-8) _bd.crossVectors(_bs, _be);
+          _bd.normalize();
+          _bm.copy(_be).multiplyScalar(Math.cos(max)).addScaledVector(_bd, Math.sin(max));
+          mid.copy(root).addScaledVector(_bs, along).addScaledVector(_bm, r);
+        }
+      }
+    }
+    prev.copy(_bm);
+  }
+
+  /** Local point at (x right, y up, z forward) in the shoulder frame from the chest joint. */
+  private trunkPoint(x: number, y: number, z: number, out: Vector3) {
+    return out.copy(this.L[J.Chest]).addScaledVector(_tX, x).addScaledVector(_tU, y).addScaledVector(_tZ, z);
+  }
+
+  /**
+   * Hand shelled at the chin while the other limb works. In the shoulder frame, so
+   * it rides the torso's coil, twist and lean instead of being left behind.
+   */
+  private faceGuard(sx: number, hand: Vector3, pole: Vector3, w: number) {
+    this.trunkPoint(sx * 0.1, 0.33, 0.25, _p).addScaledVector(this.headOff, 0.75);
+    hand.lerp(_p, w);
+    if (w > 0.01) pole.copy(_tU).multiplyScalar(-1).addScaledVector(_tX, sx * 0.35).addScaledVector(_tZ, 0.2);
+  }
+
+  /** Shoulder frame of the current local pose: _tX right, _tU up the spine, _tZ chest forward. */
+  private trunkFrame() {
+    const L = this.L;
+    _tU.subVectors(L[J.Neck], L[J.Chest]).normalize();
+    _tX.subVectors(L[J.ShR], L[J.ShL]);
+    _tX.addScaledVector(_tU, -_tX.dot(_tU)).normalize();
+    _tZ.crossVectors(_tX, _tU);
+  }
+
+  /** Push (local) that moves p, a limb part of radius r, out of the armoured trunk; 0 if clear. */
+  private trunkPush(p: Vector3, r: number, out: Vector3) {
+    _bd.subVectors(p, this.L[J.Chest]);
+    const y = _bd.dot(_tU);
+    if (y < TRUNK_Y[0] || y > TRUNK_Y[TRUNK_Y.length - 1] + r * 0.5) return 0;
+    let i = 0;
+    while (i < TRUNK_Y.length - 2 && y > TRUNK_Y[i + 1]) i++;
+    const k = clamp01((y - TRUNK_Y[i]) / (TRUNK_Y[i + 1] - TRUNK_Y[i]));
+    const bulk = this.bulk * lerp(TRUNK_BULK[i], TRUNK_BULK[i + 1], k);
+    const x = _bd.dot(_tX), z = _bd.dot(_tZ);
+    const ax = lerp(TRUNK_W[i], TRUNK_W[i + 1], k) + bulk + r;
+    const az = (z >= 0 ? lerp(TRUNK_F[i], TRUNK_F[i + 1], k) + bulk * 0.8 : lerp(TRUNK_B[i], TRUNK_B[i + 1], k)) + r;
+    // squarish section (superellipse, n = 6): plates have corners
+    const e = (x / ax) ** 6 + (z / az) ** 6;
+    if (e >= 1) return 0;
+    if (e < 1e-12) {
+      out.copy(_tZ).multiplyScalar(az - z);
+      return az - z;
+    }
+    const g = Math.pow(e, -1 / 6) - 1;
+    out.copy(_tX).multiplyScalar(x * g).addScaledVector(_tZ, z * g);
+    return out.length();
+  }
+
+  /**
+   * Keep an arm outside its own armour: elbow, forearm and fist are tested against
+   * the trunk (fist also against the head), and any overlap becomes a new fist
+   * target and elbow bend, re-solved with the arm's own lengths.
+   */
+  private fitArm(shI: number, elI: number, hdI: number, fore: number) {
+    const L = this.L;
+    const sh = L[shI], el = L[elI], hd = L[hdI];
+    this.trunkFrame();
+    for (let it = 0; it < 3; it++) {
+      _bm.set(0, 0, 0);
+      _be.set(0, 0, 0);
+      let hit = false;
+      // upper arm (its root half sits under the pauldron) and the elbow
+      for (const t of [0.75, 1]) {
+        _bs.lerpVectors(sh, el, t);
+        if (this.trunkPush(_bs, t < 1 ? 0.07 : 0.078, _bp) > 0) {
+          hit = true;
+          _bp.multiplyScalar(1 / t);
+          if (_bp.lengthSq() > _bm.lengthSq()) _bm.copy(_bp);
+        }
+      }
+      for (const t of [0.4, 0.75]) {
+        _bs.lerpVectors(el, hd, t);
+        if (this.trunkPush(_bs, 0.072, _bp) > 0) {
+          hit = true;
+          const w = 1 / ((1 - t) * (1 - t) + t * t);
+          _bs.copy(_bp).multiplyScalar((1 - t) * w);
+          if (_bs.lengthSq() > _bm.lengthSq()) _bm.copy(_bs);
+          _bp.multiplyScalar(t * w);
+          if (_bp.lengthSq() > _be.lengthSq()) _be.copy(_bp);
+        }
+      }
+      if (this.trunkPush(hd, 0.08, _bp) > 0) {
+        hit = true;
+        if (_bp.lengthSq() > _be.lengthSq()) _be.copy(_bp);
+      }
+      // fist against the helmet
+      _bd.subVectors(hd, L[J.Head]);
+      const hdD = _bd.length();
+      if (hdD < 0.19) {
+        hit = true;
+        if (hdD > 1e-4) _bp.copy(_bd).multiplyScalar((0.19 - hdD) / hdD);
+        else _bp.copy(_tZ).multiplyScalar(0.19);
+        if (_bp.lengthSq() > _be.lengthSq()) _be.copy(_bp);
+      }
+      if (!hit) break;
+      el.add(_bm);
+      hd.add(_be);
+      _bp.subVectors(el, sh);
+      ik2(sh, hd, UPPER, fore, _bp, el, hd);
     }
   }
 
@@ -1358,9 +1574,12 @@ export class Fighter {
 
     if (s.phase === 'windup') {
       out.copy(C).addScaledVector(load, prog.load);
+      // the torso coils under the cocked fist: keep it in front of the plate
+      if (this.trunkPush(out, 0.15, _w) > 0) out.add(_w);
       return m.path === 'upper' ? -0.6 * prog.load : m.path === 'hook' ? 0.3 * prog.load : 0.05;
     }
     const start = C.add(load);
+    if (this.trunkPush(start, 0.15, _w) > 0) start.add(_w);
     const end = this.toLocal(s.endWorld, _w);
     if (s.phase === 'active') {
       const k = prog.ext;
@@ -1596,12 +1815,15 @@ export class Fighter {
       case 'backKick':
         if (kickSide) {
           // swing the arm down and back to whip the hips round
-          _p.set(sx * 0.42, head.y - 0.62, -0.28);
-          hand.lerp(_p, w);
-          pole.set(sx * 0.6, -0.4, -1);
+          // down past the hip first, then back: the fist never passes close to the
+          // shoulder, where a folded arm has no stable elbow
+          this.trunkPoint(sx * 0.38, -0.3, 0.16, _w);
+          this.trunkPoint(sx * 0.42, -0.22, -0.24, _p);
+          _w.lerp(_p, smoothstep(0.45, 1, w));
+          hand.lerp(_w, smoothstep(0, 0.55, w));
+          pole.copy(_tX).multiplyScalar(sx * 0.6).addScaledVector(_tU, -0.4).addScaledVector(_tZ, -1);
         } else {
-          _p.set(head.x + sx * 0.1, head.y - 0.06, head.z + 0.14);
-          hand.lerp(_p, w);
+          this.faceGuard(sx, hand, pole, w);
         }
         break;
       case 'sweepKick':
@@ -1609,10 +1831,10 @@ export class Fighter {
           // post a hand towards the canvas
           _p.set(sx * 0.32, 0.28, 0.22);
           hand.lerp(_p, w * 0.85);
+          hand.addScaledVector(_tX, sx * 0.2 * Math.sin(Math.PI * w * 0.85));
           pole.set(sx * 0.8, 0.2, -0.6);
         } else {
-          _p.set(head.x + sx * 0.1, head.y - 0.08, head.z + 0.14);
-          hand.lerp(_p, w);
+          this.faceGuard(sx, hand, pole, w);
         }
         break;
       case 'knee': {
@@ -1625,8 +1847,7 @@ export class Fighter {
       }
       default:
         // push kick: hands stay up and tight
-        _p.set(head.x + sx * 0.1, head.y - 0.07, head.z + 0.17);
-        hand.lerp(_p, w * 0.7);
+        this.faceGuard(sx, hand, pole, w * 0.7);
         break;
     }
     return 0.12;

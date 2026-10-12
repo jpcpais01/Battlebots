@@ -208,6 +208,28 @@ export class Match {
       if (va > 0) a.rootVel.set(a.rootVel.x - nx * va, 0, a.rootVel.z - nz * va);
       if (vb < 0) b.rootVel.set(b.rootVel.x - nx * vb, 0, b.rootVel.z - nz * vb);
     }
+    // leaning in can still bring the armour together: keep chests and heads apart too
+    this.separateParts(a, b, J.Chest, 0.5);
+    this.separateParts(a, b, J.Head, 0.4);
+  }
+
+  /** Push the roots apart (softly) when two body parts get closer than min horizontally. */
+  private separateParts(a: Fighter, b: Fighter, j: number, min: number) {
+    const pa = a.body.pos[j], pb = b.body.pos[j];
+    const dx = pb.x - pa.x, dz = pb.z - pa.z;
+    const d = Math.hypot(dx, dz);
+    if (d >= min) return;
+    // along the line between the fighters (part offsets can point anywhere)
+    let nx = b.root.x - a.root.x, nz = b.root.z - a.root.z;
+    const l = Math.hypot(nx, nz);
+    if (l < 1e-5) return;
+    nx /= l;
+    nz /= l;
+    const push = (min - d) * 0.25;
+    a.root.x -= nx * push;
+    a.root.z -= nz * push;
+    b.root.x += nx * push;
+    b.root.z += nz * push;
   }
 
   private checkStrike(att: Fighter, def: Fighter) {
@@ -235,14 +257,18 @@ export class Match {
           const hd = db[side === 0 ? J.HandL : J.HandR];
           const sh = db[side === 0 ? J.ShL : J.ShR];
           closestOnSegment(_p, el, hd, _c);
-          if (_c.distanceTo(_p) < r * 0.85 + 0.075) {
+          // forearms now stand clear of the chest plate (further out than they used
+          // to sit), so the block window is a little tighter to keep the same balance
+          if (_c.distanceTo(_p) < r * 0.85 + 0.048) {
             hit = 'block';
             blockHand = side;
             break;
           }
           if (s.zone === 'body') {
             closestOnSegment(_p, sh, el, _c);
-            if (_c.distanceTo(_p) < r * 0.85 + 0.075) {
+            // forearms now stand clear of the chest plate (further out than they used
+          // to sit), so the block window is a little tighter to keep the same balance
+          if (_c.distanceTo(_p) < r * 0.85 + 0.048) {
               hit = 'block';
               blockHand = side;
               break;
