@@ -1,6 +1,8 @@
 import { BANK, renderImpact, type ImpactKind } from './impacts';
 import { Crowd, type CrowdState } from './crowd';
 
+const MASTER = 0.7;
+
 /**
  * Tiny synthesized sound kit (WebAudio, no assets): metallic impacts, whooshes,
  * a live crowd that reacts to the fight (crowd.ts), bell, and UI blips. Impacts come from a bank of
@@ -36,12 +38,27 @@ export class Sfx {
     if (!AC) return;
     const ctx = new AC();
     this.ctx = ctx;
+    // compressor to even out the mix, then a soft clipper: stacked hits (a KO is five sounds at once)
+    // used to push the output past full scale, which the speaker plays as a harsh crackle
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -14;
     comp.ratio.value = 4;
+    // the shaper only sees -1..1, so feed it half level and let its curve cover peaks up to 2:
+    // unity below 0.7, then a smooth knee that never quite reaches full scale
+    const pre = ctx.createGain();
+    pre.gain.value = 0.5;
+    const clip = ctx.createWaveShaper();
+    const curve = new Float32Array(4096);
+    for (let i = 0; i < curve.length; i++) {
+      const u = ((i / (curve.length - 1)) * 2 - 1) * 2;
+      const a = Math.abs(u);
+      curve[i] = Math.sign(u) * (a < 0.7 ? a : 0.7 + 0.29 * Math.tanh((a - 0.7) / 0.29));
+    }
+    clip.curve = curve;
+    clip.oversample = '2x';
     this.master = ctx.createGain();
-    this.master.gain.value = this.muted ? 0 : 0.8;
-    this.master.connect(comp).connect(ctx.destination);
+    this.master.gain.value = this.muted ? 0 : MASTER;
+    this.master.connect(comp).connect(pre).connect(clip).connect(ctx.destination);
     const len = ctx.sampleRate * 2;
     this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = this.noiseBuf.getChannelData(0);
@@ -109,7 +126,7 @@ export class Sfx {
     } catch {
       /* ignore */
     }
-    if (this.master && this.ctx) this.master.gain.setTargetAtTime(m ? 0 : 0.8, this.ctx.currentTime, 0.05);
+    if (this.master && this.ctx) this.master.gain.setTargetAtTime(m ? 0 : MASTER, this.ctx.currentTime, 0.05);
   }
 
   private get ok() {
@@ -136,7 +153,8 @@ export class Sfx {
     src.stop(t + dur + 0.05);
   }
 
-  private tone(type: OscillatorType, f0: number, f1: number, dur: number, gain: number, when = 0) {
+  /** An enveloped oscillator sweep, optionally through a low-pass that moves from lp0 to lp1 (Hz). */
+  private tone(type: OscillatorType, f0: number, f1: number, dur: number, gain: number, when = 0, lp0 = 0, lp1 = lp0) {
     const ctx = this.ctx!;
     const t = ctx.currentTime + when;
     const o = ctx.createOscillator();
@@ -147,7 +165,15 @@ export class Sfx {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(gain, t + 0.005);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g).connect(this.master!);
+    let src: AudioNode = o;
+    if (lp0) {
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.setValueAtTime(lp0, t);
+      f.frequency.exponentialRampToValueAtTime(lp1, t + dur);
+      src = o.connect(f);
+    }
+    src.connect(g).connect(this.master!);
     o.start(t);
     o.stop(t + dur + 0.05);
   }
@@ -190,8 +216,9 @@ export class Sfx {
 
   charge(kick: boolean) {
     if (!this.ok) return;
-    this.tone('sawtooth', kick ? 120 : 160, kick ? 420 : 640, 0.32, 0.05);
-    this.noise(0.3, 'highpass', 3000, 0.7, 0.05, 0, 7000);
+    // actuators spinning up: a rising whine, no hiss
+    this.tone('sawtooth', kick ? 120 : 160, kick ? 420 : 640, 0.32, 0.04, 0, 1800);
+    this.tone('sine', kick ? 240 : 320, kick ? 840 : 1280, 0.3, 0.035);
   }
 
   step(index: number) {
@@ -218,7 +245,8 @@ export class Sfx {
   shield() {
     if (!this.ok) return;
     this.tone('sine', 900, 1400, 0.2, 0.15);
-    this.noise(0.3, 'highpass', 4000, 0.7, 0.15);
+    this.tone('triangle', 1800, 2600, 0.25, 0.05);
+    this.noise(0.25, 'bandpass', 1600, 1.5, 0.06);
   }
 
   shieldUp() {
@@ -228,8 +256,10 @@ export class Sfx {
 
   zap() {
     if (!this.ok) return;
-    this.tone('square', 1800, 300, 0.12, 0.05);
-    this.noise(0.12, 'highpass', 5000, 0.5, 0.12);
+    // an electric thrum: buzzing low saws under a closing filter, instead of a burst of static
+    this.tone('sawtooth', 110, 92, 0.16, 0.07, 0, 2600, 300);
+    this.tone('sawtooth', 113.5, 95, 0.16, 0.06, 0, 2600, 300);
+    this.tone('sine', 1300, 520, 0.09, 0.05);
   }
 
   bell(times = 1) {

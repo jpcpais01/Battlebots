@@ -273,38 +273,63 @@ export function reaction(kind: Reaction, seed: number): { render: CrowdRender; f
   return { render: r, finish: () => r.finish(undefined, kind === 'boo' ? 0.16 : 0.2) };
 }
 
-/** Applause: lots of people clapping at their own pace. */
+/**
+ * Applause: lots of people clapping at their own pace. Each clap is a soft-edged noise burst rung
+ * through a resonance (the cupped hands), so it reads as a clap rather than a click, and a bed of
+ * distant clapping fills the gaps so the whole thing is a dense wash, never a sparse crackle.
+ */
 export function applause(seed: number, seconds = 4): { render: CrowdRender; finish: () => [Float32Array, Float32Array] } {
   const rnd = prng(seed);
   const r = new CrowdRender(seconds + 0.4);
   const { L, R, sr } = r;
-  for (let c = 0; c < 6; c++) {
-    // each job adds a handful of clappers
+  // distant clapping: band-limited noise with a fast, irregular flutter
+  let b1 = 0, b2 = 0, flut = 0;
+  const chunk = Math.ceil(L.length / 4);
+  for (let c0 = 0; c0 < L.length; c0 += chunk) r.push(() => {
+    for (let i = c0; i < Math.min(L.length, c0 + chunk); i++) {
+      if ((i & 31) === 0) flut = 0.55 + 0.45 * rnd();
+      const w = (rnd() * 2 - 1) * flut;
+      // two one-pole stages: high-pass ~600 Hz, low-pass ~3.5 kHz
+      b1 += (w - b1) * 0.16;
+      b2 += (w - b1 - b2) * 0.62;
+      const v = b2 * 0.35;
+      L[i] += v * (0.9 + 0.1 * rnd());
+      R[i] += v * (0.9 + 0.1 * rnd());
+    }
+  });
+  for (let c = 0; c < 12; c++) {
+    // each job adds a group of nearer clappers
     r.push(() => {
-      for (let k = 0; k < 10; k++) {
-        const rate = range(rnd, 3.2, 5.5);
-        const pan = rnd(), gain = range(rnd, 0.3, 1);
+      for (let k = 0; k < 11; k++) {
+        const rate = range(rnd, 3, 5.2);
+        const pan = rnd(), gain = range(rnd, 0.25, 0.8);
         const gl = Math.sqrt(1 - pan) * gain, gr = Math.sqrt(pan) * gain;
-        const tone = range(rnd, 0.15, 0.45);
+        // hand resonance: a state-variable band-pass tuned per person
+        const fc = 2 * Math.sin((Math.PI * range(rnd, 800, 2300)) / sr);
+        const damp = 1 / range(rnd, 1.6, 3);
         let t = rnd() / rate;
         while (t < r.seconds) {
           const i0 = Math.floor(t * sr);
-          const tau = range(rnd, 0.002, 0.005) * sr;
-          const n = Math.min(L.length - i0, Math.floor(tau * 7));
-          let lp = 0, prev = 0;
-          const a = gain * range(rnd, 0.6, 1);
+          const tau = range(rnd, 0.006, 0.013) * sr;
+          const atk = Math.max(1, Math.floor(range(rnd, 0.0006, 0.0015) * sr));
+          const n = Math.min(L.length - i0, Math.floor(tau * 5));
+          const a = range(rnd, 0.6, 1);
+          const decay = Math.exp(-1 / tau);
+          let lo = 0, bp = 0, env = 1;
           for (let i = 0; i < n; i++) {
-            const w = rnd() * 2 - 1;
-            lp += (w - lp) * tone;
-            const s = (lp - prev * 0.5) * Math.exp(-i / tau) * a;
-            prev = lp;
-            L[i0 + i] += s * gl;
-            R[i0 + i] += s * gr;
+            const w = (rnd() * 2 - 1) * env * (i < atk ? i / atk : 1);
+            env *= decay;
+            const hp = w - lo - damp * bp;
+            bp += fc * hp;
+            lo += fc * bp;
+            const v = (bp * 0.8 + w * 0.2) * a;
+            L[i0 + i] += v * gl;
+            R[i0 + i] += v * gr;
           }
           t += (1 / rate) * range(rnd, 0.85, 1.15);
         }
       }
     });
   }
-  return { render: r, finish: () => r.finish(r.loopify(0.4), 0.16) };
+  return { render: r, finish: () => r.finish(r.loopify(0.4), 0.14) };
 }
