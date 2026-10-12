@@ -25,6 +25,7 @@ import {
   type PB,
 } from './parts';
 import { RenderSettings } from './settings';
+import { surf, vertexPBR, type GlowKey, type Surfaces } from './bake';
 import { contactAO } from './ao';
 import { contactStats, Hull, partRadius, pushOut, samplePB, tally, type PlacedHull } from './contact';
 
@@ -136,10 +137,27 @@ function aim(obj: THREE.Object3D, from: THREE.Vector3, to: THREE.Vector3) {
   return len;
 }
 
-interface Surface {
-  color: THREE.Color;
-  metal: number;
-  rough: number;
+/** The paint and metal finishes of a robot in palette `palette`. */
+export function botSurfaces(palette: number): Surfaces {
+  const pal = PALETTES[palette % PALETTES.length];
+  return {
+    paint: surf(pal.primary, 0.25, 0.34),
+    paint2: surf(pal.secondary, 0.35, 0.42),
+    metal: surf(0x4a505a, 0.85, 0.34),
+    chrome: surf(0xd9dee6, 1, 0.14),
+    dark: surf(0x16191f, 0.45, 0.58),
+    joint: surf(0x2b3039, 0.8, 0.38),
+  };
+}
+
+/** Accent glow, power core and rarity colours, at the brightness the robots use. */
+export function botGlows(palette: number, coreLook: number, rarity: number): Record<GlowKey, THREE.Color> {
+  const pal = PALETTES[palette % PALETTES.length];
+  return {
+    glow: new THREE.Color(pal.accent).multiplyScalar(RenderSettings.glow(3.4)),
+    core: new THREE.Color(CORE_COLORS[coreLook]).multiplyScalar(RenderSettings.glow(3.2)),
+    rarity: new THREE.Color(RARITIES[rarity].glow).multiplyScalar(RenderSettings.glow(3)),
+  };
 }
 
 /** Accumulates parts into one rigidly skinned geometry per material family. */
@@ -149,7 +167,7 @@ class SkinBuilder {
   private nm = new THREE.Matrix3();
   private v = new THREE.Vector3();
 
-  constructor(private surfaces: Record<Exclude<MatKey, 'glow' | 'core' | 'rarity'>, Surface>) {}
+  constructor(private surfaces: Surfaces) {}
 
   add(pb: PB, bone: number, raritySlot: Slot) {
     const rarityCh = CH_RARITY + SLOTS.indexOf(raritySlot);
@@ -212,19 +230,7 @@ class SkinBuilder {
 
 /** Standard PBR material reading colour, metalness and roughness per vertex. */
 function makeOpaqueMaterial() {
-  const m = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 1, roughness: 1 });
-  m.onBeforeCompile = (sh) => {
-    sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec2 mr;\nvarying vec2 vMR;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvMR = mr;');
-    sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec2 vMR;')
-      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = vMR.y;')
-      .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = vMR.x;')
-      // keep painted metal under the bloom threshold: only emissive parts glow
-      .replace('#include <opaque_fragment>', 'outgoingLight = min( outgoingLight, vec3( 2.2 ) );\n#include <opaque_fragment>');
-  };
-  m.customProgramCacheKey = () => 'bot-opaque';
+  const m = vertexPBR(new THREE.MeshStandardMaterial(), 'bot-opaque');
   // limbs, torsos and the opponent shade each other; legs and feet darken towards the canvas
   return contactAO.patch(m, { spheres: true, strength: 1.8, ground: { y: 0, height: 0.5, k: 0.5 }, direct: 0.6 });
 }
@@ -366,15 +372,7 @@ export class BotModel {
     this.palette = palette;
     const pal = PALETTES[palette % PALETTES.length];
     const look = (slot: Slot) => ITEM_BY_ID.get(loadout[slot].id)!.look;
-    const surf = (hex: number, metal: number, rough: number): Surface => ({ color: new THREE.Color(hex), metal, rough });
-    const sb = new SkinBuilder({
-      paint: surf(pal.primary, 0.25, 0.34),
-      paint2: surf(pal.secondary, 0.35, 0.42),
-      metal: surf(0x4a505a, 0.85, 0.34),
-      chrome: surf(0xd9dee6, 1, 0.14),
-      dark: surf(0x16191f, 0.45, 0.58),
-      joint: surf(0x2b3039, 0.8, 0.38),
-    });
+    const sb = new SkinBuilder(botSurfaces(palette));
 
     const torsoPB = buildTorso(look('chest'));
     const corePB = buildCore(look('core'), look('chest'));

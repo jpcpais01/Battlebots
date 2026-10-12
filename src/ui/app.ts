@@ -1,4 +1,4 @@
-import type { Game } from '../game/game';
+import type { Game, Place } from '../game/game';
 import { resScaleChoices, type Quality, type ResScale } from '../render/stage';
 import { enterLandscape } from '../fullscreen';
 import { Rng } from '../sim/math';
@@ -8,6 +8,7 @@ import {
   computeBuild,
   formatPassive,
   formatStatLine,
+  ITEM_BY_ID,
   itemsForSlot,
   RARITIES,
   scaledStat,
@@ -29,6 +30,17 @@ import { loadPlayer, loadQuality, loadRecord, loadZoom, savePlayer, saveQuality,
 
 type ScreenId = 'home' | 'garage' | 'fight';
 
+/** Garage camera close-ups: target x, y, z and distance per slot, and the whole-robot view. */
+const OVERVIEW: [number, number, number, number] = [0, 1.02, 0, 4.7];
+const FOCUS: Record<Slot, [number, number, number, number]> = {
+  head: [0, 1.7, 0.05, 2.3],
+  fist: [0, 1.38, 0.2, 2.5],
+  core: [0, 1.36, 0.12, 2.2],
+  chest: [0, 1.32, 0, 2.8],
+  legs: [0, 0.72, 0, 3.2],
+  kick: [0, 0.38, 0.05, 2.5],
+};
+
 /** Screens, navigation and persistence around the 3D game. */
 export class App {
   private ui: HTMLElement;
@@ -43,7 +55,23 @@ export class App {
   private results: HTMLElement | null = null;
   private rng = new Rng((Math.random() * 2 ** 32) >>> 0);
   private slot: Slot = 'fist';
-  private garageEls: { name: HTMLElement; swatches: HTMLElement; stats: HTMLElement; tabs: HTMLElement; rar: HTMLElement; items: HTMLElement } | null = null;
+  private garageEls: {
+    name: HTMLElement;
+    power: HTMLElement;
+    swatches: HTMLElement;
+    stats: HTMLElement;
+    rail: HTMLElement;
+    title: HTMLElement;
+    rar: HTMLElement;
+    items: HTMLElement;
+    view: HTMLElement;
+  } | null = null;
+  /** Slot the garage camera is looking closely at (null: the whole robot). */
+  private focus: Slot | null = null;
+  private prewarm = false;
+  private spin = { dragging: false, vel: 0, idle: 0 };
+  private fade: HTMLElement;
+  private placeTimer = 0;
   private homeCard: HTMLElement | null = null;
   private homeRecord: HTMLElement | null = null;
   private soundBtns: HTMLButtonElement[] = [];
@@ -64,8 +92,11 @@ export class App {
     this.ui.appendChild(this.screens.home);
     this.ui.appendChild(this.screens.garage);
     el('div', 'rotate', `<div>${ICON.rotate}<p>Turn your phone sideways<br><span class="muted">Battlebots plays in landscape</span></p></div>`, this.ui);
+    this.fade = el('div', 'scene-fade');
+    this.ui.prepend(this.fade);
     game.cb.onFrame = (dt) => {
       if (this.current === 'fight') this.hud.update(dt);
+      else if (this.current === 'garage') this.garageTick(dt);
     };
     game.cb.onMatchEvent = (type) => {
       if (type === 'end') setTimeout(() => this.showResults(), 700);
@@ -81,20 +112,48 @@ export class App {
   private go(id: ScreenId) {
     this.current = id;
     for (const [k, s] of Object.entries(this.screens)) s.classList.toggle('show', k === id);
-    const d = this.game.director;
     if (id === 'home') {
       this.game.endMatch();
       this.hud.detach();
       this.game.showBot(this.player);
+      this.refreshHome();
+    } else if (id === 'garage') {
+      this.focus = null;
+      this.refreshGarage();
+    }
+    // the garage is its own place: switching to or from it dips through black
+    const place: Place = id === 'garage' ? 'garage' : 'arena';
+    clearTimeout(this.placeTimer);
+    const apply = () => {
+      const moved = this.game.place !== place;
+      this.game.setPlace(place);
+      this.camera(id);
+      if (moved) this.game.director.snap();
+      this.fade.classList.remove('on');
+    };
+    if (place === this.game.place) apply();
+    else {
+      this.fade.classList.add('on');
+      this.placeTimer = window.setTimeout(apply, 170);
+    }
+  }
+
+  /** Camera and ambience for a screen. */
+  private camera(id: ScreenId) {
+    const d = this.game.director;
+    if (id === 'home') {
       d.mode = 'menu';
       d.shiftX = 0;
       this.game.sfx?.ambience(0.25);
-      this.refreshHome();
     } else if (id === 'garage') {
       d.mode = 'garage';
       d.garageYaw = 0.45;
       d.shiftX = 0.27;
-      this.refreshGarage();
+      this.spin.vel = 0;
+      this.spin.idle = 0;
+      this.setFocus(null);
+      // the arena crowd is far away from the workshop
+      this.game.sfx?.ambience(0.04);
     } else {
       d.shiftX = 0;
       this.game.sfx?.ambience(1);
@@ -171,22 +230,32 @@ export class App {
       this.tap('back');
       this.go('home');
     }, top);
-    const name = button('name', '', () => this.rename(), top);
+    const id = el('div', 'garage-id', '', top);
+    const name = button('name', '', () => this.rename(), id);
+    const power = el('div', 'gpower', '', id);
     const swatches = el('div', 'swatches', '', s);
     const stats = el('div', 'statbox', '', s);
+    const view = button('view-btn', '', () => {
+      this.tap();
+      this.setFocus(this.focus ? null : this.slot);
+    }, s);
     const panel = el('div', 'garage-panel', '', s);
-    const tabs = el('div', 'tabs', '', panel);
-    const rar = el('div', 'rarities', '', panel);
-    const items = el('div', 'items scroll', '', panel);
-    const actions = el('div', 'garage-actions', '', panel);
+    const rail = el('div', 'rail', '', panel);
+    const main = el('div', 'gmain', '', panel);
+    const head = el('div', 'ghead', '', main);
+    const title = el('div', 'gtitle', '', head);
+    const rar = el('div', 'rarities', '', head);
+    const items = el('div', 'items scroll', '', main);
+    const actions = el('div', 'garage-actions', '', main);
     button('btn small', `${ICON.dice}Random`, () => {
       this.tap('select');
       const b = randomBot(this.rng, this.rng.range(0.2, 0.8));
       this.player = { ...b, name: this.player.name };
       this.commitPlayer();
+      this.game.garagePulse();
     }, actions);
     button('btn small primary', `${ICON.swords}Fight`, () => this.fight(), actions);
-    this.garageEls = { name, swatches, stats, tabs, rar, items };
+    this.garageEls = { name, power, swatches, stats, rail, title, rar, items, view };
     return s;
   }
 
@@ -210,17 +279,41 @@ export class App {
     this.refreshGarage();
   }
 
+  /** Camera close-up on one slot's part, or the whole robot (null). */
+  private setFocus(slot: Slot | null) {
+    this.focus = slot;
+    const f = slot ? FOCUS[slot] : OVERVIEW;
+    const d = this.game.director;
+    d.garageTarget.set(f[0], f[1], f[2]);
+    d.garageDist = f[3];
+    this.garageEls!.view.innerHTML = slot ? `${ICON.expand}<span>Whole bot</span>` : `${ICON.zoom}<span>Inspect ${SLOT_LABEL[this.slot]}</span>`;
+  }
+
+  /** Picture of the real part an item fits, at a rarity, in the player's paint. */
+  private thumb(item: ItemDef, rarity: Rarity) {
+    try {
+      return this.game.thumbs.get(item, rarity, this.player.palette, this.player.loadout);
+    } catch {
+      return '';
+    }
+  }
+
   private refreshGarage() {
     const g = this.garageEls!;
     const p = this.player;
+    const build = computeBuild(p.loadout);
     g.name.innerHTML = `${esc(p.name)} <span class="muted">✎</span>`;
+    g.power.innerHTML = `<span>Power</span><b>${build.rating}</b>`;
+    this.game.garageBot(p.name, build.rating, p.palette);
 
     g.swatches.innerHTML = '';
     PALETTES.forEach((pal, i) => {
       const sw = button(`swatch${i === p.palette ? ' on' : ''}`, '', () => {
+        if (p.palette === i) return;
         this.tap();
         p.palette = i;
         this.commitPlayer();
+        this.game.garagePulse();
       }, g.swatches);
       sw.style.background = `linear-gradient(135deg, ${hex(pal.primary)} 50%, ${hex(pal.secondary)} 50%)`;
       sw.title = pal.name;
@@ -228,53 +321,95 @@ export class App {
 
     this.renderStats();
 
-    g.tabs.innerHTML = '';
+    // the loadout rail: each slot shows the part it has fitted
+    g.rail.innerHTML = '';
     for (const slot of SLOTS) {
-      const t = button(`tab${slot === this.slot ? ' on' : ''}`, `${SLOT_ICON[slot]}<span>${SLOT_LABEL[slot]}</span>`, () => {
+      const eq = p.loadout[slot];
+      const item = ITEM_BY_ID.get(eq.id)!;
+      const src = this.thumb(item, eq.rarity);
+      const t = button(`slot${slot === this.slot ? ' on' : ''}`, `${src ? `<img src="${src}" alt="">` : SLOT_ICON[slot]}<span>${SLOT_LABEL[slot]}</span>`, () => {
         this.tap();
-        this.slot = slot;
-        this.refreshGarage();
-      }, g.tabs);
-      t.style.setProperty('--rc', RARITIES[p.loadout[slot].rarity].color);
+        if (slot === this.slot) this.setFocus(this.focus ? null : slot);
+        else {
+          this.slot = slot;
+          this.setFocus(slot);
+          this.refreshGarage();
+        }
+      }, g.rail);
+      t.style.setProperty('--rc', RARITIES[eq.rarity].color);
     }
 
     const eq = p.loadout[this.slot];
+    const cur = ITEM_BY_ID.get(eq.id)!;
+    g.title.innerHTML = `<b>${SLOT_LABEL[this.slot]}</b><span>${esc(cur.name)} · <i style="color:${RARITIES[eq.rarity].color}">${RARITIES[eq.rarity].name}</i></span>`;
+    if (this.focus) this.setFocus(this.slot);
+    else this.setFocus(null);
+
     g.rar.innerHTML = '';
     RARITIES.forEach((r, i) => {
       const b = button(`rar${i === eq.rarity ? ' on' : ''}`, r.name, () => {
+        if (eq.rarity === i) return;
         this.tap();
         eq.rarity = i as Rarity;
         this.commitPlayer();
+        this.game.garagePulse();
       }, g.rar);
       b.style.setProperty('--rc', r.color);
     });
 
+    const scroll = g.items.scrollTop;
     g.items.innerHTML = '';
     for (const item of itemsForSlot(this.slot)) {
       const on = item.id === eq.id;
-      const card = button(`item${on ? ' on' : ''}`, this.itemHtml(item, eq.rarity), () => {
+      const delta = on ? 0 : computeBuild({ ...p.loadout, [this.slot]: { id: item.id, rarity: eq.rarity } }).rating - build.rating;
+      const card = button(`item${on ? ' on' : ''}`, this.itemHtml(item, eq.rarity, on, delta), () => {
         if (item.id !== eq.id) {
           this.tap('select');
           eq.id = item.id;
           this.commitPlayer();
+          this.game.garagePulse();
         }
         if (item.ability) setTimeout(() => this.game.previewMove(item.ability!), 120);
       }, g.items);
       card.style.setProperty('--rc', RARITIES[eq.rarity].color);
     }
+    g.items.scrollTop = scroll;
+    this.prewarmThumbs();
   }
 
-  private itemHtml(item: ItemDef, rarity: Rarity) {
+  /** Draw the other slots' pictures in idle moments, so switching tabs never waits on them. */
+  private prewarmThumbs() {
+    if (this.prewarm) return;
+    const todo: [ItemDef, Rarity][] = [];
+    for (const slot of SLOTS) for (const item of itemsForSlot(slot)) todo.push([item, this.player.loadout[slot].rarity]);
+    const idle = (cb: () => void) => ((window as { requestIdleCallback?: (f: () => void) => void }).requestIdleCallback ?? ((f: () => void) => setTimeout(f, 60)))(cb);
+    const step = () => {
+      const next = todo.shift();
+      if (!next || this.current !== 'garage') {
+        this.prewarm = false;
+        return;
+      }
+      this.thumb(next[0], next[1]);
+      idle(step);
+    };
+    this.prewarm = true;
+    idle(step);
+  }
+
+  private itemHtml(item: ItemDef, rarity: Rarity, on: boolean, delta: number) {
     const chips = (Object.entries(item.stats) as [StatKey, number][])
       .map(([k, v]) => {
         const sv = scaledStat(v, rarity);
         return `<span class="chip${sv < 0 ? ' neg' : ''}">${formatStatLine(k, sv)}</span>`;
       })
       .join('');
-    const ab = item.ability ? `<span class="chip skill">Ability · ${MOVES[item.ability].name}${MOVES[item.ability].cooldown ? ` · ${MOVES[item.ability].cooldown}s` : ''}</span>` : '';
-    const icon = (item.ability && ABILITY_ICON[item.ability]) || SLOT_ICON[item.slot];
-    return `<div class="ico">${icon}</div>
-      <div class="t"><b>${esc(item.name)}</b><span>${esc(item.tagline)}</span></div>
+    const ab = item.ability ? `<span class="chip skill">${MOVES[item.ability].name}${MOVES[item.ability].cooldown ? ` · ${MOVES[item.ability].cooldown}s` : ''}</span>` : '';
+    const src = this.thumb(item, rarity);
+    const pic = src ? `<img src="${src}" alt="">` : (item.ability && ABILITY_ICON[item.ability]) || SLOT_ICON[item.slot];
+    const tag = on ? '<span class="eq">Fitted</span>' : delta ? `<span class="delta${delta > 0 ? ' up' : ' down'}">${delta > 0 ? '+' : '−'}${Math.abs(delta)}</span>` : '';
+    return `<div class="pic">${pic}</div>
+      <div class="t"><b>${esc(item.name)}</b>${tag}</div>
+      <div class="tag">${esc(item.tagline)}</div>
       <div class="chips">${ab}${chips}</div>
       <div class="passive"><em>${esc(item.passive.name)}</em> · ${esc(formatPassive(item.passive, rarity))}</div>`;
   }
@@ -292,28 +427,54 @@ export class App {
     ];
     const g = this.garageEls!;
     g.stats.innerHTML =
-      `<span class="lbl">Rating</span><span class="muted">${MOVES[b.fistAbility].name} · ${MOVES[b.kickAbility].name}</span><span class="val" style="color:var(--amber)">${b.rating}</span>` +
+      `<div class="sh"><span>Diagnostics</span><span class="muted">${MOVES[b.fistAbility].name} · ${MOVES[b.kickAbility].name}</span></div>` +
       rows
         .map(([l, k, v]) => `<span class="lbl">${l}</span><div class="bar"><i style="width:${Math.round(Math.max(0.04, Math.min(1, k)) * 100)}%"></i></div><span class="val">${v}</span>`)
         .join('');
   }
 
+  /** Drag to turn the robot (it keeps spinning a little when let go), and drift slowly when left alone. */
   private setupGarageDrag() {
     const canvas = this.game.stage.renderer.domElement;
-    let dragging = false;
     let lastX = 0;
+    let lastT = 0;
     canvas.addEventListener('pointerdown', (e) => {
       if (this.current !== 'garage') return;
-      dragging = true;
+      this.spin.dragging = true;
+      this.spin.vel = 0;
       lastX = e.clientX;
+      lastT = performance.now();
     });
     window.addEventListener('pointermove', (e) => {
-      if (!dragging) return;
-      this.game.director.garageYaw -= (e.clientX - lastX) * 0.012;
+      if (!this.spin.dragging) return;
+      const now = performance.now();
+      const d = (e.clientX - lastX) * 0.012;
+      this.game.director.garageYaw -= d;
+      const dt = Math.max(1, now - lastT) / 1000;
+      this.spin.vel = this.spin.vel * 0.5 + (-d / dt) * 0.5;
       lastX = e.clientX;
+      lastT = now;
+      this.spin.idle = 0;
     });
-    window.addEventListener('pointerup', () => (dragging = false));
-    window.addEventListener('pointercancel', () => (dragging = false));
+    const up = () => {
+      if (!this.spin.dragging) return;
+      this.spin.dragging = false;
+      if (performance.now() - lastT > 80) this.spin.vel = 0;
+      this.spin.idle = 0;
+    };
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  }
+
+  private garageTick(dt: number) {
+    const s = this.spin;
+    if (s.dragging) return;
+    s.idle += dt;
+    s.vel *= Math.exp(-3.5 * dt);
+    if (Math.abs(s.vel) > 6) s.vel = Math.sign(s.vel) * 6;
+    // showroom drift once nobody has touched it for a while
+    const drift = s.idle > 5 ? Math.min(1, (s.idle - 5) / 3) * 0.06 : 0;
+    this.game.director.garageYaw += (s.vel + drift) * dt;
   }
 
   // ------------------------------------------------------------ fight

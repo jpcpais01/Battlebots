@@ -28,6 +28,7 @@ export const ICON = {
   fast: svg('<path d="M4 6l7 6-7 6zM13 6l7 6-7 6z" fill="currentColor"/>'),
   close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
   zoom: svg('<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/><path d="M8 10.5h5M10.5 8v5"/>'),
+  expand: svg('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
   rotate: svg('<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M2 14a10 10 0 0 0 7 7M22 10a10 10 0 0 0-7-7"/>'),
   shield: svg('<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/>'),
   bolt: svg('<path d="M13 2L4 14h7l-1 8 9-12h-7z" fill="currentColor" stroke="none"/>'),
