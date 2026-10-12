@@ -1,7 +1,6 @@
 import type { Game, Place } from '../game/game';
 import { resScaleChoices, type Quality, type ResScale } from '../render/stage';
 import type { FpsCap } from '../render/pacer';
-import { BOOST_MODES } from '../render/refreshBoost';
 import { enterLandscape } from '../fullscreen';
 import { Rng } from '../sim/math';
 import { MOVES } from '../sim/moves';
@@ -544,104 +543,119 @@ export class App {
   private settings() {
     this.tap();
     this.openModal('Settings', (box) => {
-      this.soundRow(box);
-      el('div', 'muted', 'Graphics quality', box);
-      const seg = el('div', 'seg', '', box);
-      const saved = loadQuality();
-      for (const q of ['low', 'med', 'high'] as Quality[]) {
-        button(q === this.quality ? 'on' : '', q === 'med' ? 'Medium' : q[0].toUpperCase() + q.slice(1), () => {
-          if (q === this.quality) return;
-          saveQuality(q);
-          location.reload();
-        }, seg);
-      }
-      el('div', 'muted', 'Camera zoom', box);
-      const zoomSeg = el('div', 'seg', '', box);
-      for (const z of ['close', 'normal', 'wide'] as Zoom[]) {
-        const b = button(z === this.game.director.zoom ? 'on' : '', z[0].toUpperCase() + z.slice(1), () => {
-          this.game.director.zoom = z;
-          saveZoom(z);
-          this.hud.syncZoom();
-          for (const o of zoomSeg.children) o.classList.toggle('on', o === b);
-          this.tap();
-        }, zoomSeg);
-      }
-      if (saved) button('btn small', 'Auto-detect quality', () => {
-        saveQuality(null);
-        location.reload();
-      }, box);
-      this.resolutionRow(box);
-      this.frameRateRow(box);
-      this.boostRow(box);
-      const perfBtn = button('btn small', '', () => {
-        this.perf.setVisible(!this.perf.visible);
-        syncPerf();
-      }, box);
-      const syncPerf = () => (perfBtn.textContent = `Performance stats ${this.perf.visible ? 'on' : 'off'}`);
-      syncPerf();
-      button('btn small', 'Reset record', () => {
+      box.classList.add('settings');
+      box.replaceChildren();
+      const backdrop = box.parentElement!;
+      backdrop.addEventListener('click', (e) => e.target === backdrop && this.closeModal());
+      const top = el('div', 'set-head', '<h2>Settings</h2>', box);
+      button('icon-btn', ICON.close, () => this.closeModal(), top);
+      const grid = el('div', 'set-grid', '', box);
+
+      const col = (title: string) => {
+        const c = el('section', 'set-col', '', grid);
+        el('h3', '', title, c);
+        return c;
+      };
+
+      // Game feel: sound, camera, stats, record.
+      const game = col('Game');
+      this.segRow(game, 'Sound', () => [
+        { text: 'On', on: !this.game.sfx?.muted, pick: () => this.game.sfx?.muted && this.toggleSound() },
+        { text: 'Off', on: !!this.game.sfx?.muted, pick: () => !this.game.sfx?.muted && this.toggleSound() },
+      ]);
+      this.segRow(game, 'Camera zoom', () =>
+        (['close', 'normal', 'wide'] as Zoom[]).map((z) => ({
+          text: z[0].toUpperCase() + z.slice(1),
+          on: z === this.game.director.zoom,
+          pick: () => {
+            this.game.director.zoom = z;
+            saveZoom(z);
+            this.hud.syncZoom();
+          },
+        })),
+      );
+      this.segRow(game, 'Performance stats', () => [
+        { text: 'On', on: this.perf.visible, pick: () => this.perf.setVisible(true) },
+        { text: 'Off', on: !this.perf.visible, pick: () => this.perf.setVisible(false) },
+      ]);
+      const reset = button('set-danger', 'Reset win record', () => {
+        if (!reset.classList.contains('armed')) {
+          reset.classList.add('armed');
+          reset.textContent = 'Tap again to reset';
+          return;
+        }
         this.record = { wins: 0, losses: 0, draws: 0, streak: 0, best: 0 };
         saveRecord(this.record);
         this.refreshHome();
-        this.closeModal();
-      }, box);
-      button('btn cyan', 'Done', () => this.closeModal(), box);
+        reset.classList.remove('armed');
+        reset.textContent = 'Record reset';
+        reset.disabled = true;
+      }, game);
+
+      // Graphics: quality, resolution, frame rate.
+      const gfx = col('Graphics');
+      const saved = loadQuality();
+      const qName = (q: Quality) => (q === 'med' ? 'Medium' : q[0].toUpperCase() + q.slice(1));
+      this.segRow(gfx, saved ? 'Quality' : `Quality (auto picked ${qName(this.quality)})`, () => [
+        { text: 'Auto', on: !saved, pick: () => saved && (saveQuality(null), location.reload()) },
+        ...(['low', 'med', 'high'] as Quality[]).map((q) => ({
+          text: q === 'med' ? 'Med' : qName(q),
+          on: !!saved && q === this.quality,
+          pick: () => (saved !== q ? (saveQuality(q), location.reload()) : undefined),
+        })),
+      ]);
+      const stage = this.game.stage;
+      const native = resScaleChoices().at(-1)!.value;
+      const resOpts: { value: ResScale; text: string }[] = [
+        { value: null, text: 'Auto' },
+        ...resScaleChoices().map((c) => ({ value: c.value, text: c.native ? 'Native' : `${c.value}x` })),
+      ];
+      this.segRow(
+        gfx,
+        () => {
+          const cur = stage.resScale;
+          const pr = stage.renderer.getPixelRatio();
+          return `Resolution <span>${cur === null ? `auto, now ${+pr.toFixed(2)}x` : `${cur}x`} of ${native}x</span>`;
+        },
+        () => resOpts.map((o) => ({ text: o.text, on: o.value === stage.resScale, pick: () => stage.setResScale(o.value) })),
+      );
+      const pacer = this.game.pacer;
+      this.segRow(gfx, `Frame rate <span>screen ${pacer.hz} Hz</span>`, () =>
+        (['max', 60, 30] as FpsCap[]).map((o) => ({
+          text: o === 'max' ? `Max ${pacer.hz}` : `${o}`,
+          on: o === pacer.cap,
+          pick: () => pacer.setCap(o),
+        })),
+      );
     });
   }
 
-  /** Render resolution: Auto (adapts to keep the frame rate) or a fixed pixel ratio, applied at once. */
-  private resolutionRow(box: HTMLElement) {
-    const stage = this.game.stage;
-    const label = el('div', 'muted', '', box);
-    const seg = el('div', 'seg seg4', '', box);
-    const opts: { value: ResScale; text: string }[] = [
-      { value: null, text: 'Auto' },
-      ...resScaleChoices().map((c) => ({ value: c.value, text: c.native ? 'Native' : `${c.value}x` })),
-    ];
-    const native = resScaleChoices().at(-1)!.value;
-    const btns = opts.map((o) =>
-      button('', o.text, () => {
-        this.tap();
-        stage.setResScale(o.value);
-        sync();
-      }, seg),
-    );
+  /**
+   * One labelled row of segmented choices. `opts` is re-read after every tap so the
+   * highlighted choice and the label always reflect live state.
+   */
+  private segRow(
+    parent: HTMLElement,
+    label: string | (() => string),
+    opts: () => { text: string; on: boolean; pick: () => unknown }[],
+  ) {
+    const row = el('div', 'set-row', '', parent);
+    const lab = el('div', 'set-label', '', row);
+    const seg = el('div', 'seg fit', '', row);
     const sync = () => {
-      const cur = stage.resScale;
-      opts.forEach((o, i) => btns[i].classList.toggle('on', o.value === cur));
-      const pr = stage.renderer.getPixelRatio();
-      label.textContent = `Render resolution: ${cur === null ? `auto, now ${+pr.toFixed(2)}x` : `fixed at ${cur}x`} (screen is ${native}x)`;
+      lab.innerHTML = typeof label === 'string' ? label : label();
+      const list = opts();
+      seg.replaceChildren();
+      for (const o of list) {
+        button(o.on ? 'on' : '', o.text, () => {
+          if (o.on) return;
+          this.tap();
+          o.pick();
+          sync();
+        }, seg);
+      }
     };
     sync();
-  }
-
-  /** Frame rate: the display's own refresh rate, or a cap that saves battery. */
-  private frameRateRow(box: HTMLElement) {
-    const pacer = this.game.pacer;
-    el('div', 'muted', `Frame rate (screen is ${pacer.hz} Hz)`, box);
-    const seg = el('div', 'seg', '', box);
-    const opts: FpsCap[] = ['max', 60, 30];
-    const btns = opts.map((o) =>
-      button(o === pacer.cap ? 'on' : '', o === 'max' ? `Max (${pacer.hz})` : `${o}`, () => {
-        this.tap();
-        pacer.setCap(o);
-        opts.forEach((v, i) => btns[i].classList.toggle('on', v === o));
-      }, seg),
-    );
-  }
-
-  /** Experimental: tricks that may keep a phone's screen at 120 Hz with no finger on it. */
-  private boostRow(box: HTMLElement) {
-    const boost = this.game.boost;
-    el('div', 'muted', 'Keep 120 Hz (experimental)', box);
-    const seg = el('div', 'seg', '', box);
-    const btns = BOOST_MODES.map((m) =>
-      button(m.id === boost.mode ? 'on' : '', m.label, () => {
-        this.tap();
-        boost.set(m.id);
-        BOOST_MODES.forEach((o, i) => btns[i].classList.toggle('on', o.id === m.id));
-      }, seg),
-    );
   }
 
   // ------------------------------------------------------------ patch notes
