@@ -234,18 +234,37 @@ export class Hud {
     if (this.speedBtn) this.speedBtn.textContent = '1×';
   }
 
+  /** Picture of the real part fitted in a slot, in that bot's paint and rarity. */
+  private gearPic(spec: BotSpec, slot: (typeof SLOTS)[number]) {
+    const eq = spec.loadout[slot];
+    try {
+      return this.game.thumbs.get(ITEM_BY_ID.get(eq.id)!, eq.rarity, spec.palette, spec.loadout);
+    } catch {
+      return '';
+    }
+  }
+
+  /** Versus screen: each bot's card slides in from its own side, framing the robots in the middle. */
   private showVs(m: Match) {
     const card = (i: number) => {
       const s = m.specs[i];
       const f = m.fighters[i];
-      return `<div class="card ${i ? 'r' : 'l'}">
-        <div class="sub">${i ? 'Challenger' : 'Your bot'}</div>
+      const pal = PALETTES[s.palette % PALETTES.length];
+      const move = (id: MoveId) => `<span>${ABILITY_ICON[id] ?? ''}${esc(MOVES[id].name)}</span>`;
+      const gear = SLOTS.map((slot, k) => {
+        const eq = s.loadout[slot];
+        const src = this.gearPic(s, slot);
+        const item = ITEM_BY_ID.get(eq.id)!;
+        return `<div class="g" style="--rc:${RARITIES[eq.rarity].color};--d:${0.35 + k * 0.05}s" title="${esc(item.name)}">${src ? `<img src="${src}" alt="">` : SLOT_ICON[slot]}</div>`;
+      }).join('');
+      return `<div class="card ${i ? 'r' : 'l'}" style="--paint:#${pal.primary.toString(16).padStart(6, '0')}">
+        <div class="cap"><span class="tag">${i ? 'Challenger' : 'Your bot'}</span><span class="pwr"><small>PWR</small>${f.build.rating}</span></div>
         <div class="name">${esc(s.name)}</div>
-        <div class="sub">Power ${f.build.rating} · ${MOVES[f.build.fistAbility].name} · ${MOVES[f.build.kickAbility].name}</div>
-        <div class="pips">${pipsHtml(s)}</div>
+        <div class="moves">${move(f.build.fistAbility)}${move(f.build.kickAbility)}</div>
+        <div class="gear">${gear}</div>
       </div>`;
     };
-    this.vs = el('div', 'vs interactive', `${card(0)}<div class="mid">VS</div>${card(1)}`, this.root);
+    this.vs = el('div', 'vs interactive', `${card(0)}${card(1)}<div class="mid"><i></i><b>VS</b><i></i></div>`, this.root);
     this.vs.addEventListener('click', () => this.match?.skipIntro());
   }
 
