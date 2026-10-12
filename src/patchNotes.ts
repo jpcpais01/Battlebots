@@ -51,6 +51,7 @@ export const PATCH_NOTES: PatchNote[] = [
     title: 'Knockouts, lighting and camera',
     notes: [
       'The K.O. and T.K.O. letters now slam in for a moment, then shrink to a title at the top, so you can watch the knockout fall and the winner celebrate.',
+      'The K.O. and T.K.O. letters now wait about 3 seconds after the knockout, so you see the fall clean before they appear.',
       'Fixed the hard-edged circle on the canvas around each robot: its contact shadow now fades out softly.',
       'Much lighter glow and light beams: bloom and the overhead light shafts now cost a fraction of the GPU time, with the same look, so fights run smoother at high quality.',
       'Render resolution setting (Settings): pick Auto, or fix it at 0.5x, 0.75x, 1x and up to your screen\'s native resolution. A fixed choice is never changed automatically.',
