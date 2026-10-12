@@ -17,9 +17,10 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-12 19:00',
-    title: 'Settings that fit your phone',
+    title: 'Smoother screens and a phone-friendly Settings',
     notes: [
       'Settings has a new two-column layout that fits a landscape phone screen, with bigger buttons, a close button and tap-outside-to-close. Graphics quality now has an Auto option, and resetting your record asks you to tap twice.',
+      'Experimental "Keep 120 Hz" setting for phones that drop to 60 Hz when you are not touching the screen: try Video, Scroll, Anim or All and watch the frame rate in Performance stats.',
     ],
   },
   {
