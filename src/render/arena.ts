@@ -3,6 +3,8 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { RenderSettings } from './settings';
 import { RING_CORNER, ROPE_LINE, ropeSide as sideOf, SIDE_NX, SIDE_NZ } from '../sim/body';
 import { Venue } from './venue';
+import { contactAO } from './ao';
+import { FLOOR } from './bowl';
 
 export const RING_RADIUS = RING_CORNER; // corner radius of the octagon
 const SIDES = 8;
@@ -67,6 +69,26 @@ function matTexture(): THREE.CanvasTexture {
     else g.lineTo(x, y);
   }
   g.stroke();
+  // baked ambient occlusion: the canvas darkens towards the apron and pools around each post base
+  const px = cx / (RING_RADIUS + 0.55); // pixels per metre
+  g.globalCompositeOperation = 'multiply';
+  const rim = g.createRadialGradient(cx, cx, ROPE_LINE * 0.55 * px, cx, cx, cx);
+  rim.addColorStop(0, '#ffffff');
+  rim.addColorStop(0.7, '#c4c4c8');
+  rim.addColorStop(1, '#7a7a82');
+  g.fillStyle = rim;
+  g.fillRect(0, 0, s, s);
+  for (let i = 0; i < SIDES; i++) {
+    const a = (i / SIDES) * Math.PI * 2 + Math.PI / 8;
+    const x = cx + Math.cos(a) * RING_RADIUS * px, y = cx + Math.sin(a) * RING_RADIUS * px;
+    const pool = g.createRadialGradient(x, y, 0.1 * px, x, y, 0.75 * px);
+    pool.addColorStop(0, '#303034');
+    pool.addColorStop(0.35, '#8a8a90');
+    pool.addColorStop(1, '#ffffff');
+    g.fillStyle = pool;
+    g.fillRect(x - px, y - px, 2 * px, 2 * px);
+  }
+  g.globalCompositeOperation = 'source-over';
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 4;
@@ -100,13 +122,20 @@ export class Arena {
     // stage: base + canvas
     const base = new THREE.Mesh(
       new THREE.CylinderGeometry(RING_RADIUS + 0.75, RING_RADIUS + 0.95, 0.5, SIDES, 1),
-      new THREE.MeshStandardMaterial({ color: 0x1a1e27, metalness: 0.7, roughness: 0.45 }),
+      contactAO.patch(new THREE.MeshStandardMaterial({ color: 0x1a1e27, metalness: 0.7, roughness: 0.45 }), {
+        ground: { y: FLOOR, height: 0.4, k: 0.55 },
+      }),
     );
     base.rotation.y = Math.PI / 8;
     base.position.y = -0.37;
     base.receiveShadow = true;
     g.add(base);
-    const mat = new THREE.MeshStandardMaterial({ map: matTexture(), roughness: 0.78, metalness: 0.05 });
+    // the robots' contact shadows land here; the edges and post bases are baked into the texture
+    const mat = contactAO.patch(new THREE.MeshStandardMaterial({ map: matTexture(), roughness: 0.78, metalness: 0.05 }), {
+      spheres: true,
+      strength: 1.6,
+      direct: 0.7,
+    });
     const floorGeo = new THREE.CircleGeometry(RING_RADIUS + 0.55, SIDES);
     floorGeo.rotateX(-Math.PI / 2);
     floorGeo.rotateY(Math.PI / 8);
@@ -195,7 +224,9 @@ export class Arena {
     }
     const posts = new THREE.Mesh(
       mergeGeometries(postGeos)!,
-      new THREE.MeshStandardMaterial({ color: 0x2b303b, metalness: 0.8, roughness: 0.35 }),
+      contactAO.patch(new THREE.MeshStandardMaterial({ color: 0x2b303b, metalness: 0.8, roughness: 0.35 }), {
+        ground: { y: 0, height: 0.6, k: 0.6 },
+      }),
     );
     posts.castShadow = true;
     g.add(posts);

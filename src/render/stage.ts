@@ -6,6 +6,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderSettings } from './settings';
 import { ResolutionGovernor } from './governor';
+import { contactAO } from './ao';
 
 export type Quality = 'low' | 'med' | 'high';
 
@@ -31,7 +32,7 @@ export class Stage {
   readonly camera: THREE.PerspectiveCamera;
   private composer: EffectComposer | null = null;
   private bloom: UnrealBloomPass | null = null;
-  readonly key: THREE.DirectionalLight;
+  readonly key: THREE.SpotLight;
   quality: Quality;
   private maxPixelRatio = 2;
   private governor: ResolutionGovernor;
@@ -45,6 +46,7 @@ export class Stage {
   constructor(canvas: HTMLCanvasElement, quality: Quality) {
     this.quality = quality;
     RenderSettings.bloom = quality === 'high';
+    contactAO.setQuality(quality);
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: quality !== 'high',
@@ -68,20 +70,21 @@ export class Stage {
     scene.environmentIntensity = 0.55;
     pmrem.dispose();
 
-    scene.add(new THREE.HemisphereLight(0x9cc0ff, 0x241a14, 0.55));
-    this.key = new THREE.DirectionalLight(0xfff1e0, 2.1);
-    this.key.position.set(3, 10, 4);
+    scene.add(new THREE.HemisphereLight(0x9cc0ff, 0x241a14, 0.42));
+    // the overhead rig: one warm spot pools on the ring and falls off past the apron, so the robots
+    // stand in the light while the floor around the stage sinks into shadow. No distance decay, so
+    // it lights like the sun it replaced, and it costs the same (one light, one shadow map).
+    this.key = new THREE.SpotLight(0xfff1e0, 3.0, 0, 0.62, 0.8, 0);
+    this.key.position.set(2.2, 13, 3);
     this.key.target.position.set(0, 0, 0);
     this.key.castShadow = quality !== 'low';
     const s = this.key.shadow;
     s.mapSize.set(quality === 'high' ? 2048 : 1024, quality === 'high' ? 2048 : 1024);
-    s.camera.left = -5.5;
-    s.camera.right = 5.5;
-    s.camera.top = 5.5;
-    s.camera.bottom = -5.5;
-    s.camera.near = 2;
-    s.camera.far = 22;
-    s.bias = -0.0005;
+    // aim the shadow map at the ring rather than the whole cone
+    s.focus = 0.62;
+    s.camera.near = 7;
+    s.camera.far = 20;
+    s.bias = -0.0004;
     s.normalBias = 0.02;
     s.radius = 3;
     scene.add(this.key, this.key.target);

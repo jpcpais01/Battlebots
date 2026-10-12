@@ -25,6 +25,7 @@ import {
   type PB,
 } from './parts';
 import { RenderSettings } from './settings';
+import { contactAO } from './ao';
 import { contactStats, Hull, partRadius, pushOut, samplePB, tally, type PlacedHull } from './contact';
 
 const CORE_COLORS = [0x49c6ff, 0xff4a2a, 0x3cffd8, 0x52ff6a, 0xc77dff];
@@ -224,7 +225,8 @@ function makeOpaqueMaterial() {
       .replace('#include <opaque_fragment>', 'outgoingLight = min( outgoingLight, vec3( 2.2 ) );\n#include <opaque_fragment>');
   };
   m.customProgramCacheKey = () => 'bot-opaque';
-  return m;
+  // limbs, torsos and the opponent shade each other; legs and feet darken towards the canvas
+  return contactAO.patch(m, { spheres: true, strength: 1.5, ground: { y: 0, height: 0.5, k: 0.5 }, direct: 0.6 });
 }
 
 /** Unlit material whose colour comes from a small per-bot palette (animated glow channels). */

@@ -21,6 +21,7 @@ import {
 import { AD_ASPECT, AD_COLS, AD_COUNT, AD_ROWS, adAtlas } from './ads';
 import { Crowd, glowPoints } from './crowd';
 import { RenderSettings } from './settings';
+import { contactAO } from './ao';
 
 /**
  * The indoor arena around the ring: a two-tier seating bowl with a suite level, LED ribbon
@@ -40,7 +41,8 @@ class Strips {
   col: number[] = [];
   uv: number[] = [];
   idx: number[] = [];
-  strip(a: OutlinePt[], ya: number, b: OutlinePt[], yb: number, colour: (x: number, y: number, z: number) => Rgb) {
+  /** `colour` also gets which edge (0 = `a`, 1 = `b`) so strips can bake occlusion across their width. */
+  strip(a: OutlinePt[], ya: number, b: OutlinePt[], yb: number, colour: (x: number, y: number, z: number, v: number) => Rgb) {
     const base = this.pos.length / 3;
     for (let i = 0; i < a.length; i++) {
       for (const [p, y, v] of [
@@ -48,7 +50,7 @@ class Strips {
         [b[i], yb, 1],
       ] as const) {
         this.pos.push(p.x, y, p.z);
-        this.col.push(...colour(p.x, y, p.z));
+        this.col.push(...colour(p.x, y, p.z, v));
         this.uv.push(p.s, v);
       }
       if (i < a.length - 1) {
@@ -326,7 +328,12 @@ export class Venue {
     const shape = new THREE.Shape(floorPts.map((p) => new THREE.Vector2(p.x, -p.z)));
     const floorGeo = new THREE.ShapeGeometry(shape, 4);
     floorGeo.rotateX(-Math.PI / 2);
-    const floor = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ color: 0x0b0e16, roughness: 0.42, metalness: 0.35 }));
+    // the stage casts a wide soft contact shadow onto the arena floor
+    const floorMat = contactAO.patch(new THREE.MeshStandardMaterial({ color: 0x0b0e16, roughness: 0.42, metalness: 0.35 }), {
+      stage: { r0: 5.9, r1: 8.2, k: 0.75 },
+      direct: 0.8,
+    });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.position.y = FLOOR;
     floor.receiveShadow = true;
     g.add(floor);
@@ -351,8 +358,10 @@ export class Venue {
         light * 1.15 + w * (ORANGE.b * (1 - side) + CYAN.b * side),
       ];
     };
-    const tread = (x: number, y: number, z: number) => wash(x, y, z, 0.075);
-    const riser = (x: number, y: number, z: number) => wash(x, y, z, 0.035);
+    // baked occlusion: each tread darkens into the corner at the back where the next riser meets it,
+    // and each riser darkens at its foot
+    const tread = (x: number, y: number, z: number, v: number) => wash(x, y, z, 0.075 * (1 - 0.45 * v));
+    const riser = (x: number, y: number, z: number, v: number) => wash(x, y, z, 0.035 * (0.55 + 0.45 * v));
     const wall = (x: number, y: number, z: number) => wash(x, y, z, 0.03, 0.5);
     stands.strip(outline(0), FLOOR, outline(0), ROWS[0].y, riser);
     ROWS.forEach((r, i) => {

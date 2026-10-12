@@ -16,6 +16,7 @@ import { PALETTES, type BotSpec } from './loadout';
 import type { Sfx } from '../audio/sfx';
 import { perf } from '../perf';
 import { RenderProbe } from '../render/renderProbe';
+import { contactAO } from '../render/ao';
 
 export interface GameCallbacks {
   onMatchEvent?: (type: string, data: unknown) => void;
@@ -335,6 +336,9 @@ export class Game {
       model.update(fighter, this.showAcc / SIM_DT, this.time);
       perf.lap('bots');
     }
+    // contact occlusion follows whichever robots are on screen
+    const shown = m && this.models.length === 2 ? this.models : this.showcase ? [this.showcase.model] : [];
+    for (let i = 0; i < 2; i++) contactAO.set(i, shown[i]?.joints ?? null);
     this.fx.update(dt, this.stage.camera);
     perf.lap('fx');
     this.arena.pressRopes(m && this.models.length === 2 ? [this.models[0].joints, this.models[1].joints] : []);
