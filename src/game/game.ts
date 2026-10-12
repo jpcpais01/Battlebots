@@ -267,10 +267,12 @@ export class Game {
       }
       if (steps >= 16) this.acc = 0;
       alpha = m.hitstop > 0 ? 1 : this.acc / SIM_DT;
+      // both bodies first: each bot's limbs then slide out of either bot's armour
+      for (let i = 0; i < 2; i++) this.models[i].begin(m.fighters[i], alpha, m.fighters[1 - i].body.pos[J.Head]);
       for (let i = 0; i < 2; i++) {
         const f = m.fighters[i];
         const model = this.models[i];
-        model.update(f, alpha, this.time, m.fighters[1 - i].body.pos[J.Head]);
+        model.end(f, this.time, this.models[1 - i]);
         if (m.hitstop > 0) {
           // tiny vibration while frozen on impact
           const k = Math.min(1, m.hitstop * 20) * 0.012;
