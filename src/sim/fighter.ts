@@ -17,6 +17,7 @@ import {
   SpringVec,
   wrapAngle,
 } from './math';
+import { EC, type EmotePose } from './emote';
 
 export type FState = 'ready' | 'fight' | 'stun' | 'stagger' | 'down' | 'getup' | 'ko' | 'win';
 export type GuardMode = 'normal' | 'high' | 'body' | 'low';
@@ -312,6 +313,8 @@ export class Fighter {
   guardDrop = 0;
   bounce = 1;
   taunt = 0;
+  /** Celebration or taunt layered over the fighting pose (driven by the match's Showman). */
+  emote: EmotePose | null = null;
 
   // smoothed pose
   private guardW = { normal: 1, high: 0, body: 0, low: 0 };
@@ -936,13 +939,18 @@ export class Fighter {
 
     // facing
     if (this.opp) {
-      const target = Math.atan2(this.opp.root.x - this.root.x, this.opp.root.z - this.root.z);
+      let target = Math.atan2(this.opp.root.x - this.root.x, this.opp.root.z - this.root.z);
       let turn = 9;
       if (s && s.phase === 'active') turn = 3;
       if (this.state === 'stun') turn = 2;
       if (this.state === 'stagger') turn = 1;
       if (this.state === 'win') turn = 1.5;
       if (this.state === 'getup') turn = this.stateTime / this.getupDur < 0.6 ? 0 : 3;
+      const em = this.emote;
+      if (em && em.faceOn && em.w > 0.2) {
+        target = em.face;
+        turn = em.turn;
+      }
       if (!(s && s.move.spin)) this.yaw = dampAngle(this.yaw, target, turn, dt);
     }
 
@@ -979,6 +987,11 @@ export class Fighter {
     if (isLead) out.set(sx * 0.15 * wide, FOOT_Y, 0.2 * wide);
     else out.set(sx * 0.17 * wide, FOOT_Y, -0.22 * wide);
     if (this.state === 'win') out.set(sx * 0.2, FOOT_Y, 0);
+    const em = this.emote;
+    if (em && em.w > 0.3 && em.ch[EC.STANCE] > 0.5) {
+      const o = EC.FOOT + i * 7;
+      out.set(sx * em.ch[o], FOOT_Y, em.ch[o + 1]);
+    }
     return out;
   }
 
@@ -1044,6 +1057,8 @@ export class Fighter {
     if (s && s.phase !== 'recovery') thresh = kick ? 0.12 : 0.45;
     // bouncy footwork: re-plant even when settled
     else if (this.bounce > 0.5 && moving < 0.3 && this.rng.chance(dt * 0.9 * this.bounce)) thresh = 0.02;
+    // emoting: set the feet exactly (a power stance, back to the stance after)
+    if (!s && this.emote?.restep && moving < 0.3) thresh = Math.min(thresh, 0.07);
     if (anyStepping && bestErr < 0.55) return;
     if (bestErr < thresh) return;
     const f = this.feet[best];
@@ -1071,6 +1086,7 @@ export class Fighter {
     const t = this.hooksTime;
     const tired = 1 - this.staminaRatio;
     const fighting = this.state === 'fight';
+    const em = this.emote && this.emote.w > 0.001 ? this.emote : null;
 
     // ---------- desired body params
     let crouch = 0.06 + tired * 0.04;
@@ -1215,7 +1231,7 @@ export class Fighter {
       shTw = lerp(shTw, 0, gu.w * 0.6);
       hipTw = lerp(hipTw, 0, gu.w * 0.6);
     }
-    if (this.state === 'win') {
+    if (this.state === 'win' && !this.emote) {
       pitch = -0.12;
       shTw = Math.sin(t * 2) * 0.2;
       hipTw = shTw * 0.4;
@@ -1224,6 +1240,20 @@ export class Fighter {
     if (this.taunt > 0) {
       pitch -= 0.15 * this.taunt;
       shTw += Math.sin(t * 5) * 0.25 * this.taunt;
+    }
+    if (em) {
+      // celebrating or taunting: the emote's body shape over the fighting one
+      const e = em.ch, w = em.w;
+      crouch = lerp(crouch, e[EC.CROUCH], w);
+      pitch = lerp(pitch, e[EC.PITCH], w);
+      roll = lerp(roll, e[EC.ROLL], w);
+      shTw = lerp(shTw, e[EC.TWIST], w);
+      hipTw = lerp(hipTw, e[EC.HIP], w);
+      hd.lerp(_p.set(e[EC.HEAD], e[EC.HEAD + 1], e[EC.HEAD + 2]), w);
+      pd.x = lerp(pd.x, e[EC.PELVIS], w);
+      pd.z = lerp(pd.z, e[EC.PELVIS + 1], w);
+      heel[0] = lerp(heel[0], e[EC.HEEL], w);
+      heel[1] = lerp(heel[1], e[EC.HEEL], w);
     }
     // locomotion: the upper body leans into the (lagged) travel direction
     const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
@@ -1382,7 +1412,7 @@ export class Fighter {
       } else {
         hand.y += Math.sin(t * 1.9 + 1) * 0.012 * paw + bob * 0.4;
       }
-      if (this.state === 'win') {
+      if (this.state === 'win' && !this.emote) {
         hand.set(sx * 0.38, 2.15 + Math.sin(t * 6 + side) * 0.06, 0.12);
       }
       if (this.state === 'stagger') hand.lerp(_p.set(sx * 0.32, 0.75, 0.25), 0.5);
@@ -1403,6 +1433,18 @@ export class Fighter {
           this.faceGuard(sx, hand, pole, clamp01(w));
         } else {
           roll = this.kickArm(s, prog, side, hand, pole, head);
+        }
+      }
+      if (em) {
+        // emote fist and elbow, in the shoulder frame so they ride the body's bow and lean
+        const e = em.ch, o = EC.ARM + side * 8;
+        const aw = em.w * e[o + 7];
+        if (aw > 0.001) {
+          this.trunkPoint(sx * e[o], e[o + 1], e[o + 2], _p);
+          hand.lerp(_p, aw);
+          _w.copy(_tX).multiplyScalar(sx * e[o + 3]).addScaledVector(_tU, e[o + 4]).addScaledVector(_tZ, e[o + 5]);
+          pole.lerp(_w, aw);
+          roll = lerp(roll, e[o + 6], aw);
         }
       }
       this.handRollT[side] = roll;
@@ -1434,6 +1476,20 @@ export class Fighter {
         this.toWorld(foot, f.pos);
         this.footAirT[side] = 1;
         this.footFlexT[side] = flex;
+      } else if (em && em.w * em.ch[EC.FOOT + side * 7 + 6] > 0.001) {
+        // emote footwork off the stance spot: stomps, shuffles, a knee to the canvas
+        const e = em.ch, o = EC.FOOT + side * 7;
+        const fw = em.w * e[o + 6];
+        this.stanceFoot(side, foot);
+        foot.x += sx * e[o + 2] * fw;
+        foot.y += e[o + 3] * fw;
+        foot.z += e[o + 4] * fw;
+        pole.set(sx * 0.25, lerp(0.1, e[o + 5], fw), 1);
+        f.locked = true;
+        f.stepping = false;
+        this.toWorld(foot, f.pos);
+        this.footAirT[side] = clamp01(e[o + 3] * fw * 12);
+        this.footFlexT[side] = 0.3 * this.footAirT[side];
       } else if (gu) {
         // scripted: kneel, plant and rise; ends on the stance spot
         const isLead = (side === 0) === (st < 0);
