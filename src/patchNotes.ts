@@ -17,8 +17,9 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-12 21:00',
-    title: 'Cleaner hits',
+    title: 'Cleaner hits and a tidier HUD',
     notes: [
+      'The x-ray condition panels now sit at the top of the screen, right under each robot\'s health bar.',
       'The orange glow on a robot part when it gets hit is gone. Dents, scorch marks, cracks and sparks still show the damage.',
     ],
   },
