@@ -1210,3 +1210,76 @@ button {
 .note li + li {
   margin-top: 0.25em;
 }
+
+/* ------------------------------------------------------------ performance overlay */
+.perf {
+  position: fixed;
+  left: var(--pad);
+  top: calc(max(8px, env(safe-area-inset-top)) + 5.6rem);
+  z-index: 15;
+  width: 15.5em;
+  padding: 0.45em 0.55em;
+  background: rgba(6, 8, 14, 0.78);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: 600 11px/1.35 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color: var(--text);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.perf.compact {
+  width: auto;
+}
+.perf.compact .perf-body {
+  display: none;
+}
+.perf-head b {
+  font-size: 1.35em;
+  color: var(--green);
+}
+.perf-head span {
+  color: var(--muted);
+  font-weight: 400;
+}
+.perf.compact .perf-head span {
+  display: none;
+}
+.perf-graph {
+  display: block;
+  width: 100%;
+  height: 36px;
+  margin: 0.35em 0;
+  background: rgba(255, 255, 255, 0.04);
+}
+.perf-row {
+  display: grid;
+  grid-template-columns: 1fr 3.4em 3em;
+  white-space: nowrap;
+  gap: 0.4em;
+  align-items: center;
+}
+.perf-row.sub .perf-label {
+  padding-left: 0.9em;
+  color: var(--muted);
+}
+.perf-ms {
+  text-align: right;
+}
+.perf-track {
+  height: 5px;
+  background: rgba(255, 255, 255, 0.07);
+}
+.perf-bar {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--cyan);
+}
+.perf-row.sub .perf-bar {
+  background: var(--muted);
+}
+.perf-foot {
+  margin-top: 0.35em;
+  color: var(--muted);
+  font-weight: 400;
+}

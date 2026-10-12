@@ -36,6 +36,7 @@ export const PATCH_NOTES: PatchNote[] = [
       'Elastic ropes: they stretch and bow around a robot that leans or gets knocked into them, then spring it back into the ring with a wobble.',
       'A huge indoor arena: two tiers of seats, suites, LED boards, entrance tunnels, a hanging scoreboard and championship banners.',
       'A much bigger crowd of about 7,500 fans in team colours who clap, pump their fists, jump, hold up signs and start the odd Mexican wave, and it runs lighter on phones than the old crowd.',
+      'Performance stats (Settings): an FPS counter plus how many milliseconds the fight, AI, animation, effects, arena, camera, audio and rendering each cost per frame. Tap it to shrink it to just the FPS.',
       'Titan Hammers: the Guard Breaker now rises overhead and chops down onto the head.',
       'Brawler Knuckles: the haymaker winds back and loops round from the side.',
       'Jet Knees: the Jet Knee now leaps up off the canvas and drives the knee in, with a clean landing.',

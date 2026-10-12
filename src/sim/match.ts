@@ -6,6 +6,7 @@ import type { MoveDef, Zone } from './moves';
 import { clamp, closestOnSegment, lerp, Rng, smoothstep } from './math';
 import { computeBuild } from '../game/items';
 import type { BotSpec } from '../game/loadout';
+import { perf } from '../perf';
 
 export const SIM_DT = 1 / 120;
 export const ROUND_TIME = 99;
@@ -155,8 +156,10 @@ export class Match {
     }
 
     if (this.phase !== 'intro' && this.phase !== 'countdown') {
+      const t0 = perf.now();
       this.brains[0].update(dt, this.time);
       this.brains[1].update(dt, this.time);
+      perf.add('ai', t0);
     }
     this.fighters[0].update(dt);
     this.fighters[1].update(dt);
