@@ -18,6 +18,7 @@ import { perf } from '../perf';
 import { RenderProbe } from '../render/renderProbe';
 import { contactAO } from '../render/ao';
 import { house } from '../render/house';
+import { warnNonFinite } from '../render/finite';
 import { Garage } from '../render/garage';
 import { PartThumbs } from '../render/partPreview';
 
@@ -82,6 +83,7 @@ export class Game {
     this.stage.scene.add(this.arena.venue.group);
     // the house sits in the dark around the lit ring
     house.apply(this.arena.venue.group);
+    if (import.meta.env.DEV) warnNonFinite(this.stage.scene);
     this.fx = new Fx();
     this.stage.scene.add(this.fx.group);
     this.tagParts();

@@ -21,8 +21,13 @@ const PREFILTER = /* glsl */ `
   uniform float uThreshold;
   varying vec2 vUv;
   vec3 tap(vec2 uv) {
-    vec3 c = min(texture2D(tSrc, uv).rgb, vec3(64.0));
+    vec3 c = texture2D(tSrc, uv).rgb;
     float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    // a NaN or infinite pixel (a broken material) must not bloom into a white blowout: written so
+    // the comparison is false for NaN, which then counts as black
+    if (!(l < 1e4)) return vec3(0.0);
+    c = min(c, vec3(64.0));
+    l = min(l, 64.0);
     return c * smoothstep(uThreshold - 0.15, uThreshold + 0.15, l);
   }
   void main() {

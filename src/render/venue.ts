@@ -917,7 +917,7 @@ export class Venue {
       ROWS.forEach((row, ri) => {
         if (ri === LOWER_ROWS - 1 || ri === ROWS.length - 1) return;
         const dm = row.d + row.depth / 2, ym = row.y + row.rise / 2;
-        const k = 1 - Math.sqrt(Math.min(1, row.y / 20)) * 0.6;
+        const k = 1 - Math.sqrt(Math.min(1, Math.max(0, row.y / 20))) * 0.6;
         const top: Rgb = [0.07 * k, 0.074 * k, 0.085 * k];
         const front: Rgb = [0.035 * k, 0.037 * k, 0.045 * k];
         const nose: Rgb = [0.5 * k, 0.4 * k, 0.12 * k];
@@ -959,7 +959,7 @@ export class Venue {
         pos.set([bx - tx, y0, bz - tz, bx + tx, y0, bz + tz, bx + tx + nx * 0.06, y1, bz + tz + nz * 0.06, bx - tx + nx * 0.06, y1, bz - tz + nz * 0.06], i * 12);
         uv.set([0, 0, 1, 0, 1, 1, 0, 1], i * 8);
         const c = row.upper ? upC : lowC;
-        const k = (1 - Math.sqrt(Math.min(1, st.y / 20)) * 0.5) * (0.85 + 0.3 * (((i * 2654435761) >>> 0) % 100) / 100);
+        const k = (1 - Math.sqrt(Math.min(1, Math.max(0, st.y / 20))) * 0.5) * (0.85 + 0.3 * (((i * 2654435761) >>> 0) % 100) / 100);
         for (let v = 0; v < 4; v++) col.set([c.r * k, c.g * k, c.b * k], i * 12 + v * 3);
         const b = i * 4;
         idx.push(b, b + 1, b + 2, b, b + 2, b + 3);
