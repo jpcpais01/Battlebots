@@ -1,7 +1,7 @@
 import { Vector3 } from 'three';
 import { Fighter, makeObservation, type DodgeType, type GuardMode, type Observation, type StrikeAction } from './fighter';
 import { BASIC_PUNCHES, MOVES, type MoveDef, type MoveId, type Zone } from './moves';
-import { clamp, clamp01, lerp, Rng, sigmoid, softmaxPick } from './math';
+import { clamp, clamp01, lerp, Rng, smoothstep, sigmoid, softmaxPick } from './math';
 import { J } from './body';
 
 /**
@@ -129,11 +129,15 @@ export class Brain {
   private trigger = 0.6;
   /** How fast tempo builds this cycle: some lulls drag on, some don't. */
   private tempoPace = 1;
+  /** Catching my breath after an exchange: the urge builds slowly. */
+  private calmUntil = 0;
   private entryUntil = 0;
   /** A stutter step: looks like an entry, bails out to draw a reaction. */
   private entryFake = false;
   private comboGoal = 1;
   private inBurst = false;
+  /** The current "burst" is a single range-finding jab. */
+  private probe = false;
   private burstHits = 0;
   private burstCountered = false;
   /** Planted in the pocket, trading. */
@@ -487,21 +491,25 @@ export class Brain {
 
     // the urge to go builds while nothing is happening
     if (!this.inBurst && oppUp) {
-      let rate = 0.1 + this.effAggression() * 0.32 + t.skill * 0.05;
+      let rate = 0.03 + this.effAggression() * 0.12 + t.skill * 0.02;
       rate *= (1 - this.fear * 0.5) * (1 - this.tired * 0.5) * this.tempoPace;
       if (this.plan === 'retreat') rate *= 0.45;
       else if (this.plan === 'wait') rate *= 0.2;
       else if (this.plan === 'pressure' || this.plan === 'swarm') rate *= 1.5;
-      if (this.time < this.stayUntil) rate *= 2.2;
+      if (this.time < this.stayUntil) rate *= 1.6;
       if (this.time < this.coverUntil) rate *= 0.3;
+      if (this.time < this.calmUntil) rate *= 0.25;
+      // late in the fight the clock pushes everyone, the one behind most of all
+      const late = smoothstep(55, 85, this.time);
+      rate *= 1 + late * (1.2 + Math.max(0, this.opp.hpRatio - me.hpRatio) * 3);
       // openings: a planted target, low hands, a tired or trapped opponent
       if (d < this.myPunchRange() + 0.3) {
-        if (this.oppStill > 0.35) rate += 0.15;
-        rate += Math.max(0, p.guardLower - 0.2) * 0.4;
-        if (p.stamina < 0.3) rate += 0.15;
+        if (this.oppStill > 0.35) rate += 0.08;
+        rate += Math.max(0, p.guardLower - 0.2) * 0.25;
+        if (p.stamina < 0.3) rate += 0.08;
       }
       const R = me.body.arenaRadius;
-      if (Math.hypot(this.predPos.x, this.predPos.z) > R - 1.2) rate += 0.2;
+      if (Math.hypot(this.predPos.x, this.predPos.z) > R - 1.2) rate += 0.1;
       this.tempo = clamp01(this.tempo + rate * dt);
     }
 
@@ -577,7 +585,7 @@ export class Brain {
     // no beat: mostly soon-ish, now and then straight back in, now and then a long look
     this.tempoPace = this.rng.range(0.5, 1.7);
     const u = this.rng.next();
-    return clamp(0.05 + u * u * 1.1 + t.patience * 0.15 - t.aggression * 0.1, 0.03, 1);
+    return clamp(0.12 + u * u * 1.0 + t.patience * 0.15 - t.aggression * 0.1, 0.05, 1);
   }
 
   private sampleComboGoal(oppRocked: number) {
@@ -588,7 +596,7 @@ export class Brain {
       (this.time < this.stayUntil ? 0.15 : 0) +
       (this.time < this.returnFireUntil ? 0.25 : 0) -
       this.tired * 0.4;
-    const w = [Math.max(0.15, 1.1 - r), 1, 0.25 + r * 0.9, 0.05 + r * 0.5];
+    const w = [Math.max(0.3, 1.3 - r), 1, 0.15 + r * 0.7, 0.03 + r * 0.3];
     let x = this.rng.next() * (w[0] + w[1] + w[2] + w[3]);
     for (let i = 0; i < 4; i++) {
       x -= w[i];
@@ -601,9 +609,16 @@ export class Brain {
   private endBurst(choose = true) {
     this.inBurst = false;
     this.comboCount = 0;
-    this.tempo = this.rng.range(0, 0.2);
+    if (this.probe) {
+      // a probing jab doesn't spend the build-up
+      this.probe = false;
+      this.burstHits = 0;
+      return;
+    }
+    this.tempo = this.rng.range(0, 0.15);
     this.trigger = this.sampleTrigger();
     this.entryUntil = 0;
+    this.calmUntil = this.time + this.rng.range(0.6, 2) * (1.2 - this.traits.pocketLove * 0.6) * (1 + this.tired);
     if (!choose) return;
     const me = this.me;
     const t = this.traits;
@@ -945,17 +960,38 @@ export class Brain {
     const t = this.traits;
     let wait: number;
     if (chain) {
+      // past the plan: only keep going now and then, when it's really landing
+      if (this.probe) return false;
+      if (this.comboCount >= this.comboGoal && !(oppRocked > 0 || (last?.result === 'hit' && this.rng.chance(t.comboAppetite * 0.4)))) return false;
       if (this.comboCount < this.comboGoal) wait = -4 + this.comboCount * 2 - (last?.result === 'hit' ? 4 : 0) + (last?.result === 'blocked' ? 3 : 0);
-      else wait = 16 + this.comboCount * 5 - (last?.result === 'hit' ? 8 : 0) - t.comboAppetite * 6;
+      // past the plan: only keep going if it's really landing
+      else wait = 30 + (this.comboCount - this.comboGoal) * 10 - (last?.result === 'hit' ? 8 : 0) - t.comboAppetite * 6;
       wait -= oppRocked * 8;
     } else {
       const ready = this.tempo >= this.trigger;
-      wait = ready ? 4 + t.patience * 4 + cau * 3 : 18 + t.patience * 10 + cau * 6 - this.tempo * 10;
+      // not ready: only a real gift (a whiff, a committed or rocked opponent) is worth it
+      // their shot missed or I blocked it: they're open on the way back
+      const os = this.opp.strike;
+      const gift = punish || oppRocked > 0 || (p.actKind === 'strike' && p.phase === 'recovery' && !!os && os.result === 'blocked');
+      wait = ready ? 4 + t.patience * 4 + cau * 3 : (gift ? 34 : 85) + t.patience * 10 + cau * 6 - this.tempo * 8;
+      // getting out or resetting: let it go unless it's a gift
+      if ((now < this.exitUntil || (now < this.reactUntil && this.react !== 'meet')) && !gift) wait += 20;
       if (now < this.entryUntil && !this.entryFake) wait -= 8;
       if (now < this.returnFireUntil) wait -= 12;
       if (now < this.coverUntil) wait += 14;
       if (this.plan === 'retreat') wait += 12;
       if (this.plan === 'counter' && !oppCommitted) wait += 6;
+      // not ready, nothing given: paw out a single jab now and then to find the range
+      if (!ready && !gift && now > this.exitUntil && now > this.coverUntil) {
+        const jab = opts.find((o) => o.id === 'jab' && !o.feint && o.u > 0);
+        const late = smoothstep(55, 85, now);
+        if (jab && this.rng.chance((0.025 + Math.max(0, t.rangeBias) * 0.6 + (1 - t.pocketLove) * 0.02) * (1 + late * 2))) {
+          if (!me.tryStrike('jab', jab.zone, this.zoneAim(jab.zone, p, new Vector3()))) return false;
+          this.beginBurst(1);
+          this.probe = true;
+          return true;
+        }
+      }
     }
 
     // not ready to commit yet: show them something to see what they do
@@ -985,6 +1021,7 @@ export class Brain {
   }
 
   private beginBurst(goal: number) {
+    this.probe = false;
     this.comboCount = 1;
     this.comboGoal = goal;
     this.inBurst = true;
