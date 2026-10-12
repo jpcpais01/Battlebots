@@ -17,8 +17,9 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-12 20:00',
-    title: 'Clearer ringside camera',
+    title: 'New versus cards and a clearer ringside camera',
     notes: [
+      'New fight intro: each bot gets a versus card at the side of the screen with its real parts in its own paint and rarity, its power and its two moves, so the robots in the ring stay in view.',
       'Ropes and barriers now only turn see-through when the camera is right up against them (within about a metre); farther away they stay solid.',
     ],
   },
