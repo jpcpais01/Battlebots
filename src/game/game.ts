@@ -20,6 +20,7 @@ export interface GameCallbacks {
 
 const _v = new THREE.Vector3();
 const _u = new THREE.Vector3();
+const _pan = new THREE.Vector3();
 
 /** Owns the 3D world and runs matches. UI lives elsewhere and listens. */
 export class Game {
@@ -165,14 +166,14 @@ export class Game {
         } else if (h.blocked) {
           fx.sparks(h.point, h.dir, 10, 0x8fd8ff, 4, 1.2);
           fx.flash(h.point, 0x8fd8ff, 0.5, 0.1);
-          sfx?.block(h.damage);
+          sfx?.block(h.damage, this.pan(h.point), h.guardBreak);
           this.director.shake(0.12 + (h.guardBreak ? 0.3 : 0));
         } else {
           const big = h.damage >= 55 || h.crit;
           fx.sparks(h.point, h.dir, big ? 34 : 16, big ? 0xffb347 : pal.accent, big ? 8 : 6, 1);
           fx.flash(h.point, big ? 0xffd28a : 0xffffff, big ? 1.4 : 0.8, big ? 0.2 : 0.12);
           if (big) fx.ring(h.point, 0xffc070, 1.4, false, 0.3);
-          sfx?.hit(h.damage, h.zone, h.crit);
+          sfx?.hit(h.damage, h.zone, h.crit, h.move.kind, this.pan(h.point));
           this.director.shake(Math.min(0.75, 0.18 + h.damage / 160));
           if (big) this.director.punch(2.5);
           this.arena.excite(h.damage / 120);
@@ -349,12 +350,17 @@ export class Game {
         const sp = _v.length();
         if (sp > 1.2) {
           this.fx.dust(body.pos[idx[k]], 10 + Math.round(sp * 4), Math.min(1.5, sp / 3));
-          this.sfx?.thud(Math.min(1, sp / 4));
+          this.sfx?.thud(Math.min(1, sp / 4), this.pan(body.pos[idx[k]]));
           if (k === 0) this.director.shake(Math.min(0.4, sp * 0.08));
         }
       }
       this.groundedPrev[i][k] = g;
     }
+  }
+
+  /** Stereo position (-1..1) of a world point as seen by the camera. */
+  private pan(p: THREE.Vector3) {
+    return Math.max(-1, Math.min(1, _pan.copy(p).project(this.stage.camera).x)) * 0.6;
   }
 
   rarityColor(r: number) {
