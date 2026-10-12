@@ -44,6 +44,7 @@ export const PATCH_NOTES: PatchNote[] = [
       'Jet Knees: the Jet Knee now leaps up off the canvas and drives the knee in, with a clean landing.',
       'All punches and kicks move at a more human pace: a visible wind-up, weight behind the shot and a smooth return to guard.',
       'More natural footwork: bots shift their weight, turn their hips and shoulders and settle into each step as they move.',
+      'The arena\'s LED boards now run real-looking ads from a dozen sponsors (energy drinks, motor oil, tools, airlines and more) that rotate with a wipe.',
     ],
   },
   {

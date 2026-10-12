@@ -18,6 +18,7 @@ import {
   towards,
   type OutlinePt,
 } from './bowl';
+import { AD_ASPECT, AD_COLS, AD_COUNT, AD_ROWS, adAtlas } from './ads';
 import { Crowd, glowPoints } from './crowd';
 import { RenderSettings } from './settings';
 
@@ -81,26 +82,16 @@ function tex(c: HTMLCanvasElement, repeat = true) {
   return t;
 }
 
-/** Scrolling LED strip: brand names and arena graphics on a black panel. */
-function ledTexture(kind: 'ribbon' | 'boards'): THREE.CanvasTexture {
+/** Scrolling LED strip of arena graphics on a black panel (scoreboard rings). */
+function ledTexture(): THREE.CanvasTexture {
   const [c, g] = canvas(2048, 128);
   g.fillStyle = '#05070c';
   g.fillRect(0, 0, 2048, 128);
-  const items =
-    kind === 'ribbon'
-      ? ['BATTLEBOTS', '★', 'KNOCKOUT', '◆', 'STEEL LEAGUE', '★', 'MAKE SOME NOISE', '◆']
-      : ['VOLT CELLS', 'GEARHEAD', 'TITAN OIL', 'BATTLEBOTS', 'ROBO FUEL', 'IRONWORKS'];
+  const items = ['BATTLEBOTS', '★', 'KNOCKOUT', '◆', 'STEEL LEAGUE', '★', 'MAKE SOME NOISE', '◆'];
   const w = 2048 / items.length;
   items.forEach((s, i) => {
     const x = i * w;
     const warm = i % 2 === 0;
-    if (kind === 'boards') {
-      const gr = g.createLinearGradient(x, 0, x + w, 128);
-      gr.addColorStop(0, warm ? '#1c0c03' : '#02161d');
-      gr.addColorStop(1, '#05070c');
-      g.fillStyle = gr;
-      g.fillRect(x + 4, 6, w - 8, 116);
-    }
     g.font = `${s.length > 2 ? 'bold 64px' : 'bold 72px'} "Russo One", Impact, sans-serif`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
@@ -253,9 +244,14 @@ function tunnelTexture(colour: string, label: string): THREE.CanvasTexture {
   return tex(c, false);
 }
 
-/** Emissive panel that scrolls its texture along u (metres) and strobes on big moments. */
-function ledMaterial(map: THREE.Texture, len: number, speed: number, glow = 1.4) {
+/**
+ * Emissive LED panel. Plain mode scrolls its texture along u (metres). With `ads`, u is cut into
+ * segments of `len` metres that each show one cell of the ad atlas, rotating to the next sponsor
+ * every few seconds with a wipe (staggered per segment). Both strobe on big moments.
+ */
+function ledMaterial(map: THREE.Texture, len: number, speed: number, glow = 1.4, ads = false) {
   const m = new THREE.ShaderMaterial({
+    defines: ads ? { ADS: '', AD_COLS: AD_COLS.toFixed(1), AD_ROWS: AD_ROWS.toFixed(1), AD_COUNT: AD_COUNT.toFixed(1) } : {},
     uniforms: THREE.UniformsUtils.merge([
       THREE.UniformsLib.fog,
       { uMap: { value: null }, uLen: { value: len }, uSpeed: { value: speed }, uGlow: { value: RenderSettings.glow(glow) } },
@@ -276,7 +272,21 @@ function ledMaterial(map: THREE.Texture, len: number, speed: number, glow = 1.4)
       uniform sampler2D uMap; uniform float uLen, uSpeed, uGlow, uTime, uFlash, uHype;
       varying vec2 vUv;
       void main() {
-        vec3 c = texture2D(uMap, vec2(vUv.x / uLen - uTime * uSpeed, vUv.y)).rgb;
+        #ifdef ADS
+          float x = vUv.x / uLen - uTime * uSpeed;
+          float seg = floor(x), f = x - seg;
+          // each segment rotates sponsors on its own beat; a bright wipe brings the next one in
+          float t = uTime / 8.0 + fract(seg * 0.618);
+          float k = floor(t), wipe = clamp(fract(t) * 16.0, 0.0, 1.0);
+          float idx = mod(seg * 5.0 + k - (f > wipe ? 1.0 : 0.0), AD_COUNT);
+          vec2 cell = vec2(mod(idx, AD_COLS), AD_ROWS - 1.0 - floor(idx / AD_COLS));
+          // gradients from the unwrapped coordinate, so cell edges don't drop to the smallest mip
+          vec2 g = vec2(x / AD_COLS, vUv.y / AD_ROWS);
+          vec3 c = textureGrad(uMap, (cell + vec2(f, vUv.y)) / vec2(AD_COLS, AD_ROWS), dFdx(g), dFdy(g)).rgb;
+          c += vec3(0.9) * smoothstep(0.03, 0.0, abs(f - wipe)) * step(wipe, 0.999);
+        #else
+          vec3 c = texture2D(uMap, vec2(vUv.x / uLen - uTime * uSpeed, vUv.y)).rgb;
+        #endif
         float strobe = step(0.5, fract(uTime * 5.0 + vUv.x * 0.02));
         c = c * (1.0 + uFlash) + mix(vec3(1.0, 0.45, 0.1), vec3(0.15, 0.75, 1.0), strobe) * uFlash * 0.25;
         gl_FragColor = vec4(c * uGlow * (0.85 + 0.25 * uHype), 1.0);
@@ -392,23 +402,23 @@ export class Venue {
     g.add(new THREE.Mesh(mergeGeometries([standGeo, roofCap])!, standMat));
 
     // ---------------------------------------------------------------- LED boards
-    const boardsTex = ledTexture('boards');
-    const ribbonTex = ledTexture('ribbon');
+    const adsTex = adAtlas();
+    const ribbonTex = ledTexture();
     const ledStrip = (d: number, y0: number, y1: number, map: THREE.Texture, speed: number, glow: number) => {
       const s = new Strips();
       const o = outline(d);
       s.strip(o, y0, o, y1, () => [1, 1, 1]);
       const total = o[o.length - 1].s;
-      const len = (y1 - y0) * 16;
-      const m = hookLed(ledMaterial(map, total / Math.max(1, Math.round(total / len)), speed, glow));
+      const len = (y1 - y0) * AD_ASPECT;
+      const m = hookLed(ledMaterial(map, total / Math.max(1, Math.round(total / len)), speed, glow, true));
       m.side = THREE.DoubleSide;
       const mesh = new THREE.Mesh(s.geometry(), m);
       g.add(mesh);
       return mesh;
     };
     // ringside boards on the barrier, the suite-level ribbon, and a ring of lights at the top
-    ledStrip(-0.6, FLOOR + 0.05, 0.42, boardsTex, 0.012, 0.85);
-    ledStrip(SUITE_D - 0.02, UPPER_Y - 1.15, UPPER_Y - 0.2, ribbonTex, -0.02, 1.5);
+    ledStrip(-0.6, FLOOR + 0.05, 0.42, adsTex, 0, 0.9);
+    ledStrip(SUITE_D - 0.02, UPPER_Y - 1.15, UPPER_Y - 0.2, adsTex, -0.04, 1.3);
     const cap = new Strips();
     cap.strip(outline(-0.6), 0.42, outline(-0.35), 0.42, () => [0.05, 0.055, 0.07]);
     g.add(new THREE.Mesh(cap.geometry(), new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })));
