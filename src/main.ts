@@ -1,26 +1,43 @@
+import '@fontsource/russo-one/400.css';
+import '@fontsource/rajdhani/600.css';
+import '@fontsource/rajdhani/700.css';
 import './style.css';
+import { registerSW } from 'virtual:pwa-register';
 import { Game } from './game/game';
-import { detectQuality } from './render/stage';
-import { randomBot } from './game/loadout';
-import { Rng } from './sim/math';
+import { detectQuality, type Quality } from './render/stage';
+import { Sfx } from './audio/sfx';
+import { App } from './ui/app';
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
 const params = new URLSearchParams(location.search);
-const game = new Game(canvas, (params.get('q') as 'low' | 'med' | 'high') ?? detectQuality());
-const rng = new Rng(Number(params.get('seed') ?? 3));
-const a = randomBot(rng);
-const b = randomBot(rng, 0.35, a.palette);
-if (params.has('show')) {
-  const all = Array.from({ length: 5 }, (_, i) => i);
-  const k = Number(params.get('show'));
-  const spec = { name: 'Show', palette: k % 10, loadout: { head: { id: ['sentinel','hawkeye','oracle','bulwark','berserker'][all[k%5]], rarity: (k % 5) as 0 }, fist: { id: ['brawler','piston','thunder','rocket','titan'][k%5], rarity: 4 as const }, core: { id: ['fusion','overdrive','aegis','leech','static'][k%5], rarity: 3 as const }, chest: { id: ['plated','reactive','juggernaut','aero','counter'][k%5], rarity: 2 as const }, legs: { id: ['strider','hopper','anchor','hydraulic','phantom'][k%5], rarity: 1 as const }, kick: { id: ['snap','whip','sweeper','comet','jet'][k%5], rarity: 0 as const } } };
-  game.showBot(spec);
-  game.director.mode = 'garage';
-  game.director.garageYaw = Number(params.get('yaw') ?? 0.5);
-} else {
-  const m = game.startMatch(a, b, 5);
-  if (params.has('skip')) m.skipIntro();
-}
+const q = params.get('q');
+const quality: Quality = q === 'low' || q === 'med' || q === 'high' ? q : detectQuality();
+
+const loading = document.createElement('div');
+loading.className = 'loading';
+loading.textContent = 'LOADING';
+document.body.appendChild(loading);
+
+const game = new Game(canvas, quality);
+game.sfx = new Sfx();
+const app = new App(game, quality);
+app.firstRunName();
+
+// audio can only start from a user gesture
+const unlock = () => game.sfx?.unlock();
+window.addEventListener('pointerdown', unlock, { once: true, capture: true });
+
+void document.fonts.ready.then(() => {
+  requestAnimationFrame(() => {
+    loading.classList.add('done');
+    setTimeout(() => loading.remove(), 600);
+  });
+});
+
+if (import.meta.env.PROD) registerSW({ immediate: true });
+
+// debug hooks for automated captures
 if (params.has('fixed')) game.fixedDt = 1 / 30;
 if (params.has('manual')) game.manual = true;
-(window as unknown as { game: Game }).game = game;
+(window as unknown as { game: Game; app: App }).game = game;
+(window as unknown as { game: Game; app: App }).app = app;

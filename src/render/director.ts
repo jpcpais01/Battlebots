@@ -42,10 +42,20 @@ export class Director {
   private t = 0;
   private orbit = 0;
   private koFocus: number | null = null;
-  garageTarget = new THREE.Vector3(0, 1.1, 0);
+  garageTarget = new THREE.Vector3(0, 1.02, 0);
   garageYaw = 0.5;
   private narrow = false;
   private lastAng = 0;
+  /** Horizontal framing offset as a fraction of the view width (positive puts the subject left of center). */
+  shiftX = 0;
+  private shift = 0;
+  private wantPos = new THREE.Vector3();
+  private wantLook = new THREE.Vector3();
+  private mid = new THREE.Vector3();
+  private axis = new THREE.Vector3();
+  private perp = new THREE.Vector3(0, 0, 1);
+  private toCam = new THREE.Vector3();
+  private dir = new THREE.Vector3();
 
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
@@ -73,21 +83,22 @@ export class Director {
 
   update(dt: number, match: Match | null) {
     this.t += dt;
-    const wantPos = new THREE.Vector3();
-    const wantLook = new THREE.Vector3();
+    const wantPos = this.wantPos.set(0, 0, 0);
+    const wantLook = this.wantLook.set(0, 0, 0);
     let posLambda = 2.6;
     let lookLambda = 5;
     if (this.mode === 'menu') {
-      this.orbit += dt * 0.08;
-      const r = 7.5;
-      wantPos.set(Math.sin(this.orbit) * r, 2.6 + Math.sin(this.t * 0.2) * 0.4, Math.cos(this.orbit) * r);
-      wantLook.set(0, 1.0, 0);
+      this.orbit += dt * 0.1;
+      const r = this.narrow ? 6.2 : 5;
+      const a = 0.5 + Math.sin(this.orbit) * 0.9;
+      wantPos.set(Math.sin(a) * r, 1.75 + Math.sin(this.t * 0.2) * 0.25, Math.cos(a) * r);
+      wantLook.set(0, 1.05, 0);
       posLambda = 1.5;
     } else if (this.mode === 'garage') {
-      const r = this.narrow ? 4.4 : 3.6;
+      const r = this.narrow ? 5.6 : 4.7;
       wantPos.set(
         this.garageTarget.x + Math.sin(this.garageYaw) * r,
-        1.55,
+        1.5,
         this.garageTarget.z + Math.cos(this.garageYaw) * r,
       );
       wantLook.copy(this.garageTarget);
@@ -96,21 +107,26 @@ export class Director {
       const [a, b] = match.fighters;
       const pa = a.body.pos[J.Pelvis];
       const pb = b.body.pos[J.Pelvis];
-      const mid = new THREE.Vector3().addVectors(pa, pb).multiplyScalar(0.5);
+      const mid = this.mid.addVectors(pa, pb).multiplyScalar(0.5);
       mid.y = 0;
-      const axis = new THREE.Vector3(pb.x - pa.x, 0, pb.z - pa.z);
-      const sep = Math.max(0.5, axis.length());
-      axis.normalize();
-      const perp = new THREE.Vector3(-axis.z, 0, axis.x);
+      const axis = this.axis.set(pb.x - pa.x, 0, pb.z - pa.z);
+      const rawSep = axis.length();
+      const sep = Math.max(0.5, rawSep);
+      // when the bots overlap (one standing over the other) keep the last good axis
+      if (rawSep > 0.08) {
+        axis.divideScalar(rawSep);
+        this.perp.set(-axis.z, 0, axis.x);
+      }
+      const perp = this.perp;
       // stay on the same side as the camera already is (no crossing the line)
-      const toCam = new THREE.Vector3().subVectors(this.pos, mid).setY(0);
+      const toCam = this.toCam.subVectors(this.pos, mid).setY(0);
       if (toCam.dot(perp) < 0) perp.negate();
       const drift = this.noise.at(this.t * 0.07) * 0.5;
       let dist = clamp(2.5 + sep * 1.15, 3.7, 7);
       if (this.narrow) dist *= 1.3;
       let height = 1.25 + dist * 0.12;
       // choose an angle near the drift that has no ring post in the shot
-      const dir = new THREE.Vector3();
+      const dir = this.dir;
       let best = drift;
       let bestScore = Infinity;
       for (const off of [0, 0.25, -0.25, 0.5, -0.5, 0.8, -0.8]) {
@@ -135,6 +151,26 @@ export class Director {
         dist = r;
         height = 5.5 - k * 3.2;
         posLambda = 6;
+      } else if (match.phase === 'end' && match.winner) {
+        // celebration: frame the winner from the front, slowly swaying
+        const w = match.winner;
+        const wp = w.body.pos[J.Chest];
+        // orbit from wherever the camera already is, so it never swings through a bot
+        dir.set(this.pos.x - wp.x, 0, this.pos.z - wp.z);
+        if (dir.lengthSq() < 1e-4) dir.set(Math.sin(w.yaw), 0, Math.cos(w.yaw));
+        dir.normalize();
+        // swing around (never through) toward the winner's front
+        const front = Math.atan2(Math.sin(w.yaw), Math.cos(w.yaw)) + 0.35;
+        const cur = Math.atan2(dir.x, dir.z);
+        let diff = front - cur;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        dir.applyAxisAngle(UP, clamp(diff, -dt * 0.7, dt * 0.7));
+        dist = this.narrow ? 5.6 : 4.6;
+        height = 1.75;
+        mid.set(wp.x, 0, wp.z);
+        wantLook.set(wp.x, 1.1, wp.z);
+        posLambda = 1.5;
+        lookLambda = 2.5;
       } else if ((match.phase === 'ko' || match.phase === 'end') && this.koFocus !== null) {
         const loser = match.fighters[this.koFocus];
         const lp = loser.body.pos[J.Chest];
@@ -175,6 +211,11 @@ export class Director {
     this.camera.position.set(this.pos.x + n(0) * sh * 0.25, this.pos.y + n(10) * sh * 0.2, this.pos.z + n(20) * sh * 0.25);
     this.camera.lookAt(this.look);
     this.camera.rotateZ(n(30) * sh * 0.04);
+    this.shift = damp(this.shift, this.shiftX, 4, dt);
+    if (Math.abs(this.shift) > 0.002) {
+      const h = 1000, w = h * this.camera.aspect;
+      this.camera.setViewOffset(w, h, this.shift * w, 0, w, h);
+    } else if (this.camera.view?.enabled) this.camera.clearViewOffset();
     this.fovKick = damp(this.fovKick, 0, 5, dt);
     const fov = this.baseFov - this.fovKick;
     if (Math.abs(this.camera.fov - fov) > 0.01) {

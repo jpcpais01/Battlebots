@@ -470,6 +470,8 @@ button {
   gap: 0.3em;
 }
 .chip {
+  flex: none;
+  white-space: nowrap;
   font-size: 0.74em;
   padding: 0.1em 0.5em;
   border-radius: 6px;
@@ -479,7 +481,7 @@ button {
 .chip.neg {
   color: #ff8b9b;
 }
-.chip.ab {
+.chip.skill {
   background: rgba(255, 122, 26, 0.16);
   color: var(--amber);
 }
@@ -869,10 +871,19 @@ button {
   inset: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
   gap: 0.7em;
-  background: radial-gradient(ellipse at center, rgba(7, 10, 18, 0.55), rgba(7, 10, 18, 0.88));
+  background: linear-gradient(90deg, rgba(7, 10, 18, 0) 25%, rgba(7, 10, 18, 0.82) 58%, rgba(7, 10, 18, 0.92));
+  animation: fadeIn 0.5s ease both;
+}
+.results > * {
+  width: min(56vw, 31em);
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
 }
 .results .head {
   text-align: center;
@@ -910,7 +921,6 @@ button {
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 0.6em 1.2em;
-  min-width: min(70vw, 30em);
   font-size: 0.92em;
 }
 .stats-table .h {
@@ -1064,4 +1074,66 @@ button {
   .results .verdict {
     font-size: 2.4em;
   }
+}
+
+/* ------------------------------------------------------------ extras */
+.abtag {
+  font-family: var(--display);
+  font-size: 0.78em;
+  letter-spacing: 0.08em;
+  color: #1b0d03;
+  background: linear-gradient(90deg, var(--amber), var(--orange));
+  padding: 0.15em 0.7em;
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+  animation: abtag 1.3s ease forwards;
+  align-self: flex-start;
+}
+.fbar.right .abtag {
+  align-self: flex-end;
+}
+@keyframes abtag {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  12%,
+  75% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.count.fight {
+  color: var(--amber);
+  font-style: italic;
+  text-shadow: 0 0 40px rgba(255, 140, 40, 0.7), 0 4px 0 rgba(0, 0, 0, 0.5);
+}
+.garage-top .name {
+  text-align: left;
+}
+.garage-top .name .muted {
+  font-size: 0.7em;
+}
+.statbox .muted {
+  font-size: 0.9em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-right .btn.small {
+  min-width: 8.5em;
+}
+.home-right .btn.big {
+  min-width: 7.2em;
+}
+.rotate p {
+  font-family: var(--display);
+  font-size: 1.2em;
+  line-height: 1.5;
+}
+.results .actions .btn {
+  font-size: 0.82em;
+  padding: 0.7em 1.15em;
 }

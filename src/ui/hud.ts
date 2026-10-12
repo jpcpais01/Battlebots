@@ -1,0 +1,405 @@
+import * as THREE from 'three';
+import type { Game } from '../game/game';
+import type { Match, HitInfo } from '../sim/match';
+import type { Fighter } from '../sim/fighter';
+import type { BrainEvent } from '../sim/brain';
+import { MOVES, type MoveId } from '../sim/moves';
+import { J } from '../sim/body';
+import { ITEM_BY_ID, RARITIES, SLOTS } from '../game/items';
+import type { BotSpec } from '../game/loadout';
+import { button, el, esc } from './dom';
+import { ABILITY_ICON, ICON, SLOT_ICON } from './icons';
+
+const _p = new THREE.Vector3();
+
+/** Pips showing each slot's rarity colour. */
+export function pipsHtml(spec: BotSpec) {
+  return SLOTS.map((s) => `<div class="pip" style="color:${RARITIES[spec.loadout[s].rarity].color}">${SLOT_ICON[s]}</div>`).join('');
+}
+
+interface BarEls {
+  root: HTMLElement;
+  lag: HTMLElement;
+  fill: HTMLElement;
+  st: HTMLElement;
+  abs: { el: HTMLElement; cd: HTMLElement; move?: MoveId; core?: boolean }[];
+  lagV: number;
+  shownHp: number;
+}
+
+/**
+ * Fight overlay: health/stamina bars, clock, ability cooldowns, VS card, countdown,
+ * callouts, floating damage numbers and a running commentary line.
+ */
+export class Hud {
+  readonly root: HTMLElement;
+  private bars: BarEls[] = [];
+  private timer!: HTMLElement;
+  private calloutEl: HTMLElement;
+  private countEl: HTMLElement;
+  private dmgLayer: HTMLElement;
+  private commentary: HTMLElement;
+  private vs: HTMLElement | null = null;
+  private speedBtn!: HTMLButtonElement;
+  private match: Match | null = null;
+  private unsub: (() => void) | null = null;
+  private lastCount = -1;
+  private commentT = 0;
+  private commentPri = 0;
+  private lastCalloutAt = 0;
+  private downCount: { f: Fighter; at: number; shown: number }[] = [];
+  private lowWarned = [false, false];
+  private tenWarned = false;
+  private hpPrev = [0, 0];
+  private healAcc = [0, 0];
+  private dmgCount = 0;
+  onPause: () => void = () => {};
+
+  constructor(private game: Game, parent: HTMLElement) {
+    this.root = el('div', 'screen hud', '', parent);
+    this.dmgLayer = el('div', 'dmg-layer', '', this.root);
+    this.calloutEl = el('div', 'callout', '', this.root);
+    this.countEl = el('div', 'count', '', this.root);
+    this.commentary = el('div', 'commentary', '', this.root);
+  }
+
+  // ----------------------------------------------------------------- setup
+  attach(match: Match) {
+    this.detach();
+    this.match = match;
+    this.lastCount = -1;
+    this.downCount = [];
+    this.lowWarned = [false, false];
+    this.tenWarned = false;
+    this.commentPri = 0;
+    this.commentary.classList.remove('on');
+    this.dmgLayer.innerHTML = '';
+    this.hpPrev = match.fighters.map((f) => f.hp);
+    this.healAcc = [0, 0];
+    this.build(match);
+    this.showVs(match);
+    this.unsub = match.on((t, d) => this.onEvent(t, d));
+  }
+
+  detach() {
+    this.unsub?.();
+    this.unsub = null;
+    this.match = null;
+    this.vs?.remove();
+    this.vs = null;
+  }
+
+  private build(m: Match) {
+    this.root.querySelector('.hud-top')?.remove();
+    this.root.querySelector('.hud-bl')?.remove();
+    this.root.querySelector('.hud-br')?.remove();
+    const top = el('div', 'hud-top', '', this.root);
+    this.bars = [];
+    const mk = (i: number) => {
+      const f = m.fighters[i];
+      const spec = m.specs[i];
+      const right = i === 1;
+      const root = el('div', `fbar ${right ? 'right' : 'p1'}`);
+      const nm = el('div', 'nm', right ? `<small>PWR ${f.build.rating}</small>${esc(spec.name)}` : `${esc(spec.name)}<small>PWR ${f.build.rating}</small>`, root);
+      void nm;
+      const hp = el('div', 'hp', '', root);
+      const lag = el('i', 'lag', '', hp);
+      const fill = el('i', 'fill', '', hp);
+      const stw = el('div', 'st', '', root);
+      const st = el('i', '', '', stw);
+      const abil = el('div', 'abil', '', root);
+      const abs: BarEls['abs'] = [];
+      const addAb = (html: string, title: string, move?: MoveId, core = false) => {
+        const a = el('div', `ab${core ? ' core' : ''}`, html, abil);
+        a.title = title;
+        const cd = el('div', 'cd', '', a);
+        abs.push({ el: a, cd, move, core });
+      };
+      const fa = f.build.fistAbility, ka = f.build.kickAbility;
+      addAb(ABILITY_ICON[fa] ?? SLOT_ICON.fist, MOVES[fa].name, fa);
+      addAb(ABILITY_ICON[ka] ?? SLOT_ICON.kick, MOVES[ka].name, ka);
+      const core = ITEM_BY_ID.get(spec.loadout.core.id)!;
+      addAb(SLOT_ICON.core, core.passive.name, undefined, true);
+      if (right) abil.style.flexDirection = 'row-reverse';
+      this.bars.push({ root, lag, fill, st, abs, lagV: 1, shownHp: 1 });
+      return root;
+    };
+    top.appendChild(mk(0));
+    this.timer = el('div', 'timer', '99', top);
+    top.appendChild(mk(1));
+
+    const bl = el('div', 'hud-bl', '', this.root);
+    button('icon-btn', ICON.pause, () => this.onPause(), bl);
+    const br = el('div', 'hud-br', '', this.root);
+    this.speedBtn = button('icon-btn speed', '1×', () => this.cycleSpeed(), br);
+  }
+
+  private cycleSpeed() {
+    const g = this.game;
+    g.speed = g.speed === 1 ? 2 : g.speed === 2 ? 0.5 : 1;
+    this.speedBtn.textContent = g.speed === 0.5 ? '½×' : `${g.speed}×`;
+    g.sfx?.ui('tap');
+  }
+
+  resetSpeed() {
+    this.game.speed = 1;
+    if (this.speedBtn) this.speedBtn.textContent = '1×';
+  }
+
+  private showVs(m: Match) {
+    const card = (i: number) => {
+      const s = m.specs[i];
+      const f = m.fighters[i];
+      return `<div class="card ${i ? 'r' : 'l'}">
+        <div class="sub">${i ? 'Challenger' : 'Your bot'}</div>
+        <div class="name">${esc(s.name)}</div>
+        <div class="sub">Power ${f.build.rating} · ${MOVES[f.build.fistAbility].name} · ${MOVES[f.build.kickAbility].name}</div>
+        <div class="pips">${pipsHtml(s)}</div>
+      </div>`;
+    };
+    this.vs = el('div', 'vs interactive', `${card(0)}<div class="mid">VS</div>${card(1)}`, this.root);
+    this.vs.addEventListener('click', () => this.match?.skipIntro());
+  }
+
+  // ----------------------------------------------------------------- per frame
+  update(dt: number) {
+    const m = this.match;
+    if (!m) return;
+    if (this.vs && m.phase !== 'intro') {
+      const v = this.vs;
+      this.vs = null;
+      v.style.transition = 'opacity .3s';
+      v.style.opacity = '0';
+      setTimeout(() => v.remove(), 320);
+    }
+    // countdown
+    if (m.phase === 'countdown') {
+      const n = 3 - Math.floor(m.phaseTime);
+      if (n !== this.lastCount && n >= 1) {
+        this.lastCount = n;
+        this.count(String(n));
+        this.game.sfx?.ui('tap');
+      }
+    }
+    this.timer.textContent = String(Math.ceil(m.clock));
+    this.timer.classList.toggle('hurry', m.clock <= 10 && m.phase === 'fight');
+    if (!this.tenWarned && m.clock <= 10 && m.phase === 'fight') {
+      this.tenWarned = true;
+      this.comment('Ten seconds left on the clock!', 2);
+    }
+
+    for (let i = 0; i < 2; i++) {
+      const f = m.fighters[i];
+      const b = this.bars[i];
+      const hp = Math.max(0, f.hpRatio);
+      b.shownHp += (hp - b.shownHp) * Math.min(1, dt * 18);
+      // the white "recent damage" bar waits a moment then drains
+      if (m.time - f.lastHitTime > 0.6 || hp > b.lagV) b.lagV += (hp - b.lagV) * Math.min(1, dt * 3);
+      b.fill.style.transform = `scaleX(${b.shownHp})`;
+      b.lag.style.transform = `scaleX(${Math.max(b.lagV, b.shownHp)})`;
+      b.fill.classList.toggle('low', hp < 0.25);
+      b.st.style.transform = `scaleX(${Math.max(0, f.staminaRatio)})`;
+      for (const a of b.abs) {
+        if (a.move) {
+          const cd = f.cooldownLeft(a.move);
+          const max = MOVES[a.move].cooldown ?? 1;
+          a.cd.style.height = `${Math.min(100, (cd / max) * 100)}%`;
+          a.el.classList.toggle('ready', cd <= 0);
+        } else {
+          const p = f.build.passives;
+          let ready = true;
+          let frac = 0;
+          if (p.has('aegis')) {
+            ready = f.shield;
+            frac = f.shield ? 0 : Math.max(0, f.shieldTimer) / Math.max(1, p.get('aegis')!);
+          } else if (p.has('overdrive')) ready = f.overdrive > 0;
+          a.cd.style.height = `${frac * 100}%`;
+          a.el.classList.toggle('ready', ready);
+        }
+      }
+      // healing popups (siphon)
+      const dh = f.hp - this.hpPrev[i];
+      if (dh > 0) this.healAcc[i] += dh;
+      this.hpPrev[i] = f.hp;
+      if (this.healAcc[i] >= 12) {
+        this.floatAt(f.body.pos[J.Chest], `+${Math.round(this.healAcc[i])}`, 'heal');
+        this.healAcc[i] = 0;
+      }
+      if (!this.lowWarned[i] && hp < 0.25 && m.phase === 'fight') {
+        this.lowWarned[i] = true;
+        this.comment(`${f.name} is running on fumes!`, 2);
+      }
+    }
+
+    // referee count over a downed fighter
+    for (const d of this.downCount) {
+      if (d.f.state !== 'down' && d.f.state !== 'getup') {
+        d.shown = 99;
+        continue;
+      }
+      const n = Math.floor(m.time - d.at);
+      if (n > d.shown && n >= 1 && d.f.state === 'down') {
+        d.shown = n;
+        this.callout(String(n), 'small', 450);
+      }
+    }
+    this.downCount = this.downCount.filter((d) => d.shown < 99);
+
+    this.commentT -= dt;
+    if (this.commentT <= 0 && this.commentary.classList.contains('on')) {
+      this.commentary.classList.remove('on');
+      this.commentPri = 0;
+    }
+  }
+
+  // ----------------------------------------------------------------- events
+  private onEvent(type: string, data: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    const m = this.match!;
+    switch (type) {
+      case 'fightStart':
+        this.count('FIGHT!', true);
+        break;
+      case 'hit': {
+        const h = data as HitInfo;
+        if (h.shielded) {
+          this.floatAt(h.point, 'SHIELD', 'blk');
+          break;
+        }
+        const dmg = Math.round(h.damage);
+        if (h.blocked) {
+          if (dmg >= 4) this.floatAt(h.point, String(dmg), 'blk');
+          if (h.guardBreak) this.callout('GUARD BREAK', 'small cyan');
+          else if (h.move.ability) this.comment(`${h.defender.name} eats the ${h.move.name} on the guard.`, 0);
+          break;
+        }
+        this.floatAt(h.point, h.crit ? `${dmg}!` : String(dmg), h.crit ? 'crit' : '');
+        if (h.knockdown) break; // handled below
+        if (h.counter && dmg >= 30) {
+          this.callout('COUNTER!', 'small');
+          this.comment(this.pick([`Beautiful counter ${h.move.name.toLowerCase()} from ${h.attacker.name}!`, `${h.attacker.name} times it perfectly!`, `${h.attacker.name} makes them pay!`]), 1);
+        } else if (h.crit) {
+          this.callout('CRITICAL', 'small');
+          this.comment(this.pick([`Massive ${h.move.name.toLowerCase()} lands clean!`, `${h.attacker.name} finds the gap!`]), 1);
+        } else if (h.move.ability) {
+          this.comment(this.pick([`${h.move.name} connects!`, `${h.attacker.name} lands the ${h.move.name}!`]), 1);
+        } else if (dmg >= 55) {
+          this.comment(this.pick([`Huge ${h.move.name.toLowerCase()}!`, `${h.defender.name} felt that one.`, `What a shot from ${h.attacker.name}!`]), 1);
+        }
+        break;
+      }
+      case 'knockdown': {
+        const h = data as HitInfo;
+        this.callout('KNOCKDOWN!', 'red');
+        this.comment(this.pick([`Down goes ${h.defender.name}!`, `${h.attacker.name} drops them with a ${h.move.name.toLowerCase()}!`, `${h.defender.name} hits the canvas!`]), 3);
+        this.downCount.push({ f: h.defender, at: m.time, shown: 0 });
+        break;
+      }
+      case 'stagger': {
+        const h = data as HitInfo;
+        this.callout('STAGGERED', 'small');
+        this.comment(this.pick([`${h.defender.name} is wobbled!`, `${h.defender.name}'s legs are gone!`, `${h.attacker.name} has them hurt!`]), 2);
+        break;
+      }
+      case 'dodge': {
+        const d = data as { f: Fighter; from: Fighter; s: { move: { name: string; ability?: string } } };
+        if (m.time - this.lastCalloutAt > 1.2) this.callout('DODGE', 'small cyan', 700);
+        this.comment(this.pick([`${d.f.name} slips the ${d.s.move.name.toLowerCase()}!`, `${d.f.name} makes ${d.from.name} miss!`, `Slick defense from ${d.f.name}.`]), d.s.move.ability ? 1 : 0);
+        break;
+      }
+      case 'whiff': {
+        const d = data as { f: Fighter; s: { move: { name: string; ability?: string } } };
+        if (d.s.move.ability) this.comment(`${d.f.name} swings the ${d.s.move.name} at air.`, 0);
+        break;
+      }
+      case 'strikeStart': {
+        const d = data as { f: Fighter; s: { feint: boolean; move: { ability?: string; name: string } } };
+        if (d.s.move.ability && !d.s.feint && m.phase === 'fight') this.abilityTag(d.f, d.s.move.name);
+        break;
+      }
+      case 'shieldUp':
+        break;
+      case 'getUp': {
+        const f = (data as { f: Fighter }).f;
+        if (f.state !== 'ko') this.comment(this.pick([`${f.name} beats the count!`, `${f.name} is back up!`, `${f.name} wants more!`]), 2);
+        break;
+      }
+      case 'ropes':
+        break;
+      case 'brain': {
+        const e = data as BrainEvent;
+        this.comment(e.text, 0);
+        break;
+      }
+      case 'ko': {
+        const d = data as { winner: Fighter; loser: Fighter; kind: string };
+        this.downCount = [];
+        this.callout(d.kind === 'TKO' ? 'T.K.O.' : 'K.O.!', 'red', 2400);
+        this.comment(d.kind === 'TKO' ? `Three knockdowns. ${d.winner.name} wins by TKO!` : `${d.loser.name} is out cold!`, 5);
+        break;
+      }
+      case 'decision': {
+        const d = data as { winner: Fighter | null };
+        this.callout('TIME!', '', 1800);
+        this.comment(d.winner ? `${d.winner.name} takes it on the cards.` : 'Dead even. It is a draw!', 5);
+        break;
+      }
+    }
+  }
+
+  // ----------------------------------------------------------------- bits
+  private pick<T>(a: T[]): T {
+    return a[Math.floor(Math.random() * a.length)];
+  }
+
+  private comment(text: string, priority: number) {
+    if (this.commentary.classList.contains('on') && priority < this.commentPri && this.commentT > 0.6) return;
+    this.commentary.textContent = text;
+    this.commentary.classList.add('on');
+    this.commentT = 2.4 + priority * 0.4;
+    this.commentPri = priority;
+  }
+
+  private callout(text: string, cls = '', ms = 1100) {
+    const c = this.calloutEl;
+    c.className = 'callout';
+    void c.offsetWidth; // restart animation
+    c.className = `callout go ${cls}`;
+    c.style.animationDuration = `${ms}ms`;
+    c.textContent = text;
+    this.lastCalloutAt = this.match?.time ?? 0;
+  }
+
+  private count(text: string, go = false) {
+    const c = this.countEl;
+    c.className = 'count';
+    void c.offsetWidth;
+    c.className = `count go${go ? ' fight' : ''}`;
+    c.textContent = text;
+  }
+
+  /** Little banner under the fighter's bar naming the ability being thrown. */
+  private abilityTag(f: Fighter, name: string) {
+    const b = this.bars[f.index];
+    const tag = el('div', 'abtag', esc(name.toUpperCase()), b.root);
+    setTimeout(() => tag.remove(), 1300);
+  }
+
+  /** Floating number anchored at a world position. */
+  private floatAt(p: THREE.Vector3, text: string, cls: string) {
+    if (this.dmgCount > 14) return;
+    const cam = this.game.stage.camera;
+    _p.copy(p).project(cam);
+    if (_p.z > 1) return;
+    const r = this.root.getBoundingClientRect();
+    const x = ((_p.x + 1) / 2) * r.width + (Math.random() - 0.5) * 18;
+    const y = ((1 - _p.y) / 2) * r.height - 10;
+    const d = el('div', `dmg ${cls}`, esc(text), this.dmgLayer);
+    d.style.left = `${x}px`;
+    d.style.top = `${y}px`;
+    this.dmgCount++;
+    d.addEventListener('animationend', () => {
+      d.remove();
+      this.dmgCount--;
+    });
+  }
+}

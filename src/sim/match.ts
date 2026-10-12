@@ -143,7 +143,7 @@ export class Match {
         break;
     }
 
-    if (this.phase === 'fight' || this.phase === 'ko') {
+    if (this.phase !== 'intro' && this.phase !== 'countdown') {
       this.brains[0].update(dt, this.time);
       this.brains[1].update(dt, this.time);
     }

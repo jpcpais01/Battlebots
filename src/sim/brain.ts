@@ -2,6 +2,7 @@ import { Vector3 } from 'three';
 import { Fighter, makeObservation, type DodgeType, type GuardMode, type Observation, type StrikeAction } from './fighter';
 import { BASIC_PUNCHES, MOVES, type MoveDef, type MoveId, type Zone } from './moves';
 import { clamp, clamp01, lerp, Noise1, Rng, sigmoid, softmaxPick } from './math';
+import { J } from './body';
 
 /**
  * The fight brain.
@@ -241,7 +242,21 @@ export class Brain {
     const me = this.me;
 
     if (me.state === 'win') {
-      me.intentVel.set(0, 0, 0);
+      // stroll away from the fallen opponent to celebrate, staying off the ropes
+      const op = this.opp.body.pos[J.Pelvis];
+      let dx = me.root.x - op.x, dz = me.root.z - op.z;
+      const d = Math.hypot(dx, dz) || 1;
+      dx /= d;
+      dz /= d;
+      let tx = op.x + dx * 2.4, tz = op.z + dz * 2.4;
+      const tr = Math.hypot(tx, tz);
+      if (tr > 3) {
+        tx *= 3 / tr;
+        tz *= 3 / tr;
+      }
+      me.intentVel.set(tx - me.root.x, 0, tz - me.root.z).multiplyScalar(1.2);
+      if (me.intentVel.length() > 1.2) me.intentVel.setLength(1.2);
+      if (d > 2.2) me.intentVel.multiplyScalar(0.2);
       return;
     }
     if (me.state === 'down' || me.state === 'getup' || me.state === 'ko' || me.state === 'ready') {
@@ -907,7 +922,6 @@ export class Brain {
   /** Opponent's strike missed or was dodged while I was responding. */
   onAvoided(dodged: boolean, oppStrike: StrikeAction) {
     const r = this.activeResp;
-    const cls = classify(oppStrike.move, oppStrike.zone);
     if (r && r.uid === oppStrike.uid * 16 + oppStrike.sub) {
       const key = r.cls + r.resp;
       let e = this.respVal.get(key);
@@ -917,7 +931,6 @@ export class Brain {
     }
     // they missed: punish!
     this.punishUntil = this.time + oppStrike.recovery * 0.8;
-    void cls;
   }
 
   /** I whiffed/was blocked and they did NOT punish. */

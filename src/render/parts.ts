@@ -11,7 +11,6 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
  */
 export type MatKey = 'paint' | 'paint2' | 'metal' | 'chrome' | 'dark' | 'glow' | 'rarity' | 'core';
 
-const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _e = new THREE.Euler();
 const _s = new THREE.Vector3();
@@ -99,8 +98,6 @@ export class PB {
     return group;
   }
 }
-
-void _m;
 
 // ------------------------------------------------------------------- HEADS
 export function buildHead(look: number): PB {

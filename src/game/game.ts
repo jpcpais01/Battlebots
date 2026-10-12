@@ -8,6 +8,7 @@ import { Match, SIM_DT, type HitInfo } from '../sim/match';
 import { Fighter } from '../sim/fighter';
 import { J } from '../sim/body';
 import { Rng } from '../sim/math';
+import { MOVES, type MoveId } from '../sim/moves';
 import { computeBuild, RARITIES } from './items';
 import { PALETTES, type BotSpec } from './loadout';
 import type { Sfx } from '../audio/sfx';
@@ -82,9 +83,32 @@ export class Game {
     dummy.place(new THREE.Vector3(0, 0, 3), Math.PI);
     fighter.state = 'fight';
     fighter.bounce = 0.6;
+    fighter.hooks = {
+      time: this.time,
+      emit: (ev, data) => {
+        const d = data as { s?: { move: { kind: string; ability?: string; power: boolean } } };
+        if (ev === 'strikeStart' && d.s?.move.ability) this.sfx?.charge(d.s.move.kind === 'kick');
+        if (ev === 'strikeActive' && d.s) this.sfx?.whoosh(d.s.move.power || !!d.s.move.ability, d.s.move.kind === 'kick');
+        if (ev === 'step') this.sfx?.step(0);
+      },
+    };
     const model = new BotModel(spec.loadout, spec.palette);
     this.stage.scene.add(model.root);
     this.showcase = { fighter, dummy, model };
+  }
+
+  /** Let the showcase bot throw a move into the air (garage preview). */
+  previewMove(id: MoveId) {
+    const sc = this.showcase;
+    if (!sc) return;
+    const f = sc.fighter;
+    if (f.action) return;
+    f.cooldowns = {};
+    f.stamina = f.build.stats.stamina;
+    const m = MOVES[id];
+    const zone = m.zones[0];
+    _v.set(0, zone === 'head' ? 1.45 : zone === 'body' ? 1.1 : 0.45, 1.1);
+    f.tryStrike(id, zone, _v);
   }
 
   // ------------------------------------------------------------------ match
@@ -259,6 +283,10 @@ export class Game {
       this.showAcc += dt;
       let n = 0;
       while (this.showAcc >= SIM_DT && n++ < 16) {
+        if (fighter.hooks) fighter.hooks.time += SIM_DT;
+        // drift back to the mark between previews
+        if (!fighter.action) fighter.intentVel.set(-fighter.root.x, 0, -fighter.root.z).multiplyScalar(2.5);
+        else fighter.intentVel.set(0, 0, 0);
         fighter.update(SIM_DT);
         this.showAcc -= SIM_DT;
       }

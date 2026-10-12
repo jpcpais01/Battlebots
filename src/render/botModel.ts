@@ -22,7 +22,6 @@ import { RenderSettings } from './settings';
 
 const CORE_COLORS = [0x49c6ff, 0xff4a2a, 0x3cffd8, 0x52ff6a, 0xc77dff];
 
-const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _x = new THREE.Vector3();
 const _y = new THREE.Vector3();
@@ -32,6 +31,10 @@ const _fwd = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const HOT = new THREE.Color(1, 0.13, 0.05);
 const _hot = new THREE.Color();
+const _look = new THREE.Vector3();
+const _dl = new THREE.Vector3();
+const _tmp = new THREE.Vector3();
+const _tup = new THREE.Vector3();
 
 /** Interpolated joint positions for rendering. */
 const P: THREE.Vector3[] = Array.from({ length: 16 }, () => new THREE.Vector3());
@@ -197,11 +200,11 @@ export class BotModel {
     orientFrame(this.torso, P[J.Chest], P[J.ShL], P[J.ShR], P[J.Pelvis], P[J.Neck]);
     orientFrame(this.pelvis, P[J.Pelvis], P[J.HipL], P[J.HipR], P[J.Pelvis], P[J.Chest]);
     const torsoZ = _b.set(0, 0, 1).applyQuaternion(this.torso.quaternion);
-    const torsoUp = _a.set(0, 1, 0).applyQuaternion(this.torso.quaternion).clone();
+    const torsoUp = _tup.set(0, 1, 0).applyQuaternion(this.torso.quaternion);
     // head: look toward the opponent
-    const look = new THREE.Vector3().copy(torsoZ);
+    const look = _look.copy(torsoZ);
     if (lookAt) {
-      const d = new THREE.Vector3().subVectors(lookAt, P[J.Head]);
+      const d = _dl.subVectors(lookAt, P[J.Head]);
       if (d.lengthSq() > 1e-4) look.lerp(d.normalize(), 0.6);
     }
     orientSegment(this.head, P[J.Neck], P[J.Head], look, torsoZ);
@@ -212,7 +215,7 @@ export class BotModel {
     const nl = orientSegment(this.neck, P[J.Neck], P[J.Head], torsoZ, _fwd);
     this.neck.scale.set(1, nl * 0.7, 1);
 
-    const tmp = new THREE.Vector3();
+    const tmp = _tmp;
     for (let side = 0; side < 2; side++) {
       const sh = P[side === 0 ? J.ShL : J.ShR];
       const el = P[side === 0 ? J.ElL : J.ElR];
