@@ -28,9 +28,11 @@ import { botCardInner, paintOf } from './botCard';
 import { PerfOverlay } from './perfOverlay';
 import { ABILITY_ICON, ICON, SLOT_ICON } from './icons';
 import { forceUpdate } from '../update';
+import { OnlineScreen } from './online';
+import type { OnlineSession } from '../net/session';
 import { loadPlayer, loadQuality, loadRecord, loadZoom, savePlayer, saveQuality, saveRecord, saveZoom, type Record_, type Zoom } from './store';
 
-type ScreenId = 'home' | 'garage' | 'fight';
+type ScreenId = 'home' | 'garage' | 'fight' | 'online';
 
 /** Garage camera close-ups: target x, y, z and distance per slot, and the whole-robot view. */
 const OVERVIEW: [number, number, number, number] = [0, 1.02, 0, 4.7];
@@ -77,6 +79,11 @@ export class App {
   private homeCard: HTMLElement | null = null;
   private homeRecord: HTMLElement | null = null;
   private soundBtns: HTMLButtonElement[] = [];
+  private online: OnlineScreen;
+  /** The online session the fight on screen belongs to (null for fights against the AI). */
+  private netFight: OnlineSession | null = null;
+  private resultsNote: HTMLElement | null = null;
+  private rematchBtn: HTMLButtonElement | null = null;
 
   constructor(private game: Game, private quality: Quality) {
     this.ui = document.getElementById('ui')!;
@@ -86,18 +93,33 @@ export class App {
     this.hud = new Hud(game, this.ui);
     this.perf = new PerfOverlay(game);
     this.hud.onPause = () => this.pause();
+    this.online = new OnlineScreen({
+      game,
+      player: () => this.player,
+      tap: (k) => this.tap(k),
+      home: () => this.go('home'),
+      garage: () => this.go('garage'),
+      fight: (session, a, b, seed) => this.fightOnline(session, a, b, seed),
+      changed: () => this.netChanged(),
+      ended: () => this.netChanged(),
+    });
     this.screens = {
       home: this.buildHome(),
       garage: this.buildGarage(),
       fight: this.hud.root,
+      online: this.online.root,
     };
     this.ui.appendChild(this.screens.home);
     this.ui.appendChild(this.screens.garage);
+    this.ui.appendChild(this.screens.online);
     el('div', 'rotate', `<div>${ICON.rotate}<p>Turn your phone sideways<br><span class="muted">Battlebots plays in landscape</span></p></div>`, this.ui);
     this.fade = el('div', 'scene-fade');
     this.ui.prepend(this.fade);
     game.cb.onFrame = (dt) => {
-      if (this.current === 'fight') this.hud.update(dt);
+      if (this.current === 'fight') {
+        if (this.netFight) this.netFrame(dt);
+        this.hud.update(dt);
+      }
       else if (this.current === 'garage') this.garageTick(dt);
     };
     game.cb.onMatchEvent = (type) => {
@@ -105,7 +127,8 @@ export class App {
     };
     this.setupGarageDrag();
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && this.current === 'fight' && this.game.match && this.game.match.phase !== 'end' && !this.modal) this.pause();
+      // (an online fight can't pause: it plays on, and this phone catches up when it's back)
+      if (document.hidden && this.current === 'fight' && !this.netFight && this.game.match && this.game.match.phase !== 'end' && !this.modal) this.pause();
     });
     this.go('home');
   }
@@ -114,7 +137,12 @@ export class App {
   private go(id: ScreenId) {
     this.current = id;
     for (const [k, s] of Object.entries(this.screens)) s.classList.toggle('show', k === id);
-    if (id === 'home') {
+    if (id !== 'fight') this.leaveNetFight();
+    // the home screen is outside any room
+    if (id === 'home') this.online.leave();
+    if (id === 'online') this.online.show();
+    else this.online.hide();
+    if (id === 'home' || id === 'online') {
       this.game.endMatch();
       this.hud.detach();
       this.game.showBot(this.player);
@@ -143,7 +171,7 @@ export class App {
   /** Camera and ambience for a screen. */
   private camera(id: ScreenId) {
     const d = this.game.director;
-    if (id === 'home') {
+    if (id === 'home' || id === 'online') {
       d.mode = 'menu';
       d.shiftX = 0;
       this.game.sfx?.ambience(0.25);
@@ -191,6 +219,10 @@ export class App {
 
     const right = el('div', 'home-right', '', s);
     this.homeRecord = el('div', 'record', '', right);
+    button('btn small cyan', `${ICON.globe}Online`, () => {
+      this.tap('select');
+      this.go('online');
+    }, right);
     button('btn small', `${ICON.wrench}Garage`, () => {
       this.tap('select');
       this.go('garage');
@@ -229,7 +261,7 @@ export class App {
     const top = el('div', 'garage-top', '', s);
     button('icon-btn', ICON.back, () => {
       this.tap('back');
-      this.go('home');
+      this.go(this.online.active ? 'online' : 'home');
     }, top);
     const id = el('div', 'garage-id', '', top);
     const name = button('name', '', () => this.rename(), id);
@@ -276,6 +308,7 @@ export class App {
   /** Persist the player and refresh whatever shows it. */
   private commitPlayer(rebuildModel = true) {
     savePlayer(this.player);
+    this.online.session?.setBot(this.player);
     if (rebuildModel) this.game.showBot(this.player);
     this.refreshGarage();
   }
@@ -513,6 +546,12 @@ export class App {
   }
 
   private fight(sameOpponent = false) {
+    if (this.online.active) {
+      // in a room: fights start from there
+      this.tap('select');
+      this.go('online');
+      return;
+    }
     this.tap('start');
     void enterLandscape();
     this.closeResults();
@@ -525,6 +564,7 @@ export class App {
 
   private pause() {
     if (this.modal || !this.game.match) return;
+    if (this.netFight) return this.netMenu();
     this.tap();
     this.game.paused = true;
     this.openModal('Paused', (box) => {
@@ -731,12 +771,17 @@ export class App {
     const m = this.game.match;
     if (!m || this.current !== 'fight' || this.results) return;
     const [a, b] = m.fighters;
-    const draw = !m.winner;
-    const won = m.winner === a;
-    this.tally(won, draw);
+    const net = this.netFight;
+    // online, this player may be in either corner; offline it's always the left one
+    const me = net ? net.me : 0;
+    const out = net ? net.outcome(m) : { winner: m.winner ? m.winner.index : -1, kind: m.result };
+    const draw = out.winner < 0;
+    const won = out.winner === me;
+    // the win record is for fights against the AI
+    if (!net) this.tally(won, draw);
     const verdict = draw ? 'DRAW' : won ? 'VICTORY' : 'DEFEAT';
-    const how = m.result === 'Decision' ? 'on points' : m.result === 'TKO' ? 'by TKO' : m.result === 'KO' ? 'by knockout' : m.result === 'Dismantled' ? 'by tearing it apart' : '';
-    const who = draw ? 'Split down the middle' : `<b>${esc(m.winner!.name)}</b> wins ${how}`;
+    const how = out.kind === 'Decision' ? 'on points' : out.kind === 'TKO' ? 'by TKO' : out.kind === 'KO' ? 'by knockout' : out.kind === 'Dismantled' ? 'by tearing it apart' : '';
+    const who = draw ? 'Split down the middle' : `<b>${esc(m.fighters[out.winner].name)}</b> wins ${how}`;
     const acc = (f: Fighter) => (f.stats.thrown ? `${Math.round((f.stats.landed / f.stats.thrown) * 100)}%` : '–');
     const row = (label: string, va: number | string, vb: number | string, higher = true) => {
       const na = typeof va === 'number' ? va : parseFloat(va);
@@ -759,6 +804,12 @@ export class App {
         ${row('Best shot', a.stats.biggest ? `${Math.round(a.stats.biggest)}` : '–', b.stats.biggest ? `${Math.round(b.stats.biggest)}` : '–')}
       </div>`;
     const actions = el('div', 'actions', '', res);
+    this.results = res;
+    this.game.director.shiftX = 0.2;
+    if (net) {
+      this.netResults(res, actions, net);
+      return;
+    }
     button('btn primary', `${ICON.swords}Next fight`, () => this.fight(), actions);
     button('btn', 'Rematch', () => this.fight(true), actions);
     button('btn', `${ICON.wrench}Garage`, () => {
@@ -772,14 +823,106 @@ export class App {
       this.closeResults();
       this.go('home');
     }, actions).title = 'Home';
-    this.results = res;
-    this.game.director.shiftX = 0.2;
   }
 
   private closeResults() {
     this.game.director.shiftX = 0;
     this.results?.remove();
     this.results = null;
+    this.resultsNote = null;
+    this.rematchBtn = null;
+  }
+
+  // ------------------------------------------------------------ online
+  /** Open the room screen and join the room in an invite link. */
+  joinLink(code: string) {
+    this.go('online');
+    void this.online.join(code);
+  }
+
+  private fightOnline(s: OnlineSession, a: BotSpec, b: BotSpec, seed: number) {
+    this.tap('start');
+    void enterLandscape();
+    this.closeModal();
+    this.closeResults();
+    this.leaveNetFight();
+    const m = this.game.startMatch(a, b, seed);
+    this.netFight = s;
+    s.watch(this.game, m);
+    this.hud.resetSpeed();
+    this.hud.attach(m, { me: s.me });
+    this.go('fight');
+  }
+
+  private leaveNetFight() {
+    this.netFight?.unwatch();
+    this.netFight = null;
+  }
+
+  /** Every frame of an online fight: keep pace with the other phone, show the link's health. */
+  private netFrame(dt: number) {
+    const s = this.netFight!;
+    s.frame(dt);
+    const live = this.online.session === s && s.connected;
+    if (!live) this.hud.setNet('Opponent left', 'bad');
+    else if (s.peerLost) this.hud.setNet('Connection lost', 'warn');
+    else if (s.desynced) this.hud.setNet(s.role === 'host' ? 'Out of sync' : "Out of sync · host's result counts", 'warn');
+    else this.hud.setNet(`Online · ${Math.round(s.rtt)} ms`, 'ok');
+  }
+
+  /** The room changed while the player is watching a fight or its results. */
+  private netChanged() {
+    if (this.results && this.netFight) this.syncRematch(this.netFight);
+  }
+
+  /** Online fights pause for nobody: the menu offers a way out instead. */
+  private netMenu() {
+    this.tap();
+    this.openModal('Online fight', (box) => {
+      el('p', 'modal-note', 'The fight keeps going on both screens.', box);
+      button('btn primary', `${ICON.play}Back to the fight`, () => this.closeModal(), box);
+      this.soundRow(box);
+      button('btn small', `${ICON.exit}Leave room`, () => {
+        this.closeModal();
+        this.go('home');
+      }, box);
+    });
+  }
+
+  private netResults(res: HTMLElement, actions: HTMLElement, net: OnlineSession) {
+    if (net.desynced && net.role === 'guest') el('div', 'net-note', "Your screens drifted apart, so the host's result counts.", res).style.order = '-1';
+    this.resultsNote = el('div', 'net-note', '', res);
+    this.rematchBtn = button('btn primary', '', () => {
+      this.tap('select');
+      net.voteRematch();
+    }, actions);
+    button('btn', `${ICON.globe}Room`, () => {
+      this.tap('select');
+      this.closeResults();
+      this.go(this.online.active ? 'online' : 'home');
+    }, actions);
+    button('btn small', ICON.exit, () => {
+      this.tap('back');
+      this.closeResults();
+      this.go('home');
+    }, actions).title = 'Leave room';
+    this.syncRematch(net);
+  }
+
+  private syncRematch(net: OnlineSession) {
+    const btn = this.rematchBtn, note = this.resultsNote;
+    if (!btn || !note) return;
+    const them = this.game.match?.specs[1 - net.me].name ?? 'Your opponent';
+    if (this.online.session !== net || !net.connected) {
+      btn.disabled = true;
+      btn.innerHTML = `${ICON.swords}Rematch`;
+      note.textContent = `${them} left the room.`;
+      return;
+    }
+    const mine = net.rematch[net.me], theirs = net.rematch[1 - net.me];
+    btn.disabled = mine;
+    btn.innerHTML = `${ICON.swords}${mine ? 'Ready' : 'Rematch'}`;
+    note.textContent = theirs && !mine ? `${them} wants a rematch!` : mine ? `Waiting for ${them}…` : '';
   }
 
   /** Pick a random name on first launch so every player starts with their own bot. */

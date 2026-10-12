@@ -125,6 +125,9 @@ export class Hud {
   private speedBtn!: HTMLButtonElement;
   private zoomBtn!: HTMLButtonElement;
   private match: Match | null = null;
+  /** Online fight: which side is this player's (null offline). */
+  private online: { me: number } | null = null;
+  private netEl!: HTMLElement;
   private unsub: (() => void) | null = null;
   private lastCount = -1;
   private commentT = 0;
@@ -161,9 +164,10 @@ export class Hud {
   }
 
   // ----------------------------------------------------------------- setup
-  attach(match: Match) {
+  attach(match: Match, online: { me: number } | null = null) {
     this.detach();
     this.match = match;
+    this.online = online;
     this.lastCount = -1;
     this.ref = null;
     this.refEl.className = 'refcount';
@@ -253,11 +257,22 @@ export class Hud {
     });
 
     const bl = el('div', 'hud-bl', '', this.root);
-    button('icon-btn', ICON.pause, () => this.onPause(), bl);
+    button('icon-btn', this.online ? ICON.menu : ICON.pause, () => this.onPause(), bl);
+    this.netEl = el('div', 'net-pill', '', bl);
+    this.netEl.hidden = !this.online;
     const br = el('div', 'hud-br', '', this.root);
     this.zoomBtn = button('icon-btn zoom', '', () => this.cycleZoom(), br);
     this.syncZoom();
+    // both phones play an online fight at the same pace, so it has no speed control
     this.speedBtn = button('icon-btn speed', '1×', () => this.cycleSpeed(), br);
+    this.speedBtn.hidden = !!this.online;
+  }
+
+  /** Connection status in an online fight (text, and ok / warn / bad). */
+  setNet(text: string, kind: 'ok' | 'warn' | 'bad') {
+    if (!this.netEl || (this.netEl.textContent === text && this.netEl.dataset.k === kind)) return;
+    this.netEl.textContent = text;
+    this.netEl.dataset.k = kind;
   }
 
   /** Camera zoom: close → normal → wide → close. */
@@ -289,10 +304,12 @@ export class Hud {
   }
 
   private showVs(m: Match) {
-    const card = (i: number) =>
-      botCardHtml(this.game, m.specs[i], m.fighters[i].build, { side: i ? 'r' : 'l', tag: i ? 'Challenger' : 'Your bot' });
-    this.vs = el('div', 'vs interactive', `${card(0)}${card(1)}<div class="mid"><i></i><b>VS</b><i></i></div>`, this.root);
-    this.vs.addEventListener('click', () => this.match?.skipIntro());
+    const on = this.online;
+    const tag = (i: number) => (on ? (i === on.me ? 'You' : 'Opponent') : i ? 'Challenger' : 'Your bot');
+    const card = (i: number) => botCardHtml(this.game, m.specs[i], m.fighters[i].build, { side: i ? 'r' : 'l', tag: tag(i) });
+    this.vs = el('div', `vs${on ? '' : ' interactive'}`, `${card(0)}${card(1)}<div class="mid"><i></i><b>VS</b><i></i></div>`, this.root);
+    // tapping skips the intro, except online, where both phones have to show the same moment
+    if (!on) this.vs.addEventListener('click', () => this.match?.skipIntro());
   }
 
   // ----------------------------------------------------------------- per frame

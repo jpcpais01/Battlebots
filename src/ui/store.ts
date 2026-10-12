@@ -28,19 +28,22 @@ function write(key: string, v: unknown) {
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
-/** Load the player's bot, repairing anything stale (removed items, bad palette). */
-export function loadPlayer(): BotSpec {
-  const p = read<BotSpec>('bb.player', clone(DEFAULT_PLAYER));
+/** Any bot description (saved, or sent by another player) made safe: unknown items, rarities and paints fall back to defaults. */
+export function sanitizeBot(raw: unknown): BotSpec {
+  const p = (raw && typeof raw === 'object' ? raw : {}) as Partial<BotSpec>;
   const out = clone(DEFAULT_PLAYER);
-  if (typeof p.name === 'string' && p.name.trim()) out.name = p.name.slice(0, 20);
-  if (Number.isInteger(p.palette) && p.palette >= 0 && p.palette < PALETTES.length) out.palette = p.palette;
+  if (typeof p.name === 'string' && p.name.trim()) out.name = p.name.trim().slice(0, 20);
+  if (Number.isInteger(p.palette) && p.palette! >= 0 && p.palette! < PALETTES.length) out.palette = p.palette!;
   for (const slot of SLOTS) {
     const e = p.loadout?.[slot];
-    const item = e && ITEM_BY_ID.get(e.id);
-    if (item && item.slot === slot && e.rarity >= 0 && e.rarity <= 4) out.loadout[slot] = { id: e.id, rarity: e.rarity };
+    const item = e && typeof e.id === 'string' && ITEM_BY_ID.get(e.id);
+    if (item && item.slot === slot && Number.isInteger(e.rarity) && e.rarity >= 0 && e.rarity <= 4) out.loadout[slot] = { id: e.id, rarity: e.rarity };
   }
   return out;
 }
+
+/** Load the player's bot, repairing anything stale (removed items, bad palette). */
+export const loadPlayer = (): BotSpec => sanitizeBot(read<unknown>('bb.player', null));
 
 export const savePlayer = (p: BotSpec) => write('bb.player', p);
 

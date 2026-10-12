@@ -4,6 +4,7 @@ import { BASIC_PUNCHES, MOVES, type MoveDef, type MoveId, type Zone } from './mo
 import { clamp, clamp01, lerp, Rng, smoothstep, sigmoid, softmaxPick } from './math';
 import { J } from './body';
 import { armPart, LOOSE, P } from './damage';
+import { DM } from './dmath';
 
 /**
  * The fight brain.
@@ -309,7 +310,7 @@ export class Brain {
   }
 
   private perceivedDist() {
-    return Math.hypot(this.predPos.x - this.me.root.x, this.predPos.z - this.me.root.z);
+    return DM.hypot(this.predPos.x - this.me.root.x, this.predPos.z - this.me.root.z);
   }
 
   // ------------------------------------------------------------------- update
@@ -325,11 +326,11 @@ export class Brain {
       // stroll away from the fallen opponent to celebrate, staying off the ropes
       const op = this.opp.body.pos[J.Pelvis];
       let dx = me.root.x - op.x, dz = me.root.z - op.z;
-      const d = Math.hypot(dx, dz) || 1;
+      const d = DM.hypot(dx, dz) || 1;
       dx /= d;
       dz /= d;
       let tx = op.x + dx * 2.4, tz = op.z + dz * 2.4;
-      const tr = Math.hypot(tx, tz);
+      const tr = DM.hypot(tx, tz);
       if (tr > 3) {
         tx *= 3 / tr;
         tz *= 3 / tr;
@@ -428,9 +429,9 @@ export class Brain {
     const agg = this.effAggression();
     const cau = this.effCaution();
     const hpAdv = me.hpRatio - this.opp.hpRatio;
-    const myR = Math.hypot(me.root.x, me.root.z);
+    const myR = DM.hypot(me.root.x, me.root.z);
     const nearRope = clamp01((myR - (me.body.arenaRadius - 1.6)) / 1.0);
-    const oppR = Math.hypot(this.predPos.x, this.predPos.z);
+    const oppR = DM.hypot(this.predPos.x, this.predPos.z);
     const oppNearRope = clamp01((oppR - (me.body.arenaRadius - 1.6)) / 1.0);
     const stam = me.staminaRatio;
     const close = this.bandScore(0);
@@ -468,7 +469,7 @@ export class Brain {
     const dz = this.predPos.z - me.root.z;
     const cross = dx * -me.root.z - dz * -me.root.x;
     const towardCenter = cross > 0 ? -1 : 1;
-    const r = Math.hypot(me.root.x, me.root.z);
+    const r = DM.hypot(me.root.x, me.root.z);
     if (r > me.body.arenaRadius - 1.8) return towardCenter;
     return this.rng.chance(0.65) ? this.circleDir : -this.circleDir;
   }
@@ -491,7 +492,7 @@ export class Brain {
     const d = this.perceivedDist();
     this.pain = Math.max(0, this.pain - dt * 0.2);
     this.reactCooldown -= dt;
-    this.oppStill = Math.hypot(p.vel.x, p.vel.z) < 0.25 ? this.oppStill + dt : 0;
+    this.oppStill = DM.hypot(p.vel.x, p.vel.z) < 0.25 ? this.oppStill + dt : 0;
     const oppUp = p.state !== 'down' && p.state !== 'getup' && p.state !== 'ko';
 
     // the urge to go builds while nothing is happening
@@ -518,7 +519,7 @@ export class Brain {
         if (p.stamina < 0.3) rate += 0.08;
       }
       const R = me.body.arenaRadius;
-      if (Math.hypot(this.predPos.x, this.predPos.z) > R - 1.2) rate += 0.1;
+      if (DM.hypot(this.predPos.x, this.predPos.z) > R - 1.2) rate += 0.1;
       this.tempo = clamp01(this.tempo + rate * dt);
     }
 
@@ -585,7 +586,7 @@ export class Brain {
     const me = this.me;
     const cau = this.effCaution();
     const agg = this.effAggression();
-    const r = Math.hypot(me.root.x, me.root.z);
+    const r = DM.hypot(me.root.x, me.root.z);
     const nearRope = clamp01((r - (me.body.arenaRadius - 1.6)) / 1.0);
     const kinds: OppEntryReact[] = ['meet', 'back', 'pivot', 'hold'];
     const u = [
@@ -672,7 +673,7 @@ export class Brain {
     const cau = this.effCaution();
     const agg = this.effAggression();
     const oppRocked = p.state === 'stagger' ? 1 : p.state === 'stun' ? 0.5 : 0;
-    const r = Math.hypot(me.root.x, me.root.z);
+    const r = DM.hypot(me.root.x, me.root.z);
     const nearRope = clamp01((r - (me.body.arenaRadius - 1.6)) / 1.0);
     const kinds: AfterBurst[] = ['stay', 'back', 'pivot', 'cover'];
     const u = [
@@ -719,7 +720,7 @@ export class Brain {
     this.rhythm += dt * (2.4 + t.aggression);
     const dx = this.predPos.x - me.root.x;
     const dz = this.predPos.z - me.root.z;
-    const d = Math.max(0.01, Math.hypot(dx, dz));
+    const d = Math.max(0.01, DM.hypot(dx, dz));
     const tx = dx / d, tz = dz / d;
     const myReach = this.myPunchRange();
     const threat = Math.max(this.oppAttackRange.v, 1.1);
@@ -742,12 +743,12 @@ export class Brain {
         busy *= 0.8;
         break;
       case 'outbox':
-        target = outside + Math.sin(this.rhythm) * 0.12;
+        target = outside + DM.sin(this.rhythm) * 0.12;
         lateral = this.circleDir * 0.5;
         break;
       case 'counter':
         // sit just outside their range and make them come
-        target = threat + 0.1 + Math.sin(this.rhythm * 1.3) * 0.08;
+        target = threat + 0.1 + DM.sin(this.rhythm * 1.3) * 0.08;
         lateral = this.circleDir * 0.3;
         busy *= 0.6;
         break;
@@ -818,7 +819,7 @@ export class Brain {
     // flat-footed fighters let small distance changes go
     if (Math.abs(err) < lerp(0.16, 0.07, busy)) radial = 0;
     // the ropes: get off them
-    const r = Math.hypot(me.root.x, me.root.z);
+    const r = DM.hypot(me.root.x, me.root.z);
     const R = me.body.arenaRadius;
     const ropeK = clamp01((r - (R - 1.4)) / 1.0);
     lateral *= 1 + me.passive('footwork') * 3;
@@ -833,7 +834,7 @@ export class Brain {
       vz += (-me.root.z / r) * ropeK * 1.2;
       if (ropeK > 0.5 && this.plan !== 'pressure') this.circleDir = this.chooseCircleDir();
     }
-    const len = Math.hypot(vx, vz);
+    const len = DM.hypot(vx, vz);
     const need = Math.min(1, len);
     if (need > 0.9 || ropeK > 0.85) urgent = true;
 
@@ -871,7 +872,7 @@ export class Brain {
             }
           }
           if (sn > 0) {
-            const l = Math.hypot(sx, sz) || 1;
+            const l = DM.hypot(sx, sz) || 1;
             this.gaitMoving = true;
             this.gaitT = this.rng.range(0.16, 0.3) * lerp(1.2, 0.8, busy);
             this.stepX = sx / l;
@@ -941,7 +942,7 @@ export class Brain {
       // shin of whichever leg is nearer (a low kick chops in at the knee)
       out.set(obs.pos.x, move?.path === 'roundKick' ? 0.6 : 0.26, obs.pos.z);
       const dx = this.me.root.x - obs.pos.x, dz = this.me.root.z - obs.pos.z;
-      const l = Math.hypot(dx, dz) || 1;
+      const l = DM.hypot(dx, dz) || 1;
       out.x += (dx / l) * 0.15;
       out.z += (dz / l) * 0.15;
     }
@@ -1225,7 +1226,7 @@ export class Brain {
     if (p.phase === 'recovery') return;
     this.lastSeenUid = p.uid;
     const move = MOVES[p.moveId];
-    this.recordOppAttack(move, Math.hypot(p.pos.x - me.root.x, p.pos.z - me.root.z));
+    this.recordOppAttack(move, DM.hypot(p.pos.x - me.root.x, p.pos.z - me.root.z));
 
     // did we notice?
     const notice = clamp(0.5 + this.traits.skill * 0.45 - this.tired * 0.25 + (this.plan === 'counter' ? 0.1 : 0) - me.parts.wear(P.Head) * 0.18, 0.25, 0.97);
@@ -1233,7 +1234,7 @@ export class Brain {
 
     const elapsed = this.time - p.t;
     const timeLeft = p.timeToImpact - elapsed;
-    const d = Math.hypot(this.opp.root.x - me.root.x, this.opp.root.z - me.root.z);
+    const d = DM.hypot(this.opp.root.x - me.root.x, this.opp.root.z - me.root.z);
     const lunge = move.lunge * 1.1;
     const inRange = d < move.range[1] + lunge * 0.8 + 0.2 + (move.kind === 'punch' ? this.opp.build.stats.reach : 0);
     if (!inRange) {
@@ -1272,12 +1273,12 @@ export class Brain {
       if (r === 'counter' && d > MOVES.jab.range[1] + me.build.stats.reach) v *= 0.2;
       if (r === 'block' && move.guardBreak) v *= 0.4;
       // my guard arms are wrecked: blocking with them might cost me an arm
-      if (r === 'block') v *= 1 - 0.55 * Math.max(me.parts.wear(armPart(0, 1)), me.parts.wear(armPart(1, 1))) ** 1.5 - 0.2 * me.parts.armsLost;
+      if (r === 'block') v *= 1 - 0.55 * DM.pow(Math.max(me.parts.wear(armPart(0, 1)), me.parts.wear(armPart(1, 1))), 1.5) - 0.2 * me.parts.armsLost;
       if (r === 'block' && move.kind === 'kick' && move.knockback > 3) v *= 0.6;
       if ((r === 'backstep' || r === 'sidestep') && me.staminaRatio < 0.15) v *= 0.4;
       if (r === 'backstep') {
         const R = me.body.arenaRadius;
-        const rr = Math.hypot(me.root.x, me.root.z);
+        const rr = DM.hypot(me.root.x, me.root.z);
         if (rr > R - 1.0) v *= 0.3; // nowhere to go
         v *= clamp((d - move.range[0]) / 0.5, 0.3, 1.3);
       }
@@ -1370,7 +1371,7 @@ export class Brain {
 
   tick(dt: number) {
     // decay band memories (half-life ~25s) and opponent attack rate
-    const k = Math.exp(-dt / 36);
+    const k = DM.exp(-dt / 36);
     for (let i = 0; i < 3; i++) {
       this.bandDealt[i] *= k;
       this.bandTaken[i] *= k;

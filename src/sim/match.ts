@@ -1,7 +1,7 @@
 import { Vector3 } from 'three';
 import { Brain, type BrainEvent } from './brain';
 import { J, RING_CORNER, ROPE_LINE, ropeSide, SIDE_NX, SIDE_NZ } from './body';
-import { Fighter, type StrikeAction } from './fighter';
+import { Fighter, resetUids, type StrikeAction } from './fighter';
 import { Showman } from './emote';
 import type { MoveDef, Zone } from './moves';
 import { clamp, closestOnSegment, lerp, Rng, smoothstep } from './math';
@@ -9,6 +9,7 @@ import { armPart, CUT_JOINTS, legPart, LOOSE, P, PART_COUNT, type LossReason } f
 import { computeBuild } from '../game/items';
 import type { BotSpec } from '../game/loadout';
 import { perf } from '../perf';
+import { DM } from './dmath';
 
 export const SIM_DT = 1 / 120;
 export const ROUND_TIME = 99;
@@ -87,6 +88,8 @@ export class Match {
   readonly specs: [BotSpec, BotSpec];
   readonly rng: Rng;
   time = 0;
+  /** Steps taken so far (hitstop steps included): the shared clock of an online fight. */
+  frame = 0;
   phaseTime = 0;
   phase: MatchPhase = 'intro';
   clock = ROUND_TIME;
@@ -103,16 +106,17 @@ export class Match {
   private ropeCooldown = [0, 0];
   introLength = 2.6;
 
-  constructor(a: BotSpec, b: BotSpec, seed?: number) {
+  constructor(a: BotSpec, b: BotSpec, seed: number) {
     this.rng = new Rng(seed);
     this.specs = [a, b];
-    const fa = new Fighter(0, a.name, computeBuild(a.loadout), new Rng(this.rng.next() * 2 ** 32));
-    const fb = new Fighter(1, b.name, computeBuild(b.loadout), new Rng(this.rng.next() * 2 ** 32));
+    resetUids();
+    const fa = new Fighter(0, a.name, computeBuild(a.loadout), new Rng(this.rng.next() * 4294967296));
+    const fb = new Fighter(1, b.name, computeBuild(b.loadout), new Rng(this.rng.next() * 4294967296));
     fa.opp = fb;
     fb.opp = fa;
     this.fighters = [fa, fb];
-    const ba = new Brain(fa, fb, new Rng(this.rng.next() * 2 ** 32));
-    const bb = new Brain(fb, fa, new Rng(this.rng.next() * 2 ** 32));
+    const ba = new Brain(fa, fb, new Rng(this.rng.next() * 4294967296));
+    const bb = new Brain(fb, fa, new Rng(this.rng.next() * 4294967296));
     ba.rival = bb;
     bb.rival = ba;
     this.brains = [ba, bb];
@@ -155,6 +159,7 @@ export class Match {
   }
 
   step(dt = SIM_DT) {
+    this.frame++;
     if (this.hitstop > 0) {
       this.hitstop -= dt;
       return;
@@ -247,9 +252,9 @@ export class Match {
         }
       }
       // keep clear of the corner posts
-      const c = Math.round((Math.atan2(f.root.z, f.root.x) - Math.PI / 8) / (Math.PI / 4)) * (Math.PI / 4) + Math.PI / 8;
-      const cx = f.root.x - Math.cos(c) * RING_CORNER, cz = f.root.z - Math.sin(c) * RING_CORNER;
-      const dc = Math.hypot(cx, cz);
+      const c = Math.round((DM.atan2(f.root.z, f.root.x) - Math.PI / 8) / (Math.PI / 4)) * (Math.PI / 4) + Math.PI / 8;
+      const cx = f.root.x - DM.cos(c) * RING_CORNER, cz = f.root.z - DM.sin(c) * RING_CORNER;
+      const dc = DM.hypot(cx, cz);
       if (dc < POST_CLEAR && dc > 1e-5) {
         f.root.x += (cx / dc) * (POST_CLEAR - dc);
         f.root.z += (cz / dc) * (POST_CLEAR - dc);
@@ -262,7 +267,7 @@ export class Match {
       if (standing.isDown) return;
       const p = down.body.pos[J.Pelvis];
       const dx = standing.root.x - p.x, dz = standing.root.z - p.z;
-      const d = Math.hypot(dx, dz);
+      const d = DM.hypot(dx, dz);
       if (d < 0.9 && d > 1e-4) {
         standing.root.x += (dx / d) * (0.9 - d) * 0.2;
         standing.root.z += (dz / d) * (0.9 - d) * 0.2;
@@ -270,7 +275,7 @@ export class Match {
       return;
     }
     const dx = b.root.x - a.root.x, dz = b.root.z - a.root.z;
-    const d = Math.hypot(dx, dz);
+    const d = DM.hypot(dx, dz);
     const min = 0.64;
     if (d < min && d > 1e-5) {
       const push = (min - d) * 0.5;
@@ -294,11 +299,11 @@ export class Match {
   private separateParts(a: Fighter, b: Fighter, j: number, min: number) {
     const pa = a.body.pos[j], pb = b.body.pos[j];
     const dx = pb.x - pa.x, dz = pb.z - pa.z;
-    const d = Math.hypot(dx, dz);
+    const d = DM.hypot(dx, dz);
     if (d >= min) return;
     // along the line between the fighters (part offsets can point anywhere)
     let nx = b.root.x - a.root.x, nz = b.root.z - a.root.z;
-    const l = Math.hypot(nx, nz);
+    const l = DM.hypot(nx, nz);
     if (l < 1e-5) return;
     nx /= l;
     nz /= l;

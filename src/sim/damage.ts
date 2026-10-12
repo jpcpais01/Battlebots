@@ -1,4 +1,5 @@
 import { J } from './body';
+import { DM } from './dmath';
 import { RARITIES, type Loadout, type Slot } from '../game/items';
 
 /**
@@ -151,7 +152,7 @@ export class Parts {
     if (!DETACHABLE[p] || this.off[p]) return 0;
     const c = this.cond[p];
     if (c >= LOOSE) return 0;
-    const weak = ((LOOSE - c) / LOOSE) ** 1.5;
+    const weak = DM.pow((LOOSE - c) / LOOSE, 1.5);
     const force = Math.min(1.3, Math.max(0, (strength - 18) / 85));
     // the neck is the best-braced joint; a hip takes some shifting
     const brace = p === P.Head ? 0.5 : p === P.ThighL || p === P.ThighR ? 0.7 : 1;
@@ -182,19 +183,19 @@ export class Parts {
   /** Strike speed with an arm: a battered elbow and shoulder slow every punch it throws. */
   armSpeed(side: number) {
     const w = this.wear(armPart(side, 1)) * 0.6 + this.wear(armPart(side, 0)) * 0.4;
-    return 1 - 0.3 * w ** 1.2;
+    return 1 - 0.3 * DM.pow(w, 1.2);
   }
 
   /** Punch damage with a fist: a cracked fist hits soft, a shattered one barely at all. */
   fistPower(side: number) {
     const c = this.cond[armPart(side, 2)];
-    return c <= 0 ? 0.55 : 1 - 0.35 * (1 - c) ** 1.3;
+    return c <= 0 ? 0.55 : 1 - 0.35 * DM.pow(1 - c, 1.3);
   }
 
   /** Kick damage with a foot. */
   footPower(side: number) {
     const c = this.cond[legPart(side, 2)];
-    return c <= 0 ? 0.55 : 1 - 0.35 * (1 - c) ** 1.3;
+    return c <= 0 ? 0.55 : 1 - 0.35 * DM.pow(1 - c, 1.3);
   }
 
   /** How worn a leg is overall (thigh and shin carry the weight, the foot plants it). */
@@ -204,28 +205,28 @@ export class Parts {
 
   /** Kick speed with a leg. */
   legSpeed(side: number) {
-    return 1 - 0.25 * this.legWear(side) ** 1.2;
+    return 1 - 0.25 * DM.pow(this.legWear(side), 1.2);
   }
 
   /** Move speed and footwork: the worse leg decides most of it. */
   mobility() {
     const a = this.legWear(0), b = this.legWear(1);
     const w = Math.max(a, b) * 0.65 + Math.min(a, b) * 0.35;
-    return 1 - 0.38 * w ** 1.15;
+    return 1 - 0.38 * DM.pow(w, 1.15);
   }
 
   /** Reaction time multiplier: a rattled head perceives late. */
   reflexes() {
-    return 1 + 0.75 * this.wear(P.Head) ** 1.2;
+    return 1 + 0.75 * DM.pow(this.wear(P.Head), 1.2);
   }
 
   /** Stamina regen: the chest houses the core, and a cracked one leaks power. */
   regen() {
-    return 1 - 0.38 * this.wear(P.Chest) ** 1.2;
+    return 1 - 0.38 * DM.pow(this.wear(P.Chest), 1.2);
   }
 
   /** Balance: the lower torso holds the robot together, a bent one rocks easier. */
   balance() {
-    return 1 - 0.32 * this.wear(P.Torso) ** 1.2;
+    return 1 - 0.32 * DM.pow(this.wear(P.Torso), 1.2);
   }
 }

@@ -1,0 +1,32 @@
+import { Match } from '../sim/match';
+import { matchHash } from '../sim/hash';
+import { MOVES } from '../sim/moves';
+import { BASE_STATS, ITEMS, RARITIES } from '../game/items';
+import { randomBot } from '../game/loadout';
+import { Rng } from '../sim/math';
+
+let cached: number | null = null;
+
+/**
+ * What this device's fight sim does, boiled down to one number: the game data plus a few
+ * seconds of a fixed fight, hashed to the last bit. Two players can only share a fight
+ * when theirs match; a different number means a different version of the game (or, in
+ * theory, maths that round differently), so the fight would drift apart on their screens.
+ */
+export function simFingerprint(): number {
+  if (cached !== null) return cached;
+  let h = 0x811c9dc5;
+  const mix = (v: number) => {
+    h = Math.imul(h ^ (v | 0), 0x01000193);
+  };
+  const data = JSON.stringify([ITEMS, MOVES, BASE_STATS, RARITIES]);
+  for (let i = 0; i < data.length; i++) mix(data.charCodeAt(i));
+  const rng = new Rng(0xb07b07);
+  const m = new Match(randomBot(rng, 0.9), randomBot(rng, 0.9), 0x5eed);
+  m.skipIntro();
+  // the countdown, then a few seconds of fighting
+  for (let i = 0; i < 1200 && m.phase !== 'end'; i++) m.step();
+  mix(matchHash(m));
+  cached = h >>> 0;
+  return cached;
+}
