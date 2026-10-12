@@ -4,6 +4,7 @@ import { Arena } from '../render/arena';
 import { Fx, type Trail } from '../render/fx';
 import { Director } from '../render/director';
 import { ClearView } from '../render/clearView';
+import { CrowdMood } from '../audio/crowd';
 import { BotModel } from '../render/botModel';
 import { Match, SIM_DT, type HitInfo } from '../sim/match';
 import { Fighter } from '../sim/fighter';
@@ -30,6 +31,8 @@ export class Game {
   readonly stage: Stage;
   readonly arena: Arena;
   private clearView = new ClearView();
+  /** The arena's mood, the same model the crowd audio runs, so what fans do matches what you hear. */
+  private crowdMood = new CrowdMood();
   private probe: RenderProbe;
   private chests = [new THREE.Vector3(), new THREE.Vector3()];
   readonly fx: Fx;
@@ -170,6 +173,8 @@ export class Game {
     const sfx = this.sfx;
     this.director.cue(type, data);
     sfx?.crowdEvent(type, data);
+    this.crowdMood.event(type, data);
+    this.arena.venue.crowd.event(type, data);
     switch (type) {
       case 'hit': {
         const h = data as HitInfo;
@@ -316,6 +321,11 @@ export class Game {
     this.fx.update(dt, this.stage.camera);
     perf.lap('fx');
     this.arena.pressRopes(m && this.models.length === 2 ? [this.models[0].joints, this.models[1].joints] : []);
+    const f = m?.fighters;
+    const crowdState = m && f && !this.paused ? { phase: m.phase, clock: m.clock, hp: [f[0].hpRatio, f[1].hpRatio] as [number, number] } : null;
+    this.crowdMood.tick(dt, crowdState);
+    this.crowdMood.cues.length = 0; // sounds are the audio crowd's job
+    this.arena.venue.crowd.update(dt, this.crowdMood.excite, crowdState?.phase === 'fight');
     this.arena.update(dt, this.time);
     perf.lap('arena');
     this.director.update(dt, m);
@@ -324,10 +334,7 @@ export class Game {
       this.clearView.update(this.stage.camera, this.chests);
     } else this.clearView.update(this.stage.camera, []);
     perf.lap('camera');
-    if (this.sfx) {
-      const f = m?.fighters;
-      this.sfx.crowdTick(dt, m && f && !this.paused ? { phase: m.phase, clock: m.clock, hp: [f[0].hpRatio, f[1].hpRatio] } : null);
-    }
+    this.sfx?.crowdTick(dt, crowdState);
     perf.lap('audio');
     if (!render) return;
     const cut = this.director.cuts !== this.lastCuts || this.director.mode !== this.lastMode;
