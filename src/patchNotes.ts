@@ -49,6 +49,9 @@ export const PATCH_NOTES: PatchNote[] = [
       'The arena\'s LED boards now run real-looking ads from a dozen sponsors (energy drinks, motor oil, tools, airlines and more) that rotate with a wipe.',
       'Fixed a flickering dark patch on top of the Reactive Frame and Counter Plate chests.',
       'The crowd now follows the fight: fans sit through quiet spells, get to their feet as it heats up, cheer their robot\'s big hits, clutch their heads when it takes one, boo when nothing happens and erupt at the KO.',
+      'Knockouts end with a giant animated K.O. that slams onto the screen; a TKO gets its own, slightly calmer T.K.O. banner.',
+      'Clearer knockdown count: a big referee count under the clock that ticks up each second and turns green when the bot beats it.',
+      'Knockdown marks next to each bot\'s name show how close they are to a TKO (three knockdowns ends the fight).',
     ],
   },
   {
