@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RenderSettings } from './settings';
 import { RING_CORNER, ROPE_LINE, ropeSide as sideOf, SIDE_NX, SIDE_NZ } from '../sim/body';
+import { Venue } from './venue';
 
 export const RING_RADIUS = RING_CORNER; // corner radius of the octagon
 const SIDES = 8;
@@ -72,32 +73,9 @@ function matTexture(): THREE.CanvasTexture {
   return t;
 }
 
-function screenTexture(): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = 512;
-  c.height = 256;
-  const g = c.getContext('2d')!;
-  const grad = g.createLinearGradient(0, 0, 512, 256);
-  grad.addColorStop(0, '#ff6a1a');
-  grad.addColorStop(1, '#ffb43a');
-  g.fillStyle = '#0b0f1a';
-  g.fillRect(0, 0, 512, 256);
-  g.fillStyle = grad;
-  g.font = 'bold 74px "Russo One", Impact, sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText('BATTLE', 256, 92);
-  g.fillStyle = '#5fe3ff';
-  g.fillText('BOTS', 256, 172);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
 export class Arena {
   readonly group = new THREE.Group();
-  private crowdMat: THREE.MeshLambertMaterial | null = null;
-  private lightsMat: THREE.ShaderMaterial | null = null;
+  readonly venue: Venue;
   private ropeMat: THREE.MeshBasicMaterial;
   private ropeBase = new THREE.Color(0x52e6ff).multiplyScalar(0.9);
   private ropeFlash = 0;
@@ -116,14 +94,8 @@ export class Arena {
 
   constructor(quality: 'low' | 'med' | 'high') {
     const g = this.group;
-    // ground
-    const ground = new THREE.Mesh(
-      new THREE.CircleGeometry(60, 48),
-      new THREE.MeshStandardMaterial({ color: 0x0a0d15, roughness: 0.85, metalness: 0.2 }),
-    );
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -0.62;
-    g.add(ground);
+    // the arena around the ring: stands, crowd, boards, roof (added to the scene beside `group`)
+    this.venue = new Venue(quality, this.uniforms);
 
     // stage: base + canvas
     const base = new THREE.Mesh(
@@ -259,10 +231,7 @@ export class Arena {
     ropes.frustumCulled = false;
     g.add(ropes);
 
-    // stands + crowd
-    this.buildCrowd(quality);
-
-    // overhead rig: truss ring + screen + beams
+    // overhead rig: truss ring + beams
     const truss = new THREE.Mesh(
       new THREE.TorusGeometry(6.5, 0.12, 6, 48),
       new THREE.MeshStandardMaterial({ color: 0x22262f, metalness: 0.8, roughness: 0.4 }),
@@ -270,19 +239,6 @@ export class Arena {
     truss.rotation.x = Math.PI / 2;
     truss.position.y = 8.5;
     g.add(truss);
-    const screenMat = new THREE.MeshBasicMaterial({ map: screenTexture(), toneMapped: false });
-    const screen = new THREE.Group();
-    for (let i = 0; i < 4; i++) {
-      const p = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 1.3), screenMat);
-      p.position.set(Math.sin((i * Math.PI) / 2) * 1.31, 0, Math.cos((i * Math.PI) / 2) * 1.31);
-      p.rotation.y = (i * Math.PI) / 2;
-      screen.add(p);
-    }
-    const box = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.4, 2.6), new THREE.MeshStandardMaterial({ color: 0x111319, metalness: 0.6, roughness: 0.5 }));
-    box.scale.set(0.99, 1.05, 0.99);
-    screen.add(box);
-    screen.position.y = 10.5;
-    g.add(screen);
 
     // light beams (fake volumetrics)
     const beamMat = new THREE.ShaderMaterial({
@@ -314,103 +270,8 @@ export class Arena {
     }
   }
 
-  private buildCrowd(quality: 'low' | 'med' | 'high') {
-    const g = this.group;
-    // tiered stands
-    const standMat = new THREE.MeshStandardMaterial({ color: 0x141821, metalness: 0.3, roughness: 0.8 });
-    const tiers = 6;
-    for (let t = 0; t < tiers; t++) {
-      const r0 = 9 + t * 1.1;
-      const ring = new THREE.Mesh(new THREE.CylinderGeometry(r0 + 1.1, r0 + 1.1, 0.55 + t * 0.6, 32, 1, true), standMat);
-      ring.position.y = -0.6 + (0.55 + t * 0.6) / 2;
-      g.add(ring);
-      const top = new THREE.Mesh(new THREE.RingGeometry(r0, r0 + 1.1, 32), standMat);
-      top.rotation.x = -Math.PI / 2;
-      top.position.y = -0.6 + 0.55 + t * 0.6;
-      g.add(top);
-    }
-    const count = quality === 'low' ? 380 : quality === 'med' ? 700 : 1100;
-    const person = mergeGeometries([
-      new THREE.CapsuleGeometry(0.22, 0.45, 3, 8).translate(0, 0.45, 0),
-      new THREE.SphereGeometry(0.16, 8, 6).translate(0, 1.0, 0),
-    ])!;
-    this.crowdMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    const uniforms = this.uniforms;
-    this.crowdMat.onBeforeCompile = (shader) => {
-      shader.uniforms.uTime = uniforms.uTime;
-      shader.uniforms.uHype = uniforms.uHype;
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nuniform float uTime; uniform float uHype;')
-        .replace(
-          '#include <begin_vertex>',
-          `#include <begin_vertex>
-           float seed = float(gl_InstanceID) * 12.9898;
-           float ph = fract(sin(seed) * 43758.5453) * 6.283;
-           float sp = 3.0 + fract(sin(seed * 1.7) * 9631.1) * 4.0;
-           transformed.y += max(0.0, sin(uTime * sp + ph)) * (0.04 + 0.22 * uHype);`,
-        );
-    };
-    const crowd = new THREE.InstancedMesh(person, this.crowdMat, count);
-    const dummy = new THREE.Object3D();
-    const color = new THREE.Color();
-    const shirt = [0x2a3550, 0x3a2a40, 0x1f3a3a, 0x4a3326, 0x30303a, 0x50202a, 0x203050];
-    let n = 0;
-    const lightPos: number[] = [];
-    const lightCol: number[] = [];
-    for (let t = 0; t < tiers && n < count; t++) {
-      const r = 9.5 + t * 1.1;
-      const per = Math.floor(count / tiers);
-      for (let i = 0; i < per && n < count; i++) {
-        const a = (i / per) * Math.PI * 2 + Math.random() * 0.05 + t * 0.3;
-        const rr = r + Math.random() * 0.4;
-        const y = -0.6 + 0.55 + t * 0.6;
-        dummy.position.set(Math.cos(a) * rr, y, Math.sin(a) * rr);
-        dummy.lookAt(0, y + 0.5, 0);
-        const s = 0.85 + Math.random() * 0.3;
-        dummy.scale.set(s, s, s);
-        dummy.updateMatrix();
-        crowd.setMatrixAt(n, dummy.matrix);
-        color.setHex(shirt[Math.floor(Math.random() * shirt.length)]).multiplyScalar(0.22 + Math.random() * 0.16);
-        crowd.setColorAt(n, color);
-        n++;
-        if (Math.random() < 0.18) {
-          lightPos.push(dummy.position.x * 0.98, y + 1.25, dummy.position.z * 0.98);
-          const hue = Math.random();
-          color.setHSL(hue < 0.5 ? 0.08 : hue < 0.8 ? 0.53 : 0.9, 0.9, 0.6);
-          lightCol.push(color.r, color.g, color.b);
-        }
-      }
-    }
-    crowd.count = n;
-    crowd.instanceMatrix.needsUpdate = true;
-    g.add(crowd);
-
-    // twinkling light sticks / phones as points
-    const lg = new THREE.BufferGeometry();
-    lg.setAttribute('position', new THREE.Float32BufferAttribute(lightPos, 3));
-    lg.setAttribute('color', new THREE.Float32BufferAttribute(lightCol, 3));
-    this.lightsMat = new THREE.ShaderMaterial({
-      uniforms: { uTime: this.uniforms.uTime, uHype: this.uniforms.uHype, uScale: { value: 300 } },
-      vertexShader: /* glsl */ `
-        attribute vec3 color; varying vec3 vC; varying float vA; uniform float uTime; uniform float uHype; uniform float uScale;
-        void main(){ vC = color; float s = fract(sin(dot(position.xz, vec2(12.9898,78.233))) * 43758.5453);
-          vA = 0.45 + 0.55 * sin(uTime * (2.0 + s * 3.0) + s * 40.0) * (0.5 + uHype);
-          vec4 mv = modelViewMatrix * vec4(position + vec3(0., max(0., sin(uTime*5.0+s*30.0))*0.2*uHype, 0.), 1.0);
-          gl_PointSize = uScale * 0.06 / -mv.z; gl_Position = projectionMatrix * mv; }`,
-      fragmentShader: /* glsl */ `
-        varying vec3 vC; varying float vA;
-        void main(){ vec2 d = gl_PointCoord - 0.5; float r = dot(d,d); if (r > 0.25) discard; float a = smoothstep(0.25, 0.0, r) * vA; gl_FragColor = vec4(vC * 2.0 * a, a); }`,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    const pts = new THREE.Points(lg, this.lightsMat);
-    pts.frustumCulled = false;
-    g.add(pts);
-  }
-
   setPixelScale(h: number) {
-    if (this.lightsMat) this.lightsMat.uniforms.uScale.value = h;
+    this.venue.setPixelScale(h);
   }
 
   flashRopes(k = 1) {
@@ -514,12 +375,14 @@ export class Arena {
 
   excite(k: number) {
     this.hype = Math.min(1.5, this.hype + k);
+    if (k >= 1) this.venue.strobe(k * 0.6);
   }
 
   update(dt: number, time: number) {
     this.uniforms.uTime.value = time;
     this.hype += (0.3 - this.hype) * Math.min(1, dt * 0.5);
     this.uniforms.uHype.value = this.hype;
+    this.venue.update(dt, time, this.hype);
     this.ropeFlash = Math.max(0, this.ropeFlash - dt * 3);
     this.ropeMat.color.copy(this.ropeBase).multiplyScalar(1 + this.ropeFlash * 1.6);
     this.updateRopes(dt);

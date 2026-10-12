@@ -59,6 +59,9 @@ export class Game {
     this.arena = new Arena(quality);
     this.stage.scene.add(this.arena.group);
     this.clearView.apply(this.arena.group);
+    // the stands start past the farthest the camera ever goes, so they stay out of ClearView:
+    // its dither would only cost fill rate (and early depth rejection) on the biggest surfaces
+    this.stage.scene.add(this.arena.venue.group);
     this.fx = new Fx();
     this.stage.scene.add(this.fx.group);
     this.director = new Director(this.stage.camera);
