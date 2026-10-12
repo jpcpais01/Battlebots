@@ -48,6 +48,7 @@ export const PATCH_NOTES: PatchNote[] = [
       'More natural footwork: bots shift their weight, turn their hips and shoulders and settle into each step as they move.',
       'The arena\'s LED boards now run real-looking ads from a dozen sponsors (energy drinks, motor oil, tools, airlines and more) that rotate with a wipe.',
       'Fixed a flickering dark patch on top of the Reactive Frame and Counter Plate chests.',
+      'The crowd now follows the fight: fans sit through quiet spells, get to their feet as it heats up, cheer their robot\'s big hits, clutch their heads when it takes one, boo when nothing happens and erupt at the KO.',
     ],
   },
   {
