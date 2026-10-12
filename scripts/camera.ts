@@ -143,7 +143,7 @@ function run(aspect: number, fov: number, label: string) {
   }
   const p = (x: number) => ((x / frames) * 100).toFixed(1) + '%';
   console.log(`\n== ${label} (${N} matches, ${(seconds / 60).toFixed(1)} min) ==`);
-  console.log(`head out of frame ${p(headOut)} | one hides the other ${p(hidden)} | body out ${p(bodyOut)} | lens within 0.6m of a bot ${p(close / 32)} | post in the way ${p(postBlock)} | shooting through ropes ${p(throughRopes)}`);
+  console.log(`head out of frame ${p(headOut)} | one hides the other ${p(hidden)} | body out ${p(bodyOut)} | lens within 0.6m of a bot ${p(close / 32)} | post in the way ${p(postBlock)} | shooting through ropes ${p(throughRopes)} (both faded out by clearView)`);
   console.log(`turn speed deg/s p50 ${pct(angSpeed, 0.5).toFixed(0)} p95 ${pct(angSpeed, 0.95).toFixed(0)} p99 ${pct(angSpeed, 0.99).toFixed(0)} | move m/s p50 ${pct(linSpeed, 0.5).toFixed(2)} p95 ${pct(linSpeed, 0.95).toFixed(2)}`);
   console.log(`fighters fill ${(pct(size, 0.5) * 100).toFixed(0)}% of frame height (p10 ${(pct(size, 0.1) * 100).toFixed(0)}%, p90 ${(pct(size, 0.9) * 100).toFixed(0)}%) | off-center p50 ${pct(offCenter, 0.5).toFixed(2)} p95 ${pct(offCenter, 0.95).toFixed(2)} | cuts/min ${(cuts / (seconds / 60)).toFixed(1)}`);
   console.log(
