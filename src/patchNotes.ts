@@ -15,6 +15,19 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-12',
+    title: 'The new garage',
+    notes: [
+      'The garage is now its own robotics workshop: your bot stands on a turntable under a gantry crane, surrounded by workbenches, tool walls, shelves of spare parts and a welding robot at work.',
+      'Every item card shows a real 3D picture of the part itself: the actual fist, head, chest, core, legs or kick, in your paint colours.',
+      'The loadout rail on the left of the panel shows the part fitted in each slot.',
+      'Tap a slot and the camera moves in on that part. Tap it again, or use the Inspect button, to see the whole bot.',
+      'Each card shows how much it would change your Power before you fit it.',
+      'A scan light sweeps up your bot whenever you change a part, paint or rarity.',
+      'Drag to spin your bot: it keeps turning a little when you let go, and slowly turns by itself if you leave it.',
+    ],
+  },
+  {
+    date: '2026-10-12',
     title: 'Fight night upgrade',
     notes: [
       'Fuller stands: a seat back behind every fan, stepped aisles with lit step edges, exit stairwells in the upper tier too, camera platforms over the lower exits, follow spots on the roof catwalk and a rail along the top row.',

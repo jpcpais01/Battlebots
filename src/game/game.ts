@@ -18,6 +18,11 @@ import { perf } from '../perf';
 import { RenderProbe } from '../render/renderProbe';
 import { contactAO } from '../render/ao';
 import { house } from '../render/house';
+import { Garage } from '../render/garage';
+import { PartThumbs } from '../render/partPreview';
+
+/** Where the 3D scene is: the fight arena (home, fights) or the workshop (garage). */
+export type Place = 'arena' | 'garage';
 
 export interface GameCallbacks {
   onMatchEvent?: (type: string, data: unknown) => void;
@@ -61,6 +66,10 @@ export class Game {
   private lastCuts = 0;
   private lastMode = '';
   cb: GameCallbacks = {};
+  private garage: Garage | null = null;
+  private _thumbs: PartThumbs | null = null;
+  place: Place = 'arena';
+  private onLift = { name: '', power: 0, palette: 0 };
 
   constructor(canvas: HTMLCanvasElement, quality: Quality) {
     this.stage = new Stage(canvas, quality);
@@ -97,6 +106,44 @@ export class Game {
     this.arena.group.traverse((o) => {
       if (o.name === 'ropes' || o.name === 'beams') p.tag(o, o.name);
     });
+  }
+
+  // ----------------------------------------------------------------- places
+  /** Switch the world between the arena and the workshop. The workshop is built on first use. */
+  setPlace(p: Place) {
+    if (p === this.place) return;
+    this.place = p;
+    const inGarage = p === 'garage';
+    if (inGarage && !this.garage) {
+      this.garage = new Garage(this.stage.quality);
+      this.stage.scene.add(this.garage.group);
+      this.clearView.apply(this.garage.near);
+      this.probe.tag(this.garage.group, 'venue');
+      this.garage.setBot(this.onLift.name, this.onLift.power, this.onLift.palette);
+    }
+    this.arena.group.visible = !inGarage;
+    this.arena.venue.group.visible = !inGarage;
+    if (inGarage) this.garage!.enter(this.stage);
+    else {
+      this.garage?.exit();
+      this.stage.applyLook(this.stage.arenaLook);
+    }
+  }
+
+  /** Tell the workshop who is on the lift (desk monitor, bay light colour). */
+  garageBot(name: string, power: number, palette: number) {
+    this.onLift = { name, power, palette };
+    this.garage?.setBot(name, power, palette);
+  }
+
+  /** Light sweep up the robot in the workshop (a part was fitted). */
+  garagePulse() {
+    this.garage?.pulse();
+  }
+
+  /** Pictures of the real robot parts for the garage cards. */
+  get thumbs(): PartThumbs {
+    return (this._thumbs ??= new PartThumbs(this.stage.renderer, this.stage.scene.environment));
   }
 
   // ------------------------------------------------------------- showcase
@@ -349,9 +396,13 @@ export class Game {
     const crowdState = m && f && !this.paused ? { phase: m.phase, clock: m.clock, hp: [f[0].hpRatio, f[1].hpRatio] as [number, number] } : null;
     this.crowdMood.tick(dt, crowdState);
     this.crowdMood.cues.length = 0; // sounds are the audio crowd's job
-    this.arena.venue.crowd.update(dt, this.crowdMood.excite, crowdState?.phase === 'fight');
-    this.arena.venue.score(dt, m && f ? { names: [f[0].name, f[1].name], hp: [f[0].hpRatio, f[1].hpRatio], clock: m.clock, phase: m.phase } : null);
-    this.arena.update(dt, this.time);
+    if (this.place === 'garage') this.garage!.update(dt, this.time, this.fx);
+    else {
+      // the stands and crowd are hidden in the workshop, so they don't need updating there
+      this.arena.venue.crowd.update(dt, this.crowdMood.excite, crowdState?.phase === 'fight');
+      this.arena.venue.score(dt, m && f ? { names: [f[0].name, f[1].name], hp: [f[0].hpRatio, f[1].hpRatio], clock: m.clock, phase: m.phase } : null);
+      this.arena.update(dt, this.time);
+    }
     perf.lap('arena');
     this.director.update(dt, m);
     if (m && this.director.mode === 'match') {
@@ -360,6 +411,10 @@ export class Game {
       // expose for the ring: the closer the shot on the fighters, the darker the house
       _v.addVectors(this.chests[0], this.chests[1]).multiplyScalar(0.5);
       house.update(dt, this.stage.camera.position.distanceTo(_v));
+    } else if (this.place === 'garage' && this.showcase) {
+      // the gantry dissolves when the camera swings behind it
+      this.clearView.update(this.stage.camera, [this.showcase.model.joints[J.Chest]]);
+      house.update(dt, null);
     } else {
       this.clearView.update(this.stage.camera, []);
       house.update(dt, null);

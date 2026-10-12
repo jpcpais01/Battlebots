@@ -132,6 +132,9 @@ export class Director {
   private koFocus: number | null = null;
   garageTarget = new THREE.Vector3(0, 1.02, 0);
   garageYaw = 0.5;
+  /** Distance from the garage target (the garage moves in to look at one part). */
+  garageDist = 4.7;
+  private snapNext = false;
   private narrow = false;
   /** Horizontal framing offset as a fraction of the view width (positive puts the subject left of center). */
   shiftX = 0;
@@ -197,6 +200,11 @@ export class Director {
     this.narrow = narrow;
   }
 
+  /** Jump straight to the next pose instead of easing there (the scene behind just changed). */
+  snap() {
+    this.snapNext = true;
+  }
+
   shake(amount: number) {
     this.trauma = Math.min(1, this.trauma + amount);
   }
@@ -249,10 +257,10 @@ export class Director {
     } else {
       this.fresh = true;
       if (this.mode === 'garage') {
-        const r = this.narrow ? 5.6 : 4.7;
+        const r = this.garageDist * (this.narrow ? 1.2 : 1);
         wantPos.set(
           this.garageTarget.x + Math.sin(this.garageYaw) * r,
-          1.5,
+          this.garageTarget.y + 0.1 + r * 0.08,
           this.garageTarget.z + Math.cos(this.garageYaw) * r,
         );
         wantLook.copy(this.garageTarget);
@@ -265,6 +273,12 @@ export class Director {
         wantLook.set(0, 1.05, 0);
         posLambda = 1.5;
       }
+      if (this.snapNext) {
+        this.pos.copy(wantPos);
+        this.look.copy(wantLook);
+        this.fov = this.baseFov;
+        this.shift = this.shiftX;
+      }
       this.pos.x = damp(this.pos.x, wantPos.x, posLambda, dt);
       this.pos.y = damp(this.pos.y, wantPos.y, posLambda, dt);
       this.pos.z = damp(this.pos.z, wantPos.z, posLambda, dt);
@@ -275,6 +289,7 @@ export class Director {
       this.roll = damp(this.roll, 0, 3, dt);
     }
 
+    this.snapNext = false;
     // trauma shake
     this.trauma = Math.max(0, this.trauma - dt * 1.6);
     const sh = this.trauma * this.trauma;

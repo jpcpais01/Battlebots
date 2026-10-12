@@ -51,6 +51,17 @@ export function detectQuality(): Quality {
   return cores >= 8 ? 'high' : cores >= 6 ? 'med' : 'low';
 }
 
+/** Everything about how a place is lit: background, fog, ambient, the key spot and the two rims. */
+export interface LightLook {
+  background: number;
+  fog: number;
+  fogDensity: number;
+  envIntensity: number;
+  hemi: { sky: number; ground: number; intensity: number };
+  key: { color: number; intensity: number; pos: THREE.Vector3Tuple; target: THREE.Vector3Tuple; angle: number; penumbra: number; near: number; far: number; focus: number };
+  rims: { color: number; intensity: number; distance: number; pos: THREE.Vector3Tuple }[];
+}
+
 /** Renderer, lighting and post-processing, with an adaptive resolution governor. */
 export class Stage {
   readonly renderer: THREE.WebGLRenderer;
@@ -59,6 +70,10 @@ export class Stage {
   /** Bloom and tone mapping (high quality only); without it the scene renders straight to the screen. */
   readonly post: PostFX | null = null;
   readonly key: THREE.SpotLight;
+  readonly hemi: THREE.HemisphereLight;
+  readonly rims: THREE.PointLight[];
+  /** The arena's lighting, captured at start so a place that relights the scene can hand it back. */
+  readonly arenaLook: LightLook;
   quality: Quality;
   private maxPixelRatio = 2;
   private governor: ResolutionGovernor;
@@ -98,7 +113,8 @@ export class Stage {
     scene.environmentIntensity = 0.55;
     pmrem.dispose();
 
-    scene.add(new THREE.HemisphereLight(0x9cc0ff, 0x241a14, 0.42));
+    this.hemi = new THREE.HemisphereLight(0x9cc0ff, 0x241a14, 0.42);
+    scene.add(this.hemi);
     // the overhead rig: one warm spot pools on the ring and falls off past the apron, so the robots
     // stand in the light while the floor around the stage sinks into shadow. No distance decay, so
     // it lights like the sun it replaced, and it costs the same (one light, one shadow map).
@@ -121,12 +137,73 @@ export class Stage {
     const rimB = new THREE.PointLight(0x2ad8ff, 22, 14, 1.6);
     rimB.position.set(5.5, 3.5, 2);
     scene.add(rimA, rimB);
+    this.rims = [rimA, rimB];
+    this.arenaLook = this.captureLook();
 
     this.maxPixelRatio = quality === 'high' ? 2 : quality === 'med' ? 1.5 : 1;
     this.governor = new ResolutionGovernor(this.deviceRatio());
     if (quality === 'high') this.post = new PostFX(this.renderer);
     this.resize();
     window.addEventListener('resize', () => this.resize());
+  }
+
+  private captureLook(): LightLook {
+    const k = this.key;
+    const fog = this.scene.fog as THREE.FogExp2;
+    return {
+      background: (this.scene.background as THREE.Color).getHex(),
+      fog: fog.color.getHex(),
+      fogDensity: fog.density,
+      envIntensity: this.scene.environmentIntensity,
+      hemi: { sky: this.hemi.color.getHex(), ground: this.hemi.groundColor.getHex(), intensity: this.hemi.intensity },
+      key: {
+        color: k.color.getHex(),
+        intensity: k.intensity,
+        pos: k.position.toArray(),
+        target: k.target.position.toArray(),
+        angle: k.angle,
+        penumbra: k.penumbra,
+        near: k.shadow.camera.near,
+        far: k.shadow.camera.far,
+        focus: k.shadow.focus,
+      },
+      rims: this.rims.map((r) => ({ color: r.color.getHex(), intensity: r.intensity, distance: r.distance, pos: r.position.toArray() })),
+    };
+  }
+
+  /**
+   * Relight the scene. The set of lights never changes (only their colours and placement), so
+   * switching places doesn't recompile a single shader.
+   */
+  applyLook(l: LightLook) {
+    (this.scene.background as THREE.Color).setHex(l.background);
+    const fog = this.scene.fog as THREE.FogExp2;
+    fog.color.setHex(l.fog);
+    fog.density = l.fogDensity;
+    this.scene.environmentIntensity = l.envIntensity;
+    this.hemi.color.setHex(l.hemi.sky);
+    this.hemi.groundColor.setHex(l.hemi.ground);
+    this.hemi.intensity = l.hemi.intensity;
+    const k = this.key;
+    k.color.setHex(l.key.color);
+    k.intensity = l.key.intensity;
+    k.position.fromArray(l.key.pos);
+    k.target.position.fromArray(l.key.target);
+    k.target.updateMatrixWorld();
+    k.angle = l.key.angle;
+    k.penumbra = l.key.penumbra;
+    k.shadow.focus = l.key.focus;
+    k.shadow.camera.near = l.key.near;
+    k.shadow.camera.far = l.key.far;
+    // three only refreshes the shadow frustum itself when the cone or range changes
+    k.shadow.camera.updateProjectionMatrix();
+    l.rims.forEach((r, i) => {
+      const p = this.rims[i];
+      p.color.setHex(r.color);
+      p.intensity = r.intensity;
+      p.distance = r.distance;
+      p.position.fromArray(r.pos);
+    });
   }
 
   get resScale(): ResScale {
