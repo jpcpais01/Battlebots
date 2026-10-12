@@ -17,13 +17,26 @@ const _p = new THREE.Vector3();
 
 interface BarEls {
   root: HTMLElement;
-  lag: HTMLElement;
+  /** The whole health bar: it shakes on big hits and carries the low / dead states. */
+  hp: HTMLElement;
+  chip: HTMLElement;
   fill: HTMLElement;
+  flash: HTMLElement;
+  num: HTMLElement;
+  /** Damage taken in the current flurry, beside the name while the chip is up. */
+  chipN: HTMLElement;
   st: HTMLElement;
   abs: { el: HTMLElement; cd: HTMLElement; move?: MoveId; core?: boolean }[];
-  lagV: number;
+  /** Where the chip segment ends (health ratio), and how fast it's draining. */
+  chipV: number;
+  chipVel: number;
   shownHp: number;
+  lastNum: number;
+  lastChipN: number;
 }
+
+/** Match time the chip segment holds after the last hit before it drains. */
+const CHIP_HOLD = 0.75;
 
 const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 const luma = (c: number) => (0.2126 * ((c >> 16) & 255) + 0.7152 * ((c >> 8) & 255) + 0.0722 * (c & 255)) / 255;
@@ -217,9 +230,15 @@ export class Hud {
       this.root.style.setProperty(`--bot${i}`, ca);
       const nm = el('div', 'nm', right ? `<small>PWR ${f.build.rating}</small>${esc(spec.name)}` : `${esc(spec.name)}<small>PWR ${f.build.rating}</small>`, root);
       this.kdEls.push(el('span', 'kd', '<i></i><i></i><i></i>', nm));
+      const chipN = el('span', 'chipn', '', nm);
+      // frame > bar > chip (recent damage), fill (the bot's paint), the cell notches and a hit flash
       const hp = el('div', 'hp', '', root);
-      const lag = el('i', 'lag', '', hp);
-      const fill = el('i', 'fill', '', hp);
+      const bar = el('div', 'hp-bar', '', el('div', 'hp-frame', '', hp));
+      const chip = el('i', 'chip', '', bar);
+      const fill = el('i', 'fill', '', bar);
+      el('i', 'cells', '', bar);
+      const flash = el('i', 'flash', '', bar);
+      const num = el('b', 'hp-num', String(Math.round(f.hp)), hp);
       const stw = el('div', 'st', '', root);
       const st = el('i', '', '', stw);
       const abil = el('div', 'abil', '', root);
@@ -236,7 +255,7 @@ export class Hud {
       const core = ITEM_BY_ID.get(spec.loadout.core.id)!;
       addAb(SLOT_ICON.core, core.passive.name, undefined, true);
       if (right) abil.style.flexDirection = 'row-reverse';
-      this.bars.push({ root, lag, fill, st, abs, lagV: 1, shownHp: 1 });
+      this.bars.push({ root, hp, chip, fill, flash, num, chipN, st, abs, chipV: 1, chipVel: 0, shownHp: 1, lastNum: Math.round(f.hp), lastChipN: 0 });
       return root;
     };
     top.appendChild(mk(0));
@@ -344,12 +363,8 @@ export class Hud {
       const f = m.fighters[i];
       const b = this.bars[i];
       const hp = Math.max(0, f.hpRatio);
-      b.shownHp += (hp - b.shownHp) * Math.min(1, dt * 18);
-      // the white "recent damage" bar waits a moment then drains
-      if (m.time - f.lastHitTime > 0.6 || hp > b.lagV) b.lagV += (hp - b.lagV) * Math.min(1, dt * 3);
-      b.fill.style.transform = `scaleX(${b.shownHp})`;
-      b.lag.style.transform = `scaleX(${Math.max(b.lagV, b.shownHp)})`;
-      b.fill.parentElement!.classList.toggle('low', hp < 0.25 && hp > 0);
+      const maxHp = f.build.stats.maxHp;
+      this.updateHpBar(b, hp, maxHp, m.time - f.lastHitTime, dt);
       b.st.style.transform = `scaleX(${Math.max(0, f.staminaRatio)})`;
       for (const a of b.abs) {
         if (a.move) {
@@ -372,6 +387,8 @@ export class Hud {
       // healing popups (siphon)
       const dh = f.hp - this.hpPrev[i];
       if (dh > 0) this.healAcc[i] += dh;
+      if (dh < -0.5) this.hpHit(b, -dh / maxHp);
+      else if (dh > 0.5 && m.phase === 'fight') this.hpHeal(b);
       this.hpPrev[i] = f.hp;
       if (this.healAcc[i] >= 12) {
         this.floatAt(f.body.pos[J.Chest], `+${Math.round(this.healAcc[i])}`, 'heal');
@@ -402,6 +419,66 @@ export class Hud {
       this.commentary.classList.remove('on');
       this.commentPri = 0;
     }
+  }
+
+  /**
+   * The health bar, fighting-game style: the fill snaps down on a hit and the lost health
+   * stays behind as a hot "chip" segment. The chip holds while the hits keep coming, then
+   * drains away, slowly at first and faster as it goes, and the flurry's total shows by the
+   * name until it's gone. Everything moves by transform, so it costs no layout.
+   */
+  private updateHpBar(b: BarEls, hp: number, maxHp: number, sinceHit: number, dt: number) {
+    b.shownHp += (hp - b.shownHp) * Math.min(1, dt * 22);
+    if (hp >= b.chipV) {
+      b.chipV = hp; // healing pulls the chip along
+      b.chipVel = 0;
+    } else if (sinceHit > CHIP_HOLD) {
+      b.chipVel = Math.min(1.4, b.chipVel + dt * 1.6);
+      b.chipV = Math.max(hp, b.chipV - b.chipVel * dt);
+    } else b.chipVel = 0;
+    // both layers are full-width and slide out of the bar, so the leading edge keeps its colour
+    b.fill.style.transform = `translateX(${(b.shownHp - 1) * 100}%)`;
+    b.chip.style.transform = `translateX(${(Math.max(b.chipV, b.shownHp) - 1) * 100}%)`;
+    const n = Math.ceil(b.shownHp * maxHp - 0.01);
+    if (n !== b.lastNum) {
+      b.lastNum = n;
+      b.num.textContent = String(Math.max(0, n));
+    }
+    const lost = Math.round((b.chipV - hp) * maxHp);
+    if (lost >= 5 && lost !== b.lastChipN) {
+      b.chipN.textContent = `-${lost}`;
+      if (lost > b.lastChipN) b.chipN.animate([{ transform: 'scale(1.35)' }, { transform: 'scale(1)' }], { duration: 180, easing: 'ease-out' });
+      b.chipN.classList.add('on');
+    } else if (lost < 5 && b.lastChipN >= 5) b.chipN.classList.remove('on');
+    b.lastChipN = lost;
+    const cls = b.hp.classList;
+    cls.toggle('low', hp < 0.25 && hp > 0);
+    cls.toggle('dead', hp <= 0);
+  }
+
+  /** A hit lands on the bar: a white flash, and a shake that grows with the damage. */
+  private hpHit(b: BarEls, frac: number) {
+    b.flash.style.background = '#fff';
+    b.flash.animate([{ opacity: Math.min(0.9, 0.35 + frac * 6) }, { opacity: 0 }], { duration: 260, easing: 'ease-out' });
+    if (frac < 0.035) return;
+    const a = Math.min(6, 1.5 + frac * 40);
+    b.hp.animate(
+      [
+        { transform: 'none' },
+        { transform: `translate(${a}px, ${-a * 0.5}px)` },
+        { transform: `translate(${-a * 0.8}px, ${a * 0.3}px)` },
+        { transform: `translate(${a * 0.4}px, 0)` },
+        { transform: 'none' },
+      ],
+      { duration: 280, easing: 'ease-out' },
+    );
+  }
+
+  /** Health coming back (siphon) glows green along the bar. */
+  private hpHeal(b: BarEls) {
+    if (b.flash.getAnimations().length) return;
+    b.flash.style.background = 'linear-gradient(90deg, rgba(90, 255, 170, 0), rgba(90, 255, 170, 0.55))';
+    b.flash.animate([{ opacity: 0.9 }, { opacity: 0 }], { duration: 500, easing: 'ease-out' });
   }
 
   /** Recolour the x-ray where a part's condition changed; flash it if it just took damage. */
