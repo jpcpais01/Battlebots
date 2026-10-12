@@ -1,9 +1,20 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RenderSettings } from './settings';
+import { RING_CORNER, ROPE_LINE, ropeSide as sideOf, SIDE_NX, SIDE_NZ } from '../sim/body';
+import { Venue } from './venue';
 
-export const RING_RADIUS = 5.0; // corner radius of the octagon
+export const RING_RADIUS = RING_CORNER; // corner radius of the octagon
 const SIDES = 8;
+const ROPE_HEIGHTS = [0.55, 0.95, 1.35];
+const ROPES = SIDES * ROPE_HEIGHTS.length;
+/** Half the length of one side's ropes, post to post. */
+const ROPE_HALF = RING_RADIUS * Math.sin(Math.PI / SIDES);
+/** Rough armour radius around each physics joint, for pressing into the ropes. */
+const PRESS_RADII = [0.3, 0.36, 0.14, 0.24, 0.2, 0.13, 0.16, 0.2, 0.13, 0.16, 0.17, 0.14, 0.12, 0.17, 0.14, 0.12];
+/** Rope spring: stiffness (wobbles about 3.5 times a second) and damping. */
+const ROPE_K = 480;
+const ROPE_C = 5;
 
 function matTexture(): THREE.CanvasTexture {
   const s = 1024;
@@ -62,49 +73,29 @@ function matTexture(): THREE.CanvasTexture {
   return t;
 }
 
-function screenTexture(): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = 512;
-  c.height = 256;
-  const g = c.getContext('2d')!;
-  const grad = g.createLinearGradient(0, 0, 512, 256);
-  grad.addColorStop(0, '#ff6a1a');
-  grad.addColorStop(1, '#ffb43a');
-  g.fillStyle = '#0b0f1a';
-  g.fillRect(0, 0, 512, 256);
-  g.fillStyle = grad;
-  g.font = 'bold 74px "Russo One", Impact, sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText('BATTLE', 256, 92);
-  g.fillStyle = '#5fe3ff';
-  g.fillText('BOTS', 256, 172);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
 export class Arena {
   readonly group = new THREE.Group();
-  private crowdMat: THREE.MeshLambertMaterial | null = null;
-  private lightsMat: THREE.ShaderMaterial | null = null;
+  readonly venue: Venue;
   private ropeMat: THREE.MeshBasicMaterial;
   private ropeBase = new THREE.Color(0x52e6ff).multiplyScalar(0.9);
   private ropeFlash = 0;
+  /**
+   * Per rope (side * 3 + height): where along it the push lands (0..1 post to post),
+   * how far it is bowed out, and how much it is swinging free (sine) rather than
+   * pressed into a V by a body. Packed as vec4s for the vertex shader.
+   */
+  private ropeU = { value: new Float32Array(ROPES * 4) };
+  private ropeVel = new Float32Array(ROPES);
+  private ropePress = new Float32Array(ROPES);
+  private ropeAt = new Float32Array(ROPES);
   private beams: THREE.Mesh[] = [];
   readonly uniforms = { uTime: { value: 0 }, uHype: { value: 0.3 } };
   private hype = 0.3;
 
   constructor(quality: 'low' | 'med' | 'high') {
     const g = this.group;
-    // ground
-    const ground = new THREE.Mesh(
-      new THREE.CircleGeometry(60, 48),
-      new THREE.MeshStandardMaterial({ color: 0x0a0d15, roughness: 0.85, metalness: 0.2 }),
-    );
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -0.62;
-    g.add(ground);
+    // the arena around the ring: stands, crowd, boards, roof (added to the scene beside `group`)
+    this.venue = new Venue(quality, this.uniforms);
 
     // stage: base + canvas
     const base = new THREE.Mesh(
@@ -168,18 +159,39 @@ export class Arena {
       cap.translate(c.x, 1.76, c.z);
       capGeos.push(cap);
     }
-    const heights = [0.55, 0.95, 1.35];
+    // ropes: 16 segments each so they can bow; the vertex shader bends them
     for (let i = 0; i < SIDES; i++) {
       const p0 = corners[i];
       const p1 = corners[(i + 1) % SIDES];
       const len = p0.distanceTo(p1);
-      for (const h of heights) {
-        const rope = new THREE.CylinderGeometry(0.016, 0.016, len, 6, 1, true);
+      // side i runs between corners i and i+1, so it faces halfway between them
+      const side = (i + 1) % SIDES;
+      const nx = SIDE_NX[side], nz = SIDE_NZ[side];
+      for (let h = 0; h < ROPE_HEIGHTS.length; h++) {
+        const rope = new THREE.CylinderGeometry(0.016, 0.016, len, 6, 16, true);
         rope.rotateZ(Math.PI / 2);
         rope.rotateY(-Math.atan2(p1.z - p0.z, p1.x - p0.x));
-        rope.translate((p0.x + p1.x) / 2, h, (p0.z + p1.z) / 2);
+        rope.translate((p0.x + p1.x) / 2, ROPE_HEIGHTS[h], (p0.z + p1.z) / 2);
+        const pos = rope.attributes.position;
+        const n = pos.count;
+        const idx = new Float32Array(n).fill(side * ROPE_HEIGHTS.length + h);
+        const t = new Float32Array(n);
+        const out = new Float32Array(n * 2);
+        for (let v = 0; v < n; v++) {
+          const u = -pos.getX(v) * nz + pos.getZ(v) * nx;
+          t[v] = Math.min(1, Math.max(0, (u + ROPE_HALF) / (2 * ROPE_HALF)));
+          out[v * 2] = nx;
+          out[v * 2 + 1] = nz;
+        }
+        rope.setAttribute('aRope', new THREE.BufferAttribute(idx, 1));
+        rope.setAttribute('aT', new THREE.BufferAttribute(t, 1));
+        rope.setAttribute('aOut', new THREE.BufferAttribute(out, 2));
         ropeGeos.push(rope);
       }
+    }
+    for (let k = 0; k < ROPES; k++) {
+      this.ropeU.value[k * 4] = 0.5;
+      this.ropeU.value[k * 4 + 2] = 1;
     }
     const posts = new THREE.Mesh(
       mergeGeometries(postGeos)!,
@@ -194,12 +206,32 @@ export class Arena {
       ),
     );
     this.ropeMat = new THREE.MeshBasicMaterial({ color: this.ropeBase.clone(), toneMapped: false });
-    g.add(new THREE.Mesh(mergeGeometries(ropeGeos)!, this.ropeMat));
+    const ropeU = this.ropeU;
+    this.ropeMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uRope = ropeU;
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+           attribute float aRope; attribute float aT; attribute vec2 aOut; uniform vec4 uRope[${ROPES}];`,
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+           vec4 rp = uRope[int(aRope + 0.5)];
+           // pressed: straight lines from each post to the contact (a V); free: a swinging arc
+           float s = clamp(rp.x, 0.08, 0.92);
+           float vee = aT < s ? aT / s : (1.0 - aT) / (1.0 - s);
+           float shape = mix(vee, sin(3.14159265 * aT), rp.z);
+           transformed.xz += aOut * rp.y * shape;`,
+        );
+    };
+    const ropes = new THREE.Mesh(mergeGeometries(ropeGeos)!, this.ropeMat);
+    // bowing ropes reach past the merged bounds; they ring the camera's subject anyway
+    ropes.frustumCulled = false;
+    g.add(ropes);
 
-    // stands + crowd
-    this.buildCrowd(quality);
-
-    // overhead rig: truss ring + screen + beams
+    // overhead rig: truss ring + beams
     const truss = new THREE.Mesh(
       new THREE.TorusGeometry(6.5, 0.12, 6, 48),
       new THREE.MeshStandardMaterial({ color: 0x22262f, metalness: 0.8, roughness: 0.4 }),
@@ -207,19 +239,6 @@ export class Arena {
     truss.rotation.x = Math.PI / 2;
     truss.position.y = 8.5;
     g.add(truss);
-    const screenMat = new THREE.MeshBasicMaterial({ map: screenTexture(), toneMapped: false });
-    const screen = new THREE.Group();
-    for (let i = 0; i < 4; i++) {
-      const p = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 1.3), screenMat);
-      p.position.set(Math.sin((i * Math.PI) / 2) * 1.31, 0, Math.cos((i * Math.PI) / 2) * 1.31);
-      p.rotation.y = (i * Math.PI) / 2;
-      screen.add(p);
-    }
-    const box = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.4, 2.6), new THREE.MeshStandardMaterial({ color: 0x111319, metalness: 0.6, roughness: 0.5 }));
-    box.scale.set(0.99, 1.05, 0.99);
-    screen.add(box);
-    screen.position.y = 10.5;
-    g.add(screen);
 
     // light beams (fake volumetrics)
     const beamMat = new THREE.ShaderMaterial({
@@ -251,122 +270,126 @@ export class Arena {
     }
   }
 
-  private buildCrowd(quality: 'low' | 'med' | 'high') {
-    const g = this.group;
-    // tiered stands
-    const standMat = new THREE.MeshStandardMaterial({ color: 0x141821, metalness: 0.3, roughness: 0.8 });
-    const tiers = 6;
-    for (let t = 0; t < tiers; t++) {
-      const r0 = 9 + t * 1.1;
-      const ring = new THREE.Mesh(new THREE.CylinderGeometry(r0 + 1.1, r0 + 1.1, 0.55 + t * 0.6, 32, 1, true), standMat);
-      ring.position.y = -0.6 + (0.55 + t * 0.6) / 2;
-      g.add(ring);
-      const top = new THREE.Mesh(new THREE.RingGeometry(r0, r0 + 1.1, 32), standMat);
-      top.rotation.x = -Math.PI / 2;
-      top.position.y = -0.6 + 0.55 + t * 0.6;
-      g.add(top);
-    }
-    const count = quality === 'low' ? 380 : quality === 'med' ? 700 : 1100;
-    const person = mergeGeometries([
-      new THREE.CapsuleGeometry(0.22, 0.45, 3, 8).translate(0, 0.45, 0),
-      new THREE.SphereGeometry(0.16, 8, 6).translate(0, 1.0, 0),
-    ])!;
-    this.crowdMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    const uniforms = this.uniforms;
-    this.crowdMat.onBeforeCompile = (shader) => {
-      shader.uniforms.uTime = uniforms.uTime;
-      shader.uniforms.uHype = uniforms.uHype;
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nuniform float uTime; uniform float uHype;')
-        .replace(
-          '#include <begin_vertex>',
-          `#include <begin_vertex>
-           float seed = float(gl_InstanceID) * 12.9898;
-           float ph = fract(sin(seed) * 43758.5453) * 6.283;
-           float sp = 3.0 + fract(sin(seed * 1.7) * 9631.1) * 4.0;
-           transformed.y += max(0.0, sin(uTime * sp + ph)) * (0.04 + 0.22 * uHype);`,
-        );
-    };
-    const crowd = new THREE.InstancedMesh(person, this.crowdMat, count);
-    const dummy = new THREE.Object3D();
-    const color = new THREE.Color();
-    const shirt = [0x2a3550, 0x3a2a40, 0x1f3a3a, 0x4a3326, 0x30303a, 0x50202a, 0x203050];
-    let n = 0;
-    const lightPos: number[] = [];
-    const lightCol: number[] = [];
-    for (let t = 0; t < tiers && n < count; t++) {
-      const r = 9.5 + t * 1.1;
-      const per = Math.floor(count / tiers);
-      for (let i = 0; i < per && n < count; i++) {
-        const a = (i / per) * Math.PI * 2 + Math.random() * 0.05 + t * 0.3;
-        const rr = r + Math.random() * 0.4;
-        const y = -0.6 + 0.55 + t * 0.6;
-        dummy.position.set(Math.cos(a) * rr, y, Math.sin(a) * rr);
-        dummy.lookAt(0, y + 0.5, 0);
-        const s = 0.85 + Math.random() * 0.3;
-        dummy.scale.set(s, s, s);
-        dummy.updateMatrix();
-        crowd.setMatrixAt(n, dummy.matrix);
-        color.setHex(shirt[Math.floor(Math.random() * shirt.length)]).multiplyScalar(0.22 + Math.random() * 0.16);
-        crowd.setColorAt(n, color);
-        n++;
-        if (Math.random() < 0.18) {
-          lightPos.push(dummy.position.x * 0.98, y + 1.25, dummy.position.z * 0.98);
-          const hue = Math.random();
-          color.setHSL(hue < 0.5 ? 0.08 : hue < 0.8 ? 0.53 : 0.9, 0.9, 0.6);
-          lightCol.push(color.r, color.g, color.b);
-        }
-      }
-    }
-    crowd.count = n;
-    crowd.instanceMatrix.needsUpdate = true;
-    g.add(crowd);
-
-    // twinkling light sticks / phones as points
-    const lg = new THREE.BufferGeometry();
-    lg.setAttribute('position', new THREE.Float32BufferAttribute(lightPos, 3));
-    lg.setAttribute('color', new THREE.Float32BufferAttribute(lightCol, 3));
-    this.lightsMat = new THREE.ShaderMaterial({
-      uniforms: { uTime: this.uniforms.uTime, uHype: this.uniforms.uHype, uScale: { value: 300 } },
-      vertexShader: /* glsl */ `
-        attribute vec3 color; varying vec3 vC; varying float vA; uniform float uTime; uniform float uHype; uniform float uScale;
-        void main(){ vC = color; float s = fract(sin(dot(position.xz, vec2(12.9898,78.233))) * 43758.5453);
-          vA = 0.45 + 0.55 * sin(uTime * (2.0 + s * 3.0) + s * 40.0) * (0.5 + uHype);
-          vec4 mv = modelViewMatrix * vec4(position + vec3(0., max(0., sin(uTime*5.0+s*30.0))*0.2*uHype, 0.), 1.0);
-          gl_PointSize = uScale * 0.06 / -mv.z; gl_Position = projectionMatrix * mv; }`,
-      fragmentShader: /* glsl */ `
-        varying vec3 vC; varying float vA;
-        void main(){ vec2 d = gl_PointCoord - 0.5; float r = dot(d,d); if (r > 0.25) discard; float a = smoothstep(0.25, 0.0, r) * vA; gl_FragColor = vec4(vC * 2.0 * a, a); }`,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    const pts = new THREE.Points(lg, this.lightsMat);
-    pts.frustumCulled = false;
-    g.add(pts);
-  }
-
   setPixelScale(h: number) {
-    if (this.lightsMat) this.lightsMat.uniforms.uScale.value = h;
+    this.venue.setPixelScale(h);
   }
 
   flashRopes(k = 1) {
     this.ropeFlash = Math.min(1.5, this.ropeFlash + k);
   }
 
+  /** A fighter slammed into the ropes: that side's ropes twang outwards. */
+  ropeHit(x: number, z: number, strength: number) {
+    const side = sideOf(x, z);
+    const at = (-x * SIDE_NZ[side] + z * SIDE_NX[side] + ROPE_HALF) / (2 * ROPE_HALF);
+    for (let h = 0; h < ROPE_HEIGHTS.length; h++) {
+      const k = side * ROPE_HEIGHTS.length + h;
+      this.ropeVel[k] += Math.min(3, strength) * (h === 1 ? 0.5 : 0.35);
+      this.ropeU.value[k * 4] = Math.min(0.92, Math.max(0.08, at));
+    }
+  }
+
+  /**
+   * Let the fighters' bodies press into the ropes. Each joint is treated as a ball
+   * the size of the armour around it; where it crosses a rope's line, that rope is
+   * pushed out to meet it. Cheap: 32 balls against the 3 ropes of their nearest side.
+   */
+  pressRopes(bodies: readonly (readonly THREE.Vector3[])[]) {
+    const press = this.ropePress.fill(0);
+    const at = this.ropeAt;
+    const nH = ROPE_HEIGHTS.length;
+    for (const joints of bodies) {
+      for (let j = 0; j < joints.length; j++) {
+        const p = joints[j];
+        const rad = PRESS_RADII[j] ?? 0.15;
+        const side = sideOf(p.x, p.z);
+        const nx = SIDE_NX[side], nz = SIDE_NZ[side];
+        const reach = p.x * nx + p.z * nz - ROPE_LINE;
+        if (reach + rad <= 0) continue;
+        const along = (-p.x * nz + p.z * nx + ROPE_HALF) / (2 * ROPE_HALF);
+        for (let h = 0; h < nH; h++) {
+          const dy = p.y - ROPE_HEIGHTS[h];
+          if (Math.abs(dy) >= rad) continue;
+          // the ball's width at the rope's height
+          const d = reach + Math.sqrt(rad * rad - dy * dy);
+          const k = side * nH + h;
+          if (d > press[k]) {
+            press[k] = d;
+            at[k] = along;
+          }
+        }
+      }
+    }
+    // the ropes are tied together at the posts and sag together: neighbours follow a little
+    for (let side = 0; side < SIDES; side++) {
+      const k = side * nH;
+      const mid = press[k + 1];
+      if (press[k] < mid * 0.35) {
+        press[k] = mid * 0.35;
+        at[k] = at[k + 1];
+      }
+      if (press[k + 2] < mid * 0.35) {
+        press[k + 2] = mid * 0.35;
+        at[k + 2] = at[k + 1];
+      }
+      const hi = Math.max(press[k], press[k + 2]);
+      if (press[k + 1] < hi * 0.35) {
+        press[k + 1] = hi * 0.35;
+        at[k + 1] = press[k] > press[k + 2] ? at[k] : at[k + 2];
+      }
+    }
+  }
+
+  private updateRopes(dt: number) {
+    if (dt <= 0) return;
+    const u = this.ropeU.value;
+    const step = Math.min(dt, 1 / 30);
+    for (let k = 0; k < ROPES; k++) {
+      let x = u[k * 4 + 1];
+      let v = this.ropeVel[k];
+      const press = this.ropePress[k];
+      // springs back (overshooting a touch into the ring), then settles
+      v += (-ROPE_K * x - ROPE_C * v) * step;
+      x += v * step;
+      if (press > x) {
+        // a body is leaning on it: the rope stays wrapped against the armour
+        v = Math.max(v, Math.min(4, (press - x) / step));
+        x = press;
+        u[k * 4] += (this.ropeAt[k] - u[k * 4]) * Math.min(1, step * 20);
+        u[k * 4 + 2] = Math.max(0, u[k * 4 + 2] - step * 8);
+      } else {
+        // let go: it swings in its natural arc
+        u[k * 4 + 2] = Math.min(1, u[k * 4 + 2] + step * 2.5);
+      }
+      if (x > 0.7) {
+        x = 0.7;
+        v = Math.min(v, 0);
+      } else if (x < -0.2) {
+        x = -0.2;
+        v = Math.max(v, 0);
+      }
+      u[k * 4 + 1] = x;
+      this.ropeVel[k] = v;
+    }
+  }
+
   excite(k: number) {
     this.hype = Math.min(1.5, this.hype + k);
+    if (k >= 1) this.venue.strobe(k * 0.6);
   }
 
   update(dt: number, time: number) {
     this.uniforms.uTime.value = time;
     this.hype += (0.3 - this.hype) * Math.min(1, dt * 0.5);
     this.uniforms.uHype.value = this.hype;
+    this.venue.update(dt, time, this.hype);
     this.ropeFlash = Math.max(0, this.ropeFlash - dt * 3);
     this.ropeMat.color.copy(this.ropeBase).multiplyScalar(1 + this.ropeFlash * 1.6);
+    this.updateRopes(dt);
     for (let i = 0; i < this.beams.length; i++) {
       const b = this.beams[i];
       b.rotation.z = Math.sin(time * 0.3 + i) * 0.04;
     }
   }
 }
+

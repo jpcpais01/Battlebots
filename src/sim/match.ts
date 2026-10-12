@@ -1,6 +1,6 @@
 import { Vector3 } from 'three';
 import { Brain, type BrainEvent } from './brain';
-import { J } from './body';
+import { J, RING_CORNER, ROPE_LINE, ropeSide, SIDE_NX, SIDE_NZ } from './body';
 import { Fighter, type StrikeAction } from './fighter';
 import type { MoveDef, Zone } from './moves';
 import { clamp, closestOnSegment, lerp, Rng, smoothstep } from './math';
@@ -31,6 +31,17 @@ export interface HitInfo {
 }
 
 export type MatchListener = (type: string, data: any) => void; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+/** How far a standing fighter's armour reaches out from its root (where it meets the ropes). */
+const ROPE_REACH = 0.25;
+/** How far a standing fighter can sink into the ropes before they stop giving. */
+const ROPE_STRETCH = 0.3;
+/** A standing fighter's root never gets closer to a corner post than this. */
+const POST_CLEAR = 0.65;
+/** Rope stiffness (m/s^2 of push-back per metre of stretch). */
+const ROPE_K = 60;
+/** How quickly stretching ropes soak up outward speed (1/s). */
+const ROPE_DAMP = 5;
 
 const _a = new Vector3();
 const _b = new Vector3();
@@ -159,23 +170,42 @@ export class Match {
   // ------------------------------------------------------------------ physics
   private separate() {
     const [a, b] = this.fighters;
-    const R = a.body.arenaRadius - 0.42;
+    // the ropes: once a standing fighter's armour reaches them they stretch up to
+    // ROPE_STRETCH, pushing back harder the deeper the fighter sinks in
     for (const f of this.fighters) {
-      const r = Math.hypot(f.root.x, f.root.z);
-      if (r > R && !f.isDown) {
-        const nx = f.root.x / r, nz = f.root.z / r;
-        f.root.x = nx * R;
-        f.root.z = nz * R;
-        const out = f.rootVel.x * nx + f.rootVel.z * nz;
-        if (out > 0) {
-          // ropes bounce you back a little
-          f.rootVel.x -= nx * out * 1.35;
-          f.rootVel.z -= nz * out * 1.35;
-          if (out > 1.2 && this.ropeCooldown[f.index] <= 0) {
-            this.ropeCooldown[f.index] = 0.6;
-            this.emit('ropes', { f, strength: out, x: f.root.x, z: f.root.z });
+      if (f.isDown) continue;
+      const side = ropeSide(f.root.x, f.root.z);
+      const nx = SIDE_NX[side], nz = SIDE_NZ[side];
+      const pen = f.root.x * nx + f.root.z * nz - (ROPE_LINE - ROPE_REACH);
+      if (pen > 0) {
+        let out = f.rootVel.x * nx + f.rootVel.z * nz;
+        if (out > 1.2 && this.ropeCooldown[f.index] <= 0) {
+          this.ropeCooldown[f.index] = 0.6;
+          this.emit('ropes', { f, strength: out, x: f.root.x, z: f.root.z });
+        }
+        // spring back towards the ring, and the stretch soaks up outward speed
+        let dv = pen * ROPE_K * SIM_DT;
+        if (out > 0) dv += out * Math.min(1, ROPE_DAMP * SIM_DT);
+        f.rootVel.x -= nx * dv;
+        f.rootVel.z -= nz * dv;
+        if (pen > ROPE_STRETCH) {
+          // fully stretched: they stop you dead and fling you back a little
+          f.root.x -= nx * (pen - ROPE_STRETCH);
+          f.root.z -= nz * (pen - ROPE_STRETCH);
+          out = f.rootVel.x * nx + f.rootVel.z * nz;
+          if (out > 0) {
+            f.rootVel.x -= nx * out * 1.35;
+            f.rootVel.z -= nz * out * 1.35;
           }
         }
+      }
+      // keep clear of the corner posts
+      const c = Math.round((Math.atan2(f.root.z, f.root.x) - Math.PI / 8) / (Math.PI / 4)) * (Math.PI / 4) + Math.PI / 8;
+      const cx = f.root.x - Math.cos(c) * RING_CORNER, cz = f.root.z - Math.sin(c) * RING_CORNER;
+      const dc = Math.hypot(cx, cz);
+      if (dc < POST_CLEAR && dc > 1e-5) {
+        f.root.x += (cx / dc) * (POST_CLEAR - dc);
+        f.root.z += (cz / dc) * (POST_CLEAR - dc);
       }
     }
     if (a.isDown || b.isDown) {

@@ -1,7 +1,7 @@
 import { Vector3 } from 'three';
 import { Fighter, makeObservation, type DodgeType, type GuardMode, type Observation, type StrikeAction } from './fighter';
 import { BASIC_PUNCHES, MOVES, type MoveDef, type MoveId, type Zone } from './moves';
-import { clamp, clamp01, lerp, Noise1, Rng, sigmoid, softmaxPick } from './math';
+import { clamp, clamp01, lerp, Rng, sigmoid, softmaxPick } from './math';
 import { J } from './body';
 
 /**
@@ -58,8 +58,27 @@ export interface Traits {
   skill: number;
   /** Desired fighting distance bias in meters (+ = likes it longer). */
   rangeBias: number;
+  /** Busy feet (always stepping) vs flat-footed and planted. */
+  footwork: number;
+  /** Likes to slip, duck and roll even when nothing is coming. */
+  headMovement: number;
+  /** Stays in the pocket to trade after a combo instead of getting out. */
+  pocketLove: number;
   style: string;
 }
+
+/** Natural follow-ups: what tends to come after what in a combination. */
+const FOLLOW: Partial<Record<MoveId, Partial<Record<MoveId, number>>>> = {
+  jab: { jab: 3, cross: 9, leadHook: 3, rearUpper: 2 },
+  cross: { leadHook: 8, leadUpper: 4, jab: 2 },
+  leadHook: { cross: 7, rearUpper: 4, rearHook: 2 },
+  rearHook: { leadHook: 5, leadUpper: 5 },
+  leadUpper: { rearHook: 6, cross: 4 },
+  rearUpper: { leadHook: 7, cross: 2 },
+};
+
+type AfterBurst = 'stay' | 'back' | 'pivot' | 'cover';
+type OppEntryReact = 'meet' | 'back' | 'pivot' | 'hold';
 
 export interface BrainEvent {
   kind: 'read' | 'switch' | 'adapt' | 'taunt' | 'retreat' | 'rally';
@@ -71,7 +90,6 @@ export class Brain {
   readonly opp: Fighter;
   readonly rng: Rng;
   readonly traits: Traits;
-  private noise: Noise1;
 
   // perception
   private buf: Observation[] = [];
@@ -99,7 +117,46 @@ export class Brain {
   private punishUntil = 0;
   /** After a combo, step back out of range (hit and move). */
   private exitUntil = 0;
+  private exitLat = 0;
   private baseRangeBias = 0;
+
+  // flow: fights breathe. Pressure builds while I wait at range, an opening (or
+  // impatience) sends me in behind a combination, then I get out, hold my ground
+  // or stay to trade. None of it is on a timer: the pieces feed off each other.
+  /** 0..1 urge to go, builds at range, spikes on openings, spent by a burst. */
+  tempo = 0;
+  /** Tempo at which this cycle's attack starts (resampled every burst). */
+  private trigger = 0.6;
+  /** How fast tempo builds this cycle: some lulls drag on, some don't. */
+  private tempoPace = 1;
+  private entryUntil = 0;
+  /** A stutter step: looks like an entry, bails out to draw a reaction. */
+  private entryFake = false;
+  private comboGoal = 1;
+  private inBurst = false;
+  private burstHits = 0;
+  private burstCountered = false;
+  /** Planted in the pocket, trading. */
+  private stayUntil = 0;
+  /** Shelled up after a combo or a big shot. */
+  private coverUntil = 0;
+  private returnFireUntil = 0;
+  /** Reaction to the opponent stepping in on me. */
+  private reactUntil = 0;
+  private react: OppEntryReact = 'hold';
+  private reactCooldown = 0;
+  /** Recent damage taken (fraction of max HP), decays. */
+  private pain = 0;
+  private oppStill = 0;
+  private headTimer = 1;
+  private tauntAt = 0;
+
+  // footwork: steps and plants instead of a constant glide
+  private gaitT = 0;
+  private gaitMoving = false;
+  private stepX = 0;
+  private stepZ = 0;
+  private stepSpeed = 0;
 
   // learning
   private moveVal = new Map<string, Ema>();
@@ -120,7 +177,6 @@ export class Brain {
   fear = 0;
   confidence = 0.5;
   private comboCount = 0;
-  private lastAttackT = 0;
   private aimNoise = new Vector3();
   private aimUid = -1;
   private tauntTimer = 0;
@@ -135,7 +191,6 @@ export class Brain {
     this.me = me;
     this.opp = opp;
     this.rng = rng;
-    this.noise = new Noise1(rng);
     for (let i = 0; i < PERCEPTION_BUFFER; i++) this.buf.push(makeObservation());
     this.traits = this.rollTraits();
     this.baseRangeBias = this.traits.rangeBias;
@@ -163,6 +218,15 @@ export class Brain {
     if (aggression > 0.68) style = rangeBias < 0 ? 'Brawler' : 'Swarmer';
     else if (rangeBias > 0.06 || patience > 0.7) style = 'Out-fighter';
     else if (caution > 0.6) style = 'Counter-puncher';
+    const lean: Record<string, [number, number, number]> = {
+      // footwork, head movement, pocket love
+      Boxer: [0.55, 0.35, 0.35],
+      Brawler: [0.2, 0.15, 0.85],
+      Swarmer: [0.6, 0.65, 0.7],
+      'Out-fighter': [0.85, 0.3, 0.1],
+      'Counter-puncher': [0.3, 0.55, 0.3],
+    };
+    const [fw, hm, pl] = lean[style];
     return {
       aggression,
       caution,
@@ -175,6 +239,9 @@ export class Brain {
       comboAppetite: clamp(r.range(0.3, 0.85) + (f.fistAbility === 'flurry' ? 0.15 : 0), 0, 1),
       skill,
       rangeBias,
+      footwork: clamp(fw + r.range(-0.12, 0.12) + (st.agility - 1) * 0.8, 0.05, 1),
+      headMovement: clamp(hm + r.range(-0.12, 0.12) + (st.agility - 1) * 0.5, 0, 1),
+      pocketLove: clamp(pl + r.range(-0.15, 0.15), 0, 1),
       style,
     };
   }
@@ -266,8 +333,10 @@ export class Brain {
     if (me.state === 'down' || me.state === 'getup' || me.state === 'ko' || me.state === 'ready') {
       me.intentVel.set(0, 0, 0);
       this.pending = null;
+      if (this.inBurst) this.endBurst();
       return;
     }
+    if (this.inBurst && !me.strike) this.endBurst();
 
     // aim tracking during my own windup
     const s = me.strike;
@@ -283,6 +352,7 @@ export class Brain {
       return;
     }
 
+    this.updateFlow(dt);
     this.updateGuard();
     this.steer(dt);
 
@@ -318,7 +388,20 @@ export class Brain {
     }
 
     if (!me.canStrike(chain)) return;
-    this.considerAttack(chain);
+    if (this.considerAttack(chain) || chain) return;
+    // ready to go but out of range: step in behind the punches
+    const d = this.perceivedDist();
+    if (
+      !this.inBurst &&
+      this.tempo >= this.trigger &&
+      this.time > this.entryUntil + 0.25 &&
+      d > this.myPunchRange() * 0.92 &&
+      d < 3.4 &&
+      p.state === 'fight' &&
+      this.plan !== 'retreat' &&
+      this.plan !== 'wait'
+    )
+      this.startEntry(d);
   }
 
   private planInvalid() {
@@ -352,7 +435,7 @@ export class Brain {
       (1 - agg) * 0.6 + t.rangeBias * 3 + mid * 0.9 + far * 0.3 + t.skill * 0.15,
       t.patience * 0.7 + cau * 0.4 + this.oppAttackRate.v * 0.3 + mid * 0.4 - agg * 0.2,
       nearRope * 1.3 + cau * 0.3 + 0.1,
-      (1 - stam) * 1.1 + this.fear * 1.2 - hpAdv * 0.6 - agg * 0.7 + (this.comboCount === 0 && this.recentTaken() > 0.08 ? 0.6 : 0),
+      (1 - stam) * 1.1 + this.fear * 1.2 - hpAdv * 0.6 - agg * 0.7 + (!this.inBurst && this.recentTaken() > 0.12 ? 0.35 : 0),
       oppStunned * 3 - (1 - stam) * 0.5,
       p.state === 'down' ? 5 : -5,
     ];
@@ -391,83 +474,292 @@ export class Brain {
     return (d - tk) / (d + tk + 60);
   }
 
+  // ---------------------------------------------------------------------- flow
+  private updateFlow(dt: number) {
+    const me = this.me;
+    const p = this.perceived;
+    const t = this.traits;
+    const d = this.perceivedDist();
+    this.pain = Math.max(0, this.pain - dt * 0.2);
+    this.reactCooldown -= dt;
+    this.oppStill = Math.hypot(p.vel.x, p.vel.z) < 0.25 ? this.oppStill + dt : 0;
+    const oppUp = p.state !== 'down' && p.state !== 'getup' && p.state !== 'ko';
+
+    // the urge to go builds while nothing is happening
+    if (!this.inBurst && oppUp) {
+      let rate = 0.1 + this.effAggression() * 0.32 + t.skill * 0.05;
+      rate *= (1 - this.fear * 0.5) * (1 - this.tired * 0.5) * this.tempoPace;
+      if (this.plan === 'retreat') rate *= 0.45;
+      else if (this.plan === 'wait') rate *= 0.2;
+      else if (this.plan === 'pressure' || this.plan === 'swarm') rate *= 1.5;
+      if (this.time < this.stayUntil) rate *= 2.2;
+      if (this.time < this.coverUntil) rate *= 0.3;
+      // openings: a planted target, low hands, a tired or trapped opponent
+      if (d < this.myPunchRange() + 0.3) {
+        if (this.oppStill > 0.35) rate += 0.15;
+        rate += Math.max(0, p.guardLower - 0.2) * 0.4;
+        if (p.stamina < 0.3) rate += 0.15;
+      }
+      const R = me.body.arenaRadius;
+      if (Math.hypot(this.predPos.x, this.predPos.z) > R - 1.2) rate += 0.2;
+      this.tempo = clamp01(this.tempo + rate * dt);
+    }
+
+    if (!oppUp || me.action) return;
+    // they're stepping in on me
+    if (this.reactCooldown <= 0 && this.time > this.entryUntil && !this.inBurst) {
+      const closing = -(p.vel.x * (this.predPos.x - me.root.x) + p.vel.z * (this.predPos.z - me.root.z)) / Math.max(0.1, d);
+      const threat = Math.max(this.oppAttackRange.v, 1.1);
+      if (closing > 0.7 && d < threat + 0.45 && d > this.myPunchRange() * 0.7) this.onOppEntry();
+    }
+    // head movement: a slip or a dip now and then while in their range
+    this.headTimer -= dt;
+    if (this.headTimer <= 0) {
+      this.headTimer = this.rng.range(0.45, 1.1);
+      const inRange = d < Math.max(this.oppAttackRange.v, 1.1) + 0.15;
+      if (inRange && me.staminaRatio > 0.3 && this.rng.chance(t.headMovement * 0.28)) {
+        const k = this.rng.next();
+        const kind: DodgeType = k < 0.45 ? 'slip' : k < 0.75 ? 'duck' : 'sway';
+        me.tryDodge(kind, this.rng.sign());
+      }
+    }
+  }
+
+  /** The opponent is coming in: meet them, give ground, turn them, or stand and cover. */
+  private onOppEntry() {
+    const t = this.traits;
+    const me = this.me;
+    const cau = this.effCaution();
+    const agg = this.effAggression();
+    const r = Math.hypot(me.root.x, me.root.z);
+    const nearRope = clamp01((r - (me.body.arenaRadius - 1.6)) / 1.0);
+    const kinds: OppEntryReact[] = ['meet', 'back', 'pivot', 'hold'];
+    const u = [
+      t.skill * 0.5 + agg * 0.4 + (this.plan === 'counter' ? 0.6 : 0) + (me.staminaRatio < 0.25 ? -0.5 : 0),
+      t.footwork * 0.8 + cau * 0.4 + Math.max(0, t.rangeBias) * 3 - nearRope * 1.2,
+      t.footwork * 0.5 + t.skill * 0.4 + nearRope * 0.5,
+      (1 - t.footwork) * 0.6 + cau * 0.3 + t.pocketLove * 0.4,
+    ];
+    this.react = kinds[softmaxPick(u, 0.25, this.rng)];
+    this.reactCooldown = this.rng.range(1.2, 2.2);
+    if (this.react === 'meet') {
+      // stick a punch on them as they arrive
+      this.tempo = 1;
+      this.trigger = 0;
+      this.comboGoal = this.rng.chance(0.6) ? 1 : 2;
+      this.reactUntil = this.time + 0.5;
+    } else {
+      this.reactUntil = this.time + this.rng.range(0.4, 0.6);
+      if (this.react === 'pivot') this.circleDir = this.chooseCircleDir();
+      if (this.react === 'hold') this.coverUntil = this.reactUntil;
+    }
+  }
+
+  private startEntry(d: number) {
+    const t = this.traits;
+    const pocket = this.myPunchRange() * 0.82;
+    this.entryFake = this.rng.chance(t.feintiness * 0.35);
+    if (this.entryFake) this.entryUntil = this.time + this.rng.range(0.18, 0.3);
+    else this.entryUntil = this.time + clamp((d - pocket) / (this.me.build.stats.moveSpeed * 0.9) + 0.3, 0.35, 1.1);
+    if (this.entryFake) {
+      // stop short and get back out: did they bite?
+      this.exitUntil = this.entryUntil + this.rng.range(0.25, 0.4);
+      this.exitLat = 0;
+    }
+    this.stayUntil = 0;
+    this.circleDir = this.rng.chance(0.7) ? this.circleDir : -this.circleDir;
+    // slip in behind the lead hand
+    if (!this.entryFake && this.rng.chance(t.headMovement * 0.25)) this.me.tryDodge('slip', this.rng.sign());
+  }
+
+  private sampleTrigger() {
+    const t = this.traits;
+    // no beat: mostly soon-ish, now and then straight back in, now and then a long look
+    this.tempoPace = this.rng.range(0.5, 1.7);
+    const u = this.rng.next();
+    return clamp(0.05 + u * u * 1.1 + t.patience * 0.15 - t.aggression * 0.1, 0.03, 1);
+  }
+
+  private sampleComboGoal(oppRocked: number) {
+    if (this.time < this.reactUntil && this.react === 'meet') return this.comboGoal;
+    const r =
+      this.traits.comboAppetite +
+      oppRocked * 0.4 +
+      (this.time < this.stayUntil ? 0.15 : 0) +
+      (this.time < this.returnFireUntil ? 0.25 : 0) -
+      this.tired * 0.4;
+    const w = [Math.max(0.15, 1.1 - r), 1, 0.25 + r * 0.9, 0.05 + r * 0.5];
+    let x = this.rng.next() * (w[0] + w[1] + w[2] + w[3]);
+    for (let i = 0; i < 4; i++) {
+      x -= w[i];
+      if (x <= 0) return i + 1;
+    }
+    return 2;
+  }
+
+  /** A combination is over: stay and trade, get out, turn them, or cover up. */
+  private endBurst(choose = true) {
+    this.inBurst = false;
+    this.comboCount = 0;
+    this.tempo = this.rng.range(0, 0.2);
+    this.trigger = this.sampleTrigger();
+    this.entryUntil = 0;
+    if (!choose) return;
+    const me = this.me;
+    const t = this.traits;
+    const p = this.perceived;
+    const cau = this.effCaution();
+    const agg = this.effAggression();
+    const oppRocked = p.state === 'stagger' ? 1 : p.state === 'stun' ? 0.5 : 0;
+    const r = Math.hypot(me.root.x, me.root.z);
+    const nearRope = clamp01((r - (me.body.arenaRadius - 1.6)) / 1.0);
+    const kinds: AfterBurst[] = ['stay', 'back', 'pivot', 'cover'];
+    const u = [
+      t.pocketLove * 1.4 +
+        agg * 0.4 +
+        (this.burstHits > 0 ? 0.35 : 0) +
+        oppRocked * 1.5 +
+        (this.plan === 'swarm' ? 2 : this.plan === 'pressure' ? 0.4 : 0) -
+        this.tired * 0.6 -
+        this.fear * 0.8 -
+        (this.burstCountered ? 0.5 : 0),
+      cau * 0.7 +
+        Math.max(0, t.rangeBias) * 4 +
+        (1 - t.pocketLove) * 0.5 +
+        (this.burstCountered ? 0.6 : 0) +
+        (this.plan === 'outbox' ? 0.4 : 0) -
+        nearRope * 1.2,
+      t.footwork * 0.6 + t.skill * 0.4 + nearRope * 0.6,
+      0.15 + cau * 0.3 + (1 - t.footwork) * 0.3 + this.tired * 0.4,
+    ];
+    const k = kinds[softmaxPick(u, 0.3, this.rng)];
+    const now = this.time;
+    this.stayUntil = 0;
+    if (k === 'stay') this.stayUntil = now + this.rng.range(0.9, 2.4);
+    else if (k === 'back') {
+      this.exitUntil = now + this.rng.range(0.4, 0.75);
+      this.exitLat = this.rng.range(-0.3, 0.3);
+    } else if (k === 'pivot') {
+      this.circleDir = this.chooseCircleDir();
+      this.exitUntil = now + this.rng.range(0.35, 0.6);
+      this.exitLat = this.circleDir * 1.1;
+    } else this.coverUntil = now + this.rng.range(0.35, 0.7);
+    if (this.burstHits >= 2 && t.showboat > 0.6 && this.confidence > 0.6 && this.rng.chance(0.3)) this.tauntAt = now + 0.7;
+    this.burstHits = 0;
+    this.burstCountered = false;
+  }
+
   // ------------------------------------------------------------------- steering
   private steer(dt: number) {
     const me = this.me;
     const st = me.build.stats;
+    const t = this.traits;
     const p = this.perceived;
-    this.rhythm += dt * (2.4 + this.traits.aggression);
+    this.rhythm += dt * (2.4 + t.aggression);
     const dx = this.predPos.x - me.root.x;
     const dz = this.predPos.z - me.root.z;
     const d = Math.max(0.01, Math.hypot(dx, dz));
     const tx = dx / d, tz = dz / d;
     const myReach = this.myPunchRange();
     const threat = Math.max(this.oppAttackRange.v, 1.1);
+    // just outside both of our ranges: where a fight is felt out
+    const outside = Math.max(threat + 0.12, myReach + 0.08) + Math.max(0, t.rangeBias) * 0.8;
+    const pocket = myReach * 0.82;
 
     let target = myReach * 0.9;
     let lateral = 0;
     let speed = st.moveSpeed;
-    let bounce = 0.6;
+    let bounce = lerp(0.35, 1, t.footwork);
+    let busy = t.footwork;
+    let urgent = false;
     switch (this.plan) {
       case 'pressure':
-        target = myReach * 0.9 + this.traits.rangeBias * 0.3;
+        // stalk at the edge of my range and cut off the ring
+        target = myReach * 0.97 + t.rangeBias * 0.3;
         lateral = this.cutOff(tx, tz) * 0.8;
-        bounce = 0.4;
+        bounce *= 0.7;
+        busy *= 0.8;
         break;
       case 'outbox':
-        target = Math.max(threat + 0.06, myReach - 0.05) + this.traits.rangeBias + Math.sin(this.rhythm) * 0.2;
-        lateral = this.circleDir * 0.55;
-        bounce = 1;
+        target = outside + Math.sin(this.rhythm) * 0.12;
+        lateral = this.circleDir * 0.5;
         break;
       case 'counter':
-        target = threat + 0.12 + Math.sin(this.rhythm * 1.3) * 0.12;
-        lateral = this.circleDir * 0.35;
-        bounce = 0.8;
+        // sit just outside their range and make them come
+        target = threat + 0.1 + Math.sin(this.rhythm * 1.3) * 0.08;
+        lateral = this.circleDir * 0.3;
+        busy *= 0.6;
         break;
       case 'circle':
-        target = d;
-        lateral = this.circleDir * 1;
-        bounce = 0.9;
+        target = clamp(d, pocket + 0.2, outside + 0.3);
+        lateral = this.circleDir * 0.75;
         break;
       case 'retreat':
         target = 2.4;
         lateral = this.circleDir * 0.6;
         speed *= 0.9;
-        bounce = 0.3;
+        bounce *= 0.5;
         break;
       case 'swarm':
-        target = myReach * 0.8;
+        target = pocket;
         lateral = this.cutOff(tx, tz) * 0.4;
         speed *= 1.1;
         bounce = 0.2;
+        urgent = true;
         break;
       case 'wait':
         target = 2.6;
         lateral = this.circleDir * 0.25;
         speed *= 0.5;
-        bounce = 0.6;
         break;
     }
+    const now = this.time;
+    if (now < this.entryUntil) {
+      // stepping in behind the punches (a stutter step stops short)
+      target = this.entryFake ? myReach * 0.95 : pocket;
+      lateral = this.circleDir * 0.2;
+      speed *= 1.15;
+      urgent = true;
+    } else if (now < this.reactUntil && this.react !== 'meet') {
+      if (this.react === 'back') {
+        target = outside + 0.35;
+        urgent = true;
+      } else if (this.react === 'pivot') {
+        target = Math.max(d, pocket);
+        lateral = this.circleDir * 1.3;
+        urgent = true;
+      } else {
+        target = Math.min(d, outside);
+        lateral = 0;
+        busy = 0;
+      }
+    } else if (now < this.punishUntil) {
+      target = Math.min(target, myReach * 0.85);
+      urgent = true;
+    } else if (now < this.exitUntil && !me.strike) {
+      target = Math.max(target, outside + 0.15);
+      lateral = this.exitLat;
+      urgent = true;
+    } else if (now < this.stayUntil) {
+      target = pocket * 1.05;
+      lateral *= 0.3;
+      busy *= 0.35;
+    }
+    if (now < this.coverUntil) busy *= 0.3;
     if (p.state === 'down') {
       target = 2.6;
-    }
-    // during a whiff-punish window, step in
-    if (this.time < this.punishUntil) target = Math.min(target, myReach * 0.85);
-    else if (this.time < this.exitUntil && !me.strike) {
-      target = Math.max(target, myReach + 0.3);
-      lateral += this.circleDir * 0.7;
+      urgent = false;
     }
 
     // radial
     const err = d - target;
     let radial = clamp(err * 2.4, -1, 1);
-    if (Math.abs(err) < 0.06) radial = 0;
+    // flat-footed fighters let small distance changes go
+    if (Math.abs(err) < lerp(0.16, 0.07, busy)) radial = 0;
     // the ropes: get off them
     const r = Math.hypot(me.root.x, me.root.z);
     const R = me.body.arenaRadius;
     const ropeK = clamp01((r - (R - 1.4)) / 1.0);
-    // lateral noise for liveliness
-    lateral += this.noise.at(this.time * 0.7) * 0.35 * (1 - this.traits.skill * 0.5);
     lateral *= 1 + me.passive('footwork') * 3;
 
     // perp (to the right of the opponent direction)
@@ -481,8 +773,54 @@ export class Brain {
       if (ropeK > 0.5 && this.plan !== 'pressure') this.circleDir = this.chooseCircleDir();
     }
     const len = Math.hypot(vx, vz);
-    const s = speed * Math.min(1, len);
-    if (len > 1e-4) me.intentVel.set((vx / len) * s, 0, (vz / len) * s);
+    const need = Math.min(1, len);
+    if (need > 0.9 || ropeK > 0.85) urgent = true;
+
+    // footwork comes in steps: push off, land, settle, go again
+    if (urgent) {
+      this.gaitMoving = true;
+      this.gaitT = this.rng.range(0.08, 0.18); // finish the step once the hurry is over
+      if (len > 1e-4) {
+        this.stepX = vx / len;
+        this.stepZ = vz / len;
+      }
+      this.stepSpeed = len > 1e-4 ? speed * Math.max(need, 0.6) : 0;
+    } else {
+      this.gaitT -= dt;
+      if (this.gaitT <= 0) {
+        if (this.gaitMoving) {
+          // land and settle
+          this.gaitMoving = false;
+          // sometimes two steps in a row, sometimes a long settle
+          const settle = this.rng.chance(0.2 + busy * 0.15) ? 0.02 : lerp(0.55, 0.12, busy) * this.rng.range(0.4, 1.8);
+          this.gaitT = settle * (1 - need * 0.5);
+        } else {
+          let sx = vx, sz = vz, sn = need;
+          if (sn < 0.12) {
+            // nothing to fix: shuffle in rhythm, or stay planted
+            if (this.rng.chance(0.25 + busy * 0.65)) {
+              const lat = this.rng.sign() * this.rng.range(0.4, 1);
+              const rad = this.rng.range(-0.6, 0.6);
+              sx = px * lat + tx * rad;
+              sz = pz * lat + tz * rad;
+              sn = 0.45;
+            } else {
+              sn = 0;
+              this.gaitT = this.rng.range(0.15, 0.4);
+            }
+          }
+          if (sn > 0) {
+            const l = Math.hypot(sx, sz) || 1;
+            this.gaitMoving = true;
+            this.gaitT = this.rng.range(0.16, 0.3) * lerp(1.2, 0.8, busy);
+            this.stepX = sx / l;
+            this.stepZ = sz / l;
+            this.stepSpeed = speed * lerp(0.5, 0.9, Math.max(sn, busy * 0.6));
+          }
+        }
+      }
+    }
+    if (this.gaitMoving) me.intentVel.set(this.stepX * this.stepSpeed, 0, this.stepZ * this.stepSpeed);
     else me.intentVel.set(0, 0, 0);
     me.bounce = lerp(me.bounce, bounce * (1 - this.tired * 0.6), 0.05);
   }
@@ -513,7 +851,14 @@ export class Brain {
     const inThreat = d < this.oppAttackRange.v + 0.25;
     if (inThreat && this.effCaution() > 0.55 && this.plan !== 'swarm') mode = 'high';
     if (this.plan === 'retreat' && inThreat) mode = 'high';
+    if (this.time < this.coverUntil && inThreat) mode = 'high';
     me.guardMode = mode;
+    // a showboat who just landed a combo plays to the crowd once clear
+    if (this.tauntAt > 0 && this.time > this.tauntAt && d > 1.7) {
+      this.tauntAt = 0;
+      me.taunt = 1;
+      this.say('taunt', `${me.name} showboats!`, 12);
+    } else if (this.tauntAt > 0 && this.time > this.tauntAt + 2) this.tauntAt = 0;
     // showboating / relaxing far away
     let drop = 0;
     if (d > 2.2) drop = 0.35;
@@ -559,7 +904,7 @@ export class Brain {
     s.aim.add(this.aimNoise);
   }
 
-  private considerAttack(chain: boolean) {
+  private considerAttack(chain: boolean): boolean {
     const me = this.me;
     const p = this.perceived;
     const st = me.build.stats;
@@ -568,7 +913,10 @@ export class Brain {
     const cau = this.effCaution();
     const oppCommitted = p.actKind === 'strike' && (p.phase === 'recovery' || p.phase === 'active');
     const oppRocked = p.state === 'stagger' ? 1 : p.state === 'stun' ? 0.6 : 0;
-    const closing = -(this.perceived.vel.x * (this.predPos.x - me.root.x) + this.perceived.vel.z * (this.predPos.z - me.root.z)) / Math.max(0.1, d);
+    // closing speed: theirs plus my own step (a step-in jab reaches further)
+    const tx = (this.predPos.x - me.root.x) / Math.max(0.1, d);
+    const tz = (this.predPos.z - me.root.z) / Math.max(0.1, d);
+    const closing = -(p.vel.x * tx + p.vel.z * tz) + Math.max(0, me.rootVel.x * tx + me.rootVel.z * tz) * 0.5;
     const last = me.lastAction && chain ? me.lastAction : null;
     const punish = this.time < this.punishUntil;
 
@@ -589,33 +937,61 @@ export class Brain {
       const u = this.traits.feintiness * this.feintReact.v * 30 - 4 + this.rng.gauss() * 4;
       opts.push({ id: this.rng.chance(0.6) ? 'jab' : 'cross', zone: 'head', u, feint: true });
     }
-    if (opts.length === 0) return;
+    if (opts.length === 0) return false;
 
-    // what's it worth to just wait?
-    const sinceAttack = this.time - this.lastAttackT;
-    const urge = sinceAttack * (6 + agg * 14);
-    let wait = 10 + this.traits.patience * 12 + cau * 6 - urge;
-    if (chain) wait = 6 + this.comboCount * 7 - this.traits.comboAppetite * 10 - (last?.result === 'hit' ? 8 : 0);
-    if (this.plan === 'retreat') wait += 12;
-    if (this.plan === 'counter' && !oppCommitted) wait += 8;
+    // what's it worth to just wait? Mostly that depends on whether I'm ready to go;
+    // a gift (a whiff, a rocked opponent) is taken any time.
+    const now = this.time;
+    const t = this.traits;
+    let wait: number;
+    if (chain) {
+      if (this.comboCount < this.comboGoal) wait = -4 + this.comboCount * 2 - (last?.result === 'hit' ? 4 : 0) + (last?.result === 'blocked' ? 3 : 0);
+      else wait = 16 + this.comboCount * 5 - (last?.result === 'hit' ? 8 : 0) - t.comboAppetite * 6;
+      wait -= oppRocked * 8;
+    } else {
+      const ready = this.tempo >= this.trigger;
+      wait = ready ? 4 + t.patience * 4 + cau * 3 : 18 + t.patience * 10 + cau * 6 - this.tempo * 10;
+      if (now < this.entryUntil && !this.entryFake) wait -= 8;
+      if (now < this.returnFireUntil) wait -= 12;
+      if (now < this.coverUntil) wait += 14;
+      if (this.plan === 'retreat') wait += 12;
+      if (this.plan === 'counter' && !oppCommitted) wait += 6;
+    }
+
+    // not ready to commit yet: show them something to see what they do
+    if (!chain && this.tempo < this.trigger && this.tempo > this.trigger * 0.3) {
+      const feint = opts.find((o) => o.feint);
+      if (feint && this.rng.chance(t.feintiness * 0.08)) {
+        if (!me.tryStrike(feint.id, feint.zone, this.zoneAim(feint.zone, p, new Vector3()), true)) return false;
+        this.lastFeint = { t: now, uid: me.strike!.uid };
+        return true;
+      }
+    }
 
     const utils = opts.map((o) => o.u);
     let best = -Infinity;
     for (const u of utils) best = Math.max(best, u);
-    if (best < wait) {
-      if (chain) this.comboCount = 0;
-      return;
-    }
+    if (best < wait) return false;
     // only sample among options in the ballpark of the best
     const temp = 3 + this.traits.creativity * 18 + this.tired * 4;
     const viable = opts.filter((o) => o.u > best - temp * 2.5);
     const pick = viable[softmaxPick(viable.map((o) => o.u), temp, this.rng)];
     const aim = this.zoneAim(pick.zone, p, new Vector3());
-    if (me.tryStrike(pick.id, pick.zone, aim, pick.feint)) {
-      this.lastAttackT = this.time;
-      if (pick.feint) this.lastFeint = { t: this.time, uid: me.strike!.uid };
-      else this.comboCount = chain ? this.comboCount + 1 : 1;
-    }
+    if (!me.tryStrike(pick.id, pick.zone, aim, pick.feint)) return false;
+    if (pick.feint) this.lastFeint = { t: now, uid: me.strike!.uid };
+    else if (chain) this.comboCount++;
+    else this.beginBurst(this.sampleComboGoal(oppRocked));
+    return true;
+  }
+
+  private beginBurst(goal: number) {
+    this.comboCount = 1;
+    this.comboGoal = goal;
+    this.inBurst = true;
+    this.burstHits = 0;
+    this.burstCountered = false;
+    this.entryUntil = 0;
+    this.coverUntil = 0;
   }
 
   private attackUtility(
@@ -692,6 +1068,15 @@ export class Brain {
       if (last.result === 'blocked' && last.zone === 'body' && zone === 'head') flow += 7;
       if (last.result === 'hit') flow += 5 * this.traits.comboAppetite;
       if (last.move.id === m.id && m.id !== 'jab') flow -= 8;
+      flow += FOLLOW[last.move.id]?.[m.id] ?? 0;
+      // punch, punch, kick
+      if (m.kind === 'kick' && last.move.kind === 'punch' && this.comboCount >= 2) flow += 4;
+    } else if (this.time < this.entryUntil && (m.path === 'straight' || m.lunge > 0.3)) {
+      // lead the way in with something long
+      flow += 6;
+    } else if (m.id === 'jab') {
+      // the jab finds the range and opens the door
+      flow += 3 + Math.max(0, this.traits.rangeBias) * 40;
     }
     if (zone === 'body') flow += (this.traits.bodyHunter - 0.45) * 10;
     // variety: humans avoid repeating the same thing over and over
@@ -778,6 +1163,11 @@ export class Brain {
         v *= clamp((d - move.range[0]) / 0.5, 0.3, 1.3);
       }
       if (r === 'absorb') v += this.tired * 0.2;
+      // style: some roll with punches, some move their feet, some shell up
+      const t = this.traits;
+      if (r === 'slip' || r === 'duck' || r === 'sway') v *= 0.8 + t.headMovement * 0.6;
+      if (r === 'backstep' || r === 'sidestep') v *= 0.8 + t.footwork * 0.5;
+      if (r === 'block') v *= (1.15 - t.headMovement * 0.3) * (this.time < this.coverUntil ? 1.4 : 1);
       utils.push(v * 10);
     }
     const temp = lerp(3.5, 1.2, this.traits.skill);
@@ -833,9 +1223,8 @@ export class Brain {
       case 'counter': {
         const aim = this.zoneAim('head', this.perceived, new Vector3());
         const id: MoveId = this.rng.chance(0.6) ? 'jab' : 'cross';
-        if (!me.tryStrike(id, 'head', aim)) {
-          this.activeResp.resp = 'absorb';
-        } else this.lastAttackT = this.time;
+        if (!me.tryStrike(id, 'head', aim)) this.activeResp.resp = 'absorb';
+        else this.beginBurst(this.rng.chance(0.35 + this.effAggression() * 0.3) ? 2 : 1);
         break;
       }
       case 'absorb':
@@ -854,6 +1243,9 @@ export class Brain {
     if (this.lastFeint && this.time - this.lastFeint.t < 0.5) {
       learn(this.feintReact, 1, 0.25);
       this.lastFeint = null;
+      // they bit: go now
+      this.tempo = 1;
+      this.trigger = Math.min(this.trigger, 0.5);
     }
   }
 
@@ -888,9 +1280,7 @@ export class Brain {
     if (s.result !== 'hit') {
       this.punishUntil = 0;
     }
-    const t = this.traits;
-    const exit = 0.18 + this.effCaution() * 0.35 + t.skill * 0.2 - this.effAggression() * 0.25 + (s.result === 'blocked' ? 0.12 : 0);
-    if (this.plan !== 'swarm' && this.rng.chance(clamp(exit, 0.05, 0.75))) this.exitUntil = this.time + this.rng.range(0.35, 0.75);
+    if (s.result === 'hit') this.burstHits++;
     if (s.result === 'whiff' && !inRange) {
       // misjudged distance: become a touch more careful
       this.traits.rangeBias = Math.max(this.baseRangeBias - 0.12, this.traits.rangeBias - 0.01);
@@ -903,6 +1293,8 @@ export class Brain {
     this.bandDealt[b] += dmg;
     this.confidence = clamp01(this.confidence + dmg / 600);
     this.anger = Math.max(0, this.anger - dmg / 400);
+    // a big shot landed: smell blood
+    if (dmg > this.opp.build.stats.maxHp * 0.06) this.stayUntil = Math.max(this.stayUntil, this.time + this.rng.range(0.6, 1.4) * (0.5 + this.traits.pocketLove));
   }
 
   /** I got hit (or blocked). counterAttempt: they hit me while I was exposed after my own strike. */
@@ -916,6 +1308,9 @@ export class Brain {
       this.anger = clamp01(this.anger + frac * 4 * this.traits.temper);
       this.fear = clamp01(this.fear + frac * 3 * (1 - this.traits.temper));
       this.confidence = clamp01(this.confidence - frac * 2);
+      this.pain += frac;
+      if (this.inBurst) this.burstCountered = true;
+      if (frac > 0.06 || this.pain > 0.11) this.hurt();
     }
     if (wasCounter) learn(this.counterRate, 1, 0.2);
     // grade my defensive response against this attack
@@ -928,6 +1323,24 @@ export class Brain {
       this.activeResp = null;
     }
     if (!blocked && dmg > 70 && this.traits.temper > 0.6) this.say('adapt', `${me.name} looks furious!`, 8);
+  }
+
+  /** That one hurt: fire straight back, or cover up and get out of there. */
+  private hurt() {
+    const now = this.time;
+    this.pain *= 0.5;
+    this.stayUntil = 0;
+    if (this.me.staminaRatio > 0.3 && this.rng.chance(this.traits.temper * 0.6 + this.effAggression() * 0.25)) {
+      this.returnFireUntil = now + 0.9;
+      this.tempo = 1;
+      this.trigger = 0.2;
+    } else {
+      this.coverUntil = now + this.rng.range(0.5, 0.9);
+      this.exitUntil = now + this.rng.range(0.6, 1.0);
+      this.circleDir = this.chooseCircleDir();
+      this.exitLat = this.circleDir * 0.6;
+      this.tempo *= 0.3;
+    }
   }
 
   /** Opponent's strike missed or was dodged while I was responding. */
@@ -951,6 +1364,18 @@ export class Brain {
 
   describe() {
     return this.traits.style;
+  }
+
+  /** What the bot is doing right now in the ebb and flow (for debugging and tools). */
+  flowTag() {
+    const now = this.time;
+    if (this.inBurst) return 'combo';
+    if (now < this.entryUntil) return this.entryFake ? 'stutter' : 'enter';
+    if (now < this.reactUntil) return this.react;
+    if (now < this.exitUntil) return 'exit';
+    if (now < this.coverUntil) return 'cover';
+    if (now < this.stayUntil) return 'trade';
+    return '';
   }
 }
 
