@@ -165,7 +165,7 @@ export const MOVES: Record<MoveId, MoveDef> = {
   spinKick: M({
     id: 'spinKick', name: 'Spinning Heel', kind: 'kick', limb: 'rear', path: 'backKick', striker: 'foot',
     windup: 0.38, active: 0.17, recovery: 0.42, damage: 115, poise: 60, knockback: 3.0, stamina: 20, hitstun: 0.45,
-    range: [0.8, 1.45], zones: ['body', 'head'], twist: 0, lean: -0.2, crouch: 0, lunge: 0.15, power: true,
+    range: [0.8, 1.45], zones: ['body', 'head'], twist: 0, lean: -0.2, crouch: 0, lunge: 0, power: true,
     ability: 'kick', cooldown: 9, spin: true, vfx: 'spin',
   }),
   flyingKnee: M({

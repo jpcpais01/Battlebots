@@ -149,6 +149,9 @@ const _bs = new Vector3();
 const _bm = new Vector3();
 const _be = new Vector3();
 const _bd = new Vector3();
+const _ka = new Vector3();
+const _kd = new Vector3();
+const _kc = new Vector3();
 /**
  * Armoured trunk in the shoulder frame: height above the chest joint, half width,
  * front and back depth of each section (rounded-box sections, interpolated).
@@ -276,6 +279,10 @@ export class Fighter {
   rootVel = new Vector3();
   yaw = 0;
   spinYaw = 0;
+  /** Facing the root and support foot have already been turned to (see updateRoot). */
+  private faceDone = 0;
+  /** Where updateRoot last left the root, to tell how far it has moved since. */
+  private rootEnd = new Vector3();
   lift = 0;
   /** -1 orthodox (left lead), +1 southpaw. */
   stance = -1;
@@ -877,6 +884,11 @@ export class Fighter {
     if (s) {
       maxSpd *= s.phase === 'recovery' ? 0.5 : 0.3;
       if (s.move.jump && s.phase !== 'recovery') accel = 2;
+      // on one leg there's no footwork: a kick plants the body and bleeds off its speed
+      else if (s.move.kind === 'kick') {
+        maxSpd *= 0.25;
+        accel *= 1.5;
+      }
     }
     if (this.state === 'stun') maxSpd *= 0.25;
     if (this.state === 'stagger') {
@@ -905,13 +917,22 @@ export class Fighter {
       const step = Math.min(s.lungeLeft, rate * dt);
       s.lungeLeft -= step;
       const fwd = this.forward(_u, this.yaw);
-      // do not lunge through the opponent
-      const gap = this.distTo(this.opp) - 0.66;
+      // do not lunge through the opponent (a flying knee stops short so the thigh doesn't sink in)
+      const gap = this.distTo(this.opp) - (s.move.striker === 'knee' ? 0.8 : 0.66);
       this.root.addScaledVector(fwd, Math.min(step, Math.max(0, gap)));
     }
 
     this.root.addScaledVector(this.rootVel, dt);
     this.root.y = 0;
+
+    // whatever still moves the body during a kick (lunge, leftover speed, a shove) carries the
+    // support foot with it, a skip on its ball, so the body can't drift off over it
+    const sup = s && s.move.kind === 'kick' ? this.feet[s.side === 'L' ? 1 : 0] : null;
+    const mx = this.root.x - this.rootEnd.x, mz = this.root.z - this.rootEnd.z;
+    if (sup && !sup.locked && !sup.stepping && mx * mx + mz * mz < 0.09) {
+      sup.pos.x += mx;
+      sup.pos.z += mz;
+    }
 
     // facing
     if (this.opp) {
@@ -924,6 +945,25 @@ export class Fighter {
       if (this.state === 'getup') turn = this.stateTime / this.getupDur < 0.6 ? 0 : 3;
       if (!(s && s.move.spin)) this.yaw = dampAngle(this.yaw, target, turn, dt);
     }
+
+    // on one leg the body turns over the support foot, not round its own centre: swing it
+    // round a point between the hips and that foot, and turn the foot (on its ball) with
+    // it, so the legs never cross when a kick spins or follows a moving target
+    const face = this.yaw + this.spinYaw;
+    const dTurn = wrapAngle(face - this.faceDone);
+    this.faceDone = face;
+    if (sup && !sup.locked && !sup.stepping && dTurn !== 0 && Math.abs(dTurn) < 1) {
+      const f = sup;
+      const cx = (this.root.x + f.pos.x) * 0.5, cz = (this.root.z + f.pos.z) * 0.5;
+      const c = Math.cos(dTurn), sn = Math.sin(dTurn);
+      for (const p of [this.root, f.pos]) {
+        const rx = p.x - cx, rz = p.z - cz;
+        p.x = cx + rx * c + rz * sn;
+        p.z = cz - rx * sn + rz * c;
+      }
+      f.yaw = wrapAngle(f.yaw + dTurn);
+    }
+    this.rootEnd.copy(this.root);
   }
 
   distTo(o: Fighter) {
@@ -973,6 +1013,10 @@ export class Fighter {
       }
     }
     if (this.state === 'getup') return;
+    // on one leg the support foot pivots (see updateRoot) instead of stepping; only at the
+    // very start of a kick may it make a quick set step back under the body
+    const kick = !!s && s.move.kind === 'kick';
+    if (s && kick && !(s.phase === 'windup' && s.t < s.windup * (s.move.spin ? 0.15 : 0.35))) return;
     // decide steps
     const anyStepping = this.feet[0].stepping || this.feet[1].stepping;
     let best = -1;
@@ -997,15 +1041,15 @@ export class Fighter {
     }
     if (best < 0) return;
     let thresh = moving > 0.4 ? 0.16 : 0.26;
-    if (s && s.phase !== 'recovery') thresh = 0.45;
+    if (s && s.phase !== 'recovery') thresh = kick ? 0.12 : 0.45;
     // bouncy footwork: re-plant even when settled
-    if (this.bounce > 0.5 && moving < 0.3 && this.rng.chance(dt * 0.9 * this.bounce)) thresh = 0.02;
+    else if (this.bounce > 0.5 && moving < 0.3 && this.rng.chance(dt * 0.9 * this.bounce)) thresh = 0.02;
     if (anyStepping && bestErr < 0.55) return;
     if (bestErr < thresh) return;
     const f = this.feet[best];
     this.stanceFoot(best, _p);
     this.toWorld(_p, _q, this.yaw);
-    f.dur = clamp(0.24 / Math.sqrt(this.build.stats.agility * (moving > 1.2 ? 1.4 : 1)), 0.12, 0.26);
+    f.dur = clamp(0.24 / Math.sqrt(this.build.stats.agility * (moving > 1.2 ? 1.4 : 1)), 0.12, kick ? 0.13 : 0.26);
     _q.addScaledVector(this.rootVel, f.dur * 0.8);
     f.from.copy(f.pos);
     f.to.copy(_q);
@@ -1860,29 +1904,15 @@ export class Fighter {
     const sx = s.side === 'L' ? -1 : 1;
     const home = this.stanceFoot(s.side === 'L' ? 0 : 1, this._c);
     const end = this.toLocal(s.endWorld, this._g);
+    if (m.path === 'frontKick' || m.path === 'backKick' || m.path === 'roundKick') return this.lineKick(s, prog, hip, home, end, out, pole);
     // chamber: where the foot tucks with the knee loaded, and the knee pole there
     const C = this._c1;
     let flex = 0;
     switch (m.path) {
-      case 'frontKick':
-        C.set(sx * 0.1, 0.5, 0.12);
-        pole.set(0, 0.35, 1);
-        flex = s.phase === 'windup' ? 0.4 * prog.load : -0.9;
-        break;
-      case 'roundKick':
-        C.set(sx * 0.46, 0.66, -0.12);
-        pole.set(sx * 0.9, 0.5, 0.55);
-        flex = 0.9;
-        break;
       case 'sweepKick':
-        C.set(sx * 0.62, 0.13, -0.32);
+        C.set(sx * 0.52, 0.13, -0.24);
         pole.set(sx * 0.3, 0.6, 1);
         flex = 0.35;
-        break;
-      case 'backKick':
-        C.set(sx * 0.1, 0.6, 0.15);
-        pole.set(0, 0.25, 1);
-        flex = s.phase === 'windup' ? 0.3 : -0.55;
         break;
       case 'knee':
         // thigh lifted forward, shin folded back under it
@@ -1924,22 +1954,10 @@ export class Fighter {
       }
       const ctrl = _v.set((C.x + tx) * 0.5, (C.y + ty) * 0.5, (C.z + tz) * 0.5);
       switch (m.path) {
-        case 'roundKick':
-          // the shin whips around the outside at target height
-          ctrl.x = sx * Math.max(0.78, Math.abs(tx) + 0.6);
-          ctrl.y = ty * 0.95;
-          ctrl.z = tz * 0.55;
-          pole.set(sx * 0.6, 0.9, 0.7);
-          break;
         case 'sweepKick':
           ctrl.x = sx * 0.95;
           ctrl.y = 0.12;
           ctrl.z = tz * 0.7;
-          break;
-        case 'frontKick':
-          // extend from the chamber: the knee leads, the foot snaps out level
-          ctrl.y = Math.max(C.y, ty) + 0.04;
-          ctrl.z = lerp(C.z, tz, 0.35);
           break;
         default:
           break;
@@ -1955,6 +1973,14 @@ export class Fighter {
     // recovery: re-chamber then step down home
     const k = clamp01(s.t / s.recovery);
     const from = s.recoverFrom;
+    if (m.path === 'sweepKick') {
+      // the sweep's chamber is the wind-back: don't swing out there again, just draw
+      // the foot back under the hip and set it down
+      const k2 = easeInOut(k);
+      out.lerpVectors(from, home, k2);
+      out.y += Math.sin(Math.PI * k2) * 0.08;
+      return flex * (1 - k2);
+    }
     if (k < 0.45) out.lerpVectors(from, C, easeOutQuad(k / 0.45));
     else {
       const k2 = easeInOut((k - 0.45) / 0.55);
@@ -1963,6 +1989,95 @@ export class Fighter {
       flex *= 1 - k2;
     }
     return flex;
+  }
+
+  /**
+   * Push kick, roundhouse and spinning back kick: the leg is steered by where it points
+   * from the hip and how far it reaches, never by a free foot path. The foot can't swing
+   * in close to the hip, so the knee can't fold up past it, and the knee is told which
+   * side of the leg to sit on, so it never flips over mid-kick.
+   *  - push kick: knee up level with the hip, then the foot drives straight out, knee over the leg
+   *  - roundhouse: the hips turn over and the knee comes up in front pointing at the target,
+   *    the shin folded out to the side; then the shin whips round into the target
+   *  - back kick (the spin turns the body away first): knee up, then the heel drives back
+   *    with the knee pointing down
+   */
+  private lineKick(s: StrikeAction, prog: StrikeProg, hip: Vector3, home: Vector3, end: Vector3, out: Vector3, pole: Vector3) {
+    const path = s.move.path;
+    const back = path === 'backKick';
+    const round = path === 'roundKick';
+    const sx = s.side === 'L' ? -1 : 1;
+    // chamber: where the foot sits (direction and distance from the hip) with the knee loaded
+    const dirC = _ka;
+    let reachC: number;
+    if (round) {
+      dirC.set(sx * 0.85, -0.28, 0.45);
+      reachC = 0.53;
+    } else {
+      dirC.set(sx * 0.04, -0.8, back ? 0.28 : 0.6);
+      reachC = back ? 0.44 : 0.5;
+    }
+    dirC.normalize();
+    const toward = (to: Vector3, out: Vector3) => {
+      out.subVectors(to, hip);
+      const l = out.length();
+      out.multiplyScalar(1 / Math.max(l, 1e-4));
+      return Math.min(l, 0.9);
+    };
+    const blend = (fromDir: Vector3, fromReach: number, toDir: Vector3, toReach: number, k: number) => {
+      _kd.copy(fromDir).lerp(toDir, k).normalize();
+      out.copy(hip).addScaledVector(_kd, lerp(fromReach, toReach, k));
+    };
+    // knee side: forward-up while it lifts; then over the leg (push), in front and
+    // inside, towards the target (roundhouse), or under the leg (back kick)
+    const up = round ? _p.set(-sx * 0.3, 0.3, 1) : _p.set(sx * 0.1, 0.8, 0.6);
+    const under = _w.set(0, -0.6, 0.8);
+    const flexOut = round ? 0.9 : back ? -0.55 : -0.9;
+    if (s.phase === 'windup') {
+      const t = s.t / s.windup;
+      const k = back ? easeInOut(smoothstep(0.25, 1, t)) : easeInOut(clamp01(t));
+      const rh = toward(home, _u);
+      if (round) {
+        // knee up in front first, then the hip turns over and the shin folds out
+        const kUp = easeInOut(smoothstep(0, 0.6, t));
+        blend(_u, rh, _kc.set(sx * 0.1, -0.8, 0.6).normalize(), 0.5, kUp);
+        _u.subVectors(out, hip).normalize();
+        blend(_u, lerp(rh, 0.5, kUp), dirC, reachC, easeInOut(smoothstep(0.4, 1, t)));
+      } else blend(_u, rh, dirC, reachC, k);
+      pole.copy(up);
+      return round ? 0.9 * k : back ? 0.3 * k : 0.4 * prog.load;
+    }
+    if (s.phase === 'active') {
+      const re = toward(end, _u);
+      // the extension leads with the knee, the foot snaps out behind it
+      const k = prog.ext;
+      if (round) {
+        // the knee comes up to the target's height first, then the shin swings in level
+        const elC = Math.asin(clamp(dirC.y, -1, 1)), elE = Math.asin(clamp(_u.y, -1, 1));
+        const azC = Math.atan2(dirC.x, dirC.z), azE = Math.atan2(_u.x, _u.z);
+        const el = lerp(elC, elE, smoothstep(0, 0.55, k));
+        const az = lerp(azC, azC + wrapAngle(azE - azC), smoothstep(0.2, 1, k));
+        _kd.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
+        out.copy(hip).addScaledVector(_kd, lerp(reachC, re, k));
+      } else blend(dirC, reachC, _u, re, k);
+      pole.copy(back ? under : up);
+      if (back) pole.lerp(up, 1 - smoothstep(0, 0.4, k));
+      return flexOut;
+    }
+    // recovery: fold back into the chamber, then set the foot down where it started
+    const k = clamp01(s.t / s.recovery);
+    const rf = toward(s.recoverFrom, _u);
+    if (k < 0.45) {
+      blend(_u, rf, dirC, reachC, easeOutQuad(k / 0.45));
+      pole.copy(back ? under : up);
+      if (back) pole.lerp(up, smoothstep(0, 0.45, k));
+      return round ? flexOut : flexOut * (1 - k / 0.45);
+    }
+    const k2 = easeInOut((k - 0.45) / 0.55);
+    const rh = toward(home, _u);
+    blend(dirC, reachC, _u, rh, k2);
+    pole.copy(up);
+    return round ? flexOut * (1 - k2) : 0;
   }
 
   /** Current get-up shape, interpolated between keys; `w` is how much it overrides the fight pose. */

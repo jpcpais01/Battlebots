@@ -19,6 +19,9 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-12 20:00',
     title: 'New bot cards and a clearer ringside camera',
     notes: [
+      'Reworked kicks: the push kick lifts the knee and drives the foot straight out, the roundhouse turns the hips over and whips the shin in at head height, and the spinning heel turns on the planted foot and drives the heel back.',
+      'Kicking legs no longer fold up, flip at the knee or cross the standing leg, even up close or when the opponent steps aside.',
+      'The standing foot stays planted and pivots through every kick, and the sweep and Jet Knee recover more cleanly.',
       'Your bot card on the home screen has the same new look: real renders of all six fitted parts in your paint and rarity, plus your power and moves. Tap it to open the garage.',
       'New fight intro: each bot gets a versus card at the side of the screen with its real parts in its own paint and rarity, its power and its two moves, so the robots in the ring stay in view.',
       'Ropes and barriers now only turn see-through when the camera is right up against them (within about a metre); farther away they stay solid.',
