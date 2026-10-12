@@ -1,21 +1,26 @@
 import * as THREE from 'three';
 import type { Game } from '../game/game';
 import { perf, SECTIONS, type PerfReport } from '../perf';
-import { el } from './dom';
+import { PARTS } from '../render/renderProbe';
+import { button, el } from './dom';
 
 const KEY = 'bb.perf';
 const BUDGET = 1000 / 60;
 
 /**
- * Small FPS + frame-cost panel, toggled from Settings (or `?perf` in the URL). Tap it to fold it down
- * to the FPS line. It only touches the DOM twice a second, and nothing runs while it is hidden.
+ * Small FPS + frame-cost panel, toggled from Settings (or `?perf` in the URL). The CPU tab splits the
+ * frame by game system, the GPU tab by part of the scene. Tap the panel to fold it down to the FPS
+ * line. It only touches the DOM twice a second, and nothing runs while it is hidden.
  */
 export class PerfOverlay {
   private root: HTMLElement | null = null;
   private head!: HTMLElement;
   private body!: HTMLElement;
   private graph!: HTMLCanvasElement;
-  private rows = new Map<string, { ms: HTMLElement; bar: HTMLElement }>();
+  private rows = new Map<string, { ms: HTMLElement; bar: HTMLElement; draws?: HTMLElement }>();
+  private tab: 'cpu' | 'gpu' = 'cpu';
+  private gpuNote!: HTMLElement;
+  private measureBtn!: HTMLButtonElement;
   private foot!: HTMLElement;
   private hist: number[] = [];
   private size = new THREE.Vector2();
@@ -63,18 +68,42 @@ export class PerfOverlay {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     this.graph.width = Math.round(160 * dpr);
     this.graph.height = Math.round(36 * dpr);
-    const table = el('div', 'perf-rows', '', this.body);
-    const row = (id: string, label: string, sub: boolean) => {
+    const tabs = el('div', 'perf-tabs', '', this.body);
+    const cpuTab = el('div', 'perf-rows', '', this.body);
+    const gpuTab = el('div', 'perf-rows gpu', '', this.body);
+    const pick = (t: 'cpu' | 'gpu') => {
+      this.tab = t;
+      cpuBtn.classList.toggle('on', t === 'cpu');
+      gpuBtn.classList.toggle('on', t === 'gpu');
+      cpuTab.style.display = t === 'cpu' ? '' : 'none';
+      gpuTab.style.display = t === 'gpu' ? '' : 'none';
+    };
+    const cpuBtn = button('', 'CPU', () => pick('cpu'), tabs);
+    const gpuBtn = button('', 'GPU', () => pick('gpu'), tabs);
+    const row = (table: HTMLElement, id: string, label: string, sub: boolean, draws = false) => {
       const r = el('div', `perf-row${sub ? ' sub' : ''}`, '', table);
       el('span', 'perf-label', label, r);
       const ms = el('span', 'perf-ms', '', r);
+      const d = draws ? el('span', 'perf-draws', '', r) : undefined;
       const bar = el('i', 'perf-bar', '', el('span', 'perf-track', '', r));
-      this.rows.set(id, { ms, bar });
+      this.rows.set(id, { ms, bar, draws: d });
     };
-    for (const s of SECTIONS) row(s.id, s.label, !!s.parent);
-    row('cpu', 'CPU total', false);
-    row('gpu', 'GPU', false);
-    row('free', 'Spare', false);
+    for (const s of SECTIONS) row(cpuTab, s.id, s.label, !!s.parent);
+    row(cpuTab, 'cpu', 'CPU total', false);
+    row(cpuTab, 'gpu', 'GPU', false);
+    row(cpuTab, 'free', 'Spare', false);
+
+    const head = el('div', 'perf-row head', '<span>part</span><span>ms</span><span>draws</span>', gpuTab);
+    head.appendChild(document.createElement('span'));
+    for (const p of PARTS) row(gpuTab, `part.${p.id}`, p.label, false, true);
+    const probe = this.game.probe;
+    const act = el('div', 'perf-act', '', gpuTab);
+    this.measureBtn = button('', 'Measure', () => {
+      probe.measure();
+      this.measureBtn.textContent = 'Measuring…';
+    }, act);
+    this.gpuNote = el('div', 'perf-note', '', act);
+    pick('cpu');
     this.foot = el('div', 'perf-foot', '', this.body);
     document.body.appendChild(root);
     this.root = root;
@@ -92,6 +121,7 @@ export class PerfOverlay {
     set('cpu', r.cpu);
     set('gpu', r.gpu);
     set('free', Math.max(0, r.frame - r.cpu));
+    this.showParts();
     const renderer = this.game.stage.renderer;
     renderer.getDrawingBufferSize(this.size);
     const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
@@ -101,6 +131,34 @@ export class PerfOverlay {
       (mem ? ` · ${Math.round(mem.usedJSHeapSize / 1048576)} MB` : '') +
       (perf.gpuSupported ? '' : ' · no GPU timer on this device');
     this.drawGraph();
+  }
+
+  private showParts() {
+    const probe = this.game.probe;
+    const snap = probe.snapshot();
+    if (this.tab !== 'gpu') return;
+    const live = snap.gpu;
+    const measured = live ? null : probe.result;
+    for (const p of PARTS) {
+      const row = this.rows.get(`part.${p.id}`)!;
+      const ms = live ? live[p.id] : measured ? measured.ms[p.id] : null;
+      row.ms.textContent = ms === null ? '–' : ms.toFixed(2);
+      row.bar.style.width = `${ms === null ? 0 : Math.min(100, (ms / BUDGET) * 100)}%`;
+      const d = snap.draws[p.id];
+      row.draws!.textContent = d ? `${Math.round(d)}` : '';
+      row.draws!.title = `${Math.round(snap.tris[p.id] / 1000)}k triangles`;
+    }
+    this.measureBtn.style.display = probe.hasTimer ? 'none' : '';
+    if (probe.hasTimer) {
+      this.gpuNote.textContent = 'Live GPU time for each part.';
+    } else if (probe.measuring) {
+      this.gpuNote.textContent = 'Rendering each part on its own…';
+    } else {
+      this.measureBtn.textContent = measured ? 'Measure again' : 'Measure';
+      this.gpuNote.textContent = measured
+        ? `Measured ${Math.round((performance.now() - measured.at) / 1000)} s ago, by redrawing the frame without each part.`
+        : 'No live GPU timer here. Tap Measure during a fight.';
+    }
   }
 
   /** Every frame interval of the last ~3 s; lines at 60 and 30 FPS. */
