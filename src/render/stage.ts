@@ -5,6 +5,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderSettings } from './settings';
+import { ResolutionGovernor } from './governor';
 
 export type Quality = 'low' | 'med' | 'high';
 
@@ -32,10 +33,9 @@ export class Stage {
   private bloom: UnrealBloomPass | null = null;
   readonly key: THREE.DirectionalLight;
   quality: Quality;
-  private pixelRatio = 1;
   private maxPixelRatio = 2;
-  private frameTimes: number[] = [];
-  private governorCooldown = 0;
+  private governor: ResolutionGovernor;
+  private sized = { w: 0, h: 0, pr: 0 };
   onResize: ((w: number, h: number) => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement, quality: Quality) {
@@ -88,7 +88,7 @@ export class Stage {
     scene.add(rimA, rimB);
 
     this.maxPixelRatio = quality === 'high' ? 2 : quality === 'med' ? 1.5 : 1;
-    this.pixelRatio = Math.min(window.devicePixelRatio || 1, this.maxPixelRatio);
+    this.governor = new ResolutionGovernor(this.deviceRatio());
     if (quality === 'high') this.setupComposer();
     this.resize();
     window.addEventListener('resize', () => this.resize());
@@ -104,41 +104,34 @@ export class Stage {
     this.composer.addPass(new OutputPass());
   }
 
+  private deviceRatio() {
+    return Math.min(window.devicePixelRatio || 1, this.maxPixelRatio);
+  }
+
   resize() {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    this.renderer.setPixelRatio(this.pixelRatio);
-    this.renderer.setSize(w, h, false);
+    const pr = this.governor.ratio;
+    // resizing the canvas or the composer clears and reallocates their buffers, so only do it on a real change
+    const s = this.sized;
+    if (w !== s.w || h !== s.h || pr !== s.pr) {
+      this.renderer.setDrawingBufferSize(w, h, pr);
+      if (this.composer) {
+        if (pr !== s.pr) this.composer.setPixelRatio(pr);
+        if (w !== s.w || h !== s.h) this.composer.setSize(w, h);
+      }
+      this.sized = { w, h, pr };
+    }
     this.camera.aspect = w / h;
     // keep the horizontal framing stable on narrow screens
     this.camera.fov = w / h < 1.2 ? 55 : 38;
     this.camera.updateProjectionMatrix();
-    if (this.composer) {
-      this.composer.setPixelRatio(this.pixelRatio);
-      this.composer.setSize(w, h);
-    }
-    this.onResize?.(w, h * this.pixelRatio);
+    this.onResize?.(w, h * pr);
   }
 
   /** Lower resolution if frames are consistently slow, raise it when there is headroom. */
   govern(dt: number) {
-    this.frameTimes.push(dt);
-    if (this.frameTimes.length > 90) this.frameTimes.shift();
-    this.governorCooldown -= dt;
-    if (this.governorCooldown > 0 || this.frameTimes.length < 60) return;
-    const avg = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
-    const device = Math.min(window.devicePixelRatio || 1, this.maxPixelRatio);
-    if (avg > 1 / 45 && this.pixelRatio > 0.75) {
-      this.pixelRatio = Math.max(0.75, this.pixelRatio - 0.25);
-      this.governorCooldown = 2;
-      this.frameTimes.length = 0;
-      this.resize();
-    } else if (avg < 1 / 58 && this.pixelRatio < device) {
-      this.pixelRatio = Math.min(device, this.pixelRatio + 0.25);
-      this.governorCooldown = 4;
-      this.frameTimes.length = 0;
-      this.resize();
-    }
+    if (this.governor.sample(dt, this.deviceRatio())) this.resize();
   }
 
   render() {
