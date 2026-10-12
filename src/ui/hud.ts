@@ -9,6 +9,7 @@ import { ITEM_BY_ID, RARITIES, SLOTS } from '../game/items';
 import { PALETTES, type BotSpec } from '../game/loadout';
 import { button, el, esc } from './dom';
 import { ABILITY_ICON, ICON, SLOT_ICON } from './icons';
+import { saveZoom, type Zoom } from './store';
 
 const _p = new THREE.Vector3();
 
@@ -75,6 +76,7 @@ export class Hud {
   private commentary: HTMLElement;
   private vs: HTMLElement | null = null;
   private speedBtn!: HTMLButtonElement;
+  private zoomBtn!: HTMLButtonElement;
   private match: Match | null = null;
   private unsub: (() => void) | null = null;
   private lastCount = -1;
@@ -190,7 +192,25 @@ export class Hud {
     const bl = el('div', 'hud-bl', '', this.root);
     button('icon-btn', ICON.pause, () => this.onPause(), bl);
     const br = el('div', 'hud-br', '', this.root);
+    this.zoomBtn = button('icon-btn zoom', '', () => this.cycleZoom(), br);
+    this.syncZoom();
     this.speedBtn = button('icon-btn speed', '1×', () => this.cycleSpeed(), br);
+  }
+
+  /** Camera zoom: close → normal → wide → close. */
+  private cycleZoom() {
+    const d = this.game.director;
+    const next: Zoom = d.zoom === 'close' ? 'normal' : d.zoom === 'normal' ? 'wide' : 'close';
+    d.zoom = next;
+    saveZoom(next);
+    this.syncZoom();
+    this.game.sfx?.ui('tap');
+  }
+
+  syncZoom() {
+    if (!this.zoomBtn) return;
+    const z = this.game.director.zoom;
+    this.zoomBtn.innerHTML = `${ICON.zoom}<span>${z === 'close' ? 'Close' : z === 'wide' ? 'Wide' : 'Normal'}</span>`;
   }
 
   private cycleSpeed() {
