@@ -45,6 +45,8 @@ export interface AOOptions {
   direct?: number;
   /** Multiplier on the sphere occlusion. */
   strength?: number;
+  /** The surface is flat ground facing up: skip transforming its normal per pixel. */
+  floor?: boolean;
 }
 
 class ContactAO {
@@ -110,7 +112,7 @@ class ContactAO {
     const per = this.per;
     const prev = mat.onBeforeCompile;
     const prevKey = mat.customProgramCacheKey.bind(mat);
-    const key = `ao${o.spheres ? 's' + per : ''}${o.ground ? 'g' : ''}${o.stage ? 'r' : ''}`;
+    const key = `ao${o.spheres ? 's' + per : ''}${o.ground ? 'g' : ''}${o.stage ? 'r' : ''}${o.floor ? 'f' : ''}`;
     mat.onBeforeCompile = (sh, renderer) => {
       prev.call(mat, sh, renderer);
       if (o.spheres) {
@@ -153,7 +155,7 @@ class ContactAO {
           '#include <aomap_fragment>',
           `#include <aomap_fragment>
            {
-             vec3 nW = inverseTransformDirection(normal, viewMatrix);
+             vec3 nW = ${o.floor ? 'vec3(0.0, 1.0, 0.0)' : 'inverseTransformDirection(normal, viewMatrix)'};
              float ao = 1.0;
              ${terms.join('\n')}
              reflectedLight.indirectDiffuse *= ao;

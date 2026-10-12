@@ -133,6 +133,7 @@ export class Arena {
     // the robots' contact shadows land here; the edges and post bases are baked into the texture
     const mat = contactAO.patch(new THREE.MeshStandardMaterial({ map: matTexture(), roughness: 0.78, metalness: 0.05 }), {
       spheres: true,
+      floor: true,
       strength: 1.6,
       direct: 0.7,
     });

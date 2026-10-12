@@ -331,6 +331,7 @@ export class Venue {
     // the stage casts a wide soft contact shadow onto the arena floor
     const floorMat = contactAO.patch(new THREE.MeshStandardMaterial({ color: 0x0b0e16, roughness: 0.42, metalness: 0.35 }), {
       stage: { r0: 5.9, r1: 8.2, k: 0.75 },
+      floor: true,
       direct: 0.8,
     });
     const floor = new THREE.Mesh(floorGeo, floorMat);
