@@ -46,6 +46,13 @@ export function barColors(palette: number): [string, string] {
   return luma(a) <= luma(b) ? [hex(a), hex(b)] : [hex(b), hex(a)];
 }
 
+/**
+ * How long the finisher waits after the knockout, in match time. The KO plays in 0.3×
+ * slow motion, so this is about 3 real seconds at normal speed: the fall plays out clean
+ * first. It's match time so it follows the speed button and pause.
+ */
+const FINISH_DELAY = 0.9;
+
 /** The finishing word, split into the pieces that slam in one by one. */
 const FINISH_WORD = { KO: ['K.', 'O.'], TKO: ['T.', 'K.', 'O.'] };
 
@@ -72,6 +79,7 @@ export class Hud {
   private kdSeen = [0, 0];
   private kdEls: HTMLElement[] = [];
   private finishing = false;
+  private pendingFinish: { kind: 'KO' | 'TKO'; winner: Fighter } | null = null;
   private dmgLayer: HTMLElement;
   private commentary: HTMLElement;
   private vs: HTMLElement | null = null;
@@ -121,6 +129,7 @@ export class Hud {
     this.refEl.className = 'refcount';
     this.kdSeen = [0, 0];
     this.finishing = false;
+    this.pendingFinish = null;
     this.finishEl.className = 'finish';
     this.finishEl.innerHTML = '';
     this.root.classList.remove('finished');
@@ -311,6 +320,11 @@ export class Hud {
     }
 
     this.updateCount(m);
+    const pf = this.pendingFinish;
+    if (pf && (m.phase !== 'ko' || m.phaseTime >= FINISH_DELAY)) {
+      this.pendingFinish = null;
+      if (m.phase === 'ko') this.finish(pf.kind, pf.winner);
+    }
     if (this.finishing && m.phase === 'end') {
       this.finishing = false;
       this.finishEl.classList.add('out');
@@ -417,7 +431,8 @@ export class Hud {
         const d = data as { winner: Fighter; loser: Fighter; kind: 'KO' | 'TKO' };
         this.endCount();
         if (d.kind === 'TKO') this.markKnockdowns(d.loser);
-        this.finish(d.kind, d.winner);
+        this.calloutEl.className = 'callout';
+        this.pendingFinish = { kind: d.kind, winner: d.winner };
         this.comment(d.kind === 'TKO' ? `Three knockdowns. ${d.winner.name} wins by TKO!` : `${d.loser.name} is out cold!`, 5);
         break;
       }
@@ -523,7 +538,8 @@ export class Hud {
   // ----------------------------------------------------------------- finisher
   /**
    * The big end-of-fight word: K.O. slams in with a flash; T.K.O. is a quieter sweep.
-   * After a beat it docks as a small title at the top so the fall and celebration show.
+   * Shown FINISH_DELAY after the knockout; after a beat it docks as a small title at the
+   * top so the fall and celebration show.
    */
   private finish(kind: 'KO' | 'TKO', winner: Fighter) {
     const ko = kind === 'KO';
