@@ -1,14 +1,40 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { PostFX } from './post';
 import { RenderSettings } from './settings';
 import { ResolutionGovernor } from './governor';
 import { contactAO } from './ao';
 
 export type Quality = 'low' | 'med' | 'high';
+
+/** Render resolution as a pixel ratio, or null to let the governor pick it. */
+export type ResScale = number | null;
+
+export function loadResScale(): ResScale {
+  try {
+    const v = Number(localStorage.getItem('bb.res'));
+    return v >= 0.25 && v <= 4 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveResScale(v: ResScale) {
+  try {
+    if (v === null) localStorage.removeItem('bb.res');
+    else localStorage.setItem('bb.res', String(v));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** The fixed resolutions offered in settings, up to and including the screen's own. */
+export function resScaleChoices(): { value: number; native: boolean }[] {
+  const dpr = window.devicePixelRatio || 1;
+  const out = [0.5, 0.75, 1, 1.25, 1.5, 2].filter((v) => v < dpr - 0.01).map((value) => ({ value, native: false }));
+  out.push({ value: Math.round(dpr * 100) / 100, native: true });
+  return out;
+}
 
 export function detectQuality(): Quality {
   const saved = (() => {
@@ -30,12 +56,14 @@ export class Stage {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
-  private composer: EffectComposer | null = null;
-  private bloom: UnrealBloomPass | null = null;
+  /** Bloom and tone mapping (high quality only); without it the scene renders straight to the screen. */
+  readonly post: PostFX | null = null;
   readonly key: THREE.SpotLight;
   quality: Quality;
   private maxPixelRatio = 2;
   private governor: ResolutionGovernor;
+  /** A resolution picked in settings; while set it overrides the governor and the quality cap. */
+  private fixedRatio: ResScale = loadResScale();
   private sized = { w: 0, h: 0, pr: 0 };
   /** Resolution the governor asked for but that waits for a camera cut, so the switch is not seen. */
   private pendingFor = 0;
@@ -96,19 +124,23 @@ export class Stage {
 
     this.maxPixelRatio = quality === 'high' ? 2 : quality === 'med' ? 1.5 : 1;
     this.governor = new ResolutionGovernor(this.deviceRatio());
-    if (quality === 'high') this.setupComposer();
+    if (quality === 'high') this.post = new PostFX(this.renderer);
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
 
-  private setupComposer() {
-    const size = this.renderer.getSize(new THREE.Vector2());
-    const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 4 });
-    this.composer = new EffectComposer(this.renderer, rt);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.7, 0.55, 2.4);
-    this.composer.addPass(this.bloom);
-    this.composer.addPass(new OutputPass());
+  get resScale(): ResScale {
+    return this.fixedRatio;
+  }
+
+  /** Pick a fixed render resolution (pixel ratio), or null to go back to automatic. Applies at once. */
+  setResScale(v: ResScale) {
+    this.fixedRatio = v;
+    saveResScale(v);
+    // back to auto starts from the top again, forgetting levels the governor had ruled out
+    if (v === null) this.governor = new ResolutionGovernor(this.deviceRatio());
+    this.pendingFor = 0;
+    this.resize();
   }
 
   private deviceRatio() {
@@ -118,15 +150,12 @@ export class Stage {
   resize() {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const pr = this.governor.ratio;
-    // resizing the canvas or the composer clears and reallocates their buffers, so only do it on a real change
+    const pr = this.fixedRatio ?? this.governor.ratio;
+    // resizing the canvas or the post buffers clears and reallocates them, so only do it on a real change
     const s = this.sized;
     if (w !== s.w || h !== s.h || pr !== s.pr) {
       this.renderer.setDrawingBufferSize(w, h, pr);
-      if (this.composer) {
-        if (pr !== s.pr) this.composer.setPixelRatio(pr);
-        if (w !== s.w || h !== s.h) this.composer.setSize(w, h);
-      }
+      this.post?.setSize(w * pr, h * pr);
       this.sized = { w, h, pr };
     }
     // keep the horizontal framing stable on narrow screens; the director applies it, so a resize
@@ -145,6 +174,7 @@ export class Stage {
    * change (`cut`), where nobody notices; a drop goes through anyway if no cut comes soon.
    */
   govern(dt: number, cut = false) {
+    if (this.fixedRatio !== null) return;
     if (this.governor.ratio === this.sized.pr) {
       this.pendingFor = 0;
       this.governor.sample(dt, this.deviceRatio());
@@ -159,7 +189,10 @@ export class Stage {
   }
 
   render() {
-    if (this.composer) this.composer.render();
-    else this.renderer.render(this.scene, this.camera);
+    if (this.post) this.post.render(this.scene, this.camera);
+    else {
+      this.renderer.setRenderTarget(null);
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 }

@@ -1,5 +1,5 @@
 import type { Game } from '../game/game';
-import type { Quality } from '../render/stage';
+import { resScaleChoices, type Quality, type ResScale } from '../render/stage';
 import { enterLandscape } from '../fullscreen';
 import { Rng } from '../sim/math';
 import { MOVES } from '../sim/moves';
@@ -407,6 +407,7 @@ export class App {
         saveQuality(null);
         location.reload();
       }, box);
+      this.resolutionRow(box);
       const perfBtn = button('btn small', '', () => {
         this.perf.setVisible(!this.perf.visible);
         syncPerf();
@@ -421,6 +422,32 @@ export class App {
       }, box);
       button('btn cyan', 'Done', () => this.closeModal(), box);
     });
+  }
+
+  /** Render resolution: Auto (adapts to keep the frame rate) or a fixed pixel ratio, applied at once. */
+  private resolutionRow(box: HTMLElement) {
+    const stage = this.game.stage;
+    const label = el('div', 'muted', '', box);
+    const seg = el('div', 'seg seg4', '', box);
+    const opts: { value: ResScale; text: string }[] = [
+      { value: null, text: 'Auto' },
+      ...resScaleChoices().map((c) => ({ value: c.value, text: c.native ? 'Native' : `${c.value}x` })),
+    ];
+    const native = resScaleChoices().at(-1)!.value;
+    const btns = opts.map((o) =>
+      button('', o.text, () => {
+        this.tap();
+        stage.setResScale(o.value);
+        sync();
+      }, seg),
+    );
+    const sync = () => {
+      const cur = stage.resScale;
+      opts.forEach((o, i) => btns[i].classList.toggle('on', o.value === cur));
+      const pr = stage.renderer.getPixelRatio();
+      label.textContent = `Render resolution: ${cur === null ? `auto, now ${+pr.toFixed(2)}x` : `fixed at ${cur}x`} (screen is ${native}x)`;
+    };
+    sync();
   }
 
   // ------------------------------------------------------------ patch notes

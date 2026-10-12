@@ -1422,6 +1422,9 @@ button {
   grid-template-columns: repeat(3, 1fr);
   gap: 0.3em;
 }
+.seg.seg4 {
+  grid-template-columns: repeat(4, 1fr);
+}
 .seg button {
   padding: 0.4em 0;
   border-radius: 8px;

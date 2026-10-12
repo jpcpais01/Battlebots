@@ -1,4 +1,4 @@
-import type * as THREE from 'three';
+import * as THREE from 'three';
 import { perf } from '../perf';
 import type { Stage } from './stage';
 
@@ -16,7 +16,7 @@ export const PARTS: { id: Part; label: string }[] = [
   { id: 'beams', label: 'Beams' },
   { id: 'effects', label: 'Effects' },
   { id: 'shadows', label: 'Shadows' },
-  { id: 'post', label: 'Bloom' },
+  { id: 'post', label: 'Bloom/post' },
   { id: 'other', label: 'Other' },
 ];
 const IDS = PARTS.map((p) => p.id);
@@ -162,6 +162,7 @@ export class RenderProbe {
     perf.gpuSupported = !!this.ext;
     if (this.installed) return;
     this.installed = true;
+    if (this.stage.post) this.stage.scene.add(this.resolveMarker());
     const r = this.renderer as unknown as { renderBufferDirect: Draw };
     const draw = r.renderBufferDirect;
     const scene = this.stage.scene;
@@ -172,6 +173,24 @@ export class RenderProbe {
     };
   }
   private installed = false;
+
+  /**
+   * The multisampled scene buffer is resolved inside `renderer.render`, right after the last draw,
+   * so its cost lands on whatever part drew last (often the light beams). A zero-area triangle
+   * drawn after everything else switches the timer to post-processing first.
+   */
+  private resolveMarker() {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+    const m = new THREE.Mesh(
+      geo,
+      new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, colorWrite: false }),
+    );
+    m.renderOrder = Number.MAX_SAFE_INTEGER;
+    m.frustumCulled = false;
+    this.tag(m, 'post');
+    return m;
+  }
 
   private onDraw(part: number, geometry: THREE.BufferGeometry, object: THREE.Object3D, group: { count: number } | null) {
     this.draws[part]++;
@@ -278,7 +297,7 @@ export class RenderProbe {
       if (list) list.push(o);
       else groups.set(part, [o]);
     });
-    const post = stage.quality === 'high';
+    const post = !!stage.post;
     const full = () => stage.render();
     const direct = () => {
       renderer.setRenderTarget(null);
