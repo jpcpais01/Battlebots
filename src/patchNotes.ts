@@ -17,8 +17,9 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-12 21:00',
-    title: 'Cleaner hits',
+    title: 'Cleaner hits and a clean load',
     notes: [
+      'Fixed a big robot part on a white square flashing in the bottom-left corner while the game loads.',
       'The orange glow on a robot part when it gets hit is gone. Dents, scorch marks, cracks and sparks still show the damage.',
     ],
   },
