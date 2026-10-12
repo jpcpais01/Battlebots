@@ -521,7 +521,10 @@ export class Hud {
   }
 
   // ----------------------------------------------------------------- finisher
-  /** The big end-of-fight word: K.O. slams in with a flash; T.K.O. is a quieter sweep. */
+  /**
+   * The big end-of-fight word: K.O. slams in with a flash; T.K.O. is a quieter sweep.
+   * After a beat it docks as a small title at the top so the fall and celebration show.
+   */
   private finish(kind: 'KO' | 'TKO', winner: Fighter) {
     const ko = kind === 'KO';
     this.calloutEl.className = 'callout';
@@ -529,7 +532,7 @@ export class Hud {
     const sub = ko ? `${esc(winner.name)} wins by knockout` : `Technical knockout · ${esc(winner.name)} wins`;
     const fx = ko ? '<div class="fx-flash"></div><div class="fx-ring"></div><div class="fx-ring two"></div>' : '';
     this.finishEl.className = 'finish';
-    this.finishEl.innerHTML = `<div class="fx-vig"></div>${fx}<div class="fx-band"></div><div class="fx-c"><div class="fx-word">${word}</div><div class="fx-sub">${sub}</div></div>`;
+    this.finishEl.innerHTML = `<div class="fx-vig"></div><div class="fx-top"></div>${fx}<div class="fx-band"></div><div class="fx-word">${word}</div><div class="fx-sub">${sub}</div>`;
     void this.finishEl.offsetWidth;
     this.finishEl.className = `finish go ${ko ? 'ko' : 'tko'} ${winner.index ? 'p2' : 'p1'}`;
     this.root.classList.add('finished');
