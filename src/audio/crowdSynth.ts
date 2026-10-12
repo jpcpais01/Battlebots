@@ -1,5 +1,6 @@
 /**
- * Procedural crowd synthesis (no audio files). A crowd is many small "voices":
+ * Procedural crowd synthesis (no audio files). The steady beds (murmur, roar) are shaped noise
+ * with swells, never pitched, so nothing hums under the fight. Reactions are many small "voices":
  * a glottal buzz plus breath, shaped by two moving formant filters into vowels,
  * chopped into syllables (chatter) or held as shouts, and spread across the
  * stereo field. Claps are short filtered noise bursts. Everything renders into
@@ -14,7 +15,6 @@ const V: Record<string, Vowel> = {
   ah: [750, 1200], ae: [660, 1700], eh: [530, 1850], ee: [300, 2200],
   oh: [500, 900], oo: [330, 850], uh: [600, 1170], er: [490, 1350],
 };
-const CHAT = [V.ah, V.ae, V.eh, V.ee, V.oh, V.oo, V.uh, V.er];
 
 /** Small seeded PRNG (mulberry32). */
 export function prng(seed: number) {
@@ -184,47 +184,64 @@ export class CrowdRender {
 
 const range = (rnd: () => number, a: number, b: number) => a + (b - a) * rnd();
 
-/** Background chatter of a packed arena: many overlapping talkers at different distances. */
-export function murmur(seed: number, seconds = 6): { render: CrowdRender; finish: () => [Float32Array, Float32Array] } {
-  const rnd = prng(seed);
-  const r = new CrowdRender(seconds + 0.6);
-  for (let i = 0; i < 26; i++) {
-    const male = rnd() < 0.55;
-    const far = rnd();
-    r.push(() =>
-      r.voice(
-        {
-          start: 0, end: r.seconds, f0: male ? range(rnd, 95, 150) : range(rnd, 170, 250), inflect: 0.18,
-          voiced: 0.75, breath: 0.22, syl: [0.09, 0.26], gap: 0.3 + rnd() * 0.25, vowels: CHAT,
-          gain: 0.4 + (1 - far) * 0.6, pan: rnd(), far, contour: null, env: null,
-        },
-        rnd,
-      ),
-    );
-  }
-  return { render: r, finish: () => r.finish(r.loopify(0.6), 0.16) };
+interface WashShape {
+  /** One-pole low-pass corner (Hz): how bright the wash is. */
+  lp: number;
+  /** One-pole high-pass corner (Hz): keeps rumble out. */
+  hp: number;
+  /** Swell depth (0..1) and how many swells per second. */
+  depth: number;
+  rate: number;
+  rms: number;
 }
 
-/** Sustained shouting of an excited crowd ("aaah", "yeah", "ooh" held), mixed in when things heat up. */
-export function roar(seed: number, seconds = 5): { render: CrowdRender; finish: () => [Float32Array, Float32Array] } {
+/**
+ * A crowd bed made of shaped noise with slow swells: the sound of a big room full of people,
+ * heard as a whole. Unlike voices, it has no pitch at all, so it can never hum or buzz under
+ * the fight. Rendered in chunks so the work spreads over idle frames.
+ */
+function wash(seed: number, seconds: number, w: WashShape): { render: CrowdRender; finish: () => [Float32Array, Float32Array] } {
   const rnd = prng(seed);
   const r = new CrowdRender(seconds + 0.6);
-  const shout = [V.ah, V.ae, V.eh, V.oh, V.uh];
-  for (let i = 0; i < 30; i++) {
-    const male = rnd() < 0.6;
-    const far = rnd();
-    r.push(() =>
-      r.voice(
-        {
-          start: 0, end: r.seconds, f0: male ? range(rnd, 170, 260) : range(rnd, 280, 420), inflect: 0.22,
-          voiced: 0.85, breath: 0.4, syl: [0.35, 1.4], gap: 0.12, vowels: shout,
-          gain: 0.4 + (1 - far) * 0.6, pan: rnd(), far: far * 0.8, contour: null, env: null,
-        },
-        rnd,
-      ),
-    );
+  const { L, R, sr } = r;
+  const aLp = 1 - Math.exp((-2 * Math.PI * w.lp) / sr);
+  const aHp = 1 - Math.exp((-2 * Math.PI * w.hp) / sr);
+  // each channel: its own noise, filters and swell, so the bed is wide rather than centred
+  const st = [L, R].map((ch) => ({ ch, lo: 0, lo2: 0, hp: 0, amp: 1, target: 1, seed: (rnd() * 4294967296) | 0 }));
+  const B = 32;
+  const swellK = 1 - Math.exp((-2 * Math.PI * w.rate * B) / sr);
+  const chunk = Math.ceil(L.length / 4 / B) * B;
+  for (let c0 = 0; c0 < L.length; c0 += chunk) {
+    r.push(() => {
+      for (const s of st) {
+        for (let b0 = c0; b0 < Math.min(L.length, c0 + chunk); b0 += B) {
+          // a new swell target now and then; the level glides toward it
+          if (rnd() < (w.rate * B) / sr) s.target = 1 - w.depth + w.depth * 2 * rnd();
+          s.amp += (s.target - s.amp) * swellK;
+          for (let i = b0; i < Math.min(L.length, b0 + B); i++) {
+            s.seed = (Math.imul(s.seed, 1664525) + 1013904223) | 0;
+            const n = s.seed / 2147483648;
+            // two low-pass stages for a soft top, minus a slow one to drop the rumble
+            s.lo += (n - s.lo) * aLp;
+            s.lo2 += (s.lo - s.lo2) * aLp;
+            s.hp += (s.lo2 - s.hp) * aHp;
+            s.ch[i] = (s.lo2 - s.hp) * s.amp;
+          }
+        }
+      }
+    });
   }
-  return { render: r, finish: () => r.finish(r.loopify(0.6), 0.18) };
+  return { render: r, finish: () => r.finish(r.loopify(0.6), w.rms) };
+}
+
+/** Background hubbub of a packed arena: a soft, dark wash with lazy swells. */
+export function murmur(seed: number, seconds = 6): { render: CrowdRender; finish: () => [Float32Array, Float32Array] } {
+  return wash(seed, seconds, { lp: 900, hp: 140, depth: 0.25, rate: 0.6, rms: 0.14 });
+}
+
+/** An excited crowd going up: a brighter, fuller wash that surges. */
+export function roar(seed: number, seconds = 5): { render: CrowdRender; finish: () => [Float32Array, Float32Array] } {
+  return wash(seed, seconds, { lp: 2400, hp: 220, depth: 0.35, rate: 1.4, rms: 0.17 });
 }
 
 export type Reaction = 'ooh' | 'cheer' | 'boo';
@@ -262,7 +279,7 @@ export function reaction(kind: Reaction, seed: number): { render: CrowdRender; f
     r.push(() =>
       r.voice(
         {
-          start, end, f0, inflect: 0.03, voiced: 0.85, breath: kind === 'cheer' ? 0.45 : 0.3,
+          start, end, f0, inflect: 0.03, voiced: 0.5, breath: kind === 'cheer' ? 0.7 : 0.55,
           syl: kind === 'boo' ? [0.3, 0.6] : [0.5, 1.2], gap: 0, vowels, gain: 0.45 + (1 - far) * 0.55,
           pan: rnd(), far: far * 0.8, contour, env,
         },

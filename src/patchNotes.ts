@@ -24,6 +24,7 @@ export const PATCH_NOTES: PatchNote[] = [
       'Refresh button on the home screen (circular arrow next to sound and settings) reloads the app on the latest version.',
       'The settings button now shows a proper gear instead of a sun.',
       'A live crowd that cheers, gasps and roars with the fight.',
+      'Crowd background no longer hums or buzzes: the arena noise is now a soft, natural wash that swells with the fight.',
       'No more crackling: smoother crowd applause, cleaner electric sounds, and loud moments like a KO no longer distort.',
       'Action camera: the fight is now shot like a broadcast, with cuts and close-ups on the big hits.',
       'Clear view: ropes, posts and anything else between the camera and the robots fade away, so nothing blocks the fight.',
