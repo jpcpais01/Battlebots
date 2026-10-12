@@ -1,7 +1,6 @@
 import type { Game, Place } from '../game/game';
 import { resScaleChoices, type Quality, type ResScale } from '../render/stage';
 import type { FpsCap } from '../render/pacer';
-import { BOOST_MODES } from '../render/refreshBoost';
 import { enterLandscape } from '../fullscreen';
 import { Rng } from '../sim/math';
 import { MOVES } from '../sim/moves';
@@ -627,10 +626,6 @@ export class App {
           on: o === pacer.cap,
           pick: () => pacer.setCap(o),
         })),
-      );
-      const boost = this.game.boost;
-      this.segRow(gfx, 'Keep 120 Hz <span>experimental</span>', () =>
-        BOOST_MODES.map((m) => ({ text: m.label, on: m.id === boost.mode, pick: () => boost.set(m.id) })),
       );
     });
   }
