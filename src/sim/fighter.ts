@@ -10,6 +10,7 @@ import {
   easeInOut,
   easeOutQuad,
   lerp,
+  minJerk,
   Noise1,
   Rng,
   smoothstep,
@@ -258,6 +259,10 @@ export class Fighter {
   private twist = 0;
   private hipTwist = 0;
   private leanV = new Vector3();
+  /** Landing give after a step (extra crouch, decays). */
+  private stepDip = 0;
+  /** Guard counter-swing from the current step (+ when the right leg steps forward). */
+  private gaitSwing = 0;
   private pivot = [0, 0];
   private heel = [0, 0];
   private _pivotT = [0, 0];
@@ -471,7 +476,7 @@ export class Fighter {
     if (prev) {
       // A follow-up off the other hand is "loaded" by the previous rotation.
       const alt = prev.side !== side && move.kind === 'punch' && prev.move.kind === 'punch';
-      windupMul = alt ? 0.55 : 0.85;
+      windupMul = alt ? 0.7 : 0.9;
       speed *= 1 + this.passive('whiplash');
     }
     const s: StrikeAction = {
@@ -880,7 +885,7 @@ export class Fighter {
       if (f.locked) continue;
       if (f.stepping) {
         f.t += dt / f.dur;
-        const k = easeInOut(clamp01(f.t));
+        const k = minJerk(f.t);
         f.pos.lerpVectors(f.from, f.to, k);
         f.pos.y = lerp(f.from.y, f.to.y, k) + Math.sin(Math.PI * clamp01(f.t)) * f.arc;
         f.yaw = f.fromYaw + wrapAngle(f.toYaw - f.fromYaw) * smoothstep(0, 0.8, f.t);
@@ -888,6 +893,8 @@ export class Fighter {
           f.stepping = false;
           f.pos.copy(f.to);
           f.yaw = f.toYaw;
+          // the knees give a little as the weight lands on the new foot
+          this.stepDip = Math.max(this.stepDip, 0.008 + f.arc * 0.12);
           this.hooks?.emit('step', { f: this, foot: i });
         }
       }
@@ -997,14 +1004,16 @@ export class Fighter {
             pitch -= 0.06 * w;
             break;
           case 'overhand':
-            pd.z += 0.1 * w;
+            // the loop rolls the shoulders over the punch
+            pd.z += 0.08 * w;
             pd.x += st * 0.04 * w;
-            roll += -sxp * 0.14 * w + sxp * 0.08 * prog.load;
-            pitch += 0.12 * w - 0.12 * prog.load;
+            roll += -sxp * 0.16 * w + sxp * 0.1 * prog.load;
+            pitch += 0.07 * w - 0.08 * prog.load;
             break;
           case 'hammer':
-            pitch += 0.2 * w - 0.14 * prog.load;
-            pd.z += 0.09 * w;
+            // rock back under the raised fist, then fold forward over the chop
+            pitch += 0.12 * w - 0.16 * prog.load;
+            pd.z += 0.07 * w;
             break;
           default:
             break;
@@ -1013,7 +1022,9 @@ export class Fighter {
         if (s.phase === 'active') {
           const shIdx = s.side === 'L' ? J.ShL : J.ShR;
           const deficit = this.body.pos[shIdx].distanceTo(s.endWorld) - (UPPER + FORE + this.extend[s.side === 'L' ? 0 : 1]);
-          pitch += clamp(deficit, 0, 0.3) * 0.7 * prog.ext;
+          // swung shots already travel through a wide arc, so they lean in less
+          const reach = m.path === 'overhand' || m.path === 'hammer' ? 0.3 : 0.7;
+          pitch += clamp(deficit, 0, 0.3) * reach * prog.ext;
           pd.z += clamp(deficit, 0, 0.3) * 0.25 * prog.ext;
         }
         // chin tucks behind the shoulder, head slides off the centre line
@@ -1109,11 +1120,31 @@ export class Fighter {
       hd.z -= clamp(lvz - this.leanV.z, -0.6, 0.6) * 0.03;
       shTw += clamp(this.leanV.x, -1, 1) * 0.06 * -st;
     }
-    // weight rides over the planted foot while the other one steps
+    // gait: the whole body rides each step. Weight moves over the planted foot, the
+    // body vaults up over it, hips turn with the stepping leg while the shoulders and
+    // guard counter-rotate, and the knees give as the foot lands.
+    let rise = 0;
+    let swing = 0;
     for (let i = 0; i < 2; i++) {
       const f = this.feet[i];
-      if (f.stepping && !this.feet[1 - i].stepping) pd.x += (i === 0 ? 0.025 : -0.025) * Math.sin(Math.PI * clamp01(f.t));
+      if (!f.stepping || this.feet[1 - i].stepping) continue;
+      const sw = Math.sin(Math.PI * clamp01(f.t));
+      const dx = f.to.x - f.from.x, dz = f.to.z - f.from.z;
+      const fwd = clamp(sy * dx + cy * dz, -0.4, 0.4);
+      const size = Math.min(1, Math.hypot(dx, dz) / 0.3);
+      const sxF = i === 0 ? -1 : 1;
+      pd.x -= sxF * 0.045 * sw * (0.4 + 0.6 * size);
+      roll -= sxF * 0.03 * sw * size;
+      rise += 0.014 * sw * size;
+      hipTw -= sxF * fwd * 0.55 * sw;
+      shTw += sxF * fwd * 0.25 * sw;
+      swing += sxF * fwd * sw;
     }
+    if (dt > 0) this.stepDip = damp(this.stepDip, 0, 9, dt);
+    crouch += this.stepDip - rise;
+    // the head rides steadier than the trunk
+    hd.y += rise * 0.4 - this.stepDip * 0.4;
+    this.gaitSwing = s ? 0 : swing;
     // idle head movement while fighting
     if (fighting && !s && !d) {
       hd.x += this.noise.at(t * 0.8 + 20) * 0.025;
@@ -1160,7 +1191,8 @@ export class Fighter {
 
     // ---------- bob (bouncing on the toes)
     if (dt > 0) this.bobPhase += dt * (5.2 + this.bounce * 2.2 + tired * 1.5 + this.rootVel.length() * 1.2);
-    const bobAmp = (fighting ? 0.012 + 0.016 * this.bounce : 0.008) + tired * 0.01;
+    // on the move the steps carry the bounce, so the idle toe-bounce fades out
+    const bobAmp = ((fighting ? 0.012 + 0.016 * this.bounce : 0.008) + tired * 0.01) / (1 + this.rootVel.length() * 1.5);
     const bob = Math.sin(this.bobPhase) * bobAmp;
 
     // ---------- skeleton (local)
@@ -1220,6 +1252,8 @@ export class Fighter {
       const hy = gw.normal * nY + gw.high * -0.03 + gw.body * -0.44 + gw.low * -0.5;
       const hz = gw.normal * nZ + gw.high * 0.16 + gw.body * 0.2 + gw.low * 0.2;
       hand.set(head.x + hx, head.y + hy - lower * 0.38, head.z + hz - lower * 0.05);
+      // the guard counter-swings a touch against the stepping leg
+      hand.z -= sx * this.gaitSwing * 0.08;
       if (isLead) {
         hand.x += Math.sin(t * 2.3 + this.index) * 0.025 * paw;
         hand.y += Math.cos(t * 2.9 + this.index) * 0.02 * paw + bob * 0.6;
@@ -1282,6 +1316,8 @@ export class Fighter {
         foot.y += this.lift * 0.75;
         foot.z -= this.lift * 0.4;
         f.locked = true;
+        // airborne: drop any step in progress so it doesn't resume from the take-off spot
+        f.stepping = false;
         this.toWorld(foot, f.pos);
         this.footAirT[side] = clamp01(this.lift * 8);
         this.footFlexT[side] = 0.6;
@@ -1514,27 +1550,32 @@ export class Fighter {
     const cock = m.kind === 'kick' ? 0.25 : m.path === 'overhand' ? 0.55 : m.path === 'hammer' ? 0.4 : m.path === 'hook' ? 0.35 : m.path === 'upper' ? 0.3 : m.id === 'jab' || m.multi ? 0.1 : 0.25;
     p.ret = 0;
     p.ext = 0;
+    // limbs move on minimum-jerk curves (speed builds, peaks and settles, like a
+    // human reach) instead of leaving the guard at full speed
     if (s.phase === 'windup') {
       const k = clamp01(s.t / s.windup);
       p.k = k;
-      p.load = smoothstep(0, 0.75, k);
+      // cock fully a beat before the release: the loaded pause reads as weight
+      p.load = minJerk(k / 0.8);
       p.sh = -cock * p.load;
       p.hip = -cock * 0.5 * p.load + 0.55 * smoothstep(0.55, 1, k);
     } else if (s.phase === 'active') {
       const k = clamp01(s.t / s.active);
       p.k = k;
       p.load = 1 - smoothstep(0, 0.6, k);
-      p.ext = easeOutQuad(k);
-      p.hip = lerp(0.55 - cock * 0.5, 1, easeOutQuad(Math.min(1, k * 1.6)));
-      p.sh = lerp(-cock, 1, easeOutQuad(k));
+      // still moving at contact: the target point sits inside the opponent
+      p.ext = 0.75 * minJerk(k) + 0.25 * k;
+      // kinetic chain: hips lead, shoulders follow, the fist arrives last
+      p.hip = lerp(0.55 - cock * 0.5, 1, minJerk(k * 1.5));
+      p.sh = lerp(-cock, 1, minJerk(k * 1.2));
     } else {
       const k = clamp01(s.t / s.recovery);
       p.k = k;
       p.load = 0;
       p.ext = 1;
       p.ret = k;
-      p.sh = 1 - easeInOut(Math.min(1, k * 1.15));
-      p.hip = 1 - easeInOut(k);
+      p.sh = 1 - minJerk(k * 1.1);
+      p.hip = 1 - minJerk(k);
     }
     return p;
   }
@@ -1558,19 +1599,24 @@ export class Fighter {
         load.set(sx * 0.03, -0.3, -0.03);
         break;
       case 'overhand':
-        load.set(sx * 0.14, 0.14, -0.22);
+        // haymaker: draw the fist back and out behind the shoulder
+        load.set(sx * 0.2, 0.02, -0.3);
         break;
       case 'hammer':
-        load.set(sx * 0.06, 0.44, -0.12);
+        // hammer fist: lift it high above and just behind the head
+        load.set(sx * 0.02, 0.48, -0.28);
         break;
       default:
         break;
     }
     pole.set(sx * 0.5, -1, -0.3);
     if (m.path === 'hook') pole.set(sx * 1, 0.35, -0.25);
-    else if (m.path === 'overhand') pole.set(sx * 1, 0.8, -0.3);
-    else if (m.path === 'hammer') pole.set(sx * 0.8, 0.7, -0.5);
-    else if (m.path === 'upper') pole.set(sx * 0.3, -1, 0.35);
+    else if (m.path === 'overhand') pole.set(sx * 1, 0.6, -0.45);
+    else if (m.path === 'hammer') {
+      // elbow points out and forward with the fist overhead, then down as it chops
+      const e = s.phase === 'active' ? prog.ext : s.phase === 'recovery' ? 1 : 0;
+      pole.set(sx * 0.9, lerp(0.25, -0.7, e), lerp(0.45, -0.1, e));
+    } else if (m.path === 'upper') pole.set(sx * 0.3, -1, 0.35);
 
     if (s.phase === 'windup') {
       out.copy(C).addScaledVector(load, prog.load);
@@ -1582,8 +1628,11 @@ export class Fighter {
     if (this.trunkPush(start, 0.15, _w) > 0) start.add(_w);
     const end = this.toLocal(s.endWorld, _w);
     if (s.phase === 'active') {
-      const k = prog.ext;
+      // swung power shots build speed into the target instead of easing into it
+      const swing = m.path === 'overhand' || m.path === 'hammer';
+      const k = swing ? prog.k * (0.35 + 0.65 * prog.k) : prog.ext;
       const a = 1 - k;
+      if (m.path === 'hammer') end.y -= 0.12;
       // cubic bezier with path-shaped control points
       const c1 = this._c1.lerpVectors(start, end, 0.33);
       const c2 = this._c2.lerpVectors(start, end, 0.66);
@@ -1603,14 +1652,14 @@ export class Fighter {
           c2.set(lerp(start.x, end.x, 0.85), lerp(start.y, end.y, 0.55), end.z - 0.08);
           break;
         case 'overhand':
-          c1.x += sx * 0.25;
-          c1.y += 0.32;
-          c2.x += sx * 0.1;
-          c2.y += 0.28;
+          // wide loop: out round the side, then over the top onto the target
+          c1.set(start.x + sx * 0.32, start.y + 0.16, lerp(start.z, end.z, 0.3));
+          c2.set(end.x + sx * 0.34, end.y + 0.14, end.z - 0.06);
           break;
         case 'hammer':
-          c1.set(lerp(start.x, end.x, 0.4), Math.max(start.y, end.y) + 0.3, lerp(start.z, end.z, 0.45));
-          c2.set(end.x, end.y + 0.24, lerp(start.z, end.z, 0.85));
+          // keep rising as it comes forward, then drop straight down through the target
+          c1.set(lerp(start.x, end.x, 0.2), start.y + 0.22, lerp(start.z, end.z, 0.25));
+          c2.set(end.x, end.y + 0.6, end.z + 0.02);
           break;
         default:
           break;
@@ -1635,7 +1684,8 @@ export class Fighter {
     const k = clamp01(s.t / s.recovery);
     const idx = s.side === 'L' ? 0 : 1;
     if (m.extend) this.extend[idx] = m.extend * (1 - smoothstep(0, 0.6, k));
-    const r = 1 - Math.pow(1 - k, 3);
+    // the fist leaves the target unhurried, then settles back into the guard
+    const r = 0.8 * minJerk(k) + 0.2 * easeOutQuad(k);
     out.copy(s.recoverFrom).lerp(guard, r);
     // retract along a slightly lower line so the fist doesn't float back
     out.y -= Math.sin(Math.PI * r) * 0.03;
@@ -1667,9 +1717,11 @@ export class Fighter {
       if (s.phase === 'recovery' && s.t >= s.recovery * 0.98) this.spinYaw = 0;
     }
     if (m.jump) {
-      if (s.phase === 'windup') this.lift = 0;
-      else if (s.phase === 'active') this.lift = Math.sin(Math.PI * clamp01(s.t / s.active)) * m.jump;
-      else this.lift = Math.max(0, (1 - clamp01(s.t / (s.recovery * 0.3))) * 0.05);
+      // take off late in the windup, peak as the knee lands, touch down early in recovery
+      const up = s.windup * 0.4;
+      const air = up + s.active + s.recovery * 0.35;
+      const e = s.phase === 'windup' ? s.t - (s.windup - up) : s.phase === 'active' ? up + s.t : up + s.active + s.t;
+      this.lift = e > 0 && e < air ? Math.sin(Math.PI * (e / air)) * m.jump : 0;
     }
     switch (m.path) {
       case 'frontKick':
@@ -1699,8 +1751,11 @@ export class Fighter {
         heel[support] = 0.3 * w;
         break;
       case 'knee':
-        res.pitch = -0.12 * w + 0.1 * prog.ext * (1 - prog.ret);
-        res.shiftZ = 0.06 * w;
+        // dip to spring off the support leg, hips drive in under an upright chest
+        res.crouch = m.crouch * prog.load;
+        res.pitch = -0.1 * w + 0.06 * prog.ext * (1 - prog.ret);
+        res.shiftZ = 0.08 * w;
+        heel[support] = 0.3 * w;
         break;
       default:
         break;
@@ -1739,12 +1794,28 @@ export class Fighter {
         flex = s.phase === 'windup' ? 0.3 : -0.55;
         break;
       case 'knee':
-        C.set(sx * 0.1, 0.42, -0.24);
-        pole.set(0, 0.6, 1);
+        // thigh lifted forward, shin folded back under it
+        this.kneeFoot(hip, 1.25, 0.55, C);
+        pole.set(0, 0.3, 1);
         flex = 0.9;
         break;
       default:
         C.set(0, 0.5, 0.1);
+    }
+    if (m.path === 'knee' && s.phase !== 'recovery') {
+      if (s.phase === 'windup') {
+        // load on the support leg, then pick the knee up
+        const k = clamp01(s.t / s.windup);
+        out.lerpVectors(home, C, easeInOut(smoothstep(0.3, 1, k)));
+        return flex * k;
+      }
+      // drive the knee up through the target, the foot tucked under and behind it
+      const dz = end.z - hip.z;
+      const dy = end.y - hip.y;
+      const aim = clamp(Math.atan2(dz, -dy), 1.45, 2.25);
+      const drive = easeOutQuad(Math.min(1, prog.k * 1.5));
+      this.kneeFoot(hip, lerp(1.25, aim, drive), lerp(0.55, 0.3, drive), out);
+      return flex;
     }
     if (s.phase === 'windup') {
       const k = easeInOut(clamp01(s.t / s.windup));
@@ -1800,8 +1871,20 @@ export class Fighter {
       out.y += Math.sin(Math.PI * k2) * 0.04;
       flex *= 1 - k2;
     }
-    void hip;
     return flex;
+  }
+
+  /**
+   * Foot target that puts the knee at `thigh` radians up from hanging straight down
+   * (forward positive) with the shin `shin` radians back from vertical.
+   */
+  private kneeFoot(hip: Vector3, thigh: number, shin: number, out: Vector3) {
+    out.set(
+      hip.x * 0.6,
+      hip.y - THIGH * Math.cos(thigh) - SHIN * Math.cos(shin),
+      hip.z + THIGH * Math.sin(thigh) - SHIN * Math.sin(shin),
+    );
+    return out;
   }
 
   /** Arms during kicks: guard the face, counterbalance, post or clinch. Returns the fist roll. */
