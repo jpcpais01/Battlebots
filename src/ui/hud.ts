@@ -243,12 +243,13 @@ export class Hud {
     this.timer = el('div', 'timer', '99', top);
     top.appendChild(mk(1));
 
+    // each condition panel hangs under its robot's bars
     this.xrays = [0, 1].map((i) => {
       const root = el(
         'div',
         `xray ${i ? 'p2' : 'p1'}`,
         `<div class="xr-head"><i></i>Condition</div><svg viewBox="0 0 64 126">${XRAY_SHAPES.map((sh) => sh.replace('/>', ' class="xp"/>')).join('')}${XRAY_BONES}</svg>`,
-        this.root,
+        this.bars[i].root,
       );
       root.title = `${m.fighters[i].name}: condition of each part`;
       const shapes = [...root.querySelectorAll<SVGElement>('.xp')];
