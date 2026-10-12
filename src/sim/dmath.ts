@@ -285,10 +285,38 @@ function acos(x: number): number {
   return 2 * (s + asinR(z) * s);
 }
 
+const PIO4_HI = 7.85398163397448278999e-1;
+
+function asin(x: number): number {
+  if (x !== x || x > 1 || x < -1) return NaN;
+  const a = x < 0 ? -x : x;
+  if (a === 1) return x * PIO2_HI + x * PIO2_LO;
+  if (a < 0.5) {
+    if (a < 7.450580596923828e-9) return x;
+    return x + x * asinR(x * x);
+  }
+  const z = (1 - a) * 0.5;
+  const s = Math.sqrt(z);
+  const r = asinR(z);
+  let t: number;
+  if (a >= 0.975) t = PIO2_HI - (2 * (s + s * r) - PIO2_LO);
+  else {
+    // s split into a high part with a zeroed low word, for extra precision
+    buf.setFloat64(0, s);
+    buf.setInt32(4, 0);
+    const df = buf.getFloat64(0);
+    const c = (z - df * df) / (s + df);
+    const p = 2 * s * r - (PIO2_LO - 2 * c);
+    const q = PIO4_HI - 2 * df;
+    t = PIO4_HI - (p - q);
+  }
+  return x < 0 ? -t : t;
+}
+
 /** sqrt(x^2 + y^2 [+ z^2]) without Math.hypot's engine-specific rounding. */
 function hypot(x: number, y: number, z = 0): number {
   return Math.sqrt(x * x + y * y + z * z);
 }
 
 /** Drop-in for the engine-dependent parts of Math, used everywhere in src/sim. */
-export const DM = { sin, cos, atan, atan2, acos, exp, log, pow, hypot } as const;
+export const DM = { sin, cos, atan, atan2, asin, acos, exp, log, pow, hypot } as const;

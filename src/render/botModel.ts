@@ -15,6 +15,7 @@ import {
   buildPistonRod,
   buildRocketPiston,
   buildShin,
+  buildShinGuard,
   buildSpine,
   buildThigh,
   buildToe,
@@ -25,7 +26,7 @@ import {
   type PB,
 } from './parts';
 import { RenderSettings } from './settings';
-import { surf, vertexPBR, type GlowKey, type Surfaces } from './bake';
+import { FLIP, surf, vertexPBR, type GlowKey, type Surfaces } from './bake';
 import { contactAO } from './ao';
 import { contactStats, Hull, partRadius, pushOut, samplePB, tally, type PlacedHull } from './contact';
 
@@ -178,7 +179,9 @@ class SkinBuilder {
       const emissive = EMISSIVE_KEYS.has(ent.key);
       if (emissive) {
         const ch = ent.key === 'glow' ? CH_GLOW : ent.key === 'core' ? CH_CORE : rarityCh;
-        for (let i = 0; i < n; i++) {
+        const flip = ent.m.determinant() < 0;
+        for (let k = 0; k < n; k++) {
+          const i = flip ? k + FLIP[k % 3] : k;
           this.v.fromBufferAttribute(pos, i).applyMatrix4(ent.m);
           this.e.pos.push(this.v.x, this.v.y, this.v.z);
           this.e.ch.push(ch);
@@ -188,8 +191,10 @@ class SkinBuilder {
       }
       const s = this.surfaces[ent.key as keyof typeof this.surfaces];
       this.nm.getNormalMatrix(ent.m);
-      // negative-determinant transforms would flip winding; parts never use them
-      for (let i = 0; i < n; i++) {
+      // mirrored entries would turn inside out: swap two corners of every triangle
+      const flip = ent.m.determinant() < 0;
+      for (let k = 0; k < n; k++) {
+        const i = flip ? k + FLIP[k % 3] : k;
         this.v.fromBufferAttribute(pos, i).applyMatrix4(ent.m);
         this.o.pos.push(this.v.x, this.v.y, this.v.z);
         this.v.fromBufferAttribute(nor, i).applyMatrix3(this.nm).normalize();
@@ -372,12 +377,13 @@ export class BotModel {
     this.palette = palette;
     const pal = PALETTES[palette % PALETTES.length];
     const look = (slot: Slot) => ITEM_BY_ID.get(loadout[slot].id)!.look;
+    const rar = (slot: Slot) => loadout[slot].rarity;
     const sb = new SkinBuilder(botSurfaces(palette));
 
-    const torsoPB = buildTorso(look('chest'));
-    const corePB = buildCore(look('core'), look('chest'));
-    const headPB = buildHead(look('head'));
-    const pelvisPB = buildPelvis(look('legs'));
+    const torsoPB = buildTorso(look('chest'), rar('chest'));
+    const corePB = buildCore(look('core'), look('chest'), rar('core'));
+    const headPB = buildHead(look('head'), rar('head'));
+    const pelvisPB = buildPelvis(look('legs'), rar('legs'));
     sb.add(torsoPB, B.Torso, 'chest');
     sb.add(corePB, B.Torso, 'core');
     sb.add(headPB, B.Head, 'head');
@@ -394,20 +400,22 @@ export class BotModel {
       for (let i = 0; i < pts.length; i += 3) if (pts[i + 1] >= lo && pts[i + 1] <= hi) o.push(pts[i], pts[i + 1], pts[i + 2]);
       return o;
     };
+    // limb radii from the bare (common) armour, so a rarer item doesn't change how limbs clear the body
     this.radii.upper = partRadius(band(samplePB(buildUpperArm(look('chest'), 1)), 0.12, 0.3), 0.6);
     this.radii.fore = partRadius(band(samplePB(buildForearm(look('fist'))), 0.08, 0.27), 0.6);
     this.radii.fist = partRadius(samplePB(buildFist(look('fist'), 1)), 0.45, 0, 0.02, 0);
     this.radii.thigh = partRadius(band(samplePB(buildThigh(look('legs'))), 0.12, 0.4), 0.6);
-    this.radii.shin = partRadius(band(samplePB(buildShin(look('legs'), look('kick'))), 0.1, 0.38), 0.6);
+    this.radii.shin = partRadius(band(samplePB(buildShinGuard(look('kick')), undefined, samplePB(buildShin(look('legs')))), 0.1, 0.38), 0.6);
     for (let side = 0; side < 2; side++) {
       const L = side === 0;
-      sb.add(buildUpperArm(look('chest'), L ? -1 : 1), L ? B.UpL : B.UpR, 'chest');
-      sb.add(buildForearm(look('fist')), L ? B.ForeL : B.ForeR, 'fist');
-      sb.add(buildFist(look('fist'), L ? 1 : -1), L ? B.FistL : B.FistR, 'fist');
-      sb.add(buildThigh(look('legs')), L ? B.ThighL : B.ThighR, 'legs');
-      sb.add(buildShin(look('legs'), look('kick')), L ? B.ShinL : B.ShinR, 'kick');
-      sb.add(buildFoot(look('kick')), L ? B.FootL : B.FootR, 'kick');
-      sb.add(buildToe(look('kick')), L ? B.ToeL : B.ToeR, 'kick');
+      sb.add(buildUpperArm(look('chest'), L ? -1 : 1, rar('chest')), L ? B.UpL : B.UpR, 'chest');
+      sb.add(buildForearm(look('fist'), rar('fist')), L ? B.ForeL : B.ForeR, 'fist');
+      sb.add(buildFist(look('fist'), L ? 1 : -1, rar('fist')), L ? B.FistL : B.FistR, 'fist');
+      sb.add(buildThigh(look('legs'), rar('legs')), L ? B.ThighL : B.ThighR, 'legs');
+      sb.add(buildShin(look('legs'), rar('legs')), L ? B.ShinL : B.ShinR, 'legs');
+      sb.add(buildShinGuard(look('kick'), rar('kick')), L ? B.ShinL : B.ShinR, 'kick');
+      sb.add(buildFoot(look('kick'), rar('kick')), L ? B.FootL : B.FootR, 'kick');
+      sb.add(buildToe(look('kick'), rar('kick')), L ? B.ToeL : B.ToeR, 'kick');
       const heavyLegs = look('legs') === 3;
       sb.add(buildPistonBarrel(ARM_BAR, ARM_R), L ? B.ArmBarL : B.ArmBarR, 'chest');
       sb.add(buildPistonRod(ARM_ROD, ARM_R), L ? B.ArmRodL : B.ArmRodR, 'chest');

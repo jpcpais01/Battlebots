@@ -12,7 +12,7 @@ hashes every half second. Anything that rounds differently between Chrome, Safar
 Firefox makes the two fights drift apart. In `src/sim` (and `computeBuild` in
 `src/game/items.ts`):
 
-- Use `DM.sin/cos/atan2/acos/exp/pow/hypot` from `src/sim/dmath.ts`, never the `Math`
+- Use `DM.sin/cos/atan2/asin/acos/exp/pow/hypot` from `src/sim/dmath.ts`, never the `Math`
   versions. `+ - * /`, `Math.sqrt`, `min/max/abs/floor/round` are fine.
 - No `**` operator, no `Math.random` (use the fighter/brain/match `Rng`), no wall-clock
   time (`performance.now`, `Date`): use the match clock.

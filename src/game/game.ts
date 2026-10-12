@@ -347,6 +347,11 @@ export class Game {
         this.arena.excite(1.5);
         sfx?.ko();
         break;
+      case 'emote':
+        // the crowd answers a celebration or taunt; stomps shake the camera
+        this.arena.excite(data.k * 0.6);
+        if (data.shake) this.director.shake(data.shake);
+        break;
       case 'decision':
         sfx?.bell(2);
         this.arena.excite(1);
@@ -390,7 +395,11 @@ export class Game {
       perf.lap('sim');
       alpha = m.hitstop > 0 ? 1 : this.acc / SIM_DT;
       // both bodies first: each bot's limbs then slide out of either bot's armour
-      for (let i = 0; i < 2; i++) this.models[i].begin(m.fighters[i], alpha, m.fighters[1 - i].body.pos[J.Head]);
+      for (let i = 0; i < 2; i++) {
+        // the head follows the opponent, or wherever a celebration or taunt looks
+        const em = m.fighters[i].emote;
+        this.models[i].begin(m.fighters[i], alpha, em && em.gazeOn ? em.gaze : m.fighters[1 - i].body.pos[J.Head]);
+      }
       for (let i = 0; i < 2; i++) {
         const f = m.fighters[i];
         const model = this.models[i];
