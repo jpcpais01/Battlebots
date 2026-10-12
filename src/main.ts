@@ -7,6 +7,7 @@ import { Game } from './game/game';
 import { detectQuality, type Quality } from './render/stage';
 import { Sfx } from './audio/sfx';
 import { App } from './ui/app';
+import { enterLandscapeOnFirstGesture } from './fullscreen';
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
 const params = new URLSearchParams(location.search);
@@ -26,6 +27,9 @@ app.firstRunName();
 // audio can only start from a user gesture
 const unlock = () => game.sfx?.unlock();
 window.addEventListener('pointerdown', unlock, { once: true, capture: true });
+
+// the app launches as a normal window; the first tap upgrades it to fullscreen landscape
+enterLandscapeOnFirstGesture();
 
 void document.fonts.ready.then(() => {
   requestAnimationFrame(() => {
