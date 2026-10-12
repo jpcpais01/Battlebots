@@ -2393,8 +2393,9 @@ button {
 
 /* ------------------------------------------------------------ x-ray condition panel */
 .xray {
-  position: absolute;
-  bottom: calc(max(10px, env(safe-area-inset-bottom)) + 3.25em);
+  position: relative;
+  align-self: flex-start;
+  margin-top: 0.3em;
   width: 4.8em;
   padding: 0.3em 0.4em 0.4em;
   border-radius: 10px;
@@ -2406,11 +2407,8 @@ button {
   pointer-events: none;
   transition: opacity 0.4s ease;
 }
-.xray.p1 {
-  left: var(--pad);
-}
 .xray.p2 {
-  right: var(--padr);
+  align-self: flex-end;
   border-top-color: var(--bot1, var(--orange));
 }
 /* scan lines and a slow sweeping scan bar */
@@ -2510,9 +2508,6 @@ button {
 }
 .xr-joint {
   fill: rgba(215, 245, 255, 0.55);
-}
-.hud.finished .xray {
-  opacity: 0.6;
 }
 
 /* Dismantled: the K.O. slam in torn steel, a longer word so a notch smaller */

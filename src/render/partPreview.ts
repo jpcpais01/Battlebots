@@ -22,6 +22,7 @@ import { botGlows, botSurfaces } from './botModel';
 
 /** Thumbnail edge in pixels (rendered at twice this and filtered down). */
 const SIZE = 176;
+const PX = SIZE * 2;
 const FOREARM = 0.33;
 const LIMB = 0.46;
 const TOE_OFFSET = new THREE.Vector3(0, -0.048, 0.072);
@@ -30,9 +31,6 @@ const _q = new THREE.Quaternion();
 const _e = new THREE.Euler();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
-const _size = new THREE.Vector2();
-const _vp = new THREE.Vector4();
-const _sc = new THREE.Vector4();
 const _cc = new THREE.Color();
 const _box = new THREE.Box3();
 const _c = new THREE.Vector3();
@@ -150,23 +148,46 @@ function shotFor(item: ItemDef, rarity: Rarity, lo: Loadout): Shot {
 }
 
 /**
+ * Gives a thumbnail material the screen's look while it draws into an offscreen target: three
+ * only tone maps and sRGB-encodes when drawing to the screen, so these do it in the shader
+ * (ACES like the stage, unless the material opts out of tone mapping like the glow does).
+ */
+function screenLook<M extends THREE.Material>(m: M, key: string, toneMap: boolean): M {
+  const prev = m.onBeforeCompile.bind(m);
+  m.onBeforeCompile = (sh, r) => {
+    prev(sh, r);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', toneMap ? `#include <common>\n${THREE.ShaderChunk.tonemapping_pars_fragment}` : '#include <common>')
+      .replace('#include <tonemapping_fragment>', toneMap ? 'gl_FragColor.rgb = ACESFilmicToneMapping( gl_FragColor.rgb );' : '')
+      .replace('#include <colorspace_fragment>', 'gl_FragColor = sRGBTransferOETF( gl_FragColor );');
+  };
+  m.customProgramCacheKey = () => key;
+  return m;
+}
+
+/**
  * Renders each item's actual part (the same models the robot is built from) into a small
  * transparent picture for the garage cards. Pictures are cached per item, paint and rarity, so
  * the first look at a slot costs a few small draws and every look after is free.
  *
- * It borrows the game's renderer: each part is drawn into a corner of the screen's drawing buffer
- * and copied out in the same task, before the browser shows the frame (the next game frame paints
- * over it anyway). Drawing it on black and on white gives exact transparency, glow and
- * anti-aliased edges included, without a second WebGL context.
+ * It borrows the game's renderer but draws into its own small offscreen target, never the
+ * screen: a picture drawn into the screen's buffer outside a game frame (on load, before the
+ * first frame) was shown as-is for a frame, a big part on white in the bottom-left corner.
+ * The two thumbnail materials do their own tone mapping and sRGB encoding, so the picture
+ * matches what the same part looks like on screen. Drawing it on black and on white gives
+ * exact transparency, glow and anti-aliased edges included, without a second WebGL context.
  */
 export class PartThumbs {
   private scene = new THREE.Scene();
   private cam = new THREE.PerspectiveCamera(24, 1, 0.01, 20);
   private holder = new THREE.Group();
-  private opaqueMat = vertexPBR(new THREE.MeshStandardMaterial(), 'thumb-opaque');
-  private glowMat = bakedGlowMaterial();
+  private opaqueMat = screenLook(vertexPBR(new THREE.MeshStandardMaterial(), 'thumb-opaque'), 'thumb-opaque', true);
+  private glowMat = screenLook(bakedGlowMaterial(), 'thumb-glow', false);
   private cache = new Map<string, string>();
-  private work = [document.createElement('canvas'), document.createElement('canvas')];
+  private target: THREE.WebGLRenderTarget | null = null;
+  private pixels = [new Uint8Array(PX * PX * 4), new Uint8Array(PX * PX * 4)];
+  private image = new ImageData(PX, PX);
+  private work = document.createElement('canvas');
   private out = document.createElement('canvas');
 
   constructor(private renderer: THREE.WebGLRenderer, env: THREE.Texture | null) {
@@ -181,6 +202,7 @@ export class PartThumbs {
     const cool = new THREE.DirectionalLight(0x5fd2ff, 1.8);
     cool.position.set(-2.4, 0.4, -1.8);
     s.add(key, warm, cool, this.holder);
+    this.work.width = this.work.height = PX;
     this.out.width = this.out.height = SIZE;
   }
 
@@ -234,58 +256,47 @@ export class PartThumbs {
 
   private capture(): string {
     const r = this.renderer;
-    r.getDrawingBufferSize(_size);
-    const px = Math.max(16, Math.min(SIZE * 2, _size.x, _size.y)) | 0;
-    const pr = r.getPixelRatio();
+    // 4× MSAA on top of drawing at twice the card size and filtering down
+    const t = (this.target ??= new THREE.WebGLRenderTarget(PX, PX, { samples: 4, depthBuffer: true }));
     const prevTarget = r.getRenderTarget();
-    r.getViewport(_vp);
-    r.getScissor(_sc);
-    const scissor = r.getScissorTest();
+    const autoClear = r.autoClear;
     r.getClearColor(_cc);
     const alpha = r.getClearAlpha();
-
-    r.setRenderTarget(null);
-    r.setViewport(0, 0, px / pr, px / pr);
-    r.setScissor(0, 0, px / pr, px / pr);
-    r.setScissorTest(true);
-    const data: ImageData[] = [];
+    r.autoClear = true;
     [0x000000, 0xffffff].forEach((bg, i) => {
-      const c = this.work[i];
-      if (c.width !== px) c.width = c.height = px;
-      const g = c.getContext('2d', { willReadFrequently: true })!;
+      // set every pass: reading pixels leaves the resolved (not the multisampled) buffer bound
+      r.setRenderTarget(t);
       r.setClearColor(bg, 1);
       r.render(this.scene, this.cam);
-      g.clearRect(0, 0, px, px);
-      g.drawImage(r.domElement, 0, _size.y - px, px, px, 0, 0, px, px);
-      data.push(g.getImageData(0, 0, px, px));
+      r.readRenderTargetPixels(t, 0, 0, PX, PX, this.pixels[i]);
     });
-    r.setScissorTest(scissor);
-    r.setScissor(_sc);
-    r.setViewport(_vp);
-    r.setClearColor(_cc, alpha);
     r.setRenderTarget(prevTarget);
+    r.setClearColor(_cc, alpha);
+    r.autoClear = autoClear;
 
-    // on black a pixel is a·c, on white a·c + (1 − a): both give back colour and coverage
-    const [b, w] = data;
-    const bd = b.data, wd = w.data;
-    for (let i = 0; i < bd.length; i += 4) {
-      const a = 1 - (wd[i] - bd[i] + wd[i + 1] - bd[i + 1] + wd[i + 2] - bd[i + 2]) / 765;
-      if (a <= 0.004) {
-        bd[i + 3] = 0;
-        continue;
+    // on black a pixel is a·c, on white a·c + (1 − a): both give back colour and coverage.
+    // The target's rows run bottom-up, the picture's top-down.
+    const bd = this.pixels[0], wd = this.pixels[1], od = this.image.data;
+    const row = PX * 4;
+    for (let y = 0; y < PX; y++) {
+      for (let i = y * row, o = (PX - 1 - y) * row, end = i + row; i < end; i += 4, o += 4) {
+        const a = 1 - (wd[i] - bd[i] + wd[i + 1] - bd[i + 1] + wd[i + 2] - bd[i + 2]) / 765;
+        if (a <= 0.004) {
+          od[o + 3] = 0;
+          continue;
+        }
+        od[o] = Math.min(255, bd[i] / a);
+        od[o + 1] = Math.min(255, bd[i + 1] / a);
+        od[o + 2] = Math.min(255, bd[i + 2] / a);
+        od[o + 3] = Math.round(a * 255);
       }
-      bd[i] = Math.min(255, bd[i] / a);
-      bd[i + 1] = Math.min(255, bd[i + 1] / a);
-      bd[i + 2] = Math.min(255, bd[i + 2] / a);
-      bd[i + 3] = Math.round(a * 255);
     }
-    const g0 = this.work[0].getContext('2d')!;
-    g0.putImageData(b, 0, 0);
+    this.work.getContext('2d')!.putImageData(this.image, 0, 0);
     const o = this.out.getContext('2d')!;
     o.clearRect(0, 0, SIZE, SIZE);
     o.imageSmoothingEnabled = true;
     o.imageSmoothingQuality = 'high';
-    o.drawImage(this.work[0], 0, 0, px, px, 0, 0, SIZE, SIZE);
+    o.drawImage(this.work, 0, 0, PX, PX, 0, 0, SIZE, SIZE);
     return this.out.toDataURL('image/png');
   }
 }

@@ -400,7 +400,6 @@ export class BotModel {
    * shadows and rope contact follow the debris instead of an invisible limb.
    */
   readonly anchors: (THREE.Vector3 | null)[] = Array.from({ length: 16 }, () => null);
-  private lastTime = 0;
 
   constructor(loadout: Loadout, palette: number) {
     this.loadout = loadout;
@@ -687,15 +686,9 @@ export class BotModel {
   }
 
   private effects(f: Fighter, time: number) {
-    // battle damage shading follows the parts' condition; hit flares cool off
-    const dt = Math.min(0.1, Math.max(0, time - this.lastTime));
-    this.lastTime = time;
+    // battle damage shading follows the parts' condition
     const wear = this.dmg.uWear.value;
-    const hot = this.dmg.uHot.value;
-    for (let i = 0; i < PART_COUNT; i++) {
-      wear[i] = 1 - f.parts.cond[i];
-      hot[i] = Math.max(0, hot[i] - dt * 2.5);
-    }
+    for (let i = 0; i < PART_COUNT; i++) wear[i] = 1 - f.parts.cond[i];
     this.dmg.uTime.value = time;
     // Aegis shield bubble
     const sm = this.shieldMesh.material as THREE.ShaderMaterial;
@@ -719,12 +712,6 @@ export class BotModel {
         this.cols[CH_RARITY + i].setHex(RARITIES[4].glow).multiplyScalar(k);
       }
     }
-  }
-
-  /** A hit flares the metal of a part hot for a moment. */
-  flare(part: number, k: number) {
-    const hot = this.dmg.uHot.value;
-    hot[part] = Math.min(1, Math.max(hot[part], k));
   }
 
   /**
