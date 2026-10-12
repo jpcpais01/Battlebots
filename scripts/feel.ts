@@ -101,6 +101,7 @@ const q = (p: number) => ioiAll[Math.floor(p * (ioiAll.length - 1))].toFixed(2);
 console.log(`=== feel over ${N} matches (seed ${seed}) ===`);
 console.log(`strike rhythm: interval CV ${mean(ioiCv).toFixed(2)} (1 = random, <1 metronome, >1 bursty) | p10 ${q(0.1)}s p50 ${q(0.5)}s p90 ${q(0.9)}s`);
 console.log(`gaps between combos: CV ${mean(burstCv).toFixed(2)} (low = attacks on a beat)`);
+console.log(`pace: ${((strikes / fightTime / 2) * 60).toFixed(0)} strikes per bot per minute`);
 console.log(`combos: ${pct(chained, strikes)} of strikes chained | exchanges/min ${((exchanges / fightTime) * 60).toFixed(1)} | lulls(>2.5s)/min ${((lulls / fightTime) * 60).toFixed(1)}`);
 console.log(`footwork: still ${pct(speedBins[0], speedSamples)} slow ${pct(speedBins[1], speedSamples)} walk ${pct(speedBins[2], speedSamples)} fast ${pct(speedBins[3], speedSamples)} | mean |accel| ${mean(accSamples).toFixed(2)} m/s²`);
 console.log(`range: distance std ${mean(dStd).toFixed(2)}m | in/out range changes/min ${((rangeSwaps / fightTime) * 60).toFixed(1)} | mean facing error ${((turnDiff / turnN) * 57.3).toFixed(1)}°`);
