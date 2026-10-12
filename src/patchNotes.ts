@@ -17,17 +17,21 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-12 20:00',
-    title: 'Better kicks',
+    title: 'New bot cards and a clearer ringside camera',
     notes: [
       'Reworked kicks: the push kick lifts the knee and drives the foot straight out, the roundhouse turns the hips over and whips the shin in at head height, and the spinning heel turns on the planted foot and drives the heel back.',
       'Kicking legs no longer fold up, flip at the knee or cross the standing leg, even up close or when the opponent steps aside.',
       'The standing foot stays planted and pivots through every kick, and the sweep and Jet Knee recover more cleanly.',
+      'Your bot card on the home screen has the same new look: real renders of all six fitted parts in your paint and rarity, plus your power and moves. Tap it to open the garage.',
+      'New fight intro: each bot gets a versus card at the side of the screen with its real parts in its own paint and rarity, its power and its two moves, so the robots in the ring stay in view.',
+      'Ropes and barriers now only turn see-through when the camera is right up against them (within about a metre); farther away they stay solid.',
     ],
   },
   {
     hour: '2026-10-12 19:00',
     title: 'Settings that fit your phone',
     notes: [
+      'Big hits, crits and shield blocks now send a shockwave through the air: the picture warps and ripples outward from the impact instead of showing a flat glowing circle.',
       'Screens now keep an even margin on the left and right and use the full height up to the top of the screen.',
       'Removed the experimental Keep 120 Hz test. The Frame rate setting (Max, 60 or 30) stays.',
       'Settings has a new two-column layout that fits a landscape phone screen, with bigger buttons, a close button and tap-outside-to-close. Graphics quality now has an Auto option, and resetting your record asks you to tap twice.',

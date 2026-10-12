@@ -5,18 +5,14 @@ import type { Fighter } from '../sim/fighter';
 import type { BrainEvent } from '../sim/brain';
 import { MOVES, type MoveId } from '../sim/moves';
 import { J } from '../sim/body';
-import { ITEM_BY_ID, RARITIES, SLOTS } from '../game/items';
-import { PALETTES, type BotSpec } from '../game/loadout';
+import { ITEM_BY_ID } from '../game/items';
+import { PALETTES } from '../game/loadout';
 import { button, el, esc } from './dom';
 import { ABILITY_ICON, ICON, SLOT_ICON } from './icons';
 import { saveZoom, type Zoom } from './store';
+import { botCardHtml } from './botCard';
 
 const _p = new THREE.Vector3();
-
-/** Pips showing each slot's rarity colour. */
-export function pipsHtml(spec: BotSpec) {
-  return SLOTS.map((s) => `<div class="pip" style="color:${RARITIES[spec.loadout[s].rarity].color}">${SLOT_ICON[s]}</div>`).join('');
-}
 
 interface BarEls {
   root: HTMLElement;
@@ -235,17 +231,9 @@ export class Hud {
   }
 
   private showVs(m: Match) {
-    const card = (i: number) => {
-      const s = m.specs[i];
-      const f = m.fighters[i];
-      return `<div class="card ${i ? 'r' : 'l'}">
-        <div class="sub">${i ? 'Challenger' : 'Your bot'}</div>
-        <div class="name">${esc(s.name)}</div>
-        <div class="sub">Power ${f.build.rating} · ${MOVES[f.build.fistAbility].name} · ${MOVES[f.build.kickAbility].name}</div>
-        <div class="pips">${pipsHtml(s)}</div>
-      </div>`;
-    };
-    this.vs = el('div', 'vs interactive', `${card(0)}<div class="mid">VS</div>${card(1)}`, this.root);
+    const card = (i: number) =>
+      botCardHtml(this.game, m.specs[i], m.fighters[i].build, { side: i ? 'r' : 'l', tag: i ? 'Challenger' : 'Your bot' });
+    this.vs = el('div', 'vs interactive', `${card(0)}${card(1)}<div class="mid"><i></i><b>VS</b><i></i></div>`, this.root);
     this.vs.addEventListener('click', () => this.match?.skipIntro());
   }
 
