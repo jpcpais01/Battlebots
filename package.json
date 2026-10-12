@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "sim": "tsx scripts/simulate.ts",
+    "feel": "tsx scripts/feel.ts",
     "cam": "tsx scripts/camera.ts"
   },
   "dependencies": {

@@ -30,6 +30,9 @@ export const PATCH_NOTES: PatchNote[] = [
       'Arms no longer pass through chest plates, their own or the opponent\'s.',
       'Elbows and knees no longer snap to the wrong side mid-punch or mid-kick.',
       'Guarding hands stay tucked at the chin through the whole strike, and bots no longer sink into each other up close.',
+      'Smarter, more human fighting: bots feel each other out at range, step in behind real combinations (jab-cross-hook), then get out, cover up or stay to trade.',
+      'Footwork moves in steps and pauses instead of a constant glide, and every fighting style moves differently.',
+      'Bots react to each other: they meet an opponent stepping in with a jab, back off or cover up after a big shot, fire back when angry, and use feints and stutter steps to draw a reaction.',
     ],
   },
   {
