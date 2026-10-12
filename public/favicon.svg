@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a2236"/>
+      <stop offset="1" stop-color="#070a12"/>
+    </linearGradient>
+    <linearGradient id="or" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffc15a"/>
+      <stop offset="1" stop-color="#ff6a12"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.55" r="0.5">
+      <stop offset="0" stop-color="#ff7a1a" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#ff7a1a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <g id="art">
+  <circle cx="256" cy="282" r="230" fill="url(#glow)"/>
+  <!-- antenna -->
+  <rect x="244" y="70" width="24" height="56" rx="10" fill="#cfd7e8"/>
+  <circle cx="256" cy="66" r="22" fill="#2ad8ff"/>
+  <!-- head -->
+  <rect x="106" y="120" width="300" height="250" rx="70" fill="url(#or)"/>
+  <path d="M106 300h300v0a70 70 0 0 1-70 70H176a70 70 0 0 1-70-70z" fill="#c4500a" opacity="0.45"/>
+  <!-- visor -->
+  <rect x="146" y="178" width="220" height="92" rx="46" fill="#0b0f1a"/>
+  <rect x="180" y="206" width="56" height="36" rx="18" fill="#2ad8ff"/>
+  <rect x="276" y="206" width="56" height="36" rx="18" fill="#2ad8ff"/>
+  <!-- jaw grille -->
+  <rect x="196" y="300" width="120" height="16" rx="8" fill="#1b0d03" opacity="0.55"/>
+  <rect x="196" y="328" width="120" height="16" rx="8" fill="#1b0d03" opacity="0.55"/>
+  <!-- ears -->
+  <rect x="70" y="200" width="44" height="96" rx="18" fill="#cfd7e8"/>
+  <rect x="398" y="200" width="44" height="96" rx="18" fill="#cfd7e8"/>
+  <!-- neck -->
+  <rect x="196" y="370" width="120" height="44" rx="14" fill="#3a404c"/>
+</g>
+</svg>
