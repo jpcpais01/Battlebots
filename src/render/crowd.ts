@@ -10,7 +10,7 @@ import { house, HOUSE_GLSL } from './house';
  * fist pump, arms up) swap per fan with the excitement, and fans bounce, sway and do the wave.
  */
 
-const COLS = 24;
+const COLS = 29;
 /** Poses (rows): idle, hands apart, clap, fist pump, arms up, hands on head, booing. */
 const POSES = 7;
 const EMPTY = COLS - 1;
@@ -23,7 +23,10 @@ const HAIR_LINE = 0.6;
 type Top = 'tee' | 'raglan' | 'tank' | 'jersey' | 'hoodie' | 'jacket' | 'polo';
 type Hair = 'short' | 'buzz' | 'long' | 'bun' | 'curly' | 'bald' | 'cap' | 'beanie' | 'pony' | 'bob' | 'afro';
 type Print = 'circle' | 'bolt' | 'bot' | 'band' | 'word';
+/** People working the arena floor rather than watching from a seat. */
+export type Role = 'crew' | 'photo' | 'camera' | 'security' | 'official';
 interface Variant {
+  role?: Role;
   build: 0 | 1 | 2;
   hair: Hair;
   top: Top;
@@ -60,9 +63,21 @@ const VARIANTS: Variant[] = [
   { build: 2, hair: 'bald', top: 'polo', idle: 'pockets', glasses: true, beard: true },
   { build: 0, hair: 'pony', top: 'tee', idle: 'down', shorts: true, print: 'bot' },
   { build: 1, hair: 'short', top: 'tee', idle: 'down', prop: 'scarf', shorts: true, print: 'bolt' },
+  // the floor crew: robot pit crews, photographers, camera operators, security and officials
+  { role: 'crew', build: 1, hair: 'cap', top: 'tee', idle: 'down', print: 'word' },
+  { role: 'photo', build: 1, hair: 'short', top: 'jacket', idle: 'down' },
+  { role: 'camera', build: 2, hair: 'buzz', top: 'tee', idle: 'down' },
+  { role: 'security', build: 2, hair: 'bald', top: 'tee', idle: 'cross' },
+  { role: 'official', build: 1, hair: 'short', top: 'polo', idle: 'down' },
 ];
+/** Column of each floor role in the sprite sheet. */
+export const ROLE_COL = Object.fromEntries(
+  (['crew', 'photo', 'camera', 'security', 'official'] as Role[]).map((r) => [r, VARIANTS.findIndex((v) => v.role === r)]),
+) as Record<Role, number>;
+/** Columns from here up to the empty seat hold staff who stay at their post and never cheer. */
+const CALM0 = ROLE_COL.camera;
 /** Sign holders, scarf twirlers and foam fingers are rarer than everyone else. */
-const WEIGHTS = VARIANTS.map((v) => (v.sign ? 0.3 : v.prop === 'finger' ? 0.4 : v.prop === 'scarf' ? 0.6 : 1));
+const WEIGHTS: number[] = VARIANTS.map((v) => (v.role ? 0 : v.sign ? 0.3 : v.prop === 'finger' ? 0.4 : v.prop === 'scarf' ? 0.6 : 1));
 const WEIGHT_SUM = WEIGHTS.reduce((a, b) => a + b, 0);
 function pickVariant(r: number) {
   let x = r * WEIGHT_SUM;
@@ -73,7 +88,7 @@ function pickVariant(r: number) {
   return 0;
 }
 /** Variants carrying lettering, which must never be drawn mirrored. */
-const WRITTEN = VARIANTS.map((v) => !!v.sign || !!v.prop || v.top === 'jersey' || v.print === 'word');
+const WRITTEN = VARIANTS.map((v) => !!v.sign || !!v.prop || v.top === 'jersey' || v.print === 'word' || v.role === 'security');
 /** Variants whose "hair" is headwear, dressed in a team colour instead of a hair colour. */
 const HAT = VARIANTS.map((v) => v.hair === 'cap' || v.hair === 'beanie');
 
@@ -243,9 +258,25 @@ function paintAtlas(cw: number, ch: number): THREE.DataTexture {
       if (v.hair === 'afro') fill(ellipse(0, headY + 0.04, hrx + 0.075, hry + 0.06), 'other', hgrad(-hrx - 0.075, hrx + 0.075, 0.4, 0.72));
       if (v.top === 'hoodie') fill(ellipse(0, 1.45, 0.15, 0.075), 'shirt', gray(0.42));
 
-      // legs: jeans (or shorts with bare legs), with shoes
+      // legs: jeans (or shorts with bare legs), with shoes; staff on patrol use poses 1 and 2 as strides
+      const calm = v.role === 'security' || v.role === 'official' || v.role === 'camera';
+      const stride = calm && (pose === 1 || pose === 2) ? (pose === 1 ? -1 : 1) : 0;
       for (const side of [-1, 1]) {
         const x0 = side < 0 ? -hp : 0.008, x1 = side < 0 ? -0.008 : hp;
+        if (stride) {
+          // the leg swinging through lifts its foot and crosses in a little
+          const swing = side === stride;
+          const lift = swing ? 0.08 : 0, dx = swing ? -side * 0.03 : side * 0.025;
+          fill((g) => {
+            g.moveTo(X(x0), Y(0.95));
+            g.lineTo(X(x1), Y(0.95));
+            g.lineTo(X(x1 + dx - 0.005), Y(0.05 + lift));
+            g.lineTo(X(x0 + dx + 0.005), Y(0.05 + lift));
+            g.closePath();
+          }, 'other', hgrad(x0, x1, 0.42, swing ? 0.72 : 0.8));
+          fill(rrect(x0 + dx - 0.01, lift, x1 + dx + 0.01, lift + 0.075, 0.03), 'other', gray(0.22));
+          continue;
+        }
         if (v.shorts) {
           fill(rrect(x0 + 0.015, 0.06, x1 - 0.015, 0.6, 0.04), 'skin', hgrad(x0, x1, 0.5, 0.85));
           const s = rrect(x0, 0.52, x1, 0.95, 0.04);
@@ -408,7 +439,15 @@ function paintAtlas(cw: number, ch: number): THREE.DataTexture {
           stroke([[-0.03, 1.145], [0.03, 1.145]], 0.01, 'rgba(0,0,0,0.5)');
           line([[0, 1.26], [0, 1.3]], 0.01, 'accent', gray(0.8));
         } else if (p === 'band') fill(rrect(-sw, 1.18, sw, 1.25, 0), 'accent', gray(0.85));
-        else if (p === 'word') text('BOTS', 0, 1.2, 0.075, 'accent', gray(0.9), hw * 1.6);
+        else if (p === 'word') text(v.role === 'crew' ? 'CREW' : 'BOTS', 0, 1.2, 0.075, 'accent', gray(0.9), hw * 1.6);
+      }
+      if (v.role === 'security') text('SECURITY', 0, 1.24, 0.05, 'accent', gray(0.95), hw * 1.7);
+      if (v.role === 'official') {
+        // referee stripes
+        detail(torso, () => {
+          sh.fillStyle = 'rgba(0,0,0,0.85)';
+          for (let x = -sw; x < sw; x += 0.08) sh.fillRect(X(x), Y(1.47), 0.04 * S, 0.67 * S);
+        });
       }
       if (v.top === 'jersey') {
         text(String((col * 7 + 3) % 99), 0, 1.14, 0.17, 'accent', gray(0.9), hw * 1.5);
@@ -604,6 +643,25 @@ function paintAtlas(cw: number, ch: number): THREE.DataTexture {
         arms[1] = { e: [sw + 0.08, 1.62], h: [w, 1.88] };
       }
       if (pose === 0 && v.prop === 'finger') arms[1] = { e: [sw + 0.05, 1.12], h: [sw + 0.06, 0.98] };
+      // staff hold their kit the same way whatever the arena does
+      const photoUp = v.role === 'photo' && (pose === 3 || pose === 4);
+      if (v.role === 'security') arms.splice(0, 2, idle(-1), idle(1));
+      else if (v.role === 'official') arms.splice(0, 2, { e: [-(sw + 0.03), 1.12], h: [-0.07, 1.16] }, idle(1));
+      else if (v.role === 'camera') arms.splice(0, 2, { e: [-(sw + 0.06), 1.3], h: [-0.02, 1.56] }, { e: [sw + 0.05, 1.4], h: [0.2, 1.57] });
+      else if (v.role === 'photo')
+        arms.splice(
+          0,
+          2,
+          ...(photoUp
+            ? [
+                { e: [-(sw + 0.08), 1.66], h: [-0.08, 1.96] } as Arm,
+                { e: [sw + 0.08, 1.66], h: [0.08, 1.96] } as Arm,
+              ]
+            : [
+                { e: [-(sw + 0.02), 1.28], h: [-0.08, 1.6] } as Arm,
+                { e: [sw + 0.02, 1.28], h: [0.08, 1.6] } as Arm,
+              ]),
+        );
       // a scarf round the neck (unless it is up in the air)
       if (v.prop === 'scarf' && !scarfUp) {
         fill(ellipse(0, 1.46, 0.1, 0.035), 'accent', gray(0.75));
@@ -655,6 +713,56 @@ function paintAtlas(cw: number, ch: number): THREE.DataTexture {
         fill(rrect(mx - 0.035, Math.min(fy0, fy1), mx + 0.035, Math.max(fy0, fy1), 0.035), 'accent', hgrad(mx - 0.035, mx + 0.035, 0.65, 1));
         stroke([[mx - 0.08, hy + up * 0.05], [mx + 0.08, hy + up * 0.05]], 0.01, 'rgba(0,0,0,0.25)');
         text('#1', mx, hy - 0.025 * up, 0.075, 'accent', gray(0.2));
+      }
+      // headsets for the pit crews and camera operators, an earpiece for security
+      if (v.role === 'crew' || v.role === 'camera') {
+        for (const [g, style] of [
+          [sh, gray(0.18)],
+          [id, ID.other],
+        ] as const) {
+          g.beginPath();
+          g.ellipse(X(0), Y(headY + 0.01), (hrx + 0.012) * S, (hry + 0.012) * S, 0, Math.PI, Math.PI * 2);
+          g.lineWidth = Math.max(1, 0.014 * S);
+          g.strokeStyle = style;
+          g.stroke();
+        }
+        for (const sd of [-1, 1]) fill(ellipse(sd * (hrx + 0.008), headY - 0.005, 0.026, 0.036), 'other', gray(0.2));
+        line([[-(hrx + 0.01), headY - 0.02], [-0.045, headY - 0.07]], 0.01, 'other', gray(0.25));
+        fill(ellipse(-0.04, headY - 0.07, 0.012, 0.01), 'other', gray(0.15));
+      }
+      if (v.role === 'security') line([[hrx + 0.005, headY - 0.01], [hrx + 0.02, headY - 0.1], [hrx - 0.01, 1.4]], 0.006, 'other', gray(0.2));
+      if (v.role === 'official') {
+        const board = rrect(-0.14, 1.06, 0.02, 1.27, 0.01);
+        fill(board, 'accent', gray(0.92));
+        fill(rrect(-0.08, 1.25, -0.04, 1.29, 0.005), 'other', gray(0.3));
+        for (let y = 1.1; y < 1.23; y += 0.03) stroke([[-0.12, y], [0.0, y]], 0.006, 'rgba(0,0,0,0.35)');
+        fill(ellipse(-0.07, 1.16, aw * 0.5, aw * 0.6), 'skin', gray(0.8));
+      }
+      if (v.role === 'crew' && pose === 0) {
+        const [hx, hy] = arms[1].h;
+        line([[hx, hy - 0.02], [hx + 0.01, hy - 0.24]], 0.03, 'other', gray(0.7));
+        fill(ellipse(hx + 0.01, hy - 0.25, 0.03, 0.025), 'other', gray(0.65));
+      }
+      if (v.role === 'camera') {
+        // broadcast camera on the right shoulder
+        const body = rrect(-0.05, 1.53, 0.33, 1.73, 0.025);
+        fill(body, 'other', hgrad(-0.05, 0.33, 0.12, 0.3));
+        stroke([[-0.04, 1.725], [0.32, 1.725]], 0.01, 'rgba(255,255,255,0.25)');
+        line([[0.05, 1.73], [0.05, 1.79], [0.24, 1.79], [0.24, 1.73]], 0.02, 'other', gray(0.2));
+        fill(ellipse(0.05, 1.62, 0.07, 0.07), 'other', gray(0.1));
+        fill(ellipse(0.05, 1.62, 0.045, 0.045), 'other', gray(0.32));
+        blob(0.035, 1.635, 0.015, 0.012, 'rgba(255,255,255,0.55)');
+        fill(ellipse(0.29, 1.7, 0.016, 0.016), 'accent', gray(1));
+      }
+      if (v.role === 'photo') {
+        const y = photoUp ? 1.96 : 1.6;
+        fill(rrect(-0.09, y - 0.045, 0.09, y + 0.055, 0.015), 'other', gray(0.18));
+        fill(ellipse(0, y, 0.045, 0.045), 'other', gray(0.08));
+        fill(ellipse(0, y, 0.028, 0.028), 'other', gray(0.3));
+        blob(-0.01, y + 0.012, 0.01, 0.008, 'rgba(255,255,255,0.6)');
+        fill(rrect(-0.03, y + 0.055, 0.03, Math.min(2.09, y + 0.12), 0.008), 'other', gray(0.25));
+        fill(rrect(-0.026, y + 0.085, 0.026, Math.min(2.08, y + 0.11), 0.005), 'accent', gray(1));
+        for (const sd of [-1, 1]) fill(ellipse(sd * 0.08, y - 0.01, aw * 0.5, aw * 0.6), 'skin', gray(0.8));
       }
       if (holdsSign) {
         fill(rrect(-0.34, 1.8, 0.34, 2.07, 0.015), 'accent', gray(0.97));
@@ -746,14 +854,28 @@ const vert = /* glsl */ `
   void main() {
     float seed = iData.z;
     float flags = iData.w;
-    bool empty = flags >= 2.0;
+    bool empty = mod(flags, 4.0) >= 2.0;
+    // floor staff never sit or join the wave; some walk up and down their patch
+    bool staff = mod(flags, 8.0) >= 4.0;
+    bool walker = flags >= 8.0;
+    bool calm = iData.y > ${(CALM0 - 0.5).toFixed(1)} && iData.y < ${(EMPTY - 0.5).toFixed(1)};
     float flip = mod(flags, 2.0) > 0.5 ? -1.0 : 1.0;
     float exc = fract(seed * 7.13);
+    vec3 base = iPos;
+    float stride = 0.0;
+    if (walker) {
+      float ph = uTime * 0.3 + seed * 6.283;
+      vec2 tang = normalize(vec2(-iPos.z, iPos.x));
+      base.xz += tang * sin(ph) * 1.3;
+      float moving = step(0.25, abs(cos(ph)));
+      float st = fract(uTime * 1.7 + seed * 3.0);
+      stride = moving * (st < 0.25 ? 0.0 : st < 0.5 ? 1.0 : st < 0.75 ? 0.0 : 2.0);
+    }
 
     // the wave: a band of standing fans sweeping round the bowl
     float ang = atan(iPos.z, iPos.x);
     float da = abs(mod(ang - uWaveA + PI, 2.0 * PI) - PI);
-    float wave = uWave * smoothstep(0.55, 0.0, da);
+    float wave = staff ? 0.0 : uWave * smoothstep(0.55, 0.0, da);
 
     // each fan backs the robot from their side of the arena (a few sit with the other lot)
     float sup = step(0.0, iPos.x + (h1(seed * 5.3) - 0.5) * 30.0);
@@ -766,7 +888,7 @@ const vert = /* glsl */ `
 
     // on their feet once the fight gets to them (keen fans first), otherwise sat down
     float standT = mix(0.78, 0.32, exc);
-    float stand = smoothstep(standT - 0.1, standT + 0.1, e + react * 1.5 + upset * 0.8 + wave);
+    float stand = staff ? 1.0 : smoothstep(standT - 0.1, standT + 0.1, e + react * 1.5 + upset * 0.8 + wave);
 
     float rate = 0.5 + exc * 0.7;
     float slot = floor(uTime * rate + seed * 13.0);
@@ -782,6 +904,7 @@ const vert = /* glsl */ `
     else pose = r < 0.1 ? clap : r < 0.45 ? 3.0 : 4.0;
     if (stand < 0.5 && pose == 4.0) pose = clap;
     if (wave > 0.45) pose = 4.0;
+    if (calm) pose = stride;
 
     float t = uTime * (5.0 + exc * 3.0) + seed * 20.0;
     float hop = max(0.0, sin(t)) * (0.16 * react + 0.12 * clamp(e - 0.8, 0.0, 1.0));
@@ -789,15 +912,16 @@ const vert = /* glsl */ `
     lift += pose == 3.0 ? max(0.0, sin(t * 1.3)) * 0.03 : 0.0;
     lift += wave * 0.28;
     float sway = sin(uTime * (0.9 + exc) + seed * 30.0) * (0.012 + 0.03 * min(e + react, 1.0));
-    if (empty) { pose = 0.0; lift = 0.0; sway = 0.0; }
+    if (empty || calm) { lift = 0.0; sway *= 0.3; }
+    if (empty) pose = 0.0;
 
     // cylindrical billboard; fans differ a little in build as well as height
-    vec3 toCam = cameraPosition - iPos;
+    vec3 toCam = cameraPosition - base;
     vec3 fwd = normalize(vec3(toCam.x, 0.0, toCam.z));
     vec3 right = vec3(fwd.z, 0.0, -fwd.x);
     float s = iData.x;
     float wide = empty ? 1.0 : 0.9 + 0.2 * h1(seed * 17.1);
-    vec3 p = iPos + right * (position.x * ${SPR_W.toFixed(2)} * s * wide + sway * position.y) + vec3(0.0, position.y * ${SPR_H.toFixed(2)} * s + lift, 0.0);
+    vec3 p = base + right * (position.x * ${SPR_W.toFixed(2)} * s * wide + sway * position.y) + vec3(0.0, position.y * ${SPR_H.toFixed(2)} * s + lift, 0.0);
 
     float lx = position.x * flip + 0.5;
     // the ring is the key light: the side of each fan turned towards it is brighter
@@ -883,7 +1007,7 @@ export class Crowd {
   readonly count: number;
 
   constructor(
-    seats: Seat[],
+    seats: (Seat & { role?: Role; team?: number; walk?: boolean })[],
     quality: 'low' | 'med' | 'high',
     uniforms: { uTime: { value: number }; uHype: { value: number }; uFlash: { value: number } },
   ) {
@@ -937,6 +1061,32 @@ export class Crowd {
               ? lin(pick(JACKET))
               : lin(rnd() < 0.3 ? pick(team) : pick(ACCENT), 0.8 + rnd() * 0.2);
       accent.set([ac[0] * 255, ac[1] * 255, ac[2] * 255], i * 3);
+      if (s.role) {
+        // floor staff: dressed for the job, on their feet, some on patrol
+        const c = ROLE_COL[s.role];
+        data[i * 4] = 0.94 + rnd() * 0.1;
+        data[i * 4 + 1] = c;
+        data[i * 4 + 3] = (rnd() < 0.5 && !WRITTEN[c] ? 1 : 0) + 4 + (s.walk ? 8 : 0);
+        const crewTeam = s.team === 1 ? TEAM_B : TEAM_A;
+        const [top, trim] =
+          s.role === 'crew'
+            ? [pick(crewTeam), '#16181d']
+            : s.role === 'photo'
+              ? ['#1b1d22', pick(['#5a5e66', '#8a8f98', '#3a3f4a'])]
+              : s.role === 'camera'
+                ? ['#1b1d22', '#ff3030']
+                : s.role === 'security'
+                  ? ['#15171c', '#ffd23a']
+                  : ['#ececec', '#f0f0f0'];
+        const t = lin(top), a = lin(trim);
+        shirt.set([t[0] * 255, t[1] * 255, t[2] * 255], i * 4);
+        accent.set([a[0] * 255, a[1] * 255, a[2] * 255], i * 3);
+        if (s.role === 'crew') {
+          const cap = lin(crewTeam[0], 0.8);
+          hair.set([cap[0] * 255, cap[1] * 255, cap[2] * 255, 3], i * 4);
+        } else hair[i * 4 + 3] = rnd() < 0.5 ? 1 : 3;
+        continue;
+      }
       // phones and light sticks
       if (!empty && rnd() < 0.12) {
         const inward = 0.25 / Math.max(1, Math.hypot(s.x, s.z));
