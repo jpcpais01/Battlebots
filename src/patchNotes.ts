@@ -17,6 +17,9 @@ export const PATCH_NOTES: PatchNote[] = [
     date: '2026-10-12',
     title: 'Fight night upgrade',
     notes: [
+      'Arena realism pass: fans now have faces, beards, glasses, jerseys, jackets, scarves and foam fingers, lit by the ring.',
+      'The arena gains exit stairwells, aisle handrails, a glass rail on the upper tier, roof catwalks, speaker stacks and press and judges desks.',
+      'The big screen over the ring now shows both robots, their health and the fight clock live.',
       'Patch notes: this button on the home screen lists what changed in each update.',
       'Refresh button on the home screen (circular arrow next to sound and settings) reloads the app on the latest version.',
       'The settings button now shows a proper gear instead of a sun.',

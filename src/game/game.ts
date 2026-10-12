@@ -347,6 +347,7 @@ export class Game {
     this.crowdMood.tick(dt, crowdState);
     this.crowdMood.cues.length = 0; // sounds are the audio crowd's job
     this.arena.venue.crowd.update(dt, this.crowdMood.excite, crowdState?.phase === 'fight');
+    this.arena.venue.score(dt, m && f ? { names: [f[0].name, f[1].name], hp: [f[0].hpRatio, f[1].hpRatio], clock: m.clock, phase: m.phase } : null);
     this.arena.update(dt, this.time);
     perf.lap('arena');
     this.director.update(dt, m);

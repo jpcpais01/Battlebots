@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   AX,
+  AZ,
   BACK_D,
   FLOOR,
   LOWER_ROWS,
@@ -9,14 +10,21 @@ import {
   ROWS,
   SUITE_D,
   TOP_Y,
+  RC,
   TUNNEL_ROWS,
   TUNNEL_W,
   UPPER_Y,
+  VOM_ROW0,
+  VOM_ROW1,
+  VOM_W,
   aisleLights,
+  aisleRails,
   outline,
   seats,
   towards,
+  vomitories,
   type OutlinePt,
+  type Seat,
 } from './bowl';
 import { AD_ASPECT, AD_COLS, AD_COUNT, AD_ROWS, adAtlas } from './ads';
 import { Crowd, glowPoints } from './crowd';
@@ -84,6 +92,221 @@ function tex(c: HTMLCanvasElement, repeat = true) {
   return t;
 }
 
+const _m = new THREE.Matrix4();
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
+/** A thin box from one point to another (rails, posts, cables). */
+function bar(ax: number, ay: number, az: number, bx: number, by: number, bz: number, w: number, h = w) {
+  _a.set(ax, ay, az);
+  _b.set(bx, by, bz);
+  const len = _a.distanceTo(_b);
+  const g = new THREE.BoxGeometry(w, h, len);
+  const vertical = Math.abs(by - ay) > 0.99 * len;
+  _m.lookAt(_a, _b, vertical ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0));
+  g.applyMatrix4(_m);
+  g.translate((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2);
+  return g;
+}
+
+/** Mouth of a vomitory: a dark stairwell, the section number and a glowing exit sign. */
+function vomTexture(section: number): THREE.CanvasTexture {
+  const [c, g] = canvas(256, 192);
+  g.fillStyle = '#2a2d36';
+  g.fillRect(0, 0, 256, 192);
+  // concrete frame with a little grime
+  for (let i = 0; i < 40; i++) {
+    g.fillStyle = `rgba(0,0,0,${0.05 + ((i * 37) % 10) / 100})`;
+    g.fillRect((i * 53) % 256, (i * 29) % 192, 30, 12);
+  }
+  const gr = g.createLinearGradient(0, 40, 0, 192);
+  gr.addColorStop(0, '#000000');
+  gr.addColorStop(0.7, '#0b0d12');
+  gr.addColorStop(1, '#1c2029');
+  g.fillStyle = gr;
+  g.fillRect(24, 38, 208, 154);
+  // steps going down into the dark, lit from the arena
+  for (let k = 0; k < 6; k++) {
+    g.fillStyle = `rgba(120,130,150,${0.05 + k * 0.035})`;
+    g.fillRect(24, 110 + k * 14, 208, 3);
+  }
+  g.fillStyle = '#0f1218';
+  g.fillRect(70, 6, 116, 26);
+  g.fillStyle = '#d8dde6';
+  g.font = 'bold 20px "Russo One", Impact, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(`SEC ${section}`, 128, 20);
+  // the exit sign
+  g.fillStyle = '#0c8a3c';
+  g.fillRect(196, 8, 52, 22);
+  g.fillStyle = '#d9ffe6';
+  g.font = 'bold 15px Arial, sans-serif';
+  g.fillText('EXIT', 222, 20);
+  return tex(c, false);
+}
+
+/** Upper concourse glimpsed through openings behind the top row: warm light, pillars, people. */
+function concourseTexture(): THREE.CanvasTexture {
+  const [c, g] = canvas(512, 128);
+  g.fillStyle = '#07080c';
+  g.fillRect(0, 0, 512, 128);
+  for (let i = 0; i < 4; i++) {
+    const x = i * 128 + 12;
+    const gr = g.createLinearGradient(0, 18, 0, 128);
+    gr.addColorStop(0, '#ffe2b0');
+    gr.addColorStop(0.25, '#9a7552');
+    gr.addColorStop(1, '#2a221e');
+    g.fillStyle = gr;
+    g.fillRect(x, 18, 104, 110);
+    g.fillStyle = 'rgba(10,8,10,0.9)';
+    for (let k = 0; k < 3; k++) {
+      const px = x + 16 + ((k * 37 + i * 23) % 80);
+      const h = 40 + ((k * 13 + i * 7) % 14);
+      g.beginPath();
+      g.arc(px, 128 - h - 6, 6, 0, Math.PI * 2);
+      g.fill();
+      g.beginPath();
+      g.roundRect(px - 9, 128 - h, 18, h, 6);
+      g.fill();
+    }
+  }
+  return tex(c);
+}
+
+/** Front skirt of a ringside table. */
+function skirtTexture(label: string, colour: string): THREE.CanvasTexture {
+  const [c, g] = canvas(512, 128);
+  g.fillStyle = '#0b0e16';
+  g.fillRect(0, 0, 512, 128);
+  g.fillStyle = colour;
+  g.fillRect(0, 0, 512, 10);
+  g.fillRect(0, 118, 512, 10);
+  g.font = 'bold 54px "Russo One", Impact, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillStyle = '#e9ecf2';
+  g.fillText(label, 256, 66, 470);
+  return tex(c, false);
+}
+
+/** The centre-hung screens: the arena logo between fights, the live score while one is on. */
+class Scoreboard {
+  readonly texture: THREE.CanvasTexture;
+  private g: CanvasRenderingContext2D;
+  private key = '';
+  private wait = 0;
+  constructor() {
+    const [c, g] = canvas(512, 288);
+    this.g = g;
+    this.texture = tex(c, false);
+    this.logo();
+  }
+
+  private frame() {
+    const g = this.g;
+    const bg = g.createLinearGradient(0, 0, 0, 288);
+    bg.addColorStop(0, '#0b1222');
+    bg.addColorStop(1, '#05070d');
+    g.fillStyle = bg;
+    g.fillRect(0, 0, 512, 288);
+    g.save();
+    g.globalAlpha = 0.14;
+    for (let i = -6; i < 16; i++) {
+      g.fillStyle = i % 2 ? '#ff6a1a' : '#22c8f0';
+      g.beginPath();
+      g.moveTo(i * 45, 288);
+      g.lineTo(i * 45 + 20, 288);
+      g.lineTo(i * 45 + 120, 0);
+      g.lineTo(i * 45 + 100, 0);
+      g.fill();
+    }
+    g.restore();
+  }
+
+  private finish() {
+    const g = this.g;
+    g.strokeStyle = 'rgba(255,255,255,0.6)';
+    g.lineWidth = 3;
+    g.strokeRect(7, 7, 498, 274);
+    g.fillStyle = 'rgba(0,0,0,0.3)';
+    for (let y = 0; y < 288; y += 3) g.fillRect(0, y, 512, 1);
+    this.texture.needsUpdate = true;
+  }
+
+  private logo() {
+    const g = this.g;
+    this.frame();
+    g.font = 'bold 76px "Russo One", Impact, sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    const og = g.createLinearGradient(0, 60, 0, 145);
+    og.addColorStop(0, '#ffd08a');
+    og.addColorStop(1, '#ff6a12');
+    g.fillStyle = og;
+    g.fillText('BATTLE', 256, 102);
+    const cg = g.createLinearGradient(0, 150, 0, 230);
+    cg.addColorStop(0, '#d8fbff');
+    cg.addColorStop(1, '#22b8f0');
+    g.fillStyle = cg;
+    g.fillText('BOTS', 256, 188);
+    this.finish();
+  }
+
+  /** Redraws only when what it shows changes, a few times a second at most. */
+  update(dt: number, s: ScoreState | null) {
+    this.wait -= dt;
+    if (this.wait > 0) return;
+    this.wait = 0.2;
+    const key = s ? `${s.names.join()}|${s.hp.map((h) => Math.ceil(h * 50)).join()}|${Math.ceil(s.clock)}|${s.phase}` : 'logo';
+    if (key === this.key) return;
+    // the fonts may not have loaded for the first logo
+    if (key === 'logo' && this.key === '') this.key = 'x';
+    else this.key = key;
+    if (!s) return this.logo();
+    const g = this.g;
+    this.frame();
+    g.textBaseline = 'middle';
+    const cols = ['#ff7a1f', '#3fe0ff'];
+    for (let i = 0; i < 2; i++) {
+      const left = i === 0;
+      const x0 = left ? 24 : 276;
+      g.fillStyle = cols[i];
+      g.fillRect(x0, 30, 212, 6);
+      g.font = 'bold 30px "Russo One", Impact, sans-serif';
+      g.textAlign = left ? 'left' : 'right';
+      g.fillStyle = '#ffffff';
+      g.fillText(s.names[i].toUpperCase(), left ? x0 : x0 + 212, 66, 212);
+      // health bar
+      g.fillStyle = 'rgba(255,255,255,0.12)';
+      g.fillRect(x0, 96, 212, 22);
+      const w = 212 * Math.max(0, Math.min(1, s.hp[i]));
+      g.fillStyle = s.hp[i] < 0.25 ? '#ff3b30' : cols[i];
+      g.fillRect(left ? x0 : x0 + 212 - w, 96, w, 22);
+      g.font = 'bold 22px "Russo One", Impact, sans-serif';
+      g.fillStyle = '#d8dde6';
+      g.fillText(`${Math.ceil(s.hp[i] * 100)}%`, left ? x0 : x0 + 212, 138);
+    }
+    const t = Math.ceil(s.clock);
+    const label =
+      s.phase === 'fight' || s.phase === 'countdown' ? `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}` : s.phase === 'intro' ? 'VS' : 'FINAL';
+    g.textAlign = 'center';
+    g.font = 'bold 74px "Russo One", Impact, sans-serif';
+    g.fillStyle = s.phase === 'fight' && t <= 10 ? '#ff5a3a' : '#ffffff';
+    g.fillText(label, 256, 214);
+    g.font = 'bold 18px "Russo One", Impact, sans-serif';
+    g.fillStyle = '#8f9bb3';
+    g.fillText(s.phase === 'fight' ? 'ROUND 1' : s.phase === 'countdown' ? 'GET READY' : s.phase === 'intro' ? 'MAIN EVENT' : 'RESULT', 256, 160);
+    this.finish();
+  }
+}
+
+export interface ScoreState {
+  names: [string, string];
+  hp: [number, number];
+  clock: number;
+  phase: string;
+}
+
 /** Scrolling LED strip of arena graphics on a black panel (scoreboard rings). */
 function ledTexture(): THREE.CanvasTexture {
   const [c, g] = canvas(2048, 128);
@@ -145,47 +368,6 @@ function suiteTexture(): THREE.CanvasTexture {
     g.fillRect(x, 22, 108, 10);
   }
   return tex(c);
-}
-
-function scoreboardTexture(): THREE.CanvasTexture {
-  const [c, g] = canvas(1024, 576);
-  const bg = g.createLinearGradient(0, 0, 0, 576);
-  bg.addColorStop(0, '#0b1222');
-  bg.addColorStop(1, '#05070d');
-  g.fillStyle = bg;
-  g.fillRect(0, 0, 1024, 576);
-  // diagonal energy stripes
-  g.save();
-  g.globalAlpha = 0.18;
-  for (let i = -6; i < 16; i++) {
-    g.fillStyle = i % 2 ? '#ff6a1a' : '#22c8f0';
-    g.beginPath();
-    g.moveTo(i * 90, 576);
-    g.lineTo(i * 90 + 40, 576);
-    g.lineTo(i * 90 + 240, 0);
-    g.lineTo(i * 90 + 200, 0);
-    g.fill();
-  }
-  g.restore();
-  g.font = 'bold 150px "Russo One", Impact, sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  const og = g.createLinearGradient(0, 120, 0, 290);
-  og.addColorStop(0, '#ffd08a');
-  og.addColorStop(1, '#ff6a12');
-  g.fillStyle = og;
-  g.fillText('BATTLE', 512, 205);
-  const cg = g.createLinearGradient(0, 300, 0, 460);
-  cg.addColorStop(0, '#d8fbff');
-  cg.addColorStop(1, '#22b8f0');
-  g.fillStyle = cg;
-  g.fillText('BOTS', 512, 375);
-  g.strokeStyle = 'rgba(255,255,255,0.6)';
-  g.lineWidth = 6;
-  g.strokeRect(14, 14, 996, 548);
-  g.fillStyle = 'rgba(0,0,0,0.3)';
-  for (let y = 0; y < 576; y += 4) g.fillRect(0, y, 1024, 1);
-  return tex(c, false);
 }
 
 function bannerTexture(): THREE.CanvasTexture {
@@ -302,6 +484,26 @@ function ledMaterial(map: THREE.Texture, len: number, speed: number, glow = 1.4,
   return m;
 }
 
+/** Press and judges' desks in two corners of the floor, outside the camera's space, with seats for their crew. */
+function ringsideDesks() {
+  const out: { x: number; z: number; rot: number; label: string; colour: string; seats: Seat[] }[] = [];
+  const sx = AX - RC, sz = AZ - RC;
+  for (const [a, label, colour] of [
+    [Math.PI / 4, 'PRESS', '#3fe0ff'],
+    [(3 * Math.PI) / 4, 'JUDGES', '#ff7a1f'],
+  ] as const) {
+    const dx = Math.cos(a), dz = Math.sin(a);
+    const cx = Math.sign(dx) * sx, cz = Math.sign(dz) * sz;
+    const seats: Seat[] = [];
+    for (const o of [-0.85, 0, 0.85]) {
+      const x = cx + dx * (RC - 1.1) - dz * o, z = cz + dz * (RC - 1.1) + dx * o;
+      seats.push({ x, y: FLOOR, z, row: 0, a: Math.atan2(z, x) });
+    }
+    out.push({ x: cx + dx * (RC - 1.75), z: cz + dz * (RC - 1.75), rot: Math.atan2(dx, dz), label, colour, seats });
+  }
+  return out;
+}
+
 export class Venue {
   readonly group = new THREE.Group();
   readonly crowd: Crowd;
@@ -309,12 +511,14 @@ export class Venue {
   private spots: THREE.Vector4[];
   private steady: THREE.ShaderMaterial;
   private flash = 0;
+  private board = new Scoreboard();
 
   constructor(quality: 'low' | 'med' | 'high', u: Uniforms) {
     const g = this.group;
     this.uniforms = { uTime: u.uTime, uHype: u.uHype, uFlash: { value: 0 } };
     const U = this.uniforms;
-    this.crowd = new Crowd(seats(), quality, u);
+    const desks = ringsideDesks();
+    this.crowd = new Crowd([...seats(), ...desks.flatMap((d) => d.seats)], quality, this.uniforms);
     this.spots = this.crowd.spots;
     const hookLed = (m: THREE.ShaderMaterial) => {
       m.uniforms.uTime = U.uTime;
@@ -361,13 +565,22 @@ export class Venue {
     };
     // baked occlusion: each tread darkens into the corner at the back where the next riser meets it,
     // and each riser darkens at its foot
-    const tread = (x: number, y: number, z: number, v: number) => wash(x, y, z, 0.075 * (1 - 0.45 * v));
+    const tread = (x: number, y: number, z: number, v: number) => wash(x, y, z, 0.075 * (1 - 0.3 * v));
+    // the back of each tread is the row of seats, in the tier's colour
+    const seatRow = (c: THREE.Color) => (_x: number, y: number, _z: number, v: number): Rgb => {
+      const k = (1 - Math.sqrt(Math.min(1, Math.max(0, y / 20))) * 0.55) * (1.5 - 0.6 * v);
+      return [c.r * k, c.g * k, c.b * k];
+    };
+    const lowerSeat = seatRow(new THREE.Color(0x40151a));
+    const upperSeat = seatRow(new THREE.Color(0x16233e));
     const riser = (x: number, y: number, z: number, v: number) => wash(x, y, z, 0.035 * (0.55 + 0.45 * v));
     const wall = (x: number, y: number, z: number) => wash(x, y, z, 0.03, 0.5);
     stands.strip(outline(0), FLOOR, outline(0), ROWS[0].y, riser);
     ROWS.forEach((r, i) => {
-      const a = outline(r.d), b = outline(r.d + r.depth);
-      stands.strip(a, r.y, b, r.y, tread);
+      const a = outline(r.d), m = outline(r.d + r.depth * 0.38), b = outline(r.d + r.depth);
+      stands.strip(a, r.y, m, r.y, tread);
+      stands.strip(m, r.y, m, r.y + 0.12, r.upper ? upperSeat : lowerSeat);
+      stands.strip(m, r.y + 0.12, b, r.y + 0.12, r.upper ? upperSeat : lowerSeat);
       if (i === LOWER_ROWS - 1 || i === ROWS.length - 1) return;
       stands.strip(b, r.y, b, r.y + r.rise, riser);
     });
@@ -381,7 +594,8 @@ export class Venue {
     const back = outline(BACK_D);
     stands.strip(back, TOP_Y, back, ROOF_Y, wall);
     const roofIn = outline(2);
-    const roof = (): Rgb => [0.018, 0.02, 0.03];
+    // the roof catches a little light from the bowl near its edge
+    const roof = (_x: number, _y: number, _z: number, v: number): Rgb => [0.045 - 0.025 * v, 0.048 - 0.026 * v, 0.062 - 0.032 * v];
     stands.strip(back, ROOF_Y, roofIn, ROOF_Y + 5, roof);
     const standMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
     const spots = this.spots;
@@ -457,7 +671,7 @@ export class Venue {
     }
 
     // ---------------------------------------------------------------- roof rig
-    const steel = new THREE.MeshBasicMaterial({ color: 0x1a1f2b });
+    const steel = new THREE.MeshBasicMaterial({ color: 0x2c3444 });
     const truss: THREE.BufferGeometry[] = [];
     const rigY = ROOF_Y + 1.5;
     const rx = AX + BACK_D - 6, rz = AX + BACK_D - 9;
@@ -471,6 +685,34 @@ export class Venue {
       [2.5, 2.5],
     ])
       truss.push(new THREE.BoxGeometry(0.05, rigY - 17, 0.05).translate(x, (rigY + 17) / 2, z));
+    // catwalks ringing the roof
+    for (const [d, y] of [
+      [5, ROOF_Y + 0.6],
+      [15, ROOF_Y - 0.6],
+    ]) {
+      const o = outline(d), oi = outline(d - 0.45), oo = outline(d + 0.45);
+      for (let i = 0; i < o.length - 1; i += 1) {
+        truss.push(bar(o[i].x, y, o[i].z, o[i + 1].x, y, o[i + 1].z, 0.9, 0.08));
+        for (const e of [oi, oo]) truss.push(bar(e[i].x, y + 1, e[i].z, e[i + 1].x, y + 1, e[i + 1].z, 0.05));
+        if (i % 3 === 0) for (const e of [oi, oo]) truss.push(bar(e[i].x, y, e[i].z, e[i].x, y + 1, e[i].z, 0.05));
+      }
+    }
+    // speaker arrays hung round the scoreboard, curving down towards the stands
+    const speakers: THREE.BufferGeometry[] = [];
+    for (let k = 0; k < 4; k++) {
+      const a = Math.PI / 4 + (k * Math.PI) / 2;
+      const r = 6.4;
+      for (let j = 0; j < 8; j++) {
+        const tilt = 0.05 + j * 0.07;
+        const b = new THREE.BoxGeometry(1.1, 0.3, 0.75).rotateX(tilt).translate(0, 21 - j * 0.31, j * j * 0.012);
+        b.rotateY(Math.PI / 2 - a);
+        b.translate(Math.cos(a) * r, 0, Math.sin(a) * r);
+        speakers.push(b);
+      }
+      truss.push(bar(Math.cos(a) * r, 21.2, Math.sin(a) * r, Math.cos(a) * r, rigY, Math.sin(a) * r, 0.05));
+      speakers.push(new THREE.BoxGeometry(1.3, 0.12, 0.9).rotateY(Math.PI / 2 - a).translate(Math.cos(a) * r, 21.2, Math.sin(a) * r));
+    }
+    g.add(new THREE.Mesh(mergeGeometries(speakers)!, new THREE.MeshBasicMaterial({ color: 0x0e1014 })));
     g.add(new THREE.Mesh(mergeGeometries(truss)!, steel));
 
     // lamps on the rig, step lights up the aisles, lamps along the top of the bowl
@@ -482,6 +724,17 @@ export class Venue {
         lampPos.push(x, rigY - 0.4, z);
         lampCol.push(warm.r, warm.g, warm.b);
       }
+    // work lights under the catwalks
+    for (const [d, y] of [
+      [5, ROOF_Y + 0.5],
+      [15, ROOF_Y - 0.7],
+    ]) {
+      const o = outline(d);
+      for (let i = 0; i < o.length - 1; i += 4) {
+        lampPos.push(o[i].x, y, o[i].z);
+        lampCol.push(warm.r * 0.7, warm.g * 0.7, warm.b * 0.7);
+      }
+    }
     const step = aisleLights();
     const amber = new THREE.Color(0xff9a3a).multiplyScalar(0.55);
     for (let i = 0; i < step.length; i += 3) {
@@ -500,7 +753,7 @@ export class Venue {
     const board = new THREE.Group();
     const sbW = 7.2, sbH = 4.05;
     board.add(new THREE.Mesh(new THREE.BoxGeometry(sbW + 0.3, sbH + 0.3, sbW + 0.3), new THREE.MeshBasicMaterial({ color: 0x0c0f16 })));
-    const screenMat = new THREE.MeshBasicMaterial({ map: scoreboardTexture(), color: new THREE.Color(1, 1, 1).multiplyScalar(RenderSettings.glow(1.3)), toneMapped: false });
+    const screenMat = new THREE.MeshBasicMaterial({ map: this.board.texture, color: new THREE.Color(1, 1, 1).multiplyScalar(RenderSettings.glow(1.3)), toneMapped: false });
     for (let i = 0; i < 4; i++) {
       const p = new THREE.Mesh(new THREE.PlaneGeometry(sbW, sbH), screenMat);
       const a = (i * Math.PI) / 2;
@@ -540,6 +793,104 @@ export class Venue {
     const banners = new THREE.Mesh(mergeGeometries(bannerGeos)!, new THREE.MeshBasicMaterial({ map: bannerTex, color: 0x8a8f9c, side: THREE.DoubleSide }));
     g.add(banners);
 
+    // ---------------------------------------------------------------- vomitories
+    // stairwells cut into the middle of each side of the lower bowl
+    const vomD0 = ROWS[VOM_ROW0].d, vomD1 = ROWS[VOM_ROW1].d;
+    const vomY0 = ROWS[VOM_ROW0 - 1].y, vomY1 = ROWS[VOM_ROW1].y;
+    const vomDepth = vomD1 - vomD0, vomH = vomY1 - vomY0, vomW = VOM_W + 0.4;
+    const concrete: THREE.BufferGeometry[] = [];
+    const rails: THREE.BufferGeometry[] = [];
+    vomitories().forEach((v, i) => {
+      const along = v.nx !== 0;
+      const cx = v.x + v.nx * vomDepth / 2, cz = v.z + v.nz * vomDepth / 2;
+      concrete.push(new THREE.BoxGeometry(along ? vomDepth : vomW, vomH, along ? vomW : vomDepth).translate(cx, vomY0 + vomH / 2, cz));
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(vomW, vomH), new THREE.MeshBasicMaterial({ map: vomTexture(101 + i * 7) }));
+      face.position.set(v.x - v.nx * 0.01, vomY0 + vomH / 2, v.z - v.nz * 0.01);
+      face.rotation.y = Math.atan2(-v.nx, -v.nz);
+      g.add(face);
+      // guard rail round the top of the stairwell
+      const tx = -v.nz, tz = v.nx;
+      const top = vomY1 + 0.95;
+      const c0x = v.x - tx * vomW / 2, c0z = v.z - tz * vomW / 2, c1x = v.x + tx * vomW / 2, c1z = v.z + tz * vomW / 2;
+      rails.push(bar(c0x, top, c0z, c1x, top, c1z, 0.05));
+      for (const [px, pz] of [
+        [c0x, c0z],
+        [c1x, c1z],
+      ]) {
+        rails.push(bar(px, top, pz, px + v.nx * vomDepth, top, pz + v.nz * vomDepth, 0.05));
+        rails.push(bar(px, vomY1, pz, px, top, pz, 0.05));
+      }
+    });
+    const vomCol = new THREE.Color(0x15171d);
+    const concreteMat = new THREE.MeshBasicMaterial({ color: vomCol });
+    g.add(new THREE.Mesh(mergeGeometries(concrete)!, concreteMat));
+
+    // ---------------------------------------------------------------- rails and glass
+    for (const [ax, ay, az, bx, by, bz] of aisleRails()) {
+      rails.push(bar(ax, ay, az, bx, by, bz, 0.045));
+      // posts every few rows
+      for (let t = 0; t <= 1.001; t += 0.25) {
+        const x = ax + (bx - ax) * t, y = ay + (by - ay) * t, z = az + (bz - az) * t;
+        rails.push(bar(x, y - 0.9, z, x, y, z, 0.04));
+      }
+    }
+    // a handrail along the glass at the front of the upper tier
+    const glassD = SUITE_D + 0.06;
+    const glassLine = outline(glassD);
+    for (let i = 0; i < glassLine.length - 1; i++) {
+      const p = glassLine[i], q = glassLine[i + 1];
+      rails.push(bar(p.x, UPPER_Y + 1.0, p.z, q.x, UPPER_Y + 1.0, q.z, 0.06));
+      if (i % 2 === 0) rails.push(bar(p.x, UPPER_Y, p.z, p.x, UPPER_Y + 1.0, p.z, 0.035));
+    }
+    g.add(new THREE.Mesh(mergeGeometries(rails)!, new THREE.MeshBasicMaterial({ color: 0x5d6574 })));
+    const glass = new Strips();
+    glass.strip(glassLine, UPPER_Y, glassLine, UPPER_Y + 1.0, (_x, _y, _z, v) => [0.05 + 0.05 * v, 0.07 + 0.06 * v, 0.09 + 0.07 * v]);
+    g.add(
+      new THREE.Mesh(
+        glass.geometry(),
+        new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+      ),
+    );
+
+    // ---------------------------------------------------------------- concourse behind the top row
+    const conc = new Strips();
+    const backIn = outline(BACK_D - 0.02);
+    conc.strip(backIn, TOP_Y + 0.25, backIn, TOP_Y + 2.6, () => [1, 1, 1]);
+    const concTex = concourseTexture();
+    concTex.repeat.set(1 / 8, 1);
+    g.add(new THREE.Mesh(conc.geometry(), new THREE.MeshBasicMaterial({ map: concTex, color: 0x8c8c8c, side: THREE.DoubleSide })));
+
+    // ---------------------------------------------------------------- ringside desks
+    const deskMat = new THREE.MeshBasicMaterial({ color: 0x0d1018 });
+    for (const d of desks) {
+      const desk = new THREE.Group();
+      desk.add(new THREE.Mesh(new THREE.BoxGeometry(3.1, 0.06, 0.8).translate(0, 0.75, 0), new THREE.MeshBasicMaterial({ color: 0x1b1f2a })));
+      const skirt = new THREE.Mesh(
+        new THREE.PlaneGeometry(3.1, 0.72),
+        new THREE.MeshBasicMaterial({ map: skirtTexture(d.label, d.colour) }),
+      );
+      skirt.position.set(0, 0.36, -0.41);
+      skirt.rotation.y = Math.PI;
+      desk.add(skirt);
+      const kit: THREE.BufferGeometry[] = [];
+      for (const o of [-0.85, 0, 0.85]) {
+        kit.push(new THREE.BoxGeometry(0.52, 0.32, 0.04).translate(o, 0.98, -0.1));
+        kit.push(new THREE.BoxGeometry(0.05, 0.2, 0.05).translate(o, 0.85, -0.08));
+        // chair back behind the crew
+        kit.push(new THREE.BoxGeometry(0.46, 0.55, 0.06).translate(o, 0.75, 0.95));
+      }
+      desk.add(new THREE.Mesh(mergeGeometries(kit)!, deskMat));
+      // the monitors' glow on the desk top
+      const glow = new THREE.Mesh(
+        new THREE.PlaneGeometry(2.6, 0.5).rotateX(-Math.PI / 2).translate(0, 0.785, 0.15),
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(0x3a6a9a).multiplyScalar(0.5), transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false }),
+      );
+      desk.add(glow);
+      desk.position.set(d.x, FLOOR, d.z);
+      desk.rotation.y = d.rot;
+      g.add(desk);
+    }
+
     // ---------------------------------------------------------------- crowd
     g.add(this.crowd.group);
   }
@@ -547,6 +898,11 @@ export class Venue {
   setPixelScale(h: number) {
     this.crowd.setPixelScale(h);
     this.steady.uniforms.uScale.value = h;
+  }
+
+  /** What the centre-hung screens show: the live fight, or the arena logo (null). */
+  score(dt: number, s: ScoreState | null) {
+    this.board.update(dt, s);
   }
 
   /** Strobe the boards (knockdowns, KOs). */
