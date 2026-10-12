@@ -240,6 +240,10 @@ export class Match {
     const j = att.strikerJoint(s);
     const from = att.body.last[j];
     const to = att.body.pos[j];
+    // a hammer fist only lands on the way down, not while it is still rising overhead
+    if (s.move.path === 'hammer' && to.y >= from.y) return;
+    // a jumping knee connects once it has driven up, not on the way out of the chamber
+    if (s.move.path === 'knee' && s.activeProgress < 0.3) return;
     const r = s.move.striker === 'hand' ? 0.13 : 0.12;
     const db = def.body.pos;
     const legsMove = s.zone === 'legs';
@@ -266,9 +270,7 @@ export class Match {
           }
           if (s.zone === 'body') {
             closestOnSegment(_p, sh, el, _c);
-            // forearms now stand clear of the chest plate (further out than they used
-          // to sit), so the block window is a little tighter to keep the same balance
-          if (_c.distanceTo(_p) < r * 0.85 + 0.048) {
+            if (_c.distanceTo(_p) < r * 0.85 + 0.048) {
               hit = 'block';
               blockHand = side;
               break;

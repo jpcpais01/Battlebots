@@ -29,6 +29,9 @@ export const PATCH_NOTES: PatchNote[] = [
       'Arms no longer pass through chest plates, their own or the opponent\'s.',
       'Elbows and knees no longer snap to the wrong side mid-punch or mid-kick.',
       'Guarding hands stay tucked at the chin through the whole strike, and bots no longer sink into each other up close.',
+      'Titan Hammers: the Guard Breaker now rises overhead and chops down onto the head.',
+      'Brawler Knuckles: the haymaker winds back and loops round from the side.',
+      'Jet Knees: the Jet Knee now leaps up off the canvas and drives the knee in, with a clean landing.',
     ],
   },
   {
