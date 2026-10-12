@@ -580,9 +580,9 @@ export class Game {
   private partHit(h: HitInfo) {
     if (h.shielded) return;
     const wear = 1 - h.partCond;
-    if (wear > 0.3 && h.damage >= 8) {
-      this.fx.shrapnel(h.point, h.dir, Math.round(3 + wear * 9 + h.damage / 20), 2.5 + wear * 2);
-      if (wear > 0.55) this.fx.smoke(h.point, 2, wear);
+    if (wear > 0.12 && h.damage >= 6) {
+      this.fx.shrapnel(h.point, h.dir, Math.round(3 + wear * 14 + h.damage / 16), 2.5 + wear * 2.5);
+      if (wear > 0.35) this.fx.smoke(h.point, 1 + Math.round(wear * 3), wear);
     }
   }
 
@@ -627,13 +627,15 @@ export class Game {
     for (let p = 0; p < PART_COUNT; p++) {
       if (parts.off[p]) continue;
       const w = 1 - parts.cond[p];
-      if (w < 0.6) continue;
-      const k = (w - 0.6) / 0.4;
+      if (w < 0.3) continue;
+      // a light wisp at first, then sparks, thick smoke and arcing as the part fails
+      const k = (w - 0.3) / 0.7;
+      const kk = k * k;
       const [a, b] = PART_AT[p];
       _dp.lerpVectors(J0[a], J0[b], 0.5);
-      if (Math.random() < dt * (0.6 + k * 3.5)) this.fx.sparks(_dp, _up, 3 + Math.round(k * 5), 0xffb050, 2.4, 1.3);
-      if (w > 0.75 && Math.random() < dt * (1 + k * 6)) this.fx.smoke(_dp, 1, k);
-      if (w > 0.9 && Math.random() < dt * 0.8) this.fx.arc(_dp, 0.12);
+      if (Math.random() < dt * (0.4 + kk * 6)) this.fx.sparks(_dp, _up, 2 + Math.round(kk * 8), 0xffb050, 2 + kk * 1.5, 1.3);
+      if (w > 0.4 && Math.random() < dt * (0.6 + kk * 10)) this.fx.smoke(_dp, 1 + Math.round(kk), 0.2 + kk * 0.8);
+      if (w > 0.75 && Math.random() < dt * (0.3 + kk * 1.5)) this.fx.arc(_dp, 0.1 + kk * 0.06);
     }
     for (const s of this.stumps[i]) {
       s.age += dt;
