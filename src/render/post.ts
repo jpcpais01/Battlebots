@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
+import { RIPPLE_GLSL, type Ripples } from './ripple';
 
 /** How much glow each bloom level adds. Seven levels × 0.3 matches the old UnrealBloom's total (0.7 × ~3). */
 const BLOOM_PER_LEVEL = 0.3;
@@ -62,18 +63,32 @@ const UP = /* glsl */ `
     gl_FragColor = vec4(c * 0.0625, 1.0);
   }`;
 
-/** Scene + bloom, tone mapped and encoded for the screen: the only full-resolution pass after the scene. */
+/**
+ * Scene + bloom, tone mapped and encoded for the screen: the only full-resolution pass after the
+ * scene. Shockwaves from big hits warp the uv here (see ripple.ts), so they cost nothing extra.
+ */
 const COMPOSITE = /* glsl */ `
   uniform sampler2D tScene;
   uniform sampler2D tBloom;
   uniform vec2 uBloomStep;
   uniform float uBloom;
   varying vec2 vUv;
+  ${RIPPLE_GLSL}
   void main() {
-    vec3 c = texture2D(tScene, vUv).rgb;
-    vec3 b = texture2D(tBloom, vUv - uBloomStep).rgb + texture2D(tBloom, vUv + uBloomStep).rgb
-      + texture2D(tBloom, vUv + vec2(uBloomStep.x, -uBloomStep.y)).rgb + texture2D(tBloom, vUv + vec2(-uBloomStep.x, uBloomStep.y)).rgb;
-    gl_FragColor = vec4(c + b * (0.25 * uBloom), 1.0);
+    vec2 uv = vUv;
+    vec3 crest = vec3(0.0);
+    vec3 c;
+    if (uRipN > 0) {
+      vec2 off = rippleOffset(vUv, crest);
+      uv += off;
+      // a touch of colour split along the bend, like light through thick glass
+      c = vec3(texture2D(tScene, vUv + off * 1.25).r, texture2D(tScene, uv).g, texture2D(tScene, vUv + off * 0.75).b);
+    } else {
+      c = texture2D(tScene, uv).rgb;
+    }
+    vec3 b = texture2D(tBloom, uv - uBloomStep).rgb + texture2D(tBloom, uv + uBloomStep).rgb
+      + texture2D(tBloom, uv + vec2(uBloomStep.x, -uBloomStep.y)).rgb + texture2D(tBloom, uv + vec2(-uBloomStep.x, uBloomStep.y)).rgb;
+    gl_FragColor = vec4(c * (1.0 + crest * 0.5) + crest * 0.06 + b * (0.25 * uBloom), 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }`;
@@ -139,7 +154,7 @@ export class PostFX {
   private type: Format;
   private size = { w: 0, h: 0 };
 
-  constructor(private renderer: THREE.WebGLRenderer) {
+  constructor(private renderer: THREE.WebGLRenderer, ripples: Ripples) {
     this.type = pickFormat(renderer);
     this.sceneRT = this.target(1, 1, this.type.samples, true);
     this.prefilter = pass(PREFILTER, { tSrc: { value: null }, uStep: { value: new THREE.Vector2() }, uThreshold: { value: THRESHOLD } });
@@ -150,6 +165,7 @@ export class PostFX {
       tBloom: { value: null },
       uBloomStep: { value: new THREE.Vector2() },
       uBloom: { value: BLOOM_PER_LEVEL },
+      ...ripples.uniforms,
     }, 'screen');
   }
 

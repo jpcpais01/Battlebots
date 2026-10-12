@@ -24,14 +24,8 @@ interface Flash {
   life: number;
   size: number;
 }
-interface Ring {
-  mesh: THREE.Mesh;
-  t: number;
-  life: number;
-  size: number;
-}
 
-/** Particles, impact flashes, shockwave rings, swing trails and electric arcs. */
+/** Particles, impact flashes, swing trails and electric arcs. (Shockwaves are a screen warp: see ripple.ts.) */
 export class Fx {
   readonly group = new THREE.Group();
   // particles (CPU simulated, one draw call)
@@ -48,7 +42,6 @@ export class Fx {
   private points: THREE.Points;
   private geo: THREE.BufferGeometry;
   private flashes: Flash[] = [];
-  private rings: Ring[] = [];
   private tex = glowTexture();
   private arcs: THREE.LineSegments;
   private arcGeo: THREE.BufferGeometry;
@@ -207,27 +200,6 @@ export class Fx {
     (f.sprite.material as THREE.SpriteMaterial).color.set(color).multiplyScalar(RenderSettings.glow(3.5));
   }
 
-  ring(p: THREE.Vector3, color: THREE.ColorRepresentation, size = 1.5, flat = true, life = 0.4) {
-    let r = this.rings.find((x) => x.t >= x.life);
-    if (!r) {
-      const mesh = new THREE.Mesh(
-        new THREE.RingGeometry(0.8, 1, 40),
-        new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false }),
-      );
-      this.group.add(mesh);
-      r = { mesh, t: 0, life, size };
-      this.rings.push(r);
-    }
-    r.t = 0;
-    r.life = life;
-    r.size = size;
-    r.mesh.visible = true;
-    r.mesh.position.copy(p);
-    r.mesh.userData.flat = flat;
-    if (flat) r.mesh.rotation.set(-Math.PI / 2, 0, 0);
-    (r.mesh.material as THREE.MeshBasicMaterial).color.set(color).multiplyScalar(RenderSettings.glow(2));
-  }
-
   arc(pos: THREE.Vector3, t = 0.4, color: THREE.ColorRepresentation = 0x9ad8ff) {
     this.arcSources.push({ pos: pos.clone(), t, color: new THREE.Color(color) });
   }
@@ -285,17 +257,6 @@ export class Fx {
       (f.sprite.material as THREE.SpriteMaterial).opacity = 1 - k;
       if (f.t >= f.life) f.sprite.visible = false;
     }
-    for (const r of this.rings) {
-      if (r.t >= r.life) continue;
-      r.t += dt;
-      const k = Math.min(1, r.t / r.life);
-      const s = r.size * (0.2 + (1 - (1 - k) * (1 - k)) * 0.9);
-      r.mesh.scale.set(s, s, s);
-      if (!r.mesh.userData.flat) r.mesh.quaternion.copy(camera.quaternion);
-      (r.mesh.material as THREE.MeshBasicMaterial).opacity = (1 - k) * 0.9;
-      if (r.t >= r.life) r.mesh.visible = false;
-    }
-
     // electric arcs
     const arcPos = this.arcGeo.attributes.position as THREE.BufferAttribute;
     let n = 0;
