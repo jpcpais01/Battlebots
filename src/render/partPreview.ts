@@ -19,9 +19,12 @@ import {
 } from './parts';
 import { Baker, bakedGlowMaterial, vertexPBR } from './bake';
 import { botGlows, botSurfaces } from './botModel';
+import { paintKey, type Paint } from '../game/paint';
 
 /** Thumbnail edge in pixels (rendered at twice this and filtered down). */
 const SIZE = 176;
+/** Pictures kept: every part of the current paint job and a few recent ones. */
+const MAX_CACHED = 160;
 const PX = SIZE * 2;
 const FOREARM = 0.33;
 const LIMB = 0.46;
@@ -206,23 +209,26 @@ export class PartThumbs {
     this.out.width = this.out.height = SIZE;
   }
 
-  /** A data URL picture of `item` at `rarity`, painted in `palette`, on a bot wearing `lo`. */
-  get(item: ItemDef, rarity: Rarity, palette: number, lo: Loadout): string {
+  /** A data URL picture of `item` at `rarity`, in `paint`, on a bot wearing `lo`. */
+  get(item: ItemDef, rarity: Rarity, paint: Paint, lo: Loadout): string {
     const deps =
       item.slot === 'core' ? lookOf(lo, 'chest') : item.slot === 'chest' ? `${lookOf(lo, 'core')}${lo.core.rarity}` : item.slot === 'legs' ? `${lookOf(lo, 'kick')}${lo.kick.rarity}` : item.slot === 'kick' ? `${lookOf(lo, 'legs')}${lo.legs.rarity}` : '';
-    const key = `${item.id}|${rarity}|${palette}|${deps}`;
+    const key = `${item.id}|${rarity}|${paintKey(paint)}|${deps}`;
     let url = this.cache.get(key);
     if (!url) {
-      url = this.draw(shotFor(item, rarity, lo), palette, item.slot === 'core' ? item.look : lookOf(lo, 'core'));
-      this.cache.set(key, url);
-    }
+      url = this.draw(shotFor(item, rarity, lo), paint, item.slot === 'core' ? item.look : lookOf(lo, 'core'));
+      // trying paint jobs makes a new set of pictures each time: forget the oldest
+      if (this.cache.size >= MAX_CACHED) this.cache.delete(this.cache.keys().next().value!);
+    } else this.cache.delete(key);
+    // most recently used last
+    this.cache.set(key, url);
     return url;
   }
 
-  private draw(shot: Shot, palette: number, coreLook: number): string {
-    const surfaces = botSurfaces(palette);
+  private draw(shot: Shot, paint: Paint, coreLook: number): string {
+    const surfaces = botSurfaces(paint);
     const baker = new Baker();
-    for (const p of shot.parts) baker.part(p.pb, p.m, surfaces, botGlows(palette, coreLook, p.rarity));
+    for (const p of shot.parts) baker.part(p.pb, p.m, surfaces, botGlows(paint, coreLook, p.rarity));
     const { opaque, emissive } = baker.build();
     const meshes: THREE.Mesh[] = [];
     if (opaque) meshes.push(new THREE.Mesh(opaque, this.opaqueMat));

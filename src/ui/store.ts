@@ -1,5 +1,6 @@
 import { ITEM_BY_ID, SLOTS, capRarity } from '../game/items';
-import { DEFAULT_PLAYER, PALETTES, type BotSpec } from '../game/loadout';
+import { DEFAULT_PLAYER, type BotSpec } from '../game/loadout';
+import { sanitizePaint } from '../game/paint';
 import { EMOTE_KIND, MAX_PICKS, type EmoteKind } from '../sim/emote';
 
 export interface Record_ {
@@ -29,12 +30,13 @@ function write(key: string, v: unknown) {
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
-/** Any bot description (saved, or sent by another player) made safe: unknown items, rarities and paints fall back to defaults. */
+/** Any bot description (saved, or sent by another player) made safe: unknown items, rarities and paint fall back to defaults. */
 export function sanitizeBot(raw: unknown): BotSpec {
   const p = (raw && typeof raw === 'object' ? raw : {}) as Partial<BotSpec>;
   const out = clone(DEFAULT_PLAYER);
   if (typeof p.name === 'string' && p.name.trim()) out.name = p.name.trim().slice(0, 20);
-  if (Number.isInteger(p.palette) && p.palette! >= 0 && p.palette! < PALETTES.length) out.palette = p.palette!;
+  // older saves and peers sent a palette index instead of a paint job
+  out.paint = sanitizePaint(p.paint, (p as { palette?: unknown }).palette);
   for (const slot of SLOTS) {
     const e = p.loadout?.[slot];
     const item = e && typeof e.id === 'string' && ITEM_BY_ID.get(e.id);

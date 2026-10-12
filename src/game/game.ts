@@ -15,7 +15,8 @@ import { J } from '../sim/body';
 import { Rng } from '../sim/math';
 import { MOVES, type MoveId } from '../sim/moves';
 import { computeBuild, RARITIES } from './items';
-import { PALETTES, type BotSpec } from './loadout';
+import type { BotSpec } from './loadout';
+import { DEFAULT_PAINT, type Paint } from './paint';
 import type { Sfx } from '../audio/sfx';
 import { perf } from '../perf';
 import { RenderProbe } from '../render/renderProbe';
@@ -113,7 +114,7 @@ export class Game {
   private garage: Garage | null = null;
   private _thumbs: PartThumbs | null = null;
   place: Place = 'arena';
-  private onLift = { name: '', power: 0, palette: 0 };
+  private onLift = { name: '', power: 0, paint: DEFAULT_PAINT };
   /** Torn-off robot parts lying about the ring. */
   readonly debris = new Debris();
   /** Per fighter: stumps left by torn parts (joint, age in seconds). */
@@ -171,7 +172,7 @@ export class Game {
       this.stage.scene.add(this.garage.group);
       this.clearView.apply(this.garage.near);
       this.probe.tag(this.garage.group, 'venue');
-      this.garage.setBot(this.onLift.name, this.onLift.power, this.onLift.palette);
+      this.garage.setBot(this.onLift.name, this.onLift.power, this.onLift.paint.accent);
     }
     this.arena.group.visible = !inGarage;
     this.arena.venue.group.visible = !inGarage;
@@ -183,9 +184,9 @@ export class Game {
   }
 
   /** Tell the workshop who is on the lift (desk monitor, bay light colour). */
-  garageBot(name: string, power: number, palette: number) {
-    this.onLift = { name, power, palette };
-    this.garage?.setBot(name, power, palette);
+  garageBot(name: string, power: number, paint: Paint) {
+    this.onLift = { name, power, paint };
+    this.garage?.setBot(name, power, paint.accent);
   }
 
   /** Light sweep up the robot in the workshop (a part was fitted). */
@@ -225,7 +226,7 @@ export class Game {
         if (ev === 'step') this.sfx?.step(0);
       },
     };
-    const model = new BotModel(spec.loadout, spec.palette);
+    const model = new BotModel(spec.loadout, spec.paint);
     this.probe.tag(model.root, 'bots');
     this.stage.scene.add(model.root);
     this.showcase = { fighter, dummy, model, show: new Showman(fighter, dummy, null) };
@@ -259,15 +260,14 @@ export class Game {
     this.showBot(null);
     const m = new Match(a, b, seed);
     this.match = m;
-    this.models = [new BotModel(a.loadout, a.palette), new BotModel(b.loadout, b.palette)];
+    this.models = [new BotModel(a.loadout, a.paint), new BotModel(b.loadout, b.paint)];
     for (const md of this.models) {
       this.probe.tag(md.root, 'bots');
       this.stage.scene.add(md.root);
     }
     this.clearView.apply(this.arena.group);
     this.trails = [a, b].map((spec) => {
-      const pal = PALETTES[spec.palette % PALETTES.length];
-      return [0, 1, 2, 3].map(() => this.fx.makeTrail(pal.accent, 0.13));
+      return [0, 1, 2, 3].map(() => this.fx.makeTrail(spec.paint.accent, 0.13));
     });
     this.director.mode = 'match';
     this.director.reset();
@@ -331,7 +331,7 @@ export class Game {
     switch (type) {
       case 'hit': {
         const h = data as HitInfo;
-        const pal = PALETTES[this.match!.specs[h.attacker.index].palette % PALETTES.length];
+        const pal = this.match!.specs[h.attacker.index].paint;
         if (h.shielded) {
           this.stage.ripples.add(h.point, 1.3, 0.8, 0x3cffd8, 0.5);
           fx.burst(h.point, 0x3cffd8, 40, 3);

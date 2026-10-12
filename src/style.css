@@ -455,30 +455,6 @@ button {
   letter-spacing: 0.04em;
   color: var(--amber);
 }
-.swatches {
-  position: absolute;
-  left: var(--pad);
-  top: calc(10px + 3.4em);
-  display: flex;
-  gap: 0.35em;
-  flex-wrap: wrap;
-  max-width: calc(100vw - min(58vw, 44rem) - var(--pad) - var(--padr) - 1.5em);
-}
-.swatch {
-  width: 1.6em;
-  height: 1.6em;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
-  transition: transform 0.12s ease;
-}
-.swatch:active {
-  transform: scale(0.9);
-}
-.swatch.on {
-  border-color: #fff;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25), 0 2px 8px rgba(0, 0, 0, 0.5);
-}
 .statbox {
   position: absolute;
   left: var(--pad);
@@ -702,6 +678,180 @@ button {
 }
 .slot.emotes.on svg {
   color: #fff;
+}
+/* the Paint tab: schemes, colour grids, finishes and frame metals */
+.slot.paint svg {
+  color: var(--rc);
+}
+.slot.paint.on svg {
+  color: #fff;
+}
+.rarities.pages .rar i {
+  display: inline-block;
+  width: 0.75em;
+  height: 0.75em;
+  border-radius: 50%;
+  margin-right: 0.35em;
+  vertical-align: -0.08em;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.4);
+}
+.psec {
+  flex: none;
+  font-size: 0.68em;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0.3em 0.2em 0;
+}
+.pgrid {
+  flex: none;
+  display: grid;
+  gap: 0.4em;
+}
+.pgrid.schemes {
+  grid-template-columns: repeat(auto-fill, minmax(5.6em, 1fr));
+}
+.scheme {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25em;
+  padding: 0.35em;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  text-align: left;
+}
+.scheme .sw {
+  height: 2.1em;
+  border-radius: 7px;
+  background: linear-gradient(115deg, var(--a) 0 52%, var(--b) 52% 80%, var(--c) 80%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 -0.5em 0.8em rgba(0, 0, 0, 0.25);
+}
+.scheme b {
+  font-size: 0.74em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.scheme small {
+  font-size: 0.6em;
+  color: var(--muted);
+  margin-top: -0.25em;
+}
+.scheme.on,
+.fin.on {
+  border-color: var(--cyan);
+  background: rgba(42, 216, 255, 0.1);
+  box-shadow: 0 0 12px rgba(42, 216, 255, 0.25);
+}
+.pgrid.colors {
+  grid-template-columns: repeat(10, 1fr);
+  gap: 0.35em;
+}
+.pgrid.colors.glow {
+  grid-template-columns: repeat(9, 1fr);
+}
+.pc {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, color-mix(in srgb, var(--c) 55%, white), var(--c) 48%, color-mix(in srgb, var(--c) 55%, black));
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  transition: transform 0.12s ease;
+}
+.pgrid.glow .pc {
+  box-shadow: 0 0 10px color-mix(in srgb, var(--c) 60%, transparent), 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+.pc:active {
+  transform: scale(0.9);
+}
+.pc.on {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgba(42, 216, 255, 0.7), 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+.pc.custom {
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  background: conic-gradient(from 0deg, #ff3b3b, #ffd23b, #4bff6a, #3be8ff, #4b5cff, #e04bff, #ff3b3b);
+}
+.pc.custom::before {
+  content: '';
+  position: absolute;
+  inset: 22%;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
+}
+.pc.custom svg {
+  position: relative;
+  width: 45%;
+  height: 45%;
+  color: #fff;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+}
+.pc.custom input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.pgrid.fins {
+  grid-template-columns: repeat(auto-fill, minmax(8.5em, 1fr));
+}
+.fin {
+  display: grid;
+  grid-template-columns: 2.4em 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 0.55em;
+  align-items: center;
+  text-align: left;
+  padding: 0.4em 0.5em;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+}
+.fin .ball {
+  grid-row: span 2;
+  width: 2.4em;
+  height: 2.4em;
+  border-radius: 50%;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
+}
+.fin b {
+  font-size: 0.8em;
+  align-self: end;
+}
+.fin small {
+  font-size: 0.62em;
+  color: var(--muted);
+  align-self: start;
+}
+/* each finish's swatch ball, in the main paint colour */
+.ball.f0 {
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--c) 55%, white), var(--c) 45%, color-mix(in srgb, var(--c) 50%, black));
+}
+.ball.f1 {
+  background: radial-gradient(circle at 33% 27%, #fff 0 8%, color-mix(in srgb, var(--c) 70%, white) 13%, var(--c) 40%, color-mix(in srgb, var(--c) 40%, black) 100%);
+}
+.ball.f2 {
+  background: radial-gradient(circle at 40% 35%, color-mix(in srgb, var(--c) 88%, white), var(--c) 55%, color-mix(in srgb, var(--c) 70%, black));
+}
+.ball.f3 {
+  background: repeating-radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.16) 0 1px, transparent 1px 3px),
+    radial-gradient(circle at 34% 28%, color-mix(in srgb, var(--c) 40%, white), var(--c) 38%, color-mix(in srgb, var(--c) 30%, black));
+}
+.ball.f4 {
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 3px),
+    linear-gradient(160deg, color-mix(in srgb, var(--c) 55%, white), var(--c) 38%, color-mix(in srgb, var(--c) 45%, black) 68%, var(--c));
+}
+.ball.f5,
+.ball.fm {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 20%, white) 0%, var(--c) 36%, color-mix(in srgb, var(--c) 25%, black) 50%, color-mix(in srgb, var(--c) 70%, white) 62%, var(--c) 100%);
 }
 .emote-hint {
   flex: none;
