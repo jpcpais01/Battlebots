@@ -1,5 +1,5 @@
 import { Rng } from '../sim/math';
-import { SLOTS, itemsForSlot, type Loadout, type Rarity } from './items';
+import { MAX_RARITY, SLOTS, capRarity, itemsForSlot, type Loadout, type Rarity } from './items';
 import type { EmotePicks } from '../sim/emote';
 
 export interface Palette {
@@ -30,9 +30,9 @@ export function randomName(rng: Rng): string {
   return rng.chance(0.25) ? `${name} ${rng.pick(['II', 'X', 'MK-3', 'V', 'Zero', '9'])}` : name;
 }
 
-/** Weighted rarity roll. `tier` shifts the distribution upwards (0..1). */
+/** Weighted rarity roll up to MAX_RARITY. `tier` shifts the distribution upwards (0..1). */
 export function rollRarity(rng: Rng, tier = 0.35): Rarity {
-  const w = [1.0 - tier * 0.6, 0.75, 0.42 + tier * 0.3, 0.2 + tier * 0.3, 0.07 + tier * 0.2];
+  const w = [1.0 - tier * 0.6, 0.75, 0.42 + tier * 0.3, 0.2 + tier * 0.3, 0.07 + tier * 0.2].slice(0, MAX_RARITY + 1);
   const sum = w.reduce((a, b) => a + b, 0);
   let r = rng.next() * sum;
   for (let i = 0; i < w.length; i++) {
@@ -69,11 +69,11 @@ export const DEFAULT_PLAYER: BotSpec = {
   name: 'Atom Jack',
   palette: 0,
   loadout: {
-    head: { id: 'sentinel', rarity: 1 },
-    fist: { id: 'brawler', rarity: 1 },
-    core: { id: 'fusion', rarity: 1 },
-    chest: { id: 'plated', rarity: 1 },
-    legs: { id: 'strider', rarity: 1 },
-    kick: { id: 'whip', rarity: 1 },
+    head: { id: 'sentinel', rarity: capRarity(1) },
+    fist: { id: 'brawler', rarity: capRarity(1) },
+    core: { id: 'fusion', rarity: capRarity(1) },
+    chest: { id: 'plated', rarity: capRarity(1) },
+    legs: { id: 'strider', rarity: capRarity(1) },
+    kick: { id: 'whip', rarity: capRarity(1) },
   },
 };

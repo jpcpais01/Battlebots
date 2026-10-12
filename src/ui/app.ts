@@ -10,6 +10,7 @@ import {
   formatPassive,
   formatStatLine,
   ITEM_BY_ID,
+  MAX_RARITY,
   itemsForSlot,
   RARITIES,
   scaledStat,
@@ -393,16 +394,17 @@ export class App {
       this.prewarmThumbs();
       return;
     }
-    g.rar.className = 'rarities';
+    // one tier in play: no rarity picker, no rarity label
+    g.rar.className = MAX_RARITY ? 'rarities' : 'rarities none';
 
     const eq = p.loadout[this.slot];
     const cur = ITEM_BY_ID.get(eq.id)!;
-    g.title.innerHTML = `<b>${SLOT_LABEL[this.slot]}</b><span>${esc(cur.name)} · <i style="color:${RARITIES[eq.rarity].color}">${RARITIES[eq.rarity].name}</i></span>`;
+    g.title.innerHTML = `<b>${SLOT_LABEL[this.slot]}</b><span>${esc(cur.name)}${MAX_RARITY ? ` · <i style="color:${RARITIES[eq.rarity].color}">${RARITIES[eq.rarity].name}</i>` : ''}</span>`;
     if (this.focus) this.setFocus(this.slot);
     else this.setFocus(null);
 
     g.rar.innerHTML = '';
-    RARITIES.forEach((r, i) => {
+    if (MAX_RARITY) RARITIES.slice(0, MAX_RARITY + 1).forEach((r, i) => {
       const b = button(`rar${i === eq.rarity ? ' on' : ''}`, r.name, () => {
         if (eq.rarity === i) return;
         this.tap();

@@ -20,6 +20,14 @@ export const RARITIES = [
   { name: 'Mythic', color: '#ff3f74', glow: 0xff2a62, mult: 1.75 },
 ] as const;
 
+/**
+ * Highest rarity in play. Rolls, saved bots and bots from other players are capped to it, and the
+ * garage only offers tiers up to it. 0 = Common only for now; raise it to bring the better tiers
+ * (their stats, colours and part looks are all still here) back.
+ */
+export const MAX_RARITY: Rarity = 0;
+export const capRarity = (r: number): Rarity => Math.max(0, Math.min(MAX_RARITY, Math.floor(r))) as Rarity;
+
 export interface Stats {
   maxHp: number;
   /** Fraction of damage removed. */

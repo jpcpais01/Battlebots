@@ -1,4 +1,4 @@
-import { ITEM_BY_ID, SLOTS } from '../game/items';
+import { ITEM_BY_ID, SLOTS, capRarity } from '../game/items';
 import { DEFAULT_PLAYER, PALETTES, type BotSpec } from '../game/loadout';
 import { EMOTE_KIND, MAX_PICKS, type EmoteKind } from '../sim/emote';
 
@@ -38,7 +38,7 @@ export function sanitizeBot(raw: unknown): BotSpec {
   for (const slot of SLOTS) {
     const e = p.loadout?.[slot];
     const item = e && typeof e.id === 'string' && ITEM_BY_ID.get(e.id);
-    if (item && item.slot === slot && Number.isInteger(e.rarity) && e.rarity >= 0 && e.rarity <= 4) out.loadout[slot] = { id: e.id, rarity: e.rarity };
+    if (item && item.slot === slot && Number.isInteger(e.rarity) && e.rarity >= 0 && e.rarity <= 4) out.loadout[slot] = { id: e.id, rarity: capRarity(e.rarity) };
   }
   const em = (p.emotes && typeof p.emotes === 'object' ? p.emotes : {}) as Partial<Record<EmoteKind, unknown>>;
   const picks = (kind: EmoteKind) => {

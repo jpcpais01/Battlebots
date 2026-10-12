@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-12 21:00',
     title: 'New health bars, emotes, cleaner hits and a clean load',
     notes: [
+      'For now every part is Common: you, your opponents and online rivals all fight with Common gear, so fights come down to your build and moves. Your saved parts were switched to Common, and the rarity picker is gone from the garage. Better tiers will come back later.',
       'Battle damage shows much sooner and bigger: a few hits already scuff and dent the plating, and a badly damaged part caves in, tears open to burnt innards with glowing split edges, and pours sparks and smoke.',
       'Ropes and barriers around the ring never turn see-through any more, even when the camera is right next to them.',
       'New health bars: a steel frame in your bot\'s colours, ten cells, and a live HP number. Damage now leaves a striped chip behind that hangs while the hits keep coming, then drains away, and the flurry\'s total shows by the name. Big hits flash and shake the bar.',
