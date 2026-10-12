@@ -554,6 +554,5 @@ export class Venue {
       const [x, z] = towards(a, d);
       this.spots[i].set(x, z, 3.2 + d * 0.08, Math.min(1.1, 0.35 + hype * 0.55));
     }
-    this.crowd.update(dt, hype);
   }
 }

@@ -27,9 +27,13 @@ interface BarEls {
   shownHp: number;
 }
 
+/** The finishing word, split into the pieces that slam in one by one. */
+const FINISH_WORD = { KO: ['K.', 'O.'], TKO: ['T.', 'K.', 'O.'] };
+
 /**
  * Fight overlay: health/stamina bars, clock, ability cooldowns, VS card, countdown,
- * callouts, floating damage numbers and a running commentary line.
+ * callouts, referee count, KO/TKO finisher, floating damage numbers and a running
+ * commentary line.
  */
 export class Hud {
   readonly root: HTMLElement;
@@ -37,6 +41,18 @@ export class Hud {
   private timer!: HTMLElement;
   private calloutEl: HTMLElement;
   private countEl: HTMLElement;
+  private finishEl: HTMLElement;
+  private refEl: HTMLElement;
+  private refNum: HTMLElement;
+  private refTicks: HTMLElement[];
+  private refName: HTMLElement;
+  private refState: HTMLElement;
+  private refKd: HTMLElement[];
+  /** Fighter being counted, when the count started, the number shown, and when they rose (0 = still down). */
+  private ref: { f: Fighter; at: number; n: number; upAt: number } | null = null;
+  private kdSeen = [0, 0];
+  private kdEls: HTMLElement[] = [];
+  private finishing = false;
   private dmgLayer: HTMLElement;
   private commentary: HTMLElement;
   private vs: HTMLElement | null = null;
@@ -47,7 +63,6 @@ export class Hud {
   private commentT = 0;
   private commentPri = 0;
   private lastCalloutAt = 0;
-  private downCount: { f: Fighter; at: number; shown: number }[] = [];
   private lowWarned = [false, false];
   private tenWarned = false;
   private hpPrev = [0, 0];
@@ -60,6 +75,20 @@ export class Hud {
     this.dmgLayer = el('div', 'dmg-layer', '', this.root);
     this.calloutEl = el('div', 'callout', '', this.root);
     this.countEl = el('div', 'count', '', this.root);
+    this.finishEl = el('div', 'finish', '', this.root);
+    this.refEl = el(
+      'div',
+      'refcount',
+      `<div class="rc-ring">${Array.from({ length: 10 }, (_, k) => `<i style="--k:${k}"></i>`).join('')}<b></b></div>
+      <div class="rc-txt"><span class="rc-name"></span><span class="rc-state"></span></div>
+      <div class="rc-kd"><span>Knockdowns</span><em></em><em></em><em></em></div>`,
+      this.root,
+    );
+    this.refNum = this.refEl.querySelector('b')!;
+    this.refTicks = [...this.refEl.querySelectorAll<HTMLElement>('.rc-ring i')];
+    this.refName = this.refEl.querySelector('.rc-name')!;
+    this.refState = this.refEl.querySelector('.rc-state')!;
+    this.refKd = [...this.refEl.querySelectorAll<HTMLElement>('.rc-kd em')];
     this.commentary = el('div', 'commentary', '', this.root);
   }
 
@@ -68,7 +97,13 @@ export class Hud {
     this.detach();
     this.match = match;
     this.lastCount = -1;
-    this.downCount = [];
+    this.ref = null;
+    this.refEl.className = 'refcount';
+    this.kdSeen = [0, 0];
+    this.finishing = false;
+    this.finishEl.className = 'finish';
+    this.finishEl.innerHTML = '';
+    this.root.classList.remove('finished');
     this.lowWarned = [false, false];
     this.tenWarned = false;
     this.commentPri = 0;
@@ -95,13 +130,14 @@ export class Hud {
     this.root.querySelector('.hud-br')?.remove();
     const top = el('div', 'hud-top', '', this.root);
     this.bars = [];
+    this.kdEls = [];
     const mk = (i: number) => {
       const f = m.fighters[i];
       const spec = m.specs[i];
       const right = i === 1;
       const root = el('div', `fbar ${right ? 'right' : 'p1'}`);
       const nm = el('div', 'nm', right ? `<small>PWR ${f.build.rating}</small>${esc(spec.name)}` : `${esc(spec.name)}<small>PWR ${f.build.rating}</small>`, root);
-      void nm;
+      this.kdEls.push(el('span', 'kd', '<i></i><i></i><i></i>', nm));
       const hp = el('div', 'hp', '', root);
       const lag = el('i', 'lag', '', hp);
       const fill = el('i', 'fill', '', hp);
@@ -231,19 +267,12 @@ export class Hud {
       }
     }
 
-    // referee count over a downed fighter
-    for (const d of this.downCount) {
-      if (d.f.state !== 'down' && d.f.state !== 'getup') {
-        d.shown = 99;
-        continue;
-      }
-      const n = Math.floor(m.time - d.at);
-      if (n > d.shown && n >= 1 && d.f.state === 'down') {
-        d.shown = n;
-        this.callout(String(n), 'small', 450);
-      }
+    this.updateCount(m);
+    if (this.finishing && m.phase === 'end') {
+      this.finishing = false;
+      this.finishEl.classList.add('out');
+      this.root.classList.remove('finished');
     }
-    this.downCount = this.downCount.filter((d) => d.shown < 99);
 
     this.commentT -= dt;
     if (this.commentT <= 0 && this.commentary.classList.contains('on')) {
@@ -289,9 +318,20 @@ export class Hud {
       }
       case 'knockdown': {
         const h = data as HitInfo;
+        const d = h.defender;
+        // the finishing blow also reports a knockdown, after 'ko': the finisher already covers it
+        if (m.phase !== 'fight' || d.state === 'ko') break;
+        if (d.knockdowns <= this.kdSeen[d.index]) {
+          // a leg sweep puts them down but doesn't count toward the TKO
+          this.callout('SWEPT!', 'small cyan', 900);
+          this.comment(this.pick([`${h.attacker.name} sweeps the legs!`, `${d.name} gets tripped up!`]), 2);
+          break;
+        }
+        this.kdSeen[d.index] = d.knockdowns;
+        this.markKnockdowns(d);
         this.callout('KNOCKDOWN!', 'red');
-        this.comment(this.pick([`Down goes ${h.defender.name}!`, `${h.attacker.name} drops them with a ${h.move.name.toLowerCase()}!`, `${h.defender.name} hits the canvas!`]), 3);
-        this.downCount.push({ f: h.defender, at: m.time, shown: 0 });
+        this.comment(this.pick([`Down goes ${d.name}!`, `${h.attacker.name} drops them with a ${h.move.name.toLowerCase()}!`, `${d.name} hits the canvas!`]), 3);
+        this.startCount(d, m.time);
         break;
       }
       case 'stagger': {
@@ -331,14 +371,16 @@ export class Hud {
         break;
       }
       case 'ko': {
-        const d = data as { winner: Fighter; loser: Fighter; kind: string };
-        this.downCount = [];
-        this.callout(d.kind === 'TKO' ? 'T.K.O.' : 'K.O.!', 'red', 2400);
+        const d = data as { winner: Fighter; loser: Fighter; kind: 'KO' | 'TKO' };
+        this.endCount();
+        if (d.kind === 'TKO') this.markKnockdowns(d.loser);
+        this.finish(d.kind, d.winner);
         this.comment(d.kind === 'TKO' ? `Three knockdowns. ${d.winner.name} wins by TKO!` : `${d.loser.name} is out cold!`, 5);
         break;
       }
       case 'decision': {
         const d = data as { winner: Fighter | null };
+        this.endCount();
         this.callout('TIME!', '', 1800);
         this.comment(d.winner ? `${d.winner.name} takes it on the cards.` : 'Dead even. It is a draw!', 5);
         break;
@@ -375,6 +417,80 @@ export class Hud {
     void c.offsetWidth;
     c.className = `count go${go ? ' fight' : ''}`;
     c.textContent = text;
+  }
+
+  /** Knockdown pips beside the fighter's name: three of them is a TKO. */
+  private markKnockdowns(f: Fighter) {
+    const kd = this.kdEls[f.index];
+    if (!kd) return;
+    kd.classList.add('on');
+    kd.title = `${f.knockdowns} of 3 knockdowns`;
+    [...kd.children].forEach((p, k) => p.classList.toggle('on', k < f.knockdowns));
+  }
+
+  // ----------------------------------------------------------------- referee count
+  private startCount(f: Fighter, at: number) {
+    this.ref = { f, at, n: 0, upAt: 0 };
+    this.refEl.className = `refcount on ${f.index ? 'p2' : 'p1'}`;
+    this.refName.textContent = f.name;
+    this.refState.textContent = 'is down';
+    this.refNum.textContent = '';
+    for (const t of this.refTicks) t.classList.remove('on');
+    this.refKd.forEach((p, k) => p.classList.toggle('on', k < f.knockdowns));
+    this.refEl.classList.toggle('last', f.knockdowns >= 2);
+  }
+
+  private updateCount(m: Match) {
+    const r = this.ref;
+    if (!r) return;
+    if (r.upAt) {
+      if (m.time - r.upAt > 1) this.endCount();
+      return;
+    }
+    if (r.f.state === 'down') {
+      const t = m.time - r.at;
+      const n = t < 0.35 ? 0 : Math.min(10, 1 + Math.floor(t - 0.35));
+      if (n > r.n) {
+        r.n = n;
+        this.refNum.textContent = String(n);
+        this.restart(this.refNum, 'pop');
+        this.refTicks.forEach((tk, k) => tk.classList.toggle('on', k < n));
+        this.game.sfx?.ui('tap');
+      }
+    } else if (r.f.state === 'getup' || r.f.state === 'fight' || r.f.state === 'ready') {
+      r.upAt = m.time;
+      this.refEl.classList.add('up');
+      this.refNum.textContent = 'UP';
+      this.restart(this.refNum, 'pop');
+      this.refState.textContent = 'beats the count';
+    } else this.endCount();
+  }
+
+  private endCount() {
+    this.ref = null;
+    this.refEl.classList.remove('on');
+  }
+
+  private restart(e: HTMLElement, cls: string) {
+    e.classList.remove(cls);
+    void e.offsetWidth;
+    e.classList.add(cls);
+  }
+
+  // ----------------------------------------------------------------- finisher
+  /** The big end-of-fight word: K.O. slams in with a flash; T.K.O. is a quieter sweep. */
+  private finish(kind: 'KO' | 'TKO', winner: Fighter) {
+    const ko = kind === 'KO';
+    this.calloutEl.className = 'callout';
+    const word = FINISH_WORD[kind].map((p, i) => `<span data-t="${p}" style="--i:${i}">${p}</span>`).join('');
+    const sub = ko ? `${esc(winner.name)} wins by knockout` : `Technical knockout · ${esc(winner.name)} wins`;
+    const fx = ko ? '<div class="fx-flash"></div><div class="fx-ring"></div><div class="fx-ring two"></div>' : '';
+    this.finishEl.className = 'finish';
+    this.finishEl.innerHTML = `<div class="fx-vig"></div>${fx}<div class="fx-band"></div><div class="fx-c"><div class="fx-word">${word}</div><div class="fx-sub">${sub}</div></div>`;
+    void this.finishEl.offsetWidth;
+    this.finishEl.className = `finish go ${ko ? 'ko' : 'tko'} ${winner.index ? 'p2' : 'p1'}`;
+    this.root.classList.add('finished');
+    this.finishing = true;
   }
 
   /** Little banner under the fighter's bar naming the ability being thrown. */

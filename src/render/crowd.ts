@@ -10,7 +10,8 @@ import { RenderSettings } from './settings';
  */
 
 const COLS = 16;
-const POSES = 5;
+/** Poses (rows): idle, hands apart, clap, fist pump, arms up, hands on head, booing. */
+const POSES = 7;
 const EMPTY = COLS - 1;
 /** Sprite size in metres; feet at the bottom edge. */
 const SPR_W = 0.9;
@@ -292,10 +293,22 @@ function paintAtlas(cw: number, ch: number): THREE.DataTexture {
                 ]
               : pose === 3
                 ? [idle(-1), { e: [sw + 0.1, 1.62], h: [sw + 0.06, 1.93], fist: true }]
-                : [
-                    { e: [-(sw + 0.11), 1.64], h: [-(sw + 0.14), 1.94] },
-                    { e: [sw + 0.11, 1.64], h: [sw + 0.14, 1.94] },
-                  ];
+                : pose === 4
+                  ? [
+                      { e: [-(sw + 0.11), 1.64], h: [-(sw + 0.14), 1.94] },
+                      { e: [sw + 0.11, 1.64], h: [sw + 0.14, 1.94] },
+                    ]
+                  : pose === 5
+                    ? [
+                        // can't believe it: hands on the head
+                        { e: [-(sw + 0.13), 1.6], h: [-0.085, 1.73] },
+                        { e: [sw + 0.13, 1.6], h: [0.085, 1.73] },
+                      ]
+                    : [
+                        // booing through cupped hands
+                        { e: [-(sw + 0.07), 1.3], h: [-0.05, 1.55] },
+                        { e: [sw + 0.07, 1.3], h: [0.05, 1.55] },
+                      ];
       const holdsSign = pose === 4 && !!v.sign;
       if (holdsSign) {
         arms[0] = { e: [-(sw + 0.08), 1.62], h: [-0.27, 1.86] };
@@ -367,6 +380,8 @@ const vert = /* glsl */ `
   attribute vec4 iShirt;  // rgb, skin index
   attribute vec4 iHair;   // rgb, pants index
   uniform float uTime, uHype, uWave, uWaveA;
+  uniform float uExcite, uBoo;
+  uniform vec2 uJoy, uDismay;
   uniform vec4 uSpots[3];
   uniform vec3 uSkin[7];
   uniform vec3 uPants[6];
@@ -388,22 +403,40 @@ const vert = /* glsl */ `
     float da = abs(mod(ang - uWaveA + PI, 2.0 * PI) - PI);
     float wave = uWave * smoothstep(0.55, 0.0, da);
 
-    float e = uHype * (0.55 + 0.9 * exc) + wave;
-    float rate = 0.6 + exc * 0.9;
+    // each fan backs the robot from their side of the arena (a few sit with the other lot)
+    float sup = step(0.0, iPos.x + (h1(seed * 5.3) - 0.5) * 30.0);
+    float joy = mix(uJoy.x, uJoy.y, sup);
+    float dismay = mix(uDismay.x, uDismay.y, sup);
+    // how easily this fan reacts: small events move only the keenest
+    float react = clamp(joy - fract(seed * 13.37) * 0.9, 0.0, 1.0);
+    float upset = clamp(dismay - fract(seed * 29.11) * 0.9, 0.0, 1.0);
+    float e = uExcite * (0.6 + 0.8 * exc);
+
+    // on their feet once the fight gets to them (keen fans first), otherwise sat down
+    float standT = mix(0.78, 0.32, exc);
+    float stand = smoothstep(standT - 0.1, standT + 0.1, e + react * 1.5 + upset * 0.8 + wave);
+
+    float rate = 0.5 + exc * 0.7;
     float slot = floor(uTime * rate + seed * 13.0);
     float r = h1(slot * 1.37 + seed * 91.7);
     float clap = 1.0 + step(0.5, fract(uTime * (3.2 + exc) + seed * 5.0));
     float pose;
-    if (e < 0.35) pose = r < 0.8 ? 0.0 : r < 0.93 ? clap : 3.0;
-    else if (e < 0.85) pose = r < 0.2 ? 0.0 : r < 0.62 ? clap : r < 0.85 ? 3.0 : 4.0;
-    else pose = r < 0.12 ? clap : r < 0.45 ? 3.0 : 4.0;
+    if (upset > 0.04 && upset >= react) pose = 5.0;
+    else if (react > 0.04) pose = r < 0.6 ? 4.0 : 3.0;
+    else if (uBoo > fract(seed * 3.71) * 2.2) pose = 6.0;
+    else if (e < 0.25) pose = r < 0.88 ? 0.0 : clap;
+    else if (e < 0.55) pose = r < 0.45 ? 0.0 : r < 0.85 ? clap : 3.0;
+    else if (e < 0.85) pose = r < 0.15 ? 0.0 : r < 0.55 ? clap : r < 0.8 ? 3.0 : 4.0;
+    else pose = r < 0.1 ? clap : r < 0.45 ? 3.0 : 4.0;
+    if (stand < 0.5 && pose == 4.0) pose = clap;
     if (wave > 0.45) pose = 4.0;
 
     float t = uTime * (5.0 + exc * 3.0) + seed * 20.0;
-    float lift = max(0.0, sin(t)) * 0.13 * clamp(e - 0.75, 0.0, 1.0);
+    float hop = max(0.0, sin(t)) * (0.16 * react + 0.12 * clamp(e - 0.8, 0.0, 1.0));
+    float lift = -0.46 * (1.0 - stand) + hop * stand;
     lift += pose == 3.0 ? max(0.0, sin(t * 1.3)) * 0.03 : 0.0;
     lift += wave * 0.28;
-    float sway = sin(uTime * (0.9 + exc) + seed * 30.0) * (0.02 + 0.03 * min(e, 1.0));
+    float sway = sin(uTime * (0.9 + exc) + seed * 30.0) * (0.012 + 0.03 * min(e + react, 1.0));
     if (empty) { pose = 0.0; lift = 0.0; sway = 0.0; }
 
     // cylindrical billboard
@@ -478,6 +511,15 @@ export class Crowd {
   private waveA = 0;
   private waveOn = false;
   private calm = 0;
+  // what the fans feel: the arena's excitement, each side's joy and dismay, boos in a lull
+  private excite = 0.15;
+  private joy = [0, 0];
+  private dismay = [0, 0];
+  private hold = [0, 0];
+  private boo = 0;
+  private sinceLanded = 0;
+  private combo = { who: -1, n: 0, t: -9 };
+  private t = 0;
   readonly count: number;
 
   constructor(seats: Seat[], quality: 'low' | 'med' | 'high', uniforms: { uTime: { value: number }; uHype: { value: number } }) {
@@ -544,6 +586,10 @@ export class Crowd {
           uAtlas: { value: null },
           uWave: { value: 0 },
           uWaveA: { value: 0 },
+          uExcite: { value: 0.15 },
+          uBoo: { value: 0 },
+          uJoy: { value: new THREE.Vector2() },
+          uDismay: { value: new THREE.Vector2() },
           uSpots: { value: null },
           uSkin: { value: SKIN.map((h) => new THREE.Color(h)) },
           uPants: { value: PANTS.map((h) => new THREE.Color(h)) },
@@ -577,9 +623,83 @@ export class Crowd {
     this.lightsMat.uniforms.uScale.value = h;
   }
 
-  update(dt: number, hype: number) {
-    // a lull gets a Mexican wave going now and then
-    this.calm = hype < 0.5 ? this.calm + dt : 0;
+  /** Match events: big shots, combos and knockdowns lift one side and floor the other. */
+  event(type: string, data?: unknown) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const d = data as any;
+    const lift = (side: number, joy: number, dismay: number, hold = 0) => {
+      if (side < 0 || side > 1) return;
+      this.joy[side] = Math.min(1.6, Math.max(this.joy[side], 0) + joy);
+      this.dismay[1 - side] = Math.min(1.6, this.dismay[1 - side] + dismay);
+      this.hold[side] = Math.max(this.hold[side], hold);
+      this.hold[1 - side] = Math.max(this.hold[1 - side], hold);
+    };
+    switch (type) {
+      case 'fightStart':
+        this.joy[0] += 0.5;
+        this.joy[1] += 0.5;
+        break;
+      case 'hit': {
+        if (d.shielded) break;
+        const a = d.attacker.index as number;
+        if (d.blocked) {
+          if (d.guardBreak) lift(a, 0.35, 0.15);
+          break;
+        }
+        this.sinceLanded = 0;
+        const k = Math.min(1, d.damage / 100);
+        if (this.t - this.combo.t < 1.6 && this.combo.who === a) this.combo.n++;
+        else this.combo = { who: a, n: 1, t: this.t };
+        this.combo.t = this.t;
+        if (k > 0.3 || d.crit || d.counter) lift(a, 0.2 + 0.8 * k, 0.15 + 0.75 * k);
+        if (this.combo.n >= 3) lift(a, 0.3, 0.2);
+        break;
+      }
+      case 'knockdown':
+        lift(d.attacker.index, 1.3, 1.2, 1.2);
+        break;
+      case 'stagger':
+        lift(d.attacker?.index ?? -1, 0.4, 0.4);
+        break;
+      case 'getUp':
+        // relief from the fallen robot's fans
+        if (d?.f) {
+          this.joy[d.f.index] = Math.max(this.joy[d.f.index], 0.9);
+          this.dismay[d.f.index] = 0;
+        }
+        break;
+      case 'ko':
+        lift(d.winner.index, 1.6, 1.3, 4);
+        break;
+      case 'decision':
+        if (d?.winner) lift(d.winner.index, 1.2, 0.7, 2.5);
+        break;
+    }
+  }
+
+  /**
+   * `excite` is the arena's excitement (the same mood that drives the crowd you hear);
+   * `fighting` is true while the bell is live.
+   */
+  update(dt: number, excite: number, fighting: boolean) {
+    this.t += dt;
+    // fans take a moment to get up, longer to settle back down
+    const k = excite > this.excite ? 1 - Math.exp(-dt / 0.35) : 1 - Math.exp(-dt / 1.2);
+    this.excite += (excite - this.excite) * k;
+    for (let i = 0; i < 2; i++) {
+      if (this.hold[i] > 0) this.hold[i] -= dt;
+      else {
+        this.joy[i] *= Math.exp(-dt / 1.3);
+        this.dismay[i] *= Math.exp(-dt / 1.6);
+      }
+    }
+    // nothing landing for a while: boos
+    this.sinceLanded = fighting ? this.sinceLanded + dt : 0;
+    const booWant = this.sinceLanded > 7 ? 1 : 0;
+    this.boo += (booWant - this.boo) * (1 - Math.exp(-dt / (booWant ? 1.5 : 0.4)));
+
+    // a calm spell gets a Mexican wave going now and then
+    this.calm = this.excite < 0.3 && this.boo < 0.3 ? this.calm + dt : 0;
     if (!this.waveOn && this.calm > 8 && Math.random() < dt / 12) {
       this.waveOn = true;
       this.waveA = Math.random() * Math.PI * 2;
@@ -588,10 +708,15 @@ export class Crowd {
     if (this.waveOn) {
       this.waveA += dt * 1.15;
       this.wave = Math.min(1, this.wave + dt * 0.8);
-      if (hype > 0.9 || Math.random() < dt / 9) this.waveOn = false;
+      if (this.excite > 0.6 || Math.random() < dt / 9) this.waveOn = false;
     } else this.wave = Math.max(0, this.wave - dt * 0.7);
-    this.mat.uniforms.uWave.value = this.wave;
-    this.mat.uniforms.uWaveA.value = this.waveA;
+    const u = this.mat.uniforms;
+    u.uWave.value = this.wave;
+    u.uWaveA.value = this.waveA;
+    u.uExcite.value = this.excite;
+    u.uBoo.value = this.boo;
+    u.uJoy.value.set(this.joy[0], this.joy[1]);
+    u.uDismay.value.set(this.dismay[0], this.dismay[1]);
   }
 }
 
