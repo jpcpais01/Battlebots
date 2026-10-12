@@ -229,6 +229,7 @@ export class Arena {
     const ropes = new THREE.Mesh(mergeGeometries(ropeGeos)!, this.ropeMat);
     // bowing ropes reach past the merged bounds; they ring the camera's subject anyway
     ropes.frustumCulled = false;
+    ropes.name = 'ropes';
     g.add(ropes);
 
     // overhead rig: truss ring + beams
@@ -264,6 +265,7 @@ export class Arena {
         beam.lookAt(bottom);
         beam.rotateX(-Math.PI / 2);
         beam.scale.y = top.distanceTo(bottom) / 9;
+        beam.name = 'beams';
         this.beams.push(beam);
         g.add(beam);
       }
