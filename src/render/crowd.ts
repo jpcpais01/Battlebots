@@ -10,7 +10,7 @@ import { house, HOUSE_GLSL } from './house';
  * fist pump, arms up) swap per fan with the excitement, and fans bounce, sway and do the wave.
  */
 
-const COLS = 29;
+const COLS = 34;
 /** Poses (rows): idle, hands apart, clap, fist pump, arms up, hands on head, booing. */
 const POSES = 7;
 const EMPTY = COLS - 1;
@@ -25,8 +25,11 @@ type Hair = 'short' | 'buzz' | 'long' | 'bun' | 'curly' | 'bald' | 'cap' | 'bean
 type Print = 'circle' | 'bolt' | 'bot' | 'band' | 'word';
 /** People working the arena floor rather than watching from a seat. */
 export type Role = 'crew' | 'photo' | 'camera' | 'security' | 'official';
+/** Robot fans: head and body styles. */
+type Bot = 'tv' | 'dome' | 'boxy' | 'cyclops' | 'droid';
 interface Variant {
   role?: Role;
+  bot?: Bot;
   build: 0 | 1 | 2;
   hair: Hair;
   top: Top;
@@ -63,6 +66,12 @@ const VARIANTS: Variant[] = [
   { build: 2, hair: 'bald', top: 'polo', idle: 'pockets', glasses: true, beard: true },
   { build: 0, hair: 'pony', top: 'tee', idle: 'down', shorts: true, print: 'bot' },
   { build: 1, hair: 'short', top: 'tee', idle: 'down', prop: 'scarf', shorts: true, print: 'bolt' },
+  // robot fans, seated in little groups among the people
+  { bot: 'tv', build: 1, hair: 'bald', top: 'tee', idle: 'down' },
+  { bot: 'dome', build: 2, hair: 'bald', top: 'tee', idle: 'cross' },
+  { bot: 'boxy', build: 2, hair: 'bald', top: 'tee', idle: 'down' },
+  { bot: 'cyclops', build: 0, hair: 'bald', top: 'tee', idle: 'down' },
+  { bot: 'droid', build: 1, hair: 'bald', top: 'tee', idle: 'down' },
   // the floor crew: robot pit crews, photographers, camera operators, security and officials
   { role: 'crew', build: 1, hair: 'cap', top: 'tee', idle: 'down', print: 'word' },
   { role: 'photo', build: 1, hair: 'short', top: 'jacket', idle: 'down' },
@@ -77,7 +86,7 @@ export const ROLE_COL = Object.fromEntries(
 /** Columns from here up to the empty seat hold staff who stay at their post and never cheer. */
 const CALM0 = ROLE_COL.camera;
 /** Sign holders, scarf twirlers and foam fingers are rarer than everyone else. */
-const WEIGHTS: number[] = VARIANTS.map((v) => (v.role ? 0 : v.sign ? 0.3 : v.prop === 'finger' ? 0.4 : v.prop === 'scarf' ? 0.6 : 1));
+const WEIGHTS: number[] = VARIANTS.map((v) => (v.role || v.bot ? 0 : v.sign ? 0.3 : v.prop === 'finger' ? 0.4 : v.prop === 'scarf' ? 0.6 : 1));
 const WEIGHT_SUM = WEIGHTS.reduce((a, b) => a + b, 0);
 function pickVariant(r: number) {
   let x = r * WEIGHT_SUM;
@@ -91,6 +100,9 @@ function pickVariant(r: number) {
 const WRITTEN = VARIANTS.map((v) => !!v.sign || !!v.prop || v.top === 'jersey' || v.print === 'word' || v.role === 'security');
 /** Variants whose "hair" is headwear, dressed in a team colour instead of a hair colour. */
 const HAT = VARIANTS.map((v) => v.hair === 'cap' || v.hair === 'beanie');
+/** Sheet columns of the robot fans. */
+const BOT0 = VARIANTS.findIndex((v) => v.bot);
+const BOT1 = BOT0 + VARIANTS.filter((v) => v.bot).length;
 
 const SHOULDER = [0.19, 0.215, 0.245];
 const WAIST = [0.15, 0.17, 0.2];
@@ -102,6 +114,173 @@ type Mat = 'shirt' | 'skin' | 'other' | 'accent';
 const ID: Record<Mat, string> = { shirt: '#ff0000', skin: '#00ff00', other: '#000000', accent: '#ffff00' };
 
 type Path = (g: CanvasRenderingContext2D) => void;
+
+/** Drawing helpers paintAtlas hands to paintBot, bound to the current cell. */
+interface Pen {
+  fill: (path: Path, mat: Mat, shade: string | CanvasGradient) => void;
+  line: (pts: [number, number][], w: number, mat: Mat, shade: string, cap?: CanvasLineCap) => void;
+  detail: (clip: Path, draw: () => void) => void;
+  blob: (x: number, y: number, rx: number, ry: number, style: string) => void;
+  stroke: (pts: [number, number][], w: number, style: string) => void;
+  hgrad: (x0: number, x1: number, lo?: number, hi?: number) => CanvasGradient;
+  limb: (pts: [number, number][], w: number, mat: Mat, base?: number) => void;
+  ellipse: (x: number, y: number, rx: number, ry: number, a0?: number, a1?: number) => Path;
+  rrect: (x0: number, y0: number, x1: number, y1: number, r: number) => Path;
+  gray: (v: number) => string;
+}
+
+/**
+ * A robot fan in one pose. Paint is the shirt mask, metal the accent mask, joints and legs
+ * "other" (dark), and its LEDs (eyes, mouth, chest lights) use the skin mask, which the shader
+ * turns into a soft glow in the robot's own LED colour.
+ */
+function paintBot(bot: Bot, pose: number, b: { sw: number; hw: number; hp: number; aw: number }, p: Pen) {
+  const { fill, line, detail, blob, stroke, hgrad, limb, ellipse, rrect, gray } = p;
+  const { sw, hp, aw } = b;
+  const cheer = pose === 3 || pose === 4;
+  const shout = cheer || pose === 5 || pose === 6;
+  // legs: segmented, with knee joints and flat feet
+  for (const side of [-1, 1]) {
+    const x0 = side < 0 ? -hp + 0.01 : 0.03, x1 = side < 0 ? -0.03 : hp - 0.01;
+    fill(rrect(x0 - 0.02, 0, x1 + 0.03 * side, 0.08, 0.02), 'accent', gray(0.45));
+    fill(rrect(x0 + 0.015, 0.07, x1 - 0.015, 0.5, 0.03), 'other', hgrad(x0, x1, 0.4, 0.8));
+    fill(rrect(x0, 0.52, x1, 0.92, 0.04), 'other', hgrad(x0, x1, 0.45, 0.85));
+    fill(ellipse((x0 + x1) / 2, 0.51, 0.055, 0.045), 'accent', gray(0.6));
+    blob((x0 + x1) / 2 - 0.015, 0.52, 0.018, 0.012, 'rgba(255,255,255,0.5)');
+  }
+  fill(rrect(-hp - 0.01, 0.84, hp + 0.01, 0.98, 0.03), 'accent', hgrad(-hp, hp, 0.35, 0.6));
+  // torso
+  const round = bot === 'dome' || bot === 'droid';
+  const body: Path = round ? ellipse(0, 1.2, sw + 0.01, 0.28) : rrect(-sw, 0.95, sw, 1.46, 0.05);
+  fill(body, 'shirt', hgrad(-sw, sw, 0.5, 0.95));
+  detail(body, () => {
+    // panel seams and rivets, light from above
+    stroke([[-sw, 1.3], [sw, 1.3]], 0.008, 'rgba(0,0,0,0.3)');
+    stroke([[0, 0.95], [0, 1.0]], 0.008, 'rgba(0,0,0,0.3)');
+    for (const sx of [-1, 1]) for (const y of [1.0, 1.4]) blob(sx * (sw - 0.04), y, 0.008, 0.008, 'rgba(255,255,255,0.45)');
+    blob(0, 1.42, sw * 0.8, 0.04, 'rgba(255,255,255,0.14)');
+  });
+  // chest panel with status lights
+  if (bot === 'droid') {
+    fill(ellipse(0, 1.24, 0.055, 0.055), 'accent', gray(0.5));
+    fill(ellipse(0, 1.24, 0.035, 0.035), 'skin', gray(1));
+  } else {
+    fill(rrect(-sw * 0.55, 1.06, sw * 0.55, 1.26, 0.02), 'accent', gray(0.32));
+    for (let k = 0; k < 3; k++) fill(ellipse(-sw * 0.3 + k * sw * 0.3, 1.2, 0.017, 0.017), k === 1 && pose % 2 ? 'accent' : 'skin', gray(1));
+    for (let k = 0; k < 4; k++) stroke([[-sw * 0.45, 1.09 + k * 0.022], [sw * 0.1, 1.09 + k * 0.022]], 0.008, 'rgba(255,255,255,0.25)');
+  }
+  // neck
+  fill(rrect(-0.04, 1.44, 0.04, 1.52, 0.01), 'other', gray(0.5));
+  stroke([[-0.04, 1.47], [0.04, 1.47]], 0.006, 'rgba(255,255,255,0.3)');
+
+  // arms (the same poses as the people)
+  type Arm = { e: [number, number]; h: [number, number] };
+  const idle = (side: number): Arm =>
+    bot === 'dome' ? { e: [side * (sw + 0.01), 1.1], h: [-side * 0.11, 1.18] } : { e: [side * (sw + 0.04), 1.12], h: [side * (sw + 0.05), 0.86] };
+  const arms: Arm[] =
+    pose === 0
+      ? [idle(-1), idle(1)]
+      : pose === 1
+        ? [
+            { e: [-(sw + 0.05), 1.12], h: [-0.17, 1.44] },
+            { e: [sw + 0.05, 1.12], h: [0.17, 1.44] },
+          ]
+        : pose === 2
+          ? [
+              { e: [-(sw + 0.03), 1.14], h: [-0.03, 1.42] },
+              { e: [sw + 0.03, 1.14], h: [0.03, 1.42] },
+            ]
+          : pose === 3
+            ? [idle(-1), { e: [sw + 0.1, 1.62], h: [sw + 0.06, 1.93] }]
+            : pose === 4
+              ? [
+                  { e: [-(sw + 0.11), 1.64], h: [-(sw + 0.14), 1.94] },
+                  { e: [sw + 0.11, 1.64], h: [sw + 0.14, 1.94] },
+                ]
+              : pose === 5
+                ? [
+                    { e: [-(sw + 0.13), 1.6], h: [-0.09, 1.75] },
+                    { e: [sw + 0.13, 1.6], h: [0.09, 1.75] },
+                  ]
+                : [
+                    { e: [-(sw + 0.07), 1.3], h: [-0.06, 1.55] },
+                    { e: [sw + 0.07, 1.3], h: [0.06, 1.55] },
+                  ];
+  const drawArms = () => {
+    for (let k = 0; k < 2; k++) {
+      const side = k === 0 ? -1 : 1;
+      const s: [number, number] = [side * (sw - 0.01), 1.38];
+      limb([s, arms[k].e, arms[k].h], aw * 0.85, 'accent', 0.5);
+      fill(ellipse(s[0], s[1], 0.065, 0.06), 'other', gray(0.55));
+      fill(ellipse(arms[k].e[0], arms[k].e[1], 0.04, 0.04), 'other', gray(0.5));
+      // two-fingered claw
+      const [hx, hy] = arms[k].h;
+      fill(ellipse(hx, hy, aw * 0.55, aw * 0.5), 'accent', gray(0.7));
+      line([[hx - aw * 0.3, hy + aw * 0.3], [hx - aw * 0.45, hy + aw * 0.75]], 0.018, 'accent', gray(0.6));
+      line([[hx + aw * 0.3, hy + aw * 0.3], [hx + aw * 0.45, hy + aw * 0.75]], 0.018, 'accent', gray(0.6));
+    }
+  };
+
+  // heads, with LED eyes and a mouth that opens when they cheer
+  const hy = 1.62;
+  switch (bot) {
+    case 'tv': {
+      fill(rrect(-0.15, hy - 0.11, 0.15, hy + 0.12, 0.03), 'shirt', hgrad(-0.15, 0.15, 0.5, 0.92));
+      fill(rrect(-0.12, hy - 0.08, 0.12, hy + 0.09, 0.02), 'accent', gray(0.14));
+      for (const sx of [-1, 1]) fill(rrect(sx * 0.055 - 0.022, hy + 0.01, sx * 0.055 + 0.022, hy + 0.05, 0.008), 'skin', gray(1));
+      if (shout) fill(rrect(-0.04, hy - 0.06, 0.04, hy - 0.02, 0.01), 'skin', gray(1));
+      else fill(rrect(-0.05, hy - 0.04, 0.05, hy - 0.03, 0.004), 'skin', gray(1));
+      line([[0.08, hy + 0.12], [0.12, hy + 0.24]], 0.012, 'accent', gray(0.6));
+      fill(ellipse(0.12, hy + 0.25, 0.018, 0.018), 'other', gray(1));
+      break;
+    }
+    case 'dome': {
+      fill(ellipse(0, hy - 0.02, 0.15, 0.15, Math.PI, Math.PI * 2), 'accent', hgrad(-0.15, 0.15, 0.5, 0.95));
+      fill(rrect(-0.15, hy - 0.1, 0.15, hy - 0.02, 0.02), 'shirt', hgrad(-0.15, 0.15, 0.45, 0.85));
+      // visor slit
+      fill(rrect(-0.12, hy + 0.01, 0.12, hy + 0.05, 0.02), 'accent', gray(0.12));
+      const scan = (pose * 0.037) % 0.16 - 0.08;
+      fill(ellipse(scan, hy + 0.03, 0.035, 0.014), 'skin', gray(1));
+      blob(-0.05, hy + 0.09, 0.05, 0.025, 'rgba(255,255,255,0.35)');
+      if (shout) fill(rrect(-0.05, hy - 0.08, 0.05, hy - 0.05, 0.01), 'skin', gray(0.9));
+      break;
+    }
+    case 'boxy': {
+      fill(rrect(-0.17, hy - 0.12, 0.17, hy + 0.13, 0.015), 'shirt', hgrad(-0.17, 0.17, 0.5, 0.9));
+      for (const sx of [-1, 1]) {
+        fill(ellipse(sx * 0.075, hy + 0.03, 0.05, 0.05), 'accent', gray(0.3));
+        fill(ellipse(sx * 0.075, hy + 0.03, 0.03, 0.03), 'skin', gray(1));
+      }
+      fill(rrect(-0.08, hy - 0.1, 0.08, hy - 0.04, 0.01), 'accent', gray(0.35));
+      detail(rrect(-0.08, hy - 0.1, 0.08, hy - 0.04, 0.01), () => {
+        for (let k = 0; k < 5; k++) stroke([[-0.06 + k * 0.03, hy - 0.095], [-0.06 + k * 0.03, hy - 0.045]], 0.008, 'rgba(0,0,0,0.6)');
+      });
+      if (shout) fill(rrect(-0.06, hy - 0.09, 0.06, hy - 0.05, 0.005), 'skin', gray(0.9));
+      for (const sx of [-1, 1]) fill(rrect(sx * 0.17, hy - 0.04, sx * 0.17 + sx * 0.035, hy + 0.06, 0.01), 'other', gray(0.5));
+      break;
+    }
+    case 'cyclops': {
+      fill(ellipse(0, hy, 0.13, 0.14), 'shirt', hgrad(-0.13, 0.13, 0.5, 0.95));
+      fill(ellipse(0, hy + 0.02, 0.065, 0.065), 'accent', gray(0.18));
+      fill(ellipse(0, hy + 0.02, cheer ? 0.048 : 0.04, cheer ? 0.048 : 0.04), 'skin', gray(1));
+      blob(-0.015, hy + 0.035, 0.012, 0.01, 'rgba(255,255,255,0.7)');
+      if (shout) fill(ellipse(0, hy - 0.08, 0.03, 0.018), 'skin', gray(0.9));
+      for (const sx of [-1, 1]) line([[sx * 0.07, hy + 0.11], [sx * 0.11, hy + 0.2]], 0.01, 'accent', gray(0.6));
+      break;
+    }
+    case 'droid': {
+      const head = ellipse(0, hy, 0.1, 0.125);
+      fill(head, 'shirt', hgrad(-0.1, 0.1, 0.55, 1));
+      detail(head, () => stroke([[-0.1, hy - 0.02], [0.1, hy - 0.02]], 0.006, 'rgba(0,0,0,0.3)'));
+      fill(rrect(-0.08, hy + 0.0, 0.08, hy + 0.05, 0.02), 'accent', gray(0.12));
+      for (const sx of [-1, 1]) fill(rrect(sx * 0.04 - 0.02, hy + 0.017, sx * 0.04 + 0.02, hy + 0.033, 0.006), 'skin', gray(1));
+      if (shout) fill(ellipse(0, hy - 0.06, 0.02, 0.016), 'skin', gray(0.85));
+      for (const sx of [-1, 1]) fill(ellipse(sx * 0.1, hy, 0.022, 0.04), 'accent', gray(0.5));
+      break;
+    }
+  }
+  drawArms();
+}
 
 /**
  * Paints the sprite sheet: shading in red, shirt mask in green, skin mask in blue, coverage in alpha.
@@ -248,6 +427,11 @@ function paintAtlas(cw: number, ch: number): THREE.DataTexture {
 
       const v = VARIANTS[col];
       const sw = SHOULDER[v.build], hw = WAIST[v.build], hp = HIP[v.build], aw = ARM[v.build];
+      if (v.bot) {
+        paintBot(v.bot, pose, { sw, hw, hp, aw }, { fill, line, detail, blob, stroke, hgrad, limb, ellipse, rrect, gray });
+        done();
+        continue;
+      }
       const headY = 1.6, hrx = 0.096 + v.build * 0.004, hry = 0.12;
       const cheer = pose === 3 || pose === 4;
       const hairShade = hgrad(-hrx - 0.02, hrx + 0.02, 0.42, 0.8);
@@ -830,6 +1014,9 @@ const ACCENT = ['#f2f2f2', '#f2f2f2', '#16181d', '#c9a227', '#b3202a', '#8a8f9a'
 const JACKET = ['#1b1e26', '#2d4a6e', '#4a5232', '#8a6a44', '#3a2228', '#5a5e66'];
 const BOARD = ['#f4f4f0', '#f4f4f0', '#ffe066', '#ffd0a0', '#c8f4ff'];
 const SEATS = ['#40151a', '#16233e'];
+const BOT_PAINT = ['#e8e8ec', '#3a3f4a', '#d8c24a', '#c0392b', '#2f8f5a', '#8a8f98', '#5a4fcf', '#e07a2a'];
+const BOT_METAL = ['#8a8f98', '#5a5e66', '#c8ccd4', '#2a2d33', '#9a7a4a'];
+const BOT_LED = ['#40e8ff', '#ff3b30', '#4dff7a', '#ffb020', '#ff4de1', '#e8f4ff'];
 
 const vert = /* glsl */ `
   #include <common>
@@ -947,7 +1134,9 @@ const vert = /* glsl */ `
     // colours arrive already lit
     vShirt = iShirt.rgb * L;
     vHair = iHair.rgb * L;
-    vSkin = uSkin[int(iShirt.a * 255.0 + 0.5)] * L;
+    // robots have no skin: that mask is their LEDs, glowing softly in the robot's own colour (kept in iHair)
+    bool bot = iData.y > ${(BOT0 - 0.5).toFixed(1)} && iData.y < ${(BOT1 - 0.5).toFixed(1)};
+    vSkin = bot ? iHair.rgb * (0.45 + 1.2 * L) : uSkin[int(iShirt.a * 255.0 + 0.5)] * L;
     vPants = uPants[int(iHair.a * 255.0 + 0.5)] * L;
     vAccent = iAccent * L;
 
@@ -1012,7 +1201,7 @@ export class Crowd {
     uniforms: { uTime: { value: number }; uHype: { value: number }; uFlash: { value: number } },
   ) {
     const k = quality === 'high' ? 1 : quality === 'med' ? 0.8 : 0.6;
-    const atlas = paintAtlas(Math.round(88 * k), Math.round(204 * k));
+    const atlas = paintAtlas(Math.round(84 * k), Math.round(196 * k));
     const occupancy = quality === 'low' ? 0.82 : 0.9;
     const rnd = mulberry(1234);
 
@@ -1025,9 +1214,29 @@ export class Crowd {
     const lightPos: number[] = [];
     const lightCol: number[] = [];
     const col = new THREE.Color();
+    // about one fan in ten is a robot, sat with its friends: little clusters scattered round the bowl
+    const bots = new Uint8Array(n);
+    {
+      const crng = mulberry(4242);
+      const fans: number[] = [];
+      for (let i = 0; i < n; i++) if (!seats[i].role) fans.push(i);
+      let left = Math.round(fans.length * 0.1);
+      while (left > 0) {
+        const c = seats[fans[Math.floor(crng() * fans.length)]];
+        const r = 0.7 + crng() * 1.4;
+        for (const j of fans) {
+          const q = seats[j];
+          if (bots[j] || Math.abs(q.y - c.y) > 1.2) continue;
+          if (Math.hypot(q.x - c.x, q.y - c.y, q.z - c.z) < r && crng() < 0.8) {
+            bots[j] = 1;
+            if (--left <= 0) break;
+          }
+        }
+      }
+    }
     for (let i = 0; i < n; i++) {
       const s = seats[i];
-      const empty = rnd() > occupancy;
+      const empty = rnd() > occupancy && !bots[i];
       const v = pickVariant(rnd());
       pos[i * 3] = s.x + (rnd() - 0.5) * 0.08;
       pos[i * 3 + 1] = s.y;
@@ -1061,6 +1270,19 @@ export class Crowd {
               ? lin(pick(JACKET))
               : lin(rnd() < 0.3 ? pick(team) : pick(ACCENT), 0.8 + rnd() * 0.2);
       accent.set([ac[0] * 255, ac[1] * 255, ac[2] * 255], i * 3);
+      if (bots[i]) {
+        // a robot fan: painted body (often in its side's colours), metal trim, LEDs in its own colour
+        const c = BOT0 + Math.floor(rnd() * (BOT1 - BOT0));
+        data[i * 4 + 1] = c;
+        data[i * 4 + 3] = rnd() < 0.5 ? 1 : 0;
+        const paint = lin(rnd() < 0.5 ? pick(team) : pick(BOT_PAINT), 0.8 + rnd() * 0.2);
+        const metal = lin(pick(BOT_METAL));
+        const led = lin(pick(BOT_LED));
+        shirt.set([paint[0] * 255, paint[1] * 255, paint[2] * 255, 0], i * 4);
+        accent.set([metal[0] * 255, metal[1] * 255, metal[2] * 255], i * 3);
+        hair.set([led[0] * 255, led[1] * 255, led[2] * 255, Math.floor(rnd() * PANTS.length)], i * 4);
+        continue;
+      }
       if (s.role) {
         // floor staff: dressed for the job, on their feet, some on patrol
         const c = ROLE_COL[s.role];
