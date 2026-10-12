@@ -153,6 +153,8 @@ export class Brain {
   private pain = 0;
   private oppStill = 0;
   private headTimer = 1;
+  /** How long we've both stood in range without anyone throwing. */
+  private standoff = 0;
   private tauntAt = 0;
 
   // footwork: steps and plants instead of a constant glide
@@ -498,12 +500,16 @@ export class Brain {
       else if (this.plan === 'pressure' || this.plan === 'swarm') rate *= 1.5;
       if (this.time < this.stayUntil) rate *= 1.6;
       if (this.time < this.coverUntil) rate *= 0.3;
-      if (this.time < this.calmUntil) rate *= 0.25;
+      // in range the breather is short: standing in front of someone is not resting
+      const inRange = d < this.myPunchRange() + 0.15;
+      if (this.time < this.calmUntil) rate *= inRange ? 0.7 : 0.25;
       // late in the fight the clock pushes everyone, the one behind most of all
       const late = smoothstep(55, 85, this.time);
       rate *= 1 + late * (1.2 + Math.max(0, this.opp.hpRatio - me.hpRatio) * 3);
       // openings: a planted target, low hands, a tired or trapped opponent
       if (d < this.myPunchRange() + 0.3) {
+        // fresh legs and arms, right in front of them: that is the time to throw
+        if (inRange) rate += (0.12 + me.staminaRatio * 0.35) * (1 - this.fear * 0.6);
         if (this.oppStill > 0.35) rate += 0.08;
         rate += Math.max(0, p.guardLower - 0.2) * 0.25;
         if (p.stamina < 0.3) rate += 0.08;
@@ -511,6 +517,14 @@ export class Brain {
       const R = me.body.arenaRadius;
       if (Math.hypot(this.predPos.x, this.predPos.z) > R - 1.2) rate += 0.1;
       this.tempo = clamp01(this.tempo + rate * dt);
+    }
+
+    // a stand-off in range: nobody is throwing. Something has to give.
+    const quiet = !me.strike && p.actKind !== 'strike' && d < this.myPunchRange() + 0.15 && oppUp && me.state === 'fight';
+    this.standoff = quiet ? this.standoff + dt : 0;
+    if (this.standoff > this.rng.range(0.6, 1.2)) {
+      this.standoff = 0;
+      this.breakStandoff();
     }
 
     if (!oppUp || me.action) return;
@@ -533,6 +547,35 @@ export class Brain {
     }
   }
 
+  /** Too long face to face doing nothing: commit, shove them off, or step out. */
+  private breakStandoff() {
+    const me = this.me;
+    const t = this.traits;
+    const agg = this.effAggression();
+    const u = [
+      // commit: let the hands go
+      agg * 1.2 + me.staminaRatio * 0.8 + t.pocketLove * 0.4 - this.fear,
+      // shove: a push kick moves them off and resets the range
+      me.build.kickAbility === 'pushKick' && me.cooldownLeft('pushKick') <= 0 ? 0.5 + t.skill * 0.3 : -5,
+      // step out and reset
+      this.effCaution() * 0.8 + t.footwork * 0.5 + this.tired * 0.8,
+    ];
+    const k = softmaxPick(u, 0.3, this.rng);
+    this.coverUntil = 0;
+    this.calmUntil = 0;
+    if (k === 0) {
+      this.tempo = 1;
+      this.trigger = Math.min(this.trigger, 0.5);
+    } else if (k === 1) {
+      const aim = this.zoneAim('body', this.perceived, new Vector3());
+      if (me.tryStrike('pushKick', 'body', aim)) this.beginBurst(1);
+    } else {
+      this.circleDir = this.chooseCircleDir();
+      this.exitUntil = this.time + this.rng.range(0.5, 0.9);
+      this.exitLat = this.circleDir * this.rng.range(0.3, 1);
+    }
+  }
+
   /** The opponent is coming in: meet them, give ground, turn them, or stand and cover. */
   private onOppEntry() {
     const t = this.traits;
@@ -546,7 +589,7 @@ export class Brain {
       t.skill * 0.5 + agg * 0.4 + (this.plan === 'counter' ? 0.6 : 0) + (me.staminaRatio < 0.25 ? -0.5 : 0),
       t.footwork * 0.8 + cau * 0.4 + Math.max(0, t.rangeBias) * 3 - nearRope * 1.2,
       t.footwork * 0.5 + t.skill * 0.4 + nearRope * 0.5,
-      (1 - t.footwork) * 0.6 + cau * 0.3 + t.pocketLove * 0.4,
+      (1 - t.footwork) * 0.6 + cau * 0.3 + t.pocketLove * 0.4 - me.staminaRatio * 0.4,
     ];
     this.react = kinds[softmaxPick(u, 0.25, this.rng)];
     this.reactCooldown = this.rng.range(1.2, 2.2);
