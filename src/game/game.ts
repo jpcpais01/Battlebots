@@ -571,20 +571,9 @@ export class Game {
   }
 
   // ------------------------------------------------------------- battle damage
-  /** The hit part flares hot; a hit on a battered part knocks bits of plating loose. */
+  /** A hit on a battered part knocks bits of plating loose. */
   private partHit(h: HitInfo) {
     if (h.shielded) return;
-    const md = this.models[h.defender.index];
-    const am = this.models[h.attacker.index];
-    if (!md || !am) return;
-    if (h.blocked) {
-      md.flare(h.part, Math.min(0.5, h.damage / 40));
-      const s = h.attacker.lastAction;
-      if (s) {
-        const side = s.side === 'L' ? 0 : 1;
-        am.flare(s.move.kind === 'punch' ? P.FistL + side * 3 : P.FootL + side * 3, 0.35);
-      }
-    } else md.flare(h.part, Math.min(1, 0.25 + h.damage / 90));
     const wear = 1 - h.partCond;
     if (wear > 0.3 && h.damage >= 8) {
       this.fx.shrapnel(h.point, h.dir, Math.round(3 + wear * 9 + h.damage / 20), 2.5 + wear * 2);
