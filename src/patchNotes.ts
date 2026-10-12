@@ -54,6 +54,7 @@ export const PATCH_NOTES: PatchNote[] = [
       'Clearer knockdown count: a big referee count under the clock that ticks up each second and turns green when the bot beats it.',
       'Knockdown marks next to each bot\'s name show how close they are to a TKO (three knockdowns ends the fight).',
       'New get-up after a knockdown: bots sit up or push up off the canvas, take a knee, plant a foot and rise back into their guard.',
+      'Health bars now wear each bot\'s own paint colours, and flash red when a bot is close to going down.',
     ],
   },
   {
