@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { J } from '../sim/body';
 import type { Fighter } from '../sim/fighter';
 import { ITEM_BY_ID, RARITIES, SLOTS, type Loadout, type Slot } from '../game/items';
-import { PALETTES } from '../game/loadout';
+import { FINISHES, FRAMES, type Paint } from '../game/paint';
 import {
   buildCore,
   buildFist,
@@ -153,24 +153,24 @@ function aim(obj: THREE.Object3D, from: THREE.Vector3, to: THREE.Vector3) {
   return len;
 }
 
-/** The paint and metal finishes of a robot in palette `palette`. */
-export function botSurfaces(palette: number): Surfaces {
-  const pal = PALETTES[palette % PALETTES.length];
+/** The plating, frame metal and trim of a robot wearing `paint`. */
+export function botSurfaces(paint: Paint): Surfaces {
+  const f = FINISHES[paint.finish] ?? FINISHES[0];
+  const fr = FRAMES[paint.frame] ?? FRAMES[0];
   return {
-    paint: surf(pal.primary, 0.25, 0.34),
-    paint2: surf(pal.secondary, 0.35, 0.42),
-    metal: surf(0x4a505a, 0.85, 0.34),
+    paint: surf(paint.primary, f.metal, f.rough),
+    paint2: surf(paint.secondary, f.metal2, f.rough2),
+    metal: surf(fr.metal, fr.m, fr.r),
     chrome: surf(0xd9dee6, 1, 0.14),
-    dark: surf(0x16191f, 0.45, 0.58),
-    joint: surf(0x2b3039, 0.8, 0.38),
+    dark: surf(fr.dark, 0.45, 0.58),
+    joint: surf(fr.joint, Math.min(fr.m, 0.8), fr.r + 0.04),
   };
 }
 
 /** Accent glow, power core and rarity colours, at the brightness the robots use. */
-export function botGlows(palette: number, coreLook: number, rarity: number): Record<GlowKey, THREE.Color> {
-  const pal = PALETTES[palette % PALETTES.length];
+export function botGlows(paint: Paint, coreLook: number, rarity: number): Record<GlowKey, THREE.Color> {
   return {
-    glow: new THREE.Color(pal.accent).multiplyScalar(RenderSettings.glow(3.4)),
+    glow: new THREE.Color(paint.accent).multiplyScalar(RenderSettings.glow(3.4)),
     core: new THREE.Color(CORE_COLORS[coreLook]).multiplyScalar(RenderSettings.glow(3.2)),
     rarity: new THREE.Color(RARITIES[rarity].glow).multiplyScalar(RenderSettings.glow(3)),
   };
@@ -381,7 +381,7 @@ export class BotModel {
   private baseCore: THREE.Color;
   private rocket = [false, false];
   readonly loadout: Loadout;
-  readonly palette: number;
+  readonly paint: Paint;
   /** World-space interpolated joints (valid after update); limbs are slid out of armour. */
   joints: THREE.Vector3[] = Array.from({ length: 16 }, () => new THREE.Vector3());
   private hullPts = { torso: [] as number[], head: [] as number[], pelvis: [] as number[] };
@@ -401,13 +401,12 @@ export class BotModel {
    */
   readonly anchors: (THREE.Vector3 | null)[] = Array.from({ length: 16 }, () => null);
 
-  constructor(loadout: Loadout, palette: number) {
+  constructor(loadout: Loadout, paint: Paint) {
     this.loadout = loadout;
-    this.palette = palette;
-    const pal = PALETTES[palette % PALETTES.length];
+    this.paint = paint;
     const look = (slot: Slot) => ITEM_BY_ID.get(loadout[slot].id)!.look;
     const rar = (slot: Slot) => loadout[slot].rarity;
-    const sb = new SkinBuilder(botSurfaces(palette));
+    const sb = new SkinBuilder(botSurfaces(paint));
 
     const torsoPB = buildTorso(look('chest'), rar('chest'));
     const corePB = buildCore(look('core'), look('chest'), rar('core'));
@@ -473,7 +472,7 @@ export class BotModel {
     const { opaque, emissive } = sb.build();
 
     const coreItem = ITEM_BY_ID.get(loadout.core.id)!;
-    this.baseGlow = new THREE.Color(pal.accent).multiplyScalar(RenderSettings.glow(3.4));
+    this.baseGlow = new THREE.Color(paint.accent).multiplyScalar(RenderSettings.glow(3.4));
     this.baseCore = new THREE.Color(CORE_COLORS[coreItem.look]).multiplyScalar(RenderSettings.glow(3.2));
     this.cols = [this.baseGlow.clone(), this.baseCore.clone()];
     for (const slot of SLOTS) this.cols.push(new THREE.Color(RARITIES[loadout[slot].rarity].glow).multiplyScalar(RenderSettings.glow(3)));

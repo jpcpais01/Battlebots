@@ -7,7 +7,7 @@ import type { BrainEvent } from '../sim/brain';
 import { MOVES, type MoveId } from '../sim/moves';
 import { J } from '../sim/body';
 import { ITEM_BY_ID } from '../game/items';
-import { PALETTES } from '../game/loadout';
+import type { Paint } from '../game/paint';
 import { button, el, esc } from './dom';
 import { ABILITY_ICON, ICON, SLOT_ICON } from './icons';
 import { saveZoom, type Zoom } from './store';
@@ -46,8 +46,7 @@ const luma = (c: number) => (0.2126 * ((c >> 16) & 255) + 0.7152 * ((c >> 8) & 2
  * dark to read on the bar's dark track swapped for the bright trim colour. Returns
  * [leading edge, outer end].
  */
-export function barColors(palette: number): [string, string] {
-  const p = PALETTES[palette % PALETTES.length];
+export function barColors(p: Paint): [string, string] {
   const ok = (c: number) => (luma(c) < 0.3 ? p.accent : c);
   const a = ok(p.primary);
   let b = ok(p.secondary);
@@ -223,7 +222,7 @@ export class Hud {
       const spec = m.specs[i];
       const right = i === 1;
       const root = el('div', `fbar ${right ? 'right' : 'p1'}`);
-      const [ca, cb] = barColors(spec.palette);
+      const [ca, cb] = barColors(spec.paint);
       root.style.setProperty('--c1', ca);
       root.style.setProperty('--c2', cb);
       // the referee count and finisher pick up the same colours

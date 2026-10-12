@@ -1,6 +1,7 @@
 import type { Game } from '../game/game';
 import { ITEM_BY_ID, RARITIES, SLOTS, type FighterBuild } from '../game/items';
-import { PALETTES, type BotSpec } from '../game/loadout';
+import type { BotSpec } from '../game/loadout';
+import { hexColor } from '../game/paint';
 import { MOVES, type MoveId } from '../sim/moves';
 import { esc } from './dom';
 import { ABILITY_ICON, SLOT_ICON } from './icons';
@@ -15,7 +16,7 @@ export interface BotCardOpts {
 }
 
 /** Paint colour of a bot as CSS hex. */
-export const paintOf = (spec: BotSpec) => `#${PALETTES[spec.palette % PALETTES.length].primary.toString(16).padStart(6, '0')}`;
+export const paintOf = (spec: BotSpec) => hexColor(spec.paint.primary);
 
 /**
  * Inner HTML of a bot card: tag and power, name, both moves, and the six fitted parts as real
@@ -30,7 +31,7 @@ export function botCardInner(game: Game, spec: BotSpec, build: FighterBuild, o: 
     const item = ITEM_BY_ID.get(eq.id)!;
     let src = '';
     try {
-      src = game.thumbs.get(item, eq.rarity, spec.palette, spec.loadout);
+      src = game.thumbs.get(item, eq.rarity, spec.paint, spec.loadout);
     } catch {
       // no WebGL thumbnail: fall back to the slot icon
     }

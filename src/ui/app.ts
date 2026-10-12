@@ -23,8 +23,9 @@ import {
 } from '../game/items';
 import { hourLabel, PATCH_NOTES } from '../patchNotes';
 import { EMOTE_INFO, MAX_PICKS, type EmoteInfo, type EmoteKind } from '../sim/emote';
-import { PALETTES, randomBot, randomName, type BotSpec } from '../game/loadout';
-import { button, el, esc, hex } from './dom';
+import { randomBot, randomName, type BotSpec } from '../game/loadout';
+import { contrastingPaint, FINISHES, FRAMES, GLOW_COLORS, PAINT_COLORS, hexColor, samePaint, schemeOf, SCHEMES, type Paint } from '../game/paint';
+import { button, el, esc } from './dom';
 import { Hud } from './hud';
 import { botCardInner, paintOf } from './botCard';
 import { PerfOverlay } from './perfOverlay';
@@ -33,6 +34,20 @@ import { forceUpdate } from '../update';
 import { OnlineScreen } from './online';
 import type { OnlineSession } from '../net/session';
 import { loadPlayer, loadQuality, loadRecord, loadZoom, savePlayer, saveQuality, saveRecord, saveZoom, type Record_, type Zoom } from './store';
+
+type PaintPage = 'schemes' | 'primary' | 'secondary' | 'accent' | 'finish';
+const PAINT_PAGES: [PaintPage, string][] = [
+  ['schemes', 'Schemes'],
+  ['primary', 'Main'],
+  ['secondary', 'Second'],
+  ['accent', 'Glow'],
+  ['finish', 'Finish'],
+];
+const PAINT_HINT: Record<'primary' | 'secondary' | 'accent', string> = {
+  primary: 'Main plating: chest, head, shoulders and shins.',
+  secondary: 'Second plating: the stripes, guards and trim panels.',
+  accent: 'Glow: visor, lights and trim, and the trail of your strikes.',
+};
 
 type ScreenId = 'home' | 'garage' | 'fight' | 'online';
 
@@ -61,13 +76,14 @@ export class App {
   private results: HTMLElement | null = null;
   private rng = new Rng((Math.random() * 2 ** 32) >>> 0);
   private slot: Slot = 'fist';
-  /** The garage's Emotes tab is open (instead of a part slot), and which list it shows. */
-  private emoteTab = false;
+  /** Which garage tab is open: a part slot, Emotes or Paint. */
+  private tab: 'part' | 'emotes' | 'paint' = 'part';
   private emoteKind: EmoteKind = 'win';
+  /** Which page of the Paint tab is showing. */
+  private paintPage: PaintPage = 'schemes';
   private garageEls: {
     name: HTMLElement;
     power: HTMLElement;
-    swatches: HTMLElement;
     stats: HTMLElement;
     rail: HTMLElement;
     title: HTMLElement;
@@ -271,7 +287,6 @@ export class App {
     const id = el('div', 'garage-id', '', top);
     const name = button('name', '', () => this.rename(), id);
     const power = el('div', 'gpower', '', id);
-    const swatches = el('div', 'swatches', '', s);
     const stats = el('div', 'statbox', '', s);
     const view = button('view-btn', '', () => {
       this.tap();
@@ -293,7 +308,7 @@ export class App {
       this.game.garagePulse();
     }, actions);
     button('btn small primary', `${ICON.swords}Fight`, () => this.fight(), actions);
-    this.garageEls = { name, power, swatches, stats, rail, title, rar, items, view };
+    this.garageEls = { name, power, stats, rail, title, rar, items, view };
     return s;
   }
 
@@ -320,7 +335,7 @@ export class App {
 
   /** Camera close-up on one slot's part, or the whole robot (null). */
   private setFocus(slot: Slot | null) {
-    if (this.emoteTab) slot = null;
+    if (this.tab !== 'part') slot = null;
     this.focus = slot;
     const f = slot ? FOCUS[slot] : OVERVIEW;
     const d = this.game.director;
@@ -332,7 +347,7 @@ export class App {
   /** Picture of the real part an item fits, at a rarity, in the player's paint. */
   private thumb(item: ItemDef, rarity: Rarity) {
     try {
-      return this.game.thumbs.get(item, rarity, this.player.palette, this.player.loadout);
+      return this.game.thumbs.get(item, rarity, this.player.paint, this.player.loadout);
     } catch {
       return '';
     }
@@ -344,20 +359,7 @@ export class App {
     const build = computeBuild(p.loadout);
     g.name.innerHTML = `${esc(p.name)} <span class="muted">✎</span>`;
     g.power.innerHTML = `<span>Power</span><b>${build.rating}</b>`;
-    this.game.garageBot(p.name, build.rating, p.palette);
-
-    g.swatches.innerHTML = '';
-    PALETTES.forEach((pal, i) => {
-      const sw = button(`swatch${i === p.palette ? ' on' : ''}`, '', () => {
-        if (p.palette === i) return;
-        this.tap();
-        p.palette = i;
-        this.commitPlayer();
-        this.game.garagePulse();
-      }, g.swatches);
-      sw.style.background = `linear-gradient(135deg, ${hex(pal.primary)} 50%, ${hex(pal.secondary)} 50%)`;
-      sw.title = pal.name;
-    });
+    this.game.garageBot(p.name, build.rating, p.paint);
 
     this.renderStats();
 
@@ -369,28 +371,38 @@ export class App {
       const src = this.thumb(item, eq.rarity);
       const t = button(`slot${slot === this.slot ? ' on' : ''}`, `${src ? `<img src="${src}" alt="">` : SLOT_ICON[slot]}<span>${SLOT_LABEL[slot]}</span>`, () => {
         this.tap();
-        if (slot === this.slot && !this.emoteTab) this.setFocus(this.focus ? null : slot);
+        if (slot === this.slot && this.tab === 'part') this.setFocus(this.focus ? null : slot);
         else {
           this.slot = slot;
-          this.emoteTab = false;
+          this.tab = 'part';
           this.setFocus(slot);
           this.refreshGarage();
         }
       }, g.rail);
       t.style.setProperty('--rc', RARITIES[eq.rarity].color);
-      if (this.emoteTab) t.classList.remove('on');
+      if (this.tab !== 'part') t.classList.remove('on');
     }
     const picked = (p.emotes?.win.length ?? 0) + (p.emotes?.taunt.length ?? 0);
-    const et = button(`slot emotes${this.emoteTab ? ' on' : ''}`, `${ICON.star}<span>Emotes</span>`, () => {
-      if (this.emoteTab) return;
-      this.tap();
-      this.emoteTab = true;
-      this.refreshGarage();
-    }, g.rail);
-    et.style.setProperty('--rc', picked ? '#ffc23d' : '#5d6880');
-    g.view.style.display = this.emoteTab ? 'none' : '';
-    if (this.emoteTab) {
+    const tabBtn = (tab: 'emotes' | 'paint', icon: string, label: string, rc: string) => {
+      const b = button(`slot ${tab}${this.tab === tab ? ' on' : ''}`, `${icon}<span>${label}</span>`, () => {
+        if (this.tab === tab) return;
+        this.tap();
+        this.tab = tab;
+        g.items.scrollTop = 0;
+        this.refreshGarage();
+      }, g.rail);
+      b.style.setProperty('--rc', rc);
+    };
+    tabBtn('emotes', ICON.star, 'Emotes', picked ? '#ffc23d' : '#5d6880');
+    tabBtn('paint', ICON.paint, 'Paint', hexColor(p.paint.accent));
+    g.view.style.display = this.tab === 'part' ? '' : 'none';
+    if (this.tab === 'emotes') {
       this.renderEmotes();
+      this.prewarmThumbs();
+      return;
+    }
+    if (this.tab === 'paint') {
+      this.renderPaint();
       this.prewarmThumbs();
       return;
     }
@@ -433,6 +445,108 @@ export class App {
     }
     g.items.scrollTop = scroll;
     this.prewarmThumbs();
+  }
+
+  /** The Paint tab: ready-made schemes, each colour, the finish and the frame metal, all shown live on the bot. */
+  private renderPaint() {
+    const g = this.garageEls!;
+    const paint = this.player.paint;
+    const sc = schemeOf(paint);
+    g.title.innerHTML = `<b>Paint</b><span>${sc ? esc(sc.name) : 'Custom'} · ${FINISHES[paint.finish].name} · ${FRAMES[paint.frame].name} frame</span>`;
+    this.setFocus(null);
+
+    g.rar.className = 'rarities pages';
+    g.rar.innerHTML = '';
+    for (const [page, label] of PAINT_PAGES) {
+      const dot = page === 'schemes' || page === 'finish' ? '' : `<i style="background:${hexColor(paint[page])}"></i>`;
+      const b = button(`rar${page === this.paintPage ? ' on' : ''}`, `${dot}${label}`, () => {
+        if (this.paintPage === page) return;
+        this.tap();
+        this.paintPage = page;
+        g.items.scrollTop = 0;
+        this.refreshGarage();
+      }, g.rar);
+      b.style.setProperty('--rc', '#2ad8ff');
+    }
+
+    const scroll = g.items.scrollTop;
+    g.items.innerHTML = '';
+    const page = this.paintPage;
+    if (page === 'schemes') {
+      el('div', 'emote-hint', 'Pick a ready-made paint job, then fine-tune any colour, the finish or the frame.', g.items);
+      const grid = el('div', 'pgrid schemes', '', g.items);
+      for (const s of SCHEMES) {
+        const p = s.paint;
+        const b = button(
+          `scheme${samePaint(p, paint) ? ' on' : ''}`,
+          `<span class="sw" style="--a:${hexColor(p.primary)};--b:${hexColor(p.secondary)};--c:${hexColor(p.accent)}"></span><b>${esc(s.name)}</b><small>${FINISHES[p.finish].name}</small>`,
+          () => this.setPaint({ ...p }),
+          grid,
+        );
+        b.title = `${s.name}: ${FINISHES[p.finish].name}, ${FRAMES[p.frame].name} frame`;
+      }
+    } else if (page === 'finish') {
+      el('div', 'psec', 'Finish', g.items);
+      const fin = el('div', 'pgrid fins', '', g.items);
+      FINISHES.forEach((f, i) => {
+        button(
+          `fin${i === paint.finish ? ' on' : ''}`,
+          `<span class="ball f${i}" style="--c:${hexColor(paint.primary)}"></span><b>${f.name}</b><small>${f.blurb}</small>`,
+          () => this.setPaint({ ...paint, finish: i }),
+          fin,
+        );
+      });
+      el('div', 'psec', 'Frame metal', g.items);
+      const frm = el('div', 'pgrid fins', '', g.items);
+      FRAMES.forEach((f, i) => {
+        button(
+          `fin${i === paint.frame ? ' on' : ''}`,
+          `<span class="ball fm" style="--c:${hexColor(f.metal)}"></span><b>${f.name}</b><small>Joints and bare metal</small>`,
+          () => this.setPaint({ ...paint, frame: i }),
+          frm,
+        );
+      });
+    } else {
+      el('div', 'emote-hint', PAINT_HINT[page], g.items);
+      const list = page === 'accent' ? GLOW_COLORS : PAINT_COLORS;
+      const grid = el('div', `pgrid colors${page === 'accent' ? ' glow' : ''}`, '', g.items);
+      const cur = paint[page];
+      for (const c of list) {
+        const b = button(`pc${c === cur ? ' on' : ''}`, '', () => this.setPaint({ ...paint, [page]: c }), grid);
+        b.style.setProperty('--c', hexColor(c));
+      }
+      // any colour at all, from the system colour picker; previewed live while dragging
+      const custom = el('label', `pc custom${list.includes(cur) ? '' : ' on'}`, `${ICON.paint}`, grid);
+      custom.style.setProperty('--c', hexColor(cur));
+      custom.title = 'Custom colour';
+      const inp = el('input', '', '', custom) as HTMLInputElement;
+      inp.type = 'color';
+      inp.value = hexColor(cur);
+      let t = 0;
+      inp.addEventListener('input', () => {
+        this.player.paint = { ...this.player.paint, [page]: parseInt(inp.value.slice(1), 16) };
+        custom.style.setProperty('--c', inp.value);
+        clearTimeout(t);
+        t = window.setTimeout(() => this.game.showBot(this.player), 80);
+      });
+      inp.addEventListener('change', () => {
+        clearTimeout(t);
+        // the live preview already set the colour: save it and redraw the tab
+        this.player.paint = { ...this.player.paint, [page]: parseInt(inp.value.slice(1), 16) };
+        this.tap('select');
+        this.commitPlayer();
+        this.game.garagePulse();
+      });
+    }
+    g.items.scrollTop = scroll;
+  }
+
+  private setPaint(p: Paint) {
+    if (samePaint(p, this.player.paint)) return;
+    this.tap('select');
+    this.player.paint = p;
+    this.commitPlayer();
+    this.game.garagePulse();
   }
 
   /** The Emotes tab: equip up to three celebrations and three taunts, tap one to see it. */
@@ -621,31 +735,15 @@ export class App {
     let best: BotSpec | null = null;
     let bestD = Infinity;
     for (let i = 0; i < 40; i++) {
-      const b = randomBot(this.rng, this.rng.next(), this.player.palette);
+      const b = randomBot(this.rng, this.rng.next(), this.player.paint);
       const d = Math.abs(computeBuild(b.loadout).rating - target);
       if (d < bestD) {
         bestD = d;
         best = b;
       }
     }
-    best!.palette = this.contrastingPalette(this.player.palette);
+    best!.paint = contrastingPaint(this.player.paint, this.rng);
     return best!;
-  }
-
-  /** A random palette that reads clearly against the player's at fight distance. */
-  private contrastingPalette(mine: number) {
-    const rgb = (c: number) => [(c >> 16) & 255, (c >> 8) & 255, c & 255];
-    const dist = (a: number, b: number) => {
-      const x = rgb(a), y = rgb(b);
-      return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]);
-    };
-    const pm = PALETTES[mine];
-    const ok = PALETTES.map((_, i) => i).filter((i) => {
-      if (i === mine) return false;
-      const p = PALETTES[i];
-      return Math.min(dist(p.primary, pm.primary), dist(p.secondary, pm.primary) * 1.4, dist(p.primary, pm.secondary) * 1.4) > 150;
-    });
-    return ok.length ? this.rng.pick(ok) : (mine + 5) % PALETTES.length;
   }
 
   private fight(sameOpponent = false) {

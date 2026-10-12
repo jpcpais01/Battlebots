@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Rng } from '../sim/math';
-import { PALETTES } from '../game/loadout';
 import { Baker, bakedGlowMaterial, surf, vertexPBR, type GlowKey, type Surface, type Surfaces } from './bake';
 import { buildFist, buildFoot, buildForearm, buildHead, buildShin, buildShinGuard, buildThigh, buildToe, buildTorso, buildUpperArm, G, type PB } from './parts';
 import { RenderSettings } from './settings';
@@ -1256,10 +1255,10 @@ export class Garage {
   }
 
   /** The bot on the lift, shown on the desk monitor; its accent colour lights the bay ring. */
-  setBot(name: string, power: number, palette: number) {
+  setBot(name: string, power: number, accent: number) {
     this.botName = name;
     this.botPower = power;
-    this.ledRing.color.setHex(PALETTES[palette % PALETTES.length].accent).multiplyScalar(RenderSettings.glow(2.6));
+    this.ledRing.color.setHex(accent).multiplyScalar(RenderSettings.glow(2.6));
     this.drawScreens(true);
   }
 
