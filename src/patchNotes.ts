@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-12 19:00',
     title: 'Settings that fit your phone',
     notes: [
+      'Removed the experimental Keep 120 Hz test. The Frame rate setting (Max, 60 or 30) stays.',
       'Settings has a new two-column layout that fits a landscape phone screen, with bigger buttons, a close button and tap-outside-to-close. Graphics quality now has an Auto option, and resetting your record asks you to tap twice.',
     ],
   },
