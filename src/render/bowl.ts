@@ -101,6 +101,21 @@ const AISLE = 1.0;
 /** Lower rows that the two entrance tunnels cut through. */
 export const TUNNEL_ROWS = 6;
 export const TUNNEL_W = 3.8;
+/** Lower rows cut by the four vomitories (the stairwells fans walk in through), mid-bowl on each side. */
+export const VOM_ROW0 = 8;
+export const VOM_ROW1 = 12;
+export const VOM_W = 2.6;
+
+/** Centre of each vomitory's mouth on the bowl and its outward direction. */
+export function vomitories(): { x: number; z: number; nx: number; nz: number }[] {
+  const r = RC + ROWS[VOM_ROW0].d;
+  return [
+    { x: SX + r, z: 0, nx: 1, nz: 0 },
+    { x: -SX - r, z: 0, nx: -1, nz: 0 },
+    { x: 0, z: SZ + r, nx: 0, nz: 1 },
+    { x: 0, z: -SZ - r, nx: 0, nz: -1 },
+  ];
+}
 
 /**
  * Seats of every row, with aisles running straight up the bowl: on the sides' middles and ends,
@@ -113,6 +128,7 @@ export function seats(): Seat[] {
     const r = RC + d;
     const fan = row.upper ? 6 : 3;
     const tunnel = ri < TUNNEL_ROWS;
+    const vom = ri >= VOM_ROW0 && ri < VOM_ROW1;
     // straight sides: [x0,z0] -> [x1,z1] with one middle aisle
     const place = (x0: number, z0: number, x1: number, z1: number, gap0: number, gap1: number) => {
       const len = Math.hypot(x1 - x0, z1 - z0);
@@ -128,7 +144,7 @@ export function seats(): Seat[] {
     };
     const half = AISLE / 2;
     // east and west ends (tunnels in the middle of the lower rows)
-    const mid = tunnel ? TUNNEL_W / 2 + 0.3 : half;
+    const mid = tunnel ? TUNNEL_W / 2 + 0.3 : vom ? VOM_W / 2 + 0.35 : half;
     for (const sx of [1, -1]) {
       const x = sx * (SX + r);
       place(x, -SZ, x, 0, half, mid);
@@ -136,8 +152,8 @@ export function seats(): Seat[] {
     }
     for (const sz of [1, -1]) {
       const z = sz * (SZ + r);
-      place(-SX, z, 0, z, half, half);
-      place(0, z, SX, z, half, half);
+      place(-SX, z, 0, z, half, vom ? VOM_W / 2 + 0.35 : half);
+      place(0, z, SX, z, vom ? VOM_W / 2 + 0.35 : half, half);
     }
     // corners: arcs split into `fan` sections
     for (let k = 0; k < 4; k++) {
@@ -169,11 +185,12 @@ export function aisleLights(): number[] {
     const r = RC + d;
     const y = row.y + 0.08;
     const push = (x: number, z: number) => out.push(x, y, z);
+    const vom = ri >= VOM_ROW0 - 1 && ri < VOM_ROW1;
     for (const sx of [1, -1]) {
       for (const z of [-SZ, SZ]) push(sx * (SX + r), z);
-      if (ri >= TUNNEL_ROWS) push(sx * (SX + r), 0);
+      if (ri >= TUNNEL_ROWS && !vom) push(sx * (SX + r), 0);
     }
-    for (const sz of [1, -1]) for (const x of [-SX, 0, SX]) push(x, sz * (SZ + r));
+    for (const sz of [1, -1]) for (const x of [-SX, 0, SX]) if (x || !vom) push(x, sz * (SZ + r));
     const fan = row.upper ? 6 : 3;
     for (let k = 0; k < 4; k++) {
       const [cx, cz] = CORNERS[k];
@@ -183,5 +200,36 @@ export function aisleLights(): number[] {
       }
     }
   });
+  return out;
+}
+
+/**
+ * Handrails down the middle of the aisles: for each aisle and tier, the two ends of a rail
+ * (x, y, z, x, y, z) running from the front row to the back row at hand height.
+ * Middle aisles of the lower tier are left clear for the tunnels and vomitories.
+ */
+export function aisleRails(): number[][] {
+  const out: number[][] = [];
+  for (const upper of [false, true]) {
+    const rows = ROWS.filter((r) => r.upper === upper);
+    const r0 = rows[0], r1 = rows[rows.length - 1];
+    const ends = (f: (r: number) => [number, number]) => {
+      const a = f(RC + r0.d + 0.05), b = f(RC + r1.d + r1.depth * 0.5);
+      out.push([a[0], r0.y + 0.9, a[1], b[0], r1.y + 0.9, b[1]]);
+    };
+    for (const sx of [1, -1]) {
+      for (const z of [-SZ, SZ]) ends((r) => [sx * (SX + r), z]);
+      if (upper) ends((r) => [sx * (SX + r), 0]);
+    }
+    for (const sz of [1, -1]) for (const x of upper ? [-SX, 0, SX] : [-SX, SX]) ends((r) => [x, sz * (SZ + r)]);
+    const fan = upper ? 6 : 3;
+    for (let k = 0; k < 4; k++) {
+      const [cx, cz] = CORNERS[k];
+      for (let f = 1; f < fan; f++) {
+        const a = ((k + f / fan) * Math.PI) / 2;
+        ends((r) => [cx + Math.cos(a) * r, cz + Math.sin(a) * r]);
+      }
+    }
+  }
   return out;
 }
