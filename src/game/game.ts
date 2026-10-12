@@ -13,6 +13,8 @@ import { MOVES, type MoveId } from '../sim/moves';
 import { computeBuild, RARITIES } from './items';
 import { PALETTES, type BotSpec } from './loadout';
 import type { Sfx } from '../audio/sfx';
+import { perf } from '../perf';
+import { RenderProbe } from '../render/renderProbe';
 
 export interface GameCallbacks {
   onMatchEvent?: (type: string, data: unknown) => void;
@@ -28,6 +30,7 @@ export class Game {
   readonly stage: Stage;
   readonly arena: Arena;
   private clearView = new ClearView();
+  private probe: RenderProbe;
   private chests = [new THREE.Vector3(), new THREE.Vector3()];
   readonly fx: Fx;
   readonly director: Director;
@@ -56,6 +59,7 @@ export class Game {
 
   constructor(canvas: HTMLCanvasElement, quality: Quality) {
     this.stage = new Stage(canvas, quality);
+    this.probe = new RenderProbe(this.stage.renderer);
     this.arena = new Arena(quality);
     this.stage.scene.add(this.arena.group);
     this.clearView.apply(this.arena.group);
@@ -262,6 +266,7 @@ export class Game {
   };
 
   frame(dt: number, render = true) {
+    perf.frame();
     this.time += dt;
     const m = this.match;
     let alpha = 1;
@@ -275,6 +280,7 @@ export class Game {
         steps++;
       }
       if (steps >= 16) this.acc = 0;
+      perf.lap('sim');
       alpha = m.hitstop > 0 ? 1 : this.acc / SIM_DT;
       // both bodies first: each bot's limbs then slide out of either bot's armour
       for (let i = 0; i < 2; i++) this.models[i].begin(m.fighters[i], alpha, m.fighters[1 - i].body.pos[J.Head]);
@@ -290,6 +296,7 @@ export class Game {
         this.updateTrailsAndFlames(i);
         this.groundImpacts(i);
       }
+      perf.lap('bots');
     }
     if (this.showcase) {
       const { fighter, model } = this.showcase;
@@ -304,26 +311,35 @@ export class Game {
         this.showAcc -= SIM_DT;
       }
       model.update(fighter, this.showAcc / SIM_DT, this.time);
+      perf.lap('bots');
     }
     this.fx.update(dt, this.stage.camera);
+    perf.lap('fx');
     this.arena.pressRopes(m && this.models.length === 2 ? [this.models[0].joints, this.models[1].joints] : []);
     this.arena.update(dt, this.time);
+    perf.lap('arena');
     this.director.update(dt, m);
     if (m && this.director.mode === 'match') {
       for (let i = 0; i < 2; i++) this.chests[i].copy(m.fighters[i].body.pos[J.Chest]);
       this.clearView.update(this.stage.camera, this.chests);
     } else this.clearView.update(this.stage.camera, []);
+    perf.lap('camera');
     if (this.sfx) {
       const f = m?.fighters;
       this.sfx.crowdTick(dt, m && f && !this.paused ? { phase: m.phase, clock: m.clock, hp: [f[0].hpRatio, f[1].hpRatio] } : null);
     }
+    perf.lap('audio');
     if (!render) return;
     const cut = this.director.cuts !== this.lastCuts || this.director.mode !== this.lastMode;
     this.lastCuts = this.director.cuts;
     this.lastMode = this.director.mode;
     this.stage.govern(dt, cut);
+    this.probe.begin();
     this.stage.render();
+    this.probe.end();
+    perf.lap('render');
     this.cb.onFrame?.(dt);
+    perf.lap('hud');
   }
 
   private updateTrailsAndFlames(i: number) {

@@ -22,6 +22,7 @@ import { PATCH_NOTES } from '../patchNotes';
 import { PALETTES, randomBot, randomName, type BotSpec } from '../game/loadout';
 import { button, el, esc, hex } from './dom';
 import { Hud, pipsHtml } from './hud';
+import { PerfOverlay } from './perfOverlay';
 import { ABILITY_ICON, ICON, SLOT_ICON } from './icons';
 import { forceUpdate } from '../update';
 import { loadPlayer, loadQuality, loadRecord, savePlayer, saveQuality, saveRecord, type Record_ } from './store';
@@ -37,6 +38,7 @@ export class App {
   private screens: Record<ScreenId, HTMLElement>;
   private current: ScreenId = 'home';
   private hud: Hud;
+  private perf: PerfOverlay;
   private modal: HTMLElement | null = null;
   private results: HTMLElement | null = null;
   private rng = new Rng((Math.random() * 2 ** 32) >>> 0);
@@ -51,6 +53,7 @@ export class App {
     this.player = loadPlayer();
     this.record = loadRecord();
     this.hud = new Hud(game, this.ui);
+    this.perf = new PerfOverlay(game);
     this.hud.onPause = () => this.pause();
     this.screens = {
       home: this.buildHome(),
@@ -392,6 +395,12 @@ export class App {
         saveQuality(null);
         location.reload();
       }, box);
+      const perfBtn = button('btn small', '', () => {
+        this.perf.setVisible(!this.perf.visible);
+        syncPerf();
+      }, box);
+      const syncPerf = () => (perfBtn.textContent = `Performance stats ${this.perf.visible ? 'on' : 'off'}`);
+      syncPerf();
       button('btn small', 'Reset record', () => {
         this.record = { wins: 0, losses: 0, draws: 0, streak: 0, best: 0 };
         saveRecord(this.record);
