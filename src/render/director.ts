@@ -6,17 +6,12 @@ import { clamp, damp, Noise1, Rng, smoothstep } from '../sim/math';
 
 export type CamMode = 'menu' | 'garage' | 'match';
 
-const TAU = Math.PI * 2;
-const POSTS = Array.from({ length: 8 }, (_, i) => {
-  const a = (i / 8) * TAU + Math.PI / 8;
-  return [Math.cos(a) * 5, Math.sin(a) * 5];
-});
-/** Radius the camera stays within while it is below the ropes. */
-const IN_R = 4.4;
-/** Radius it may go out to once it is above the ropes (the stands start at 9). */
-const OUT_R = 8.2;
-/** Height above which the lens clears the top rope and the post caps. */
-const ABOVE_ROPES = 2.0;
+/**
+ * Radius the camera roams within. The ropes and posts fade out when they come between the lens
+ * and the robots (clearView.ts), so the ring edge is no obstacle; only the stands are (front row
+ * at 10 m along the short side of the bowl).
+ */
+const FREE_R = 9;
 /** Joints used to frame a fighter. */
 const FRAME_JOINTS = [J.Head, J.Chest, J.Pelvis, J.HandL, J.HandR, J.KneeL, J.KneeR, J.FootL, J.FootR];
 /** How much of the half-frame each joint may use (heads keep headroom, swinging limbs may graze the edge). */
@@ -29,49 +24,6 @@ function reach(mx: number, mz: number, dx: number, dz: number, r: number) {
   const md = mx * dx + mz * dz;
   const disc = md * md - (mx * mx + mz * mz) + r * r;
   return disc < 0 ? 0 : Math.max(0, -md + Math.sqrt(disc));
-}
-
-/** How badly ring posts block the view from the lens (cx,cy,cz) to a fighter at (tx,ty,tz). */
-function postOcclusion(cx: number, cy: number, cz: number, tx: number, ty: number, tz: number) {
-  let score = 0;
-  const dx = tx - cx, dz = tz - cz;
-  const len2 = dx * dx + dz * dz || 1;
-  for (const [px, pz] of POSTS) {
-    const t = ((px - cx) * dx + (pz - cz) * dz) / len2;
-    if (t < 0.02 || t > 0.97) continue;
-    // the sight line passes over the post cap once it is high enough there
-    if (cy + (ty - cy) * t > 1.95) continue;
-    const d = Math.hypot(cx + dx * t - px, cz + dz * t - pz);
-    if (d < 0.7) score += (0.7 - d) * 5;
-  }
-  return score;
-}
-
-/** How low the sight line from an outside lens crosses the ropes (ropes over the fighters clutter the shot). */
-function ropeCrossing(cx: number, cy: number, cz: number, tx: number, ty: number, tz: number) {
-  const R = 4.75;
-  if (cx * cx + cz * cz < R * R) return 0;
-  // first point where the segment enters the rope circle
-  const dx = tx - cx, dz = tz - cz;
-  const a = dx * dx + dz * dz || 1;
-  const b = 2 * (cx * dx + cz * dz);
-  const c = cx * cx + cz * cz - R * R;
-  const disc = b * b - 4 * a * c;
-  if (disc < 0) return 0;
-  const t = (-b - Math.sqrt(disc)) / (2 * a);
-  if (t < 0 || t > 1) return 0;
-  return Math.max(0, 1.6 - (cy + (ty - cy) * t));
-}
-
-/** How close (cx,cz) is to a ring post; a post filling the foreground clutters the shot. */
-function postCrowding(cx: number, cz: number, cy: number) {
-  if (cy > 3) return 0;
-  let score = 0;
-  for (const [px, pz] of POSTS) {
-    const d = Math.hypot(cx - px, cz - pz);
-    if (d < 1.7) score += 1.7 - d;
-  }
-  return score;
 }
 
 type ShotKind = 'wide' | 'medium' | 'low' | 'ots' | 'orbit' | 'high' | 'down' | 'ko' | 'win' | 'intro';
@@ -99,7 +51,7 @@ interface Shot {
   subject: number;
   /** How far the framing centre leans toward the subject. */
   bias: number;
-  /** May rise over the ropes and back out toward the stands. */
+  /** A raised shot: never pushed higher when the stands crowd the lens. */
   high: boolean;
 }
 
@@ -193,7 +145,6 @@ export class Director {
   private heat = 0;
   /** Number of hard cuts so far (for the headless camera check). */
   cuts = 0;
-  private blockedFor = 0;
   private alignedFor = 0;
   private rawAxis = 0;
   /** Direction from the KO'd fighter away from the winner. */
@@ -242,15 +193,10 @@ export class Director {
     this.koSnap = true;
   }
 
-  /**
-   * Which way the KO shot looks at the fallen fighter from: from the middle of the
-   * ring when they went down near the ropes (so the lens has room and the ropes
-   * stay behind them), otherwise from the side away from the winner.
-   */
+  /** Which way the KO shot looks at the fallen fighter from: the side away from the winner. */
   private koBase(match: Match) {
     const l = match.fighters[this.koFocus ?? 0].body.pos[J.Pelvis];
     const w = match.fighters[1 - (this.koFocus ?? 0)].body.pos[J.Pelvis];
-    if (Math.hypot(l.x, l.z) > 1.6) return Math.atan2(-l.z, -l.x);
     return Math.atan2(l.z - w.z, l.x - w.x);
   }
   reset() {
@@ -421,7 +367,7 @@ export class Director {
     const busy = (f: Fighter) => !!f.strike && f.strike.phase !== 'recovery';
     const lull = !busy(a) && !busy(b);
     const over = sh.t > sh.dur;
-    const stuck = this.blockedFor > 0.4 || this.crampedFor > 1.2 || this.alignedFor > 1;
+    const stuck = this.crampedFor > 1.2 || this.alignedFor > 1;
     if ((over && lull) || sh.t > sh.dur + 2 || (sh.t > 0.8 && stuck)) this.cut(match);
   }
 
@@ -461,16 +407,7 @@ export class Director {
       this.el = s.el;
       this.measure(match, s);
       const f = this.fit;
-      const c = this.rawCenter;
-      const dd = Math.min(f.dist, f.cap);
-      const camY = c.y + Math.sin(s.el) * dd;
-      const cx = c.x + Math.cos(this.yaw) * Math.cos(s.el) * dd;
-      const cz = c.z + Math.sin(this.yaw) * Math.cos(s.el) * dd;
-      let score = postCrowding(cx, cz, camY) * 1.5;
-      for (const ft of match.fighters) {
-        const q = ft.body.pos[J.Chest];
-        score += postOcclusion(cx, camY, cz, q.x, q.y, q.z) * 4 + ropeCrossing(cx, camY, cz, q.x, 0.9, q.z) * 4;
-      }
+      let score = 0;
       // one fighter hiding the other
       const along = Math.abs(Math.cos(this.yaw - this.rawAxis));
       if (k === 'ko') {
@@ -504,7 +441,6 @@ export class Director {
     this.dist = Math.min(this.fit.dist, this.fit.cap);
     this.fov = this.lensFov(this.dist);
     this.kick.set(0, 0, 0);
-    this.blockedFor = 0;
     this.crampedFor = 0;
     this.alignedFor = 0;
     this.cutIn = -1;
@@ -556,7 +492,7 @@ export class Director {
         const aq = Math.abs(q);
         if (aq < min || aq > Math.PI - min) wantYaw = this.rawAxis + Math.sign(q || 1) * (aq < Math.PI / 2 ? min : Math.PI - min);
       }
-      // backed up against the ropes: crane up over them instead of squeezing the lens
+      // backed up against the stands: crane up instead of squeezing the lens
       if (this.fit.dist > this.fit.cap * 1.15 && !s.high && s.kind !== 'ko') wantEl = Math.max(wantEl, 0.34);
     }
     const dy = wrap(wantYaw - this.yaw);
@@ -589,13 +525,6 @@ export class Director {
       this.center.y + this.kick.y * 0.5 + this.noise.at(this.t * 0.5 + 9) * wob,
       this.center.z + this.kick.z + this.noise.at(this.t * 0.6 + 17) * wob,
     );
-    const p = this.pos;
-    let blocked = postCrowding(p.x, p.z, p.y) > 1.3;
-    for (const ft of match.fighters) {
-      const q = ft.body.pos[J.Chest];
-      if (postOcclusion(p.x, p.y, p.z, q.x, q.y, q.z) > 0.8 || ropeCrossing(p.x, p.y, p.z, q.x, 0.9, q.z) > 0.35) blocked = true;
-    }
-    this.blockedFor = blocked ? this.blockedFor + dt : 0;
     // looking straight down the fight line, one fighter hides the other
     const along = Math.abs(Math.cos(this.yaw - this.rawAxis));
     const aligned = this.sep > 0.6 && s.kind !== 'ko' && s.kind !== 'win' && along > (s.kind === 'ots' ? 0.92 : 0.82);
@@ -640,7 +569,7 @@ export class Director {
 
   /**
    * Gathers the points to frame for shot s, the centre to aim at, and the distance
-   * that fits them with the shot's lens (plus how far the ring lets the lens go).
+   * that fits them with the shot's lens (plus how far the arena lets the lens go).
    */
   private measure(match: Match, s: Shot) {
     const fs = match.fighters;
@@ -693,15 +622,8 @@ export class Director {
       if (!Number.isFinite(m)) continue;
       dist = Math.max(dist, depth + Math.abs(rel.dot(right)) / (tanH * m), depth + Math.abs(rel.dot(this.up)) / (tanV * m));
     }
-    // how far back the ring lets us go along this direction
-    const hx = Math.cos(this.yaw), hz = Math.sin(this.yaw);
-    let cap = reach(c.x, c.z, hx, hz, IN_R) / Math.max(0.2, ce);
-    if (s.high || (this.el > 0.25 && s.kind !== 'ko')) {
-      // above the ropes the lens may back out toward the stands
-      const out = reach(c.x, c.z, hx, hz, OUT_R) / Math.max(0.2, ce);
-      const yAt = c.y + Math.sin(this.el) * Math.min(dist, out);
-      if (yAt > ABOVE_ROPES) cap = Math.max(cap, out);
-    }
+    // how far back the arena lets us go along this direction (the ring itself is no limit)
+    const cap = reach(c.x, c.z, Math.cos(this.yaw), Math.sin(this.yaw), FREE_R) / Math.max(0.2, ce);
     this.fit.dist = dist;
     this.fit.cap = Math.max(s.kind === 'ko' ? 1.2 : 1.6, cap);
   }
