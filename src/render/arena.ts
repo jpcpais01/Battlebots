@@ -133,7 +133,7 @@ export class Arena {
     const mat = contactAO.patch(new THREE.MeshStandardMaterial({ map: matTexture(), roughness: 0.78, metalness: 0.05 }), {
       spheres: true,
       floor: true,
-      strength: 1.6,
+      strength: 2,
       direct: 0.7,
     });
     const floorGeo = new THREE.CircleGeometry(RING_RADIUS + 0.55, SIDES);
