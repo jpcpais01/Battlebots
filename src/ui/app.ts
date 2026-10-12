@@ -25,7 +25,7 @@ import { Hud, pipsHtml } from './hud';
 import { PerfOverlay } from './perfOverlay';
 import { ABILITY_ICON, ICON, SLOT_ICON } from './icons';
 import { forceUpdate } from '../update';
-import { loadPlayer, loadQuality, loadRecord, savePlayer, saveQuality, saveRecord, type Record_ } from './store';
+import { loadPlayer, loadQuality, loadRecord, loadZoom, savePlayer, saveQuality, saveRecord, saveZoom, type Record_, type Zoom } from './store';
 
 type ScreenId = 'home' | 'garage' | 'fight';
 
@@ -52,6 +52,7 @@ export class App {
     this.ui = document.getElementById('ui')!;
     this.player = loadPlayer();
     this.record = loadRecord();
+    game.director.zoom = loadZoom();
     this.hud = new Hud(game, this.ui);
     this.perf = new PerfOverlay(game);
     this.hud.onPause = () => this.pause();
@@ -390,6 +391,17 @@ export class App {
           saveQuality(q);
           location.reload();
         }, seg);
+      }
+      el('div', 'muted', 'Camera zoom', box);
+      const zoomSeg = el('div', 'seg', '', box);
+      for (const z of ['close', 'normal', 'wide'] as Zoom[]) {
+        const b = button(z === this.game.director.zoom ? 'on' : '', z[0].toUpperCase() + z.slice(1), () => {
+          this.game.director.zoom = z;
+          saveZoom(z);
+          this.hud.syncZoom();
+          for (const o of zoomSeg.children) o.classList.toggle('on', o === b);
+          this.tap();
+        }, zoomSeg);
       }
       if (saved) button('btn small', 'Auto-detect quality', () => {
         saveQuality(null);

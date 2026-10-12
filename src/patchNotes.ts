@@ -25,6 +25,7 @@ export const PATCH_NOTES: PatchNote[] = [
       'Action camera: the fight is now shot like a broadcast, with cuts and close-ups on the big hits.',
       'Clear view: ropes, posts and anything else between the camera and the robots fade away, so nothing blocks the fight.',
       'Free camera: shots are no longer held inside the ropes, so the camera finds better angles from anywhere around the ring.',
+      'Camera zoom: pick Close, Normal or Wide in Settings or with the zoom button during a fight. Every shot keeps its angle and style.',
       'Metal impact sounds: punches, kicks, blocks and knockdowns all clang differently.',
       'Rebuilt robot models with smoother, weightier punches and kicks.',
       'Installed app opens as a normal window and goes fullscreen in landscape on first tap.',

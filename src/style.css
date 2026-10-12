@@ -701,6 +701,18 @@ button {
   font-family: var(--display);
   font-size: 0.85em;
 }
+.icon-btn.zoom {
+  width: auto;
+  display: inline-flex;
+  gap: 0.3em;
+  padding: 0 0.65em;
+  font-family: var(--display);
+  font-size: 0.85em;
+}
+.icon-btn.zoom svg {
+  width: 1.15em;
+  height: 1.15em;
+}
 .commentary {
   position: absolute;
   left: 50%;

@@ -62,3 +62,21 @@ export function saveQuality(q: string | null) {
     /* ignore */
   }
 }
+
+const ZOOMS = ['close', 'normal', 'wide'] as const;
+export type Zoom = (typeof ZOOMS)[number];
+export function loadZoom(): Zoom {
+  try {
+    const z = localStorage.getItem('bb.zoom');
+    return (ZOOMS as readonly string[]).includes(z ?? '') ? (z as Zoom) : 'normal';
+  } catch {
+    return 'normal';
+  }
+}
+export function saveZoom(z: Zoom) {
+  try {
+    localStorage.setItem('bb.zoom', z);
+  } catch {
+    /* ignore */
+  }
+}

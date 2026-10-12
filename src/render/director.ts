@@ -5,6 +5,18 @@ import type { HitInfo, Match } from '../sim/match';
 import { clamp, damp, Noise1, Rng, smoothstep } from '../sim/math';
 
 export type CamMode = 'menu' | 'garage' | 'match';
+export type CamZoom = 'close' | 'normal' | 'wide';
+
+/**
+ * Zoom levels for fight shots. Every shot keeps its angle and style; zoom only moves the lens
+ * along it (dist) and opens or tightens the lens (fov). Close never crops a bot: when the lens
+ * gets near, lensFov() widens just enough to keep both framed.
+ */
+export const ZOOM: Record<CamZoom, { dist: number; fov: number }> = {
+  close: { dist: 0.72, fov: 0.94 },
+  normal: { dist: 1, fov: 1 },
+  wide: { dist: 1.38, fov: 1.12 },
+};
 
 /**
  * Radius the camera roams within. The ropes and posts fade out when they come between the lens
@@ -123,6 +135,8 @@ export class Director {
   private narrow = false;
   /** Horizontal framing offset as a fraction of the view width (positive puts the subject left of center). */
   shiftX = 0;
+  /** Fight-shot zoom level (Settings and the fight HUD set it). */
+  zoom: CamZoom = 'normal';
   private shift = 0;
   private wantPos = new THREE.Vector3();
   private wantLook = new THREE.Vector3();
@@ -161,7 +175,8 @@ export class Director {
   private right = new THREE.Vector3();
   private up = new THREE.Vector3();
   private rel = new THREE.Vector3();
-  private fit = { dist: 0, cap: 0, fov: 0 };
+  /** dist: where the lens goes at the current zoom; norm: the same at normal zoom (shot logic uses it, so zoom never changes which shots or cuts happen). */
+  private fit = { dist: 0, norm: 0, cap: 0, fov: 0 };
 
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
@@ -417,7 +432,7 @@ export class Director {
         const off = Math.abs(wrap(this.yaw - Math.atan2(w.z - l.z, w.x - l.x)));
         if (Math.hypot(w.x - l.x, w.z - l.z) > 0.3 && off < 0.6) score += (0.6 - off) * 6;
       } else if (this.sep > 0.6) score += Math.max(0, along - (k === 'ots' ? 0.85 : 0.7)) * 8;
-      score += Math.max(0, f.dist / Math.max(0.1, f.cap) - 1) * 3; // would have to crush the lens
+      score += Math.max(0, f.norm / Math.max(0.1, f.cap) - 1) * 3; // would have to crush the lens
       if (side !== prevSide) score += 0.6;
       // avoid jump cuts: the new angle should look clearly different
       const turn = Math.abs(wrap(this.yaw - prevYaw));
@@ -493,7 +508,7 @@ export class Director {
         if (aq < min || aq > Math.PI - min) wantYaw = this.rawAxis + Math.sign(q || 1) * (aq < Math.PI / 2 ? min : Math.PI - min);
       }
       // backed up against the stands: crane up instead of squeezing the lens
-      if (this.fit.dist > this.fit.cap * 1.15 && !s.high && s.kind !== 'ko') wantEl = Math.max(wantEl, 0.34);
+      if (this.fit.norm > this.fit.cap * 1.15 && !s.high && s.kind !== 'ko') wantEl = Math.max(wantEl, 0.34);
     }
     const dy = wrap(wantYaw - this.yaw);
     this.yaw = wrap(this.yaw + clamp(dy * (1 - Math.exp(-2.2 * dt)), -yawRate * dt, yawRate * dt));
@@ -513,7 +528,7 @@ export class Director {
     const lens = this.lensFov(this.dist);
     this.fov = damp(this.fov, lens, lens > this.fov ? 9 : 2, dt);
     this.roll = damp(this.roll, s.roll, 2, dt);
-    this.crampedFor = f.dist > f.cap * 1.35 ? this.crampedFor + dt : 0;
+    this.crampedFor = f.norm > f.cap * 1.35 ? this.crampedFor + dt : 0;
 
     const ce = Math.cos(this.el);
     const d = this.dir.set(Math.cos(this.yaw) * ce, Math.sin(this.el), Math.sin(this.yaw) * ce);
@@ -536,13 +551,13 @@ export class Director {
     const k = smoothstep(0, match.introLength, match.phaseTime);
     const [a, b] = match.fighters;
     this.center.set((a.body.pos[J.Pelvis].x + b.body.pos[J.Pelvis].x) / 2, 1.05, (a.body.pos[J.Pelvis].z + b.body.pos[J.Pelvis].z) / 2);
-    const r = 11 - k * 4;
+    const r = (11 - k * 4) * ZOOM[this.zoom].dist;
     const h = 5.5 - k * 3.2;
     const wantYaw = this.axisAng + this.side * (Math.PI / 2 + 1.6 - k * 1.5);
     this.yaw = wrap(this.yaw + wrap(wantYaw - this.yaw) * (1 - Math.exp(-6 * dt)));
     this.el = damp(this.el, Math.atan2(h - 1.05, r), 6, dt);
     this.dist = damp(this.dist, Math.hypot(r, h - 1.05), 6, dt);
-    this.fov = damp(this.fov, this.baseFov, 3, dt);
+    this.fov = damp(this.fov, this.baseFov * ZOOM[this.zoom].fov, 3, dt);
     this.roll = damp(this.roll, 0, 3, dt);
     const ce = Math.cos(this.el);
     this.pos.set(this.center.x + Math.cos(this.yaw) * ce * this.dist, this.center.y + Math.sin(this.el) * this.dist, this.center.z + Math.sin(this.yaw) * ce * this.dist);
@@ -552,7 +567,7 @@ export class Director {
   /** Field of view that keeps the framed points in shot from distance d (never narrower than the shot's lens). */
   private lensFov(d: number) {
     const s = this.shot;
-    const base = this.baseFov * s.fovK;
+    const base = this.baseFov * s.fovK * ZOOM[this.zoom].fov;
     const maxFov = Math.min(80, this.baseFov * 1.7);
     const aspect = this.camera.aspect;
     let need = 0;
@@ -611,20 +626,25 @@ export class Director {
     const right = this.right.set(-d.z, 0, d.x).normalize();
     this.up.crossVectors(d, right).negate();
     if (this.up.y < 0) this.up.negate();
-    const tanV = Math.tan(((this.baseFov * s.fovK) * Math.PI) / 360);
+    const z = ZOOM[this.zoom];
+    const tanV = Math.tan(((this.baseFov * s.fovK * z.fov) * Math.PI) / 360);
     const tanH = tanV * this.camera.aspect;
-    let dist = s.kind === 'ko' ? 2.8 : 2.2;
+    // the framing distance scales with zoom; the clearance from the nearest bot never does
+    let fit = s.kind === 'ko' ? 2.8 : 2.2;
+    let safe = 0;
     for (let i = 0; i < n; i++) {
       const rel = this.rel.subVectors(this.pts[i], c);
       const depth = rel.dot(d);
-      dist = Math.max(dist, depth + (s.kind === 'ko' ? 1.6 : 0.9));
+      safe = Math.max(safe, depth + (s.kind === 'ko' ? 1.6 : 0.9));
       const m = this.room[i] * s.fill;
       if (!Number.isFinite(m)) continue;
-      dist = Math.max(dist, depth + Math.abs(rel.dot(right)) / (tanH * m), depth + Math.abs(rel.dot(this.up)) / (tanV * m));
+      fit = Math.max(fit, depth + Math.abs(rel.dot(right)) / (tanH * m), depth + Math.abs(rel.dot(this.up)) / (tanV * m));
     }
+    const dist = Math.max(safe, fit * z.dist);
     // how far back the arena lets us go along this direction (the ring itself is no limit)
     const cap = reach(c.x, c.z, Math.cos(this.yaw), Math.sin(this.yaw), FREE_R) / Math.max(0.2, ce);
     this.fit.dist = dist;
+    this.fit.norm = Math.max(safe, fit);
     this.fit.cap = Math.max(s.kind === 'ko' ? 1.2 : 1.6, cap);
   }
 }
