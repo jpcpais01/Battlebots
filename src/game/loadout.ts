@@ -1,5 +1,6 @@
 import { Rng } from '../sim/math';
 import { SLOTS, itemsForSlot, type Loadout, type Rarity } from './items';
+import type { EmotePicks } from '../sim/emote';
 
 export interface Palette {
   name: string;
@@ -54,6 +55,8 @@ export interface BotSpec {
   name: string;
   loadout: Loadout;
   palette: number;
+  /** Celebrations and taunts equipped in the garage; missing = the bot picks its own. */
+  emotes?: EmotePicks;
 }
 
 export function randomBot(rng: Rng, tier = 0.35, avoidPalette = -1): BotSpec {

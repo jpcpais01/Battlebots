@@ -21,6 +21,7 @@ import {
   type StatKey,
 } from '../game/items';
 import { hourLabel, PATCH_NOTES } from '../patchNotes';
+import { EMOTE_INFO, MAX_PICKS, type EmoteInfo, type EmoteKind } from '../sim/emote';
 import { PALETTES, randomBot, randomName, type BotSpec } from '../game/loadout';
 import { button, el, esc, hex } from './dom';
 import { Hud } from './hud';
@@ -59,6 +60,9 @@ export class App {
   private results: HTMLElement | null = null;
   private rng = new Rng((Math.random() * 2 ** 32) >>> 0);
   private slot: Slot = 'fist';
+  /** The garage's Emotes tab is open (instead of a part slot), and which list it shows. */
+  private emoteTab = false;
+  private emoteKind: EmoteKind = 'win';
   private garageEls: {
     name: HTMLElement;
     power: HTMLElement;
@@ -283,7 +287,7 @@ export class App {
     button('btn small', `${ICON.dice}Random`, () => {
       this.tap('select');
       const b = randomBot(this.rng, this.rng.range(0.2, 0.8));
-      this.player = { ...b, name: this.player.name };
+      this.player = { ...b, name: this.player.name, emotes: this.player.emotes };
       this.commitPlayer();
       this.game.garagePulse();
     }, actions);
@@ -315,6 +319,7 @@ export class App {
 
   /** Camera close-up on one slot's part, or the whole robot (null). */
   private setFocus(slot: Slot | null) {
+    if (this.emoteTab) slot = null;
     this.focus = slot;
     const f = slot ? FOCUS[slot] : OVERVIEW;
     const d = this.game.director;
@@ -363,15 +368,32 @@ export class App {
       const src = this.thumb(item, eq.rarity);
       const t = button(`slot${slot === this.slot ? ' on' : ''}`, `${src ? `<img src="${src}" alt="">` : SLOT_ICON[slot]}<span>${SLOT_LABEL[slot]}</span>`, () => {
         this.tap();
-        if (slot === this.slot) this.setFocus(this.focus ? null : slot);
+        if (slot === this.slot && !this.emoteTab) this.setFocus(this.focus ? null : slot);
         else {
           this.slot = slot;
+          this.emoteTab = false;
           this.setFocus(slot);
           this.refreshGarage();
         }
       }, g.rail);
       t.style.setProperty('--rc', RARITIES[eq.rarity].color);
+      if (this.emoteTab) t.classList.remove('on');
     }
+    const picked = (p.emotes?.win.length ?? 0) + (p.emotes?.taunt.length ?? 0);
+    const et = button(`slot emotes${this.emoteTab ? ' on' : ''}`, `${ICON.star}<span>Emotes</span>`, () => {
+      if (this.emoteTab) return;
+      this.tap();
+      this.emoteTab = true;
+      this.refreshGarage();
+    }, g.rail);
+    et.style.setProperty('--rc', picked ? '#ffc23d' : '#5d6880');
+    g.view.style.display = this.emoteTab ? 'none' : '';
+    if (this.emoteTab) {
+      this.renderEmotes();
+      this.prewarmThumbs();
+      return;
+    }
+    g.rar.className = 'rarities';
 
     const eq = p.loadout[this.slot];
     const cur = ITEM_BY_ID.get(eq.id)!;
@@ -409,6 +431,85 @@ export class App {
     }
     g.items.scrollTop = scroll;
     this.prewarmThumbs();
+  }
+
+  /** The Emotes tab: equip up to three celebrations and three taunts, tap one to see it. */
+  private renderEmotes() {
+    const g = this.garageEls!;
+    const p = this.player;
+    const kind = this.emoteKind;
+    const mine = p.emotes?.[kind] ?? [];
+    const count = (k: EmoteKind) => p.emotes?.[k].length ?? 0;
+    g.title.innerHTML = `<b>Emotes</b><span>${kind === 'win' ? 'After a win' : 'While they are down'} · ${mine.length ? `${mine.length}/${MAX_PICKS} equipped` : 'bot picks its own'}</span>`;
+    this.setFocus(null);
+
+    g.rar.className = 'rarities kinds';
+    g.rar.innerHTML = '';
+    const kinds: [EmoteKind, string, string][] = [
+      ['win', 'Celebrations', '#ffc23d'],
+      ['taunt', 'Taunts', '#ff5a5a'],
+    ];
+    for (const [k, label, color] of kinds) {
+      const b = button(`rar${k === kind ? ' on' : ''}`, `${label} <small>${count(k)}/${MAX_PICKS}</small>`, () => {
+        if (this.emoteKind === k) return;
+        this.tap();
+        this.emoteKind = k;
+        g.items.scrollTop = 0;
+        this.refreshGarage();
+      }, g.rar);
+      b.style.setProperty('--rc', color);
+    }
+
+    const scroll = g.items.scrollTop;
+    g.items.innerHTML = '';
+    el(
+      'div',
+      'emote-hint',
+      mine.length
+        ? `Your bot only performs what you equip here, picking whatever suits the fight.`
+        : `Nothing equipped: your bot picks its own. Equip up to ${MAX_PICKS} to choose.`,
+      g.items,
+    );
+    for (const e of EMOTE_INFO) {
+      if (e.kind !== kind) continue;
+      const n = mine.indexOf(e.id);
+      const row = el('div', `emote${n >= 0 ? ' on' : ''}`, '', g.items);
+      row.style.setProperty('--rc', kinds.find((x) => x[0] === kind)![2]);
+      button('emote-play', this.emoteHtml(e, n), () => {
+        this.tap();
+        this.game.previewEmote(e.id);
+      }, row);
+      button('emote-eq', n >= 0 ? `${ICON.close}<span>Remove</span>` : `<span>Equip</span>`, () => this.toggleEmote(e), row);
+    }
+    g.items.scrollTop = scroll;
+  }
+
+  private emoteHtml(e: EmoteInfo, slot: number) {
+    const badge = slot >= 0 ? `<i>${slot + 1}</i>` : '';
+    return `<div class="pic">${e.kind === 'win' ? ICON.trophy : ICON.flame}${badge}</div>
+      <div class="t"><b>${esc(e.name)}</b><span class="play">${ICON.play}</span></div>
+      <div class="tag">${esc(e.blurb)}</div>`;
+  }
+
+  /** Equip or take off an emote; a fourth pick replaces the oldest. */
+  private toggleEmote(e: EmoteInfo) {
+    const p = this.player;
+    const picks = p.emotes ?? { win: [], taunt: [] };
+    const list = picks[e.kind];
+    const i = list.indexOf(e.id);
+    if (i >= 0) {
+      this.tap('back');
+      list.splice(i, 1);
+    } else {
+      this.tap('select');
+      list.push(e.id);
+      if (list.length > MAX_PICKS) list.shift();
+      this.game.previewEmote(e.id);
+    }
+    if (picks.win.length || picks.taunt.length) p.emotes = picks;
+    else delete p.emotes;
+    // keep the showcase bot (and its preview) as it is: only the picks changed
+    this.commitPlayer(false);
   }
 
   /** Draw the other slots' pictures in idle moments, so switching tabs never waits on them. */

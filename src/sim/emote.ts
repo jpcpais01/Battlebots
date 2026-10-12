@@ -838,8 +838,27 @@ function celebrationWeights(r: FightRead): [Spec, number][] {
     [bow, (1 - r.showboat) * 1.2 + aff(s, { 'Counter-puncher': 1, 'Out-fighter': 0.8 }, 0) + (r.decision ? 1 : 0) + (r.hp < 0.5 ? 0.4 : 0)],
     [kneel, hard ? 1.2 + (0.35 - Math.min(0.35, r.hp)) * 4 + r.downs * 0.6 : 0],
     [shadowbox, aff(s, { 'Out-fighter': 1.2, Swarmer: 0.8, Boxer: 1 }, 0.3) + r.showboat * 0.6],
-    [standOver, r.decision ? 0 : r.temper * 1.2 + r.showboat * 0.5 + (r.downs > 0 ? 0.8 : 0)],
+    [standOver, r.decision ? -1 : r.temper * 1.2 + r.showboat * 0.5 + (r.downs > 0 ? 0.8 : 0)],
+    // the encores open a fight's celebrations only when the player equipped them
+    [fistPumps, 0],
+    [wave, 0],
+    [lap, 0],
   ];
+}
+
+/**
+ * Narrow weights to the player's equipped emotes. The fight still leans the choice
+ * (a brawler's picks favour the flex), but every pick keeps a fair share, so each one
+ * shows up; impossible ones (weight < 0: no one to stand over, no time) never do.
+ */
+function only(w: [Spec, number][], picks: Set<Spec> | null): [Spec, number][] {
+  const out = w.filter((e) => e[1] >= 0 && (!picks || picks.has(e[0])));
+  if (!picks) return out;
+  let top = 0;
+  for (const e of out) top = Math.max(top, e[1]);
+  const floor = top > 0 ? top * 0.35 : 1;
+  for (const e of out) e[1] = Math.max(e[1], floor);
+  return out;
 }
 
 function encoreWeights(r: FightRead, last: Spec): [Spec, number][] {
@@ -855,7 +874,7 @@ function encoreWeights(r: FightRead, last: Spec): [Spec, number][] {
   return w;
 }
 
-function tauntWeights(r: FightRead, last: Spec | null, room: number): [Spec, number][] {
+function tauntWeights(r: FightRead, room: number): [Spec, number][] {
   const s = r.style;
   const w: [Spec, number][] = [
     [beckon, aff(s, { 'Counter-puncher': 1.4, Boxer: 1.2 }, 0.6) + (1 - r.showboat) * 0.4],
@@ -867,10 +886,8 @@ function tauntWeights(r: FightRead, last: Spec | null, room: number): [Spec, num
     [gloveTap, (1 - r.showboat) * 1.2 + r.caution * 0.5],
     [strut, r.showboat + aff(s, { 'Out-fighter': 0.4 }, 0)],
   ];
-  for (const e of w) {
-    if ((e[0].min ?? 0) > room) e[1] = 0;
-    if (e[0] === last) e[1] *= 0.2;
-  }
+  // too long for this count: impossible, even when equipped
+  for (const e of w) if ((e[0].min ?? 0) > room) e[1] = -1;
   return w;
 }
 
@@ -881,7 +898,12 @@ export class Showman {
   readonly pose = new EmotePose();
   private readonly me: Fighter;
   private readonly opp: Fighter;
-  private readonly brain: Brain;
+  private readonly brain: Brain | null;
+  /** The player's equipped emotes; null = the fighter picks from everything. */
+  private readonly wins: Set<Spec> | null;
+  private readonly taunts: Set<Spec> | null;
+  /** Radius of the ring walk (laps, struts); small for the garage preview. */
+  private ringR = 2.3;
   private spec: Spec | null = null;
   private kind: 'none' | 'taunt' | 'celebrate' = 'none';
   private readonly c = new Ctx();
@@ -906,10 +928,17 @@ export class Showman {
   private match: Match | null = null;
   private readonly _gt = new Vector3();
 
-  constructor(me: Fighter, opp: Fighter, brain: Brain) {
+  constructor(me: Fighter, opp: Fighter, brain: Brain | null, picks?: EmotePicks) {
     this.me = me;
     this.opp = opp;
     this.brain = brain;
+    const set = (ids: readonly string[] | undefined) => {
+      const out = new Set<Spec>();
+      for (const id of ids ?? []) if (EMOTES[id]) out.add(EMOTES[id]);
+      return out.size ? out : null;
+    };
+    this.wins = set(picks?.win?.filter((id) => EMOTE_KIND[id] === 'win'));
+    this.taunts = set(picks?.taunt?.filter((id) => EMOTE_KIND[id] === 'taunt'));
     me.emote = this.pose;
     this.c.onBeat = (k, shake) => this.match?.emit('emote', { f: this.me, k, shake });
   }
@@ -927,7 +956,7 @@ export class Showman {
     const winning = (m.phase === 'ko' || m.phase === 'end') && m.winner === me && me.state === 'win';
     if (winning) {
       if (this.kind !== 'celebrate') this.celebrate(m);
-      else if (this.spec && this.c.t >= this.c.T - 0.45) this.play(pickWeighted(this.rng(m), encoreWeights(this.read!, this.spec)), 'celebrate', 0);
+      else if (this.spec && this.c.t >= this.c.T - 0.45) this.play(pickWeighted(this.rng(m), this.encores(this.read!, this.spec)), 'celebrate', 0);
     } else if (this.kind === 'celebrate') {
       this.cancel(0.15);
     } else if (this.kind === 'taunt') {
@@ -948,20 +977,43 @@ export class Showman {
     this.step(dt);
   }
 
+  /** Garage: perform this emote now, playing to `yaw` (the camera). */
+  preview(id: string, yaw: number) {
+    const spec = EMOTES[id];
+    if (!spec) return;
+    this.ringR = 0.9;
+    this.play(spec, EMOTE_KIND[id] === 'taunt' ? 'taunt' : 'celebrate', this.plays % 2 ? 0.3 : 0.7);
+    this.crowdYaw = yaw;
+  }
+
+  /** Garage: wind down whatever is playing (the bot was asked to throw a move). */
+  stop() {
+    this.cancel(0.15);
+  }
+
+  get playing() {
+    return this.spec !== null;
+  }
+
+  /** Garage: advance the preview (no match, no decisions). */
+  tick(dt: number) {
+    this.step(dt);
+  }
+
   /** Deterministic per moment, without touching the fight's random streams. */
   private rng(m: Match) {
     return new Rng((Math.floor(m.time * 120) * 2654435761 + (this.me.index + 1) * 40503 + this.plays * 7919) >>> 0);
   }
 
   private assess(m: Match): FightRead {
-    const t = this.brain.traits;
+    const t = this.brain!.traits;
     return {
       style: t.style,
       showboat: t.showboat,
       temper: t.temper,
       aggression: t.aggression,
       caution: t.caution,
-      confidence: this.brain.confidence,
+      confidence: this.brain!.confidence,
       hp: this.me.hpRatio,
       downs: this.me.knockdowns,
       oppDowns: this.opp.knockdowns,
@@ -973,19 +1025,37 @@ export class Showman {
   private celebrate(m: Match) {
     this.read = this.assess(m);
     const rng = this.rng(m);
-    this.play(pickWeighted(rng, celebrationWeights(this.read)), 'celebrate', rng.next(), rng.chance(0.3));
+    let w = only(celebrationWeights(this.read), this.wins);
+    // nothing equipped fits this win (only Stand Over, after a decision): the fighter improvises
+    if (!w.length) w = only(celebrationWeights(this.read), null);
+    this.play(pickWeighted(rng, w), 'celebrate', rng.next(), rng.chance(0.3));
+  }
+
+  /** What comes next while the winner stays in the ring. */
+  private encores(r: FightRead, last: Spec): [Spec, number][] {
+    let w: [Spec, number][];
+    if (!this.wins) w = encoreWeights(r, last);
+    else {
+      // the player's own picks, in turn; a lone pick takes turns with the stock encores
+      w = [...this.wins].map((s): [Spec, number] => [s, s === standOver && r.decision ? 0 : 1.5]);
+      if (w.length < 2) for (const s of [fistPumps, wave, lap]) if (!this.wins.has(s)) w.push([s, 0.5]);
+      for (const e of w) if (e[0] === last) e[1] = 0;
+    }
+    return w;
   }
 
   private considerTaunt(m: Match) {
     const r = this.assess(m);
     const rng = this.rng(m);
-    // most fighters can't resist; composed ones sometimes just wait
-    if (!rng.chance(0.75 + r.showboat * 0.25)) return;
+    // most fighters can't resist; composed ones sometimes just wait (not with taunts equipped)
+    if (!rng.chance(this.taunts ? 0.92 : 0.75 + r.showboat * 0.25)) return;
     // the count leaves: lying time, plus part of the get-up (it is back in guard before they stand)
     const room = this.opp.downTime + 1.35 * 0.4 - 0.15;
     if (room < 1.3) return;
-    const spec = pickWeighted(rng, tauntWeights(r, this.lastTaunt, room));
-    if ((spec.min ?? 0) > room) return;
+    const w = only(tauntWeights(r, room), this.taunts);
+    if (!w.length) return;
+    for (const e of w) if (e[0] === this.lastTaunt) e[1] *= 0.2;
+    const spec = pickWeighted(rng, w);
     this.lastTaunt = spec;
     this.play(spec, 'taunt', rng.next(), false, Math.min(spec.len, room));
     if (spec.line) m.emit('brain', { kind: 'taunt', text: spec.line(this.me.name, this.opp.name) });
@@ -1118,10 +1188,13 @@ export class Showman {
     me.intentVel.multiplyScalar(1 - plant);
     if (c.walk !== 0) {
       // circle the ring centre, staying a step off the ropes
-      const r = Math.max(0.5, DM.hypot(me.root.x, me.root.z));
-      const tx = -me.root.z / r, tz = me.root.x / r;
-      const want = 2.3;
-      me.intentVel.set(tx * c.walk + (me.root.x / r) * (want - r) * 0.8, 0, tz * c.walk + (me.root.z / r) * (want - r) * 0.8);
+      const d0 = DM.hypot(me.root.x, me.root.z);
+      const r = Math.max(0.5, d0);
+      // right on the centre (the garage mark) there is no "around": head out the way it faces
+      const ux = d0 > 0.05 ? me.root.x / d0 : DM.sin(me.faceYaw);
+      const uz = d0 > 0.05 ? me.root.z / d0 : DM.cos(me.faceYaw);
+      const want = this.ringR;
+      me.intentVel.set(-uz * c.walk + ux * (want - r) * 0.8, 0, ux * c.walk + uz * (want - r) * 0.8);
     }
     me.lift = a[EC.LIFT] * P.w;
     me.bounce *= 1 - 0.08 * P.w;
@@ -1132,3 +1205,46 @@ export class Showman {
 export const EMOTES: Record<string, Spec> = Object.fromEntries(
   [champion, flex, chestPound, leap, salute, bow, kneel, shadowbox, standOver, fistPumps, wave, lap, beckon, shrug, pointDown, shuffle, crowdPump, stompRoar, gloveTap, strut].map((s) => [s.id, s]),
 );
+
+/** Equipped emotes (picked in the garage). Empty lists mean the fighter picks for itself. */
+export interface EmotePicks {
+  win: string[];
+  taunt: string[];
+}
+
+export type EmoteKind = 'win' | 'taunt';
+export interface EmoteInfo {
+  id: string;
+  kind: EmoteKind;
+  name: string;
+  blurb: string;
+}
+
+/** How many of each kind a bot can equip. */
+export const MAX_PICKS = 3;
+
+/** The garage catalog, in display order. */
+export const EMOTE_INFO: readonly EmoteInfo[] = [
+  { id: 'champion', kind: 'win', name: 'Champion', blurb: 'Both fists to the sky, then a strut for the fans.' },
+  { id: 'flex', kind: 'win', name: 'Flex', blurb: 'Double biceps for the cameras.' },
+  { id: 'chestPound', kind: 'win', name: 'Chest Pound', blurb: 'Hammers the chest plate and roars.' },
+  { id: 'leap', kind: 'win', name: 'Victory Leap', blurb: 'Jumps for joy, fist punched high.' },
+  { id: 'salute', kind: 'win', name: 'Salute', blurb: 'A crisp salute to every side of the house.' },
+  { id: 'bow', kind: 'win', name: 'Bow', blurb: 'A deep, respectful bow.' },
+  { id: 'kneel', kind: 'win', name: 'Kneel', blurb: 'Drops to one knee, spent but victorious.' },
+  { id: 'shadowbox', kind: 'win', name: 'Shadowbox', blurb: 'Still has combos left to show off.' },
+  { id: 'standOver', kind: 'win', name: 'Stand Over', blurb: 'Looms over the fallen. Knockouts only.' },
+  { id: 'fistPumps', kind: 'win', name: 'Fist Pumps', blurb: 'Yes! Yes! Yes!' },
+  { id: 'wave', kind: 'win', name: 'Wave', blurb: 'Waves to the crowd with both arms.' },
+  { id: 'lap', kind: 'win', name: 'Victory Lap', blurb: 'A lap of the ring, arms up.' },
+  { id: 'beckon', kind: 'taunt', name: 'Come On', blurb: 'Waves them back to their feet.' },
+  { id: 'shrug', kind: 'taunt', name: 'Shrug', blurb: 'Is that all you have?' },
+  { id: 'pointDown', kind: 'taunt', name: 'Point Down', blurb: 'Points at them on the canvas.' },
+  { id: 'shuffle', kind: 'taunt', name: 'Shuffle', blurb: 'A flashy foot shuffle.' },
+  { id: 'crowdPump', kind: 'taunt', name: 'Hype the Crowd', blurb: 'Turns to the fans for more noise.' },
+  { id: 'stompRoar', kind: 'taunt', name: 'Stomp & Roar', blurb: 'Stomps the canvas and roars over them.' },
+  { id: 'gloveTap', kind: 'taunt', name: 'Glove Tap', blurb: 'Bangs the gloves together and waits.' },
+  { id: 'strut', kind: 'taunt', name: 'Strut', blurb: 'Struts around the ring.' },
+];
+
+export const EMOTE_KIND: Record<string, EmoteKind> = Object.fromEntries(EMOTE_INFO.map((e) => [e.id, e.kind]));

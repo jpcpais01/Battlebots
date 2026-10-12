@@ -4,6 +4,7 @@ import { MOVES } from '../sim/moves';
 import { BASE_STATS, ITEMS, RARITIES } from '../game/items';
 import { randomBot } from '../game/loadout';
 import { Rng } from '../sim/math';
+import { EMOTE_INFO } from '../sim/emote';
 
 let cached: number | null = null;
 
@@ -19,7 +20,7 @@ export function simFingerprint(): number {
   const mix = (v: number) => {
     h = Math.imul(h ^ (v | 0), 0x01000193);
   };
-  const data = JSON.stringify([ITEMS, MOVES, BASE_STATS, RARITIES]);
+  const data = JSON.stringify([ITEMS, MOVES, BASE_STATS, RARITIES, EMOTE_INFO.map((e) => e.id)]);
   for (let i = 0; i < data.length; i++) mix(data.charCodeAt(i));
   const rng = new Rng(0xb07b07);
   const m = new Match(randomBot(rng, 0.9), randomBot(rng, 0.9), 0x5eed);

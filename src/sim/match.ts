@@ -120,7 +120,7 @@ export class Match {
     ba.rival = bb;
     bb.rival = ba;
     this.brains = [ba, bb];
-    this.shows = [new Showman(fa, fb, ba), new Showman(fb, fa, bb)];
+    this.shows = [new Showman(fa, fb, ba, a.emotes), new Showman(fb, fa, bb, b.emotes)];
     for (const f of this.fighters) {
       f.hooks = {
         time: 0,
