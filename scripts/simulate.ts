@@ -6,6 +6,7 @@ import { Match, SIM_DT } from '../src/sim/match';
 import { randomBot } from '../src/game/loadout';
 import { Rng } from '../src/sim/math';
 import { J } from '../src/sim/body';
+import { PART_COUNT, PART_NAME } from '../src/sim/damage';
 
 const N = Number(process.argv[2] ?? 40);
 const seed = Number(process.argv[3] ?? 1234);
@@ -29,7 +30,14 @@ const agg = {
   stalls: 0,
   staggers: 0,
   trips: 0,
+  dismantled: 0,
+  tears: 0,
 };
+const lossBy = new Map<string, number>();
+const tornParts = new Map<string, number>();
+const loserCond = new Float64Array(PART_COUNT);
+const winnerCond = new Float64Array(PART_COUNT);
+let condN = 0;
 const moveUse = new Map<string, { n: number; hit: number; blk: number; dodge: number; whiff: number }>();
 const respUse = new Map<string, number>();
 const plans = new Map<string, number>();
@@ -58,6 +66,10 @@ for (let i = 0; i < N; i++) {
     if (type === 'whiff') agg.whiffs++;
     if (type === 'stagger') agg.staggers++;
     if (type === 'knockdown' && d.zone === 'legs') agg.trips++;
+    if (type === 'detach') {
+      agg.tears++;
+      tornParts.set(PART_NAME[d.part], (tornParts.get(PART_NAME[d.part]) ?? 0) + 1);
+    }
     if (type === 'dodgeStart') respUse.set(d.d.type, (respUse.get(d.d.type) ?? 0) + 1);
   });
   let steps = 0;
@@ -86,7 +98,17 @@ for (let i = 0; i < N; i++) {
   agg.duration += 99 - m.clock;
   if (m.result === 'KO') agg.ko++;
   else if (m.result === 'TKO') agg.tko++;
-  else if (m.result === 'Decision') agg.decision++;
+  else if (m.result === 'Dismantled') {
+    agg.dismantled++;
+    lossBy.set(m.lossReason!, (lossBy.get(m.lossReason!) ?? 0) + 1);
+  } else if (m.result === 'Decision') agg.decision++;
+  if (m.winner) {
+    condN++;
+    for (let p = 0; p < PART_COUNT; p++) {
+      loserCond[p] += m.winner.opp.parts.cond[p];
+      winnerCond[p] += m.winner.parts.cond[p];
+    }
+  }
   else agg.draw++;
   for (const f of [fa, fb]) {
     agg.thrown += f.stats.thrown;
@@ -105,7 +127,9 @@ for (let i = 0; i < N; i++) {
 }
 const per = (x: number) => (x / N).toFixed(1);
 console.log('\n=== summary over', N, 'matches ===');
-console.log(`avg duration ${per(agg.duration)}s | KO ${agg.ko} TKO ${agg.tko} DEC ${agg.decision} DRAW ${agg.draw}`);
+console.log(`avg duration ${per(agg.duration)}s | KO ${agg.ko} TKO ${agg.tko} DISMANTLED ${agg.dismantled} DEC ${agg.decision} DRAW ${agg.draw}`);
+console.log(`parts torn off ${agg.tears} (${[...tornParts.entries()].map(([k, v]) => `${k}:${v}`).join(' ')}) | dismantled by ${[...lossBy.entries()].map(([k, v]) => `${k}:${v}`).join(' ')}`);
+console.log(`avg end condition (loser / winner): ${PART_NAME.map((n, p) => `${n} ${Math.round((loserCond[p] / condN) * 100)}/${Math.round((winnerCond[p] / condN) * 100)}`).join(', ')}`);
 console.log(
   `per match: thrown ${per(agg.thrown)} landed ${per(agg.landed)} (${((agg.landed / agg.thrown) * 100).toFixed(0)}%) blocked ${per(agg.blocked)} dodged ${per(agg.dodged)} whiffs ${per(agg.whiffs)} feints ${per(agg.feints)} counters ${per(agg.counters)} knockdowns ${per(agg.knockdowns)}`,
 );

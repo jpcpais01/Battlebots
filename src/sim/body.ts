@@ -108,6 +108,8 @@ export class Body {
   tone = 1;
   arenaRadius = 4.6;
   grounded = new Uint8Array(JOINT_COUNT);
+  /** Particles of torn-off parts: they no longer follow the rig or hold on to the body. */
+  readonly cut = new Uint8Array(JOINT_COUNT);
 
   constructor(restPose: Vector3[]) {
     for (let i = 0; i < JOINT_COUNT; i++) {
@@ -123,6 +125,11 @@ export class Body {
 
   private addConstraint(a: number, b: number, pose: Vector3[], ragdollOnly: boolean, stiffness: number) {
     this.constraints.push({ a, b, rest: pose[a].distanceTo(pose[b]), ragdollOnly, stiffness });
+  }
+
+  /** Tear particles loose (a part came off): they drop free and stop pulling on the rest. */
+  sever(joints: readonly number[]) {
+    for (const j of joints) this.cut[j] = 1;
   }
 
   teleport(pose: Vector3[]) {
@@ -172,7 +179,7 @@ export class Body {
       p.x += vx;
       p.y += vy + g;
       p.z += vz;
-      if (tone > 0) {
+      if (tone > 0 && !this.cut[i]) {
         const k = Math.min(0.95, FOLLOW[i] * tone * this.loose[i]);
         const t = this.target[i];
         p.x += (t.x - p.x) * k;
@@ -187,6 +194,7 @@ export class Body {
     for (let it = 0; it < iterations; it++) {
       for (const c of this.constraints) {
         if (c.ragdollOnly && !ragdoll) continue;
+        if (this.cut[c.a] !== this.cut[c.b]) continue;
         this.solve(c);
       }
       if (ragdoll) this.hinges();
@@ -218,6 +226,7 @@ export class Body {
   }
 
   private hinge(a: number, m: number, b: number, sign: number) {
+    if (this.cut[m] || this.cut[b]) return;
     const pa = this.pos[a], pm = this.pos[m], pb = this.pos[b];
     _c.addVectors(pa, pb).multiplyScalar(0.5);
     _a.subVectors(pm, _c);

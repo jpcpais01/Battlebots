@@ -14,7 +14,8 @@ export type MoveId =
   | 'roundhouse'
   | 'sweep'
   | 'spinKick'
-  | 'flyingKnee';
+  | 'flyingKnee'
+  | 'lowKick';
 
 export type Zone = 'head' | 'body' | 'legs';
 export type Path =
@@ -173,6 +174,16 @@ export const MOVES: Record<MoveId, MoveDef> = {
     windup: 0.3, active: 0.2, recovery: 0.4, damage: 100, poise: 55, knockback: 2.0, stamina: 20, hitstun: 0.42,
     range: [1.1, 2.5], zones: ['head', 'body'], twist: 0.4, lean: 0.1, crouch: 0.1, lunge: 1.25, power: true,
     ability: 'kick', cooldown: 9, jump: 0.38, vfx: 'jet',
+  }),
+
+  // ---- basic kick (everyone has it) ----
+  // a short rear-leg roundhouse into the thigh and knee: it can't be blocked with the
+  // hands, so it's on a cooldown, and it chops away at the legs over a fight
+  lowKick: M({
+    id: 'lowKick', name: 'Low Kick', kind: 'kick', limb: 'rear', path: 'roundKick', striker: 'foot',
+    windup: 0.21, active: 0.14, recovery: 0.3, damage: 30, poise: 14, knockback: 0.5, stamina: 9, hitstun: 0.22,
+    range: [0.65, 1.25], zones: ['legs'], twist: 1.0, lean: -0.08, crouch: 0.04, lunge: 0.06, power: false,
+    cooldown: 1.8,
   }),
 };
 
