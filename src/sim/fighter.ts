@@ -17,6 +17,7 @@ import {
   SpringVec,
   wrapAngle,
 } from './math';
+import { DM } from './dmath';
 import { EC, type EmotePose } from './emote';
 
 export type FState = 'ready' | 'fight' | 'stun' | 'stagger' | 'down' | 'getup' | 'ko' | 'win';
@@ -132,6 +133,8 @@ const FOOT_Y = 0.08;
 const PELVIS_H = 0.98;
 
 let UID = 1;
+/** Restart action ids, so a fight numbers its actions the same on every device. */
+export const resetUids = () => (UID = 1);
 
 // scratch
 const _v = new Vector3();
@@ -466,18 +469,18 @@ export class Fighter {
     return this.yaw + this.spinYaw;
   }
   forward(out: Vector3, yaw = this.faceYaw) {
-    return out.set(Math.sin(yaw), 0, Math.cos(yaw));
+    return out.set(DM.sin(yaw), 0, DM.cos(yaw));
   }
   right(out: Vector3, yaw = this.faceYaw) {
-    return out.set(-Math.cos(yaw), 0, Math.sin(yaw));
+    return out.set(-DM.cos(yaw), 0, DM.sin(yaw));
   }
   toWorld(local: Vector3, out: Vector3, yaw = this.faceYaw) {
-    const s = Math.sin(yaw), c = Math.cos(yaw);
+    const s = DM.sin(yaw), c = DM.cos(yaw);
     const x = local.x, y = local.y, z = local.z;
     return out.set(this.root.x - c * x + s * z, this.root.y + y, this.root.z + s * x + c * z);
   }
   toLocal(world: Vector3, out: Vector3, yaw = this.faceYaw) {
-    const s = Math.sin(yaw), c = Math.cos(yaw);
+    const s = DM.sin(yaw), c = DM.cos(yaw);
     const dx = world.x - this.root.x, dy = world.y - this.root.y, dz = world.z - this.root.z;
     return out.set(-c * dx + s * dz, dy, s * dx + c * dz);
   }
@@ -796,12 +799,12 @@ export class Fighter {
     if (_u.lengthSq() < 1e-4) _u.set(this.opp.root.x - P[J.Pelvis].x, 0, this.opp.root.z - P[J.Pelvis].z);
     _u.normalize();
     if (!faceDown) _u.negate();
-    this.yaw = Math.atan2(_u.x, _u.z);
+    this.yaw = DM.atan2(_u.x, _u.z);
     // the first key's pelvis sits where the lying pelvis is
     const pz = this.getupKeys[0].pz;
     this.root.set(P[J.Pelvis].x - _u.x * pz, 0, P[J.Pelvis].z - _u.z * pz);
     // keep inside ring
-    const r = Math.hypot(this.root.x, this.root.z);
+    const r = DM.hypot(this.root.x, this.root.z);
     const lim = this.body.arenaRadius - 0.8;
     if (r > lim) this.root.multiplyScalar(lim / r);
     this.rootVel.set(0, 0, 0);
@@ -939,7 +942,7 @@ export class Fighter {
 
     // facing
     if (this.opp) {
-      let target = Math.atan2(this.opp.root.x - this.root.x, this.opp.root.z - this.root.z);
+      let target = DM.atan2(this.opp.root.x - this.root.x, this.opp.root.z - this.root.z);
       let turn = 9;
       if (s && s.phase === 'active') turn = 3;
       if (this.state === 'stun') turn = 2;
@@ -963,7 +966,7 @@ export class Fighter {
     if (sup && !sup.locked && !sup.stepping && dTurn !== 0 && Math.abs(dTurn) < 1) {
       const f = sup;
       const cx = (this.root.x + f.pos.x) * 0.5, cz = (this.root.z + f.pos.z) * 0.5;
-      const c = Math.cos(dTurn), sn = Math.sin(dTurn);
+      const c = DM.cos(dTurn), sn = DM.sin(dTurn);
       for (const p of [this.root, f.pos]) {
         const rx = p.x - cx, rz = p.z - cz;
         p.x = cx + rx * c + rz * sn;
@@ -975,7 +978,7 @@ export class Fighter {
   }
 
   distTo(o: Fighter) {
-    return Math.hypot(o.root.x - this.root.x, o.root.z - this.root.z);
+    return DM.hypot(o.root.x - this.root.x, o.root.z - this.root.z);
   }
 
   // ---------------------------------------------------------------- feet
@@ -1013,7 +1016,7 @@ export class Fighter {
         f.t += dt / f.dur;
         const k = minJerk(f.t);
         f.pos.lerpVectors(f.from, f.to, k);
-        f.pos.y = lerp(f.from.y, f.to.y, k) + Math.sin(Math.PI * clamp01(f.t)) * f.arc;
+        f.pos.y = lerp(f.from.y, f.to.y, k) + DM.sin(Math.PI * clamp01(f.t)) * f.arc;
         f.yaw = f.fromYaw + wrapAngle(f.toYaw - f.fromYaw) * smoothstep(0, 0.8, f.t);
         if (f.t >= 1) {
           f.stepping = false;
@@ -1042,7 +1045,7 @@ export class Fighter {
       this.stanceFoot(i, _p);
       this.toWorld(_p, _q, this.yaw);
       _q.addScaledVector(this.rootVel, 0.12);
-      let err = Math.hypot(_q.x - f.pos.x, _q.z - f.pos.z);
+      let err = DM.hypot(_q.x - f.pos.x, _q.z - f.pos.z);
       // planted feet that end up twisted against the body get re-placed (pivot steps)
       err += Math.max(0, Math.abs(wrapAngle(this.yaw + this.stanceFootYaw(i) - f.yaw)) - 0.45) * 0.3;
       // step with the foot that leads the movement: lead foot first going forward, rear going back
@@ -1102,7 +1105,7 @@ export class Fighter {
     pivot[0] = pivot[1] = 0;
     // on the balls of the feet: rear heel up, both heels lift with the bounce
     const rearI = st < 0 ? 1 : 0;
-    const onToes = fighting ? 0.08 + 0.1 * this.bounce * (0.5 + 0.5 * Math.sin(this.bobPhase)) : 0;
+    const onToes = fighting ? 0.08 + 0.1 * this.bounce * (0.5 + 0.5 * DM.sin(this.bobPhase)) : 0;
     heel[0] = heel[1] = onToes;
     heel[rearI] += fighting ? 0.14 : 0;
 
@@ -1233,13 +1236,13 @@ export class Fighter {
     }
     if (this.state === 'win' && !this.emote) {
       pitch = -0.12;
-      shTw = Math.sin(t * 2) * 0.2;
+      shTw = DM.sin(t * 2) * 0.2;
       hipTw = shTw * 0.4;
-      crouch = 0.02 + Math.abs(Math.sin(t * 4)) * 0.04;
+      crouch = 0.02 + Math.abs(DM.sin(t * 4)) * 0.04;
     }
     if (this.taunt > 0) {
       pitch -= 0.15 * this.taunt;
-      shTw += Math.sin(t * 5) * 0.25 * this.taunt;
+      shTw += DM.sin(t * 5) * 0.25 * this.taunt;
     }
     if (em) {
       // celebrating or taunting: the emote's body shape over the fighting one
@@ -1256,7 +1259,7 @@ export class Fighter {
       heel[1] = lerp(heel[1], e[EC.HEEL], w);
     }
     // locomotion: the upper body leans into the (lagged) travel direction
-    const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
+    const cy = DM.cos(this.yaw), sy = DM.sin(this.yaw);
     const lvx = -cy * this.rootVel.x + sy * this.rootVel.z;
     const lvz = sy * this.rootVel.x + cy * this.rootVel.z;
     if (dt > 0) {
@@ -1278,10 +1281,10 @@ export class Fighter {
     for (let i = 0; i < 2; i++) {
       const f = this.feet[i];
       if (!f.stepping || this.feet[1 - i].stepping) continue;
-      const sw = Math.sin(Math.PI * clamp01(f.t));
+      const sw = DM.sin(Math.PI * clamp01(f.t));
       const dx = f.to.x - f.from.x, dz = f.to.z - f.from.z;
       const fwd = clamp(sy * dx + cy * dz, -0.4, 0.4);
-      const size = Math.min(1, Math.hypot(dx, dz) / 0.3);
+      const size = Math.min(1, DM.hypot(dx, dz) / 0.3);
       const sxF = i === 0 ? -1 : 1;
       pd.x -= sxF * 0.045 * sw * (0.4 + 0.6 * size);
       roll -= sxF * 0.03 * sw * size;
@@ -1343,7 +1346,7 @@ export class Fighter {
     if (dt > 0) this.bobPhase += dt * (5.2 + this.bounce * 2.2 + tired * 1.5 + this.rootVel.length() * 1.2);
     // on the move the steps carry the bounce, so the idle toe-bounce fades out
     const bobAmp = ((fighting ? 0.012 + 0.016 * this.bounce : 0.008) + tired * 0.01) / (1 + this.rootVel.length() * 1.5);
-    const bob = Math.sin(this.bobPhase) * bobAmp;
+    const bob = DM.sin(this.bobPhase) * bobAmp;
 
     // ---------- skeleton (local)
     let pelvisH = PELVIS_H - this.crouch + bob + this.lift;
@@ -1353,7 +1356,7 @@ export class Fighter {
       if (f.locked) continue;
       this.toLocal(f.pos, _p);
       const hx = (i === 0 ? -0.15 : 0.15) + this.pelvisOff.x;
-      const horiz = Math.hypot(_p.x - hx, _p.z - this.pelvisOff.z);
+      const horiz = DM.hypot(_p.x - hx, _p.z - this.pelvisOff.z);
       const reach = (THIGH + SHIN) * 0.985;
       const maxH = _p.y + this.heelLift(i) + Math.sqrt(Math.max(0, reach * reach - horiz * horiz)) + 0.07;
       if (pelvisH > maxH) pelvisH = maxH;
@@ -1361,8 +1364,8 @@ export class Fighter {
     pelvisH = Math.max(0.35, pelvisH);
     if (gu) pelvisH = lerp(pelvisH, gu.py, gu.w);
     L[J.Pelvis].set(this.pelvisOff.x, pelvisH, this.pelvisOff.z);
-    const sp = Math.sin(this.pitch), cp = Math.cos(this.pitch);
-    const sr = Math.sin(this.roll), cr = Math.cos(this.roll);
+    const sp = DM.sin(this.pitch), cp = DM.cos(this.pitch);
+    const sr = DM.sin(this.roll), cr = DM.cos(this.roll);
     _v.set(sr * cp, cr * cp, sp); // spine up
     L[J.Chest].copy(L[J.Pelvis]).addScaledVector(_v, 0.42);
     L[J.Neck].copy(L[J.Chest]).addScaledVector(_v, 0.22);
@@ -1370,11 +1373,11 @@ export class Fighter {
     _p.set(_v.x * 0.5, 1, _v.z * 0.35).normalize();
     L[J.Head].copy(L[J.Neck]).addScaledVector(_p, 0.21).add(this.headOff);
     const tw = this.twist;
-    _p.set(Math.cos(tw), 0, -Math.sin(tw)); // shoulder axis (towards +x = right)
+    _p.set(DM.cos(tw), 0, -DM.sin(tw)); // shoulder axis (towards +x = right)
     L[J.ShR].copy(L[J.Chest]).addScaledVector(_v, 0.1).addScaledVector(_p, 0.31);
     L[J.ShL].copy(L[J.Chest]).addScaledVector(_v, 0.1).addScaledVector(_p, -0.31);
     const htw = this.hipTwist;
-    _q.set(Math.cos(htw), 0, -Math.sin(htw));
+    _q.set(DM.cos(htw), 0, -DM.sin(htw));
     L[J.HipR].copy(L[J.Pelvis]).addScaledVector(_q, 0.15);
     L[J.HipL].copy(L[J.Pelvis]).addScaledVector(_q, -0.15);
     L[J.HipR].y -= 0.07;
@@ -1406,14 +1409,14 @@ export class Fighter {
       // the guard counter-swings a touch against the stepping leg
       hand.z -= sx * this.gaitSwing * 0.08;
       if (isLead) {
-        hand.x += Math.sin(t * 2.3 + this.index) * 0.025 * paw;
-        hand.y += Math.cos(t * 2.9 + this.index) * 0.02 * paw + bob * 0.6;
-        hand.z += Math.sin(t * 1.7) * 0.04 * paw;
+        hand.x += DM.sin(t * 2.3 + this.index) * 0.025 * paw;
+        hand.y += DM.cos(t * 2.9 + this.index) * 0.02 * paw + bob * 0.6;
+        hand.z += DM.sin(t * 1.7) * 0.04 * paw;
       } else {
-        hand.y += Math.sin(t * 1.9 + 1) * 0.012 * paw + bob * 0.4;
+        hand.y += DM.sin(t * 1.9 + 1) * 0.012 * paw + bob * 0.4;
       }
       if (this.state === 'win' && !this.emote) {
-        hand.set(sx * 0.38, 2.15 + Math.sin(t * 6 + side) * 0.06, 0.12);
+        hand.set(sx * 0.38, 2.15 + DM.sin(t * 6 + side) * 0.06, 0.12);
       }
       if (this.state === 'stagger') hand.lerp(_p.set(sx * 0.32, 0.75, 0.25), 0.5);
       // pole: elbows down and out
@@ -1523,8 +1526,8 @@ export class Fighter {
         foot.y += this.heelLift(side);
         if (f.stepping) {
           const k = clamp01(f.t);
-          this.footAirT[side] = Math.sin(Math.PI * k) * 0.8;
-          this.footFlexT[side] = 0.25 * Math.sin(Math.PI * k);
+          this.footAirT[side] = DM.sin(Math.PI * k) * 0.8;
+          this.footFlexT[side] = 0.25 * DM.sin(Math.PI * k);
         }
       }
       this.smoothPole(2 + side, pole, dt);
@@ -1543,7 +1546,7 @@ export class Fighter {
       this.poleSet[i] = true;
       return;
     }
-    if (dt > 0) p.lerp(want, 1 - Math.exp(-POLE_RATE * dt));
+    if (dt > 0) p.lerp(want, 1 - DM.exp(-POLE_RATE * dt));
     if (p.lengthSq() < 0.04) p.copy(want);
     else p.normalize();
     want.copy(p);
@@ -1591,14 +1594,14 @@ export class Fighter {
       if (_be.lengthSq() > 1e-6) {
         _be.normalize();
         const cos = clamp(_be.dot(_bm), -1, 1);
-        const ang = Math.acos(cos);
+        const ang = DM.acos(cos);
         const max = BEND_RATE * dt;
         if (ang > max) {
           // turn from the old side towards the new one by at most `max`
           _bd.copy(_bm).addScaledVector(_be, -cos);
           if (_bd.lengthSq() < 1e-8) _bd.crossVectors(_bs, _be);
           _bd.normalize();
-          _bm.copy(_be).multiplyScalar(Math.cos(max)).addScaledVector(_bd, Math.sin(max));
+          _bm.copy(_be).multiplyScalar(DM.cos(max)).addScaledVector(_bd, DM.sin(max));
           mid.copy(root).addScaledVector(_bs, along).addScaledVector(_bm, r);
         }
       }
@@ -1643,13 +1646,14 @@ export class Fighter {
     const ax = lerp(TRUNK_W[i], TRUNK_W[i + 1], k) + bulk + r;
     const az = (z >= 0 ? lerp(TRUNK_F[i], TRUNK_F[i + 1], k) + bulk * 0.8 : lerp(TRUNK_B[i], TRUNK_B[i + 1], k)) + r;
     // squarish section (superellipse, n = 6): plates have corners
-    const e = (x / ax) ** 6 + (z / az) ** 6;
+    const xa = (x / ax) * (x / ax), za = (z / az) * (z / az);
+    const e = xa * xa * xa + za * za * za;
     if (e >= 1) return 0;
     if (e < 1e-12) {
       out.copy(_tZ).multiplyScalar(az - z);
       return az - z;
     }
-    const g = Math.pow(e, -1 / 6) - 1;
+    const g = DM.pow(e, -1 / 6) - 1;
     out.copy(_tX).multiplyScalar(x * g).addScaledVector(_tZ, z * g);
     return out.length();
   }
@@ -1710,13 +1714,13 @@ export class Fighter {
 
   /** Ankle rise from lifting the heel while the ball of the foot stays planted. */
   private heelLift(i: number) {
-    return this.feet[i].locked ? 0 : Math.sin(this.heel[i]) * 0.075;
+    return this.feet[i].locked ? 0 : DM.sin(this.heel[i]) * 0.075;
   }
 
   private updateGuardWeights(dt: number) {
     const w = this.guardW;
     const mode = this.state === 'fight' || this.state === 'stun' ? this.guardMode : 'normal';
-    const lam = dt > 0 ? 1 - Math.exp(-16 * dt) : 1;
+    const lam = dt > 0 ? 1 - DM.exp(-16 * dt) : 1;
     (['normal', 'high', 'body', 'low'] as GuardMode[]).forEach((m) => {
       w[m] += ((m === mode ? 1 : 0) - w[m]) * lam;
     });
@@ -1879,7 +1883,7 @@ export class Fighter {
     const r = 0.8 * minJerk(k) + 0.2 * easeOutQuad(k);
     out.copy(s.recoverFrom).lerp(guard, r);
     // retract along a slightly lower line so the fist doesn't float back
-    out.y -= Math.sin(Math.PI * r) * 0.03;
+    out.y -= DM.sin(Math.PI * r) * 0.03;
     const from = m.path === 'upper' ? -0.85 : m.path === 'straight' ? 1 : m.path === 'hammer' ? -0.2 : 0.8;
     return lerp(from, 0.12, smoothstep(0, 0.7, k));
   }
@@ -1912,7 +1916,7 @@ export class Fighter {
       const up = s.windup * 0.4;
       const air = up + s.active + s.recovery * 0.35;
       const e = s.phase === 'windup' ? s.t - (s.windup - up) : s.phase === 'active' ? up + s.t : up + s.active + s.t;
-      this.lift = e > 0 && e < air ? Math.sin(Math.PI * (e / air)) * m.jump : 0;
+      this.lift = e > 0 && e < air ? DM.sin(Math.PI * (e / air)) * m.jump : 0;
     }
     switch (m.path) {
       case 'frontKick':
@@ -1989,7 +1993,7 @@ export class Fighter {
       // drive the knee up through the target, the foot tucked under and behind it
       const dz = end.z - hip.z;
       const dy = end.y - hip.y;
-      const aim = clamp(Math.atan2(dz, -dy), 1.45, 2.25);
+      const aim = clamp(DM.atan2(dz, -dy), 1.45, 2.25);
       const drive = easeOutQuad(Math.min(1, prog.k * 1.5));
       this.kneeFoot(hip, lerp(1.25, aim, drive), lerp(0.55, 0.3, drive), out);
       return flex;
@@ -1997,7 +2001,7 @@ export class Fighter {
     if (s.phase === 'windup') {
       const k = easeInOut(clamp01(s.t / s.windup));
       out.lerpVectors(home, C, k);
-      out.y += Math.sin(Math.PI * k) * 0.06;
+      out.y += DM.sin(Math.PI * k) * 0.06;
       return flex;
     }
     if (s.phase === 'active') {
@@ -2034,14 +2038,14 @@ export class Fighter {
       // the foot back under the hip and set it down
       const k2 = easeInOut(k);
       out.lerpVectors(from, home, k2);
-      out.y += Math.sin(Math.PI * k2) * 0.08;
+      out.y += DM.sin(Math.PI * k2) * 0.08;
       return flex * (1 - k2);
     }
     if (k < 0.45) out.lerpVectors(from, C, easeOutQuad(k / 0.45));
     else {
       const k2 = easeInOut((k - 0.45) / 0.55);
       out.lerpVectors(C, home, k2);
-      out.y += Math.sin(Math.PI * k2) * 0.04;
+      out.y += DM.sin(Math.PI * k2) * 0.04;
       flex *= 1 - k2;
     }
     return flex;
@@ -2109,11 +2113,11 @@ export class Fighter {
       const k = prog.ext;
       if (round) {
         // the knee comes up to the target's height first, then the shin swings in level
-        const elC = Math.asin(clamp(dirC.y, -1, 1)), elE = Math.asin(clamp(_u.y, -1, 1));
-        const azC = Math.atan2(dirC.x, dirC.z), azE = Math.atan2(_u.x, _u.z);
+        const elC = DM.asin(clamp(dirC.y, -1, 1)), elE = DM.asin(clamp(_u.y, -1, 1));
+        const azC = DM.atan2(dirC.x, dirC.z), azE = DM.atan2(_u.x, _u.z);
         const el = lerp(elC, elE, smoothstep(0, 0.55, k));
         const az = lerp(azC, azC + wrapAngle(azE - azC), smoothstep(0.2, 1, k));
-        _kd.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
+        _kd.set(DM.cos(el) * DM.sin(az), DM.sin(el), DM.cos(el) * DM.cos(az));
         out.copy(hip).addScaledVector(_kd, lerp(reachC, re, k));
       } else blend(dirC, reachC, _u, re, k);
       pole.copy(back ? under : up);
@@ -2164,7 +2168,7 @@ export class Fighter {
       g.hands[i] = lerp(a.hands[i], b.hands[i], u);
     }
     // the rear foot lifts as it steps up out of the kneel
-    if (a.knee[1] < 0 && b.knee[1] >= 0) g.feet[4] += Math.sin(Math.PI * u) * 0.12;
+    if (a.knee[1] < 0 && b.knee[1] >= 0) g.feet[4] += DM.sin(Math.PI * u) * 0.12;
     g.knee[0] = lerp(a.knee[0], b.knee[0], u);
     g.knee[1] = lerp(a.knee[1], b.knee[1], u);
     g.elbow = lerp(a.elbow, b.elbow, u);
@@ -2179,8 +2183,8 @@ export class Fighter {
   private kneeFoot(hip: Vector3, thigh: number, shin: number, out: Vector3) {
     out.set(
       hip.x * 0.6,
-      hip.y - THIGH * Math.cos(thigh) - SHIN * Math.cos(shin),
-      hip.z + THIGH * Math.sin(thigh) - SHIN * Math.sin(shin),
+      hip.y - THIGH * DM.cos(thigh) - SHIN * DM.cos(shin),
+      hip.z + THIGH * DM.sin(thigh) - SHIN * DM.sin(shin),
     );
     return out;
   }
@@ -2212,7 +2216,7 @@ export class Fighter {
           // post a hand towards the canvas
           _p.set(sx * 0.32, 0.28, 0.22);
           hand.lerp(_p, w * 0.85);
-          hand.addScaledVector(_tX, sx * 0.2 * Math.sin(Math.PI * w * 0.85));
+          hand.addScaledVector(_tX, sx * 0.2 * DM.sin(Math.PI * w * 0.85));
           pole.set(sx * 0.8, 0.2, -0.6);
         } else {
           this.faceGuard(sx, hand, pole, w);
@@ -2249,14 +2253,14 @@ export class Fighter {
       if (c.a === J.ElR && c.b === J.HandR) c.rest = FORE + this.extend[1];
     }
     // render-facing extras (no effect on the simulation)
-    const k = dt > 0 ? 1 - Math.exp(-30 * dt) : 1;
+    const k = dt > 0 ? 1 - DM.exp(-30 * dt) : 1;
     for (let i = 0; i < 2; i++) {
       const f = this.feet[i];
       this.footYaw[i] = (f.locked ? this.faceYaw + this.stanceFootYaw(i) * 0.5 : f.yaw) + this.pivot[i];
       this.footHeel[i] = f.locked ? 0 : this.heel[i];
       this.footAir[i] += (this.footAirT[i] - this.footAir[i]) * k;
       this.footFlex[i] += (this.footFlexT[i] - this.footFlex[i]) * k;
-      this.handRoll[i] += (this.handRollT[i] - this.handRoll[i]) * (dt > 0 ? 1 - Math.exp(-40 * dt) : 1);
+      this.handRoll[i] += (this.handRollT[i] - this.handRoll[i]) * (dt > 0 ? 1 - DM.exp(-40 * dt) : 1);
     }
     // trails
     const s = this.strike;

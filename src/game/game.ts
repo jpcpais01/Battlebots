@@ -70,6 +70,10 @@ export class Game {
   private lastCuts = 0;
   private lastMode = '';
   cb: GameCallbacks = {};
+  /** Called after every sim step of the current match (online fights hash and pace from here). */
+  onStep: ((m: Match) => void) | null = null;
+  /** True while catching up silently: no sounds or effects for steps nobody sees. */
+  private quiet = false;
   private garage: Garage | null = null;
   private _thumbs: PartThumbs | null = null;
   place: Place = 'arena';
@@ -199,7 +203,7 @@ export class Game {
   }
 
   // ------------------------------------------------------------------ match
-  startMatch(a: BotSpec, b: BotSpec, seed?: number) {
+  startMatch(a: BotSpec, b: BotSpec, seed: number) {
     this.endMatch();
     this.showBot(null);
     const m = new Match(a, b, seed);
@@ -226,7 +230,23 @@ export class Game {
     return m;
   }
 
+  /**
+   * Run the match ahead n steps at once, without sound or effects (an online fight
+   * catching up with the other player after a stall or a trip to the background).
+   */
+  fastForward(n: number) {
+    const m = this.match;
+    if (!m) return;
+    this.quiet = true;
+    for (let i = 0; i < n && m.phase !== 'end'; i++) {
+      m.step(SIM_DT);
+      this.onStep?.(m);
+    }
+    this.quiet = false;
+  }
+
   endMatch() {
+    this.onStep = null;
     if (!this.match) return;
     for (const md of this.models) {
       this.stage.scene.remove(md.root);
@@ -242,6 +262,13 @@ export class Game {
   }
 
   private onEvent(type: string, data: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (this.quiet) {
+      // skipped steps: only what changes the picture from here on
+      if (type === 'ko') this.director.focusKO(data.loser.index);
+      this.director.cue(type, data);
+      this.cb.onMatchEvent?.(type, data);
+      return;
+    }
     const fx = this.fx;
     const sfx = this.sfx;
     this.director.cue(type, data);
@@ -360,6 +387,7 @@ export class Game {
       let steps = 0;
       while (this.acc >= SIM_DT && steps < 16) {
         m.step(SIM_DT);
+        this.onStep?.(m);
         this.acc -= SIM_DT;
         steps++;
       }

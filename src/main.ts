@@ -24,6 +24,16 @@ game.sfx = new Sfx();
 const app = new App(game, quality);
 app.firstRunName();
 
+// invite links (?room=CODE) open straight into that room; drop the code from the address
+// so a reload or a home-screen launch doesn't try to join it again
+const room = params.get('room');
+if (room) {
+  params.delete('room');
+  const rest = params.toString();
+  history.replaceState(null, '', `${location.pathname}${rest ? `?${rest}` : ''}${location.hash}`);
+  app.joinLink(room);
+}
+
 // audio can only start from a user gesture
 const unlock = () => game.sfx?.unlock();
 window.addEventListener('pointerdown', unlock, { once: true, capture: true });

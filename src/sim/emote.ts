@@ -4,6 +4,7 @@ import type { Brain } from './brain';
 import type { Fighter, FState } from './fighter';
 import type { Match } from './match';
 import { clamp01, lerp, minJerk, Rng, wrapAngle } from './math';
+import { DM } from './dmath';
 
 /**
  * Showmanship: knockout celebrations and taunts over a downed opponent.
@@ -204,11 +205,11 @@ function S(d: ShapeDef, parent: ShapeDef = BASE): Shape & { def: ShapeDef } {
 
 type Ease = (u: number) => number;
 /** Explosive: most of the travel early, then settle. */
-const snap: Ease = (u) => 1 - Math.pow(1 - u, 3);
+const snap: Ease = (u) => 1 - DM.pow(1 - u, 3);
 /** Overshoot a touch and settle. */
 const punchy: Ease = (u) => {
   const c = 1.9;
-  return 1 + (c + 1) * Math.pow(u - 1, 3) + c * Math.pow(u - 1, 2);
+  return 1 + (c + 1) * DM.pow(u - 1, 3) + c * DM.pow(u - 1, 2);
 };
 type Key = readonly [number, Shape, Ease?];
 
@@ -263,7 +264,7 @@ function win(t: number, a: number, b: number, e = 0.2) {
 /** Repeating 0..1..0 pump at f Hz from t0 (0 before it). */
 function pump(t: number, t0: number, f: number) {
   if (t < t0) return 0;
-  return 0.5 - 0.5 * Math.cos((t - t0) * f * Math.PI * 2);
+  return 0.5 - 0.5 * DM.cos((t - t0) * f * Math.PI * 2);
 }
 
 // ------------------------------------------------------------------ emotes
@@ -328,8 +329,8 @@ const champion: Spec = (() => {
       keys(o, t, K);
       // fists shaking at the sky, and a pump at the top
       const up = win(t, 0.62, 2.2, 0.3);
-      o[armI(0) + 1] += Math.sin(t * 31) * 0.012 * up - 0.14 * pulse(t, 1.5, 0.12, 0.25);
-      o[armI(1) + 1] += Math.sin(t * 29 + 1) * 0.012 * up - 0.14 * pulse(t, 1.62, 0.12, 0.25);
+      o[armI(0) + 1] += DM.sin(t * 31) * 0.012 * up - 0.14 * pulse(t, 1.5, 0.12, 0.25);
+      o[armI(1) + 1] += DM.sin(t * 29 + 1) * 0.012 * up - 0.14 * pulse(t, 1.62, 0.12, 0.25);
       c.gaze = t < 2.1 ? 'sky' : 'crowd';
       c.beat(0.62, 1);
     },
@@ -350,9 +351,9 @@ const flex: Spec = (() => {
       const t = c.t;
       keys(o, t, K);
       const shake = win(t, 1.6, 2.45, 0.1);
-      o[armI(0)] += Math.sin(t * 53) * 0.009 * shake;
-      o[armI(1)] += Math.sin(t * 49 + 2) * 0.009 * shake;
-      o[EC.HEAD] += Math.sin(t * 41) * 0.006 * shake;
+      o[armI(0)] += DM.sin(t * 53) * 0.009 * shake;
+      o[armI(1)] += DM.sin(t * 49 + 2) * 0.009 * shake;
+      o[EC.HEAD] += DM.sin(t * 41) * 0.006 * shake;
       c.gaze = t > 1.5 && t < 2.5 ? 'ahead' : 'sky';
       c.beat(0.7, 0.6);
       c.beat(1.6, 1, 0.12);
@@ -399,7 +400,7 @@ const leap: Spec = (() => {
     sample(o, c) {
       const t = c.t;
       keys(o, t, K);
-      if (t > 0.44 && t < 0.88) o[EC.LIFT] = Math.sin(Math.PI * ((t - 0.44) / 0.44)) * 0.3;
+      if (t > 0.44 && t < 0.88) o[EC.LIFT] = DM.sin(Math.PI * ((t - 0.44) / 0.44)) * 0.3;
       // "yes!": pull the fist down and punch it back up
       for (const p0 of [1.5, 2.05, 2.6]) {
         const p = pulse(t, p0, 0.12, 0.3);
@@ -468,7 +469,7 @@ const kneel: Spec = (() => {
       const t = c.t;
       keys(o, t, K);
       // heavy breathing on one knee
-      o[EC.PITCH] += Math.sin(t * 5) * 0.03 * win(t, 0.85, 2.3);
+      o[EC.PITCH] += DM.sin(t * 5) * 0.03 * win(t, 0.85, 2.3);
       c.gaze = t < 1.8 ? 'down' : 'sky';
       c.beat(2.25, 0.8);
       c.beat(3.45, 1);
@@ -494,7 +495,7 @@ const shadowbox: Spec = (() => {
         o[EC.TWIST] += (k === 0 ? -0.45 : 0.18) * p;
         o[EC.HIP] += (k === 0 ? -0.25 : 0.08) * p;
       }
-      if (t > 1.55 && t < 1.85) o[EC.LIFT] = Math.sin(Math.PI * ((t - 1.55) / 0.3)) * 0.09;
+      if (t > 1.55 && t < 1.85) o[EC.LIFT] = DM.sin(Math.PI * ((t - 1.55) / 0.3)) * 0.09;
       c.face = 'crowd';
       c.turn = 3;
       c.gaze = 'crowd';
@@ -561,7 +562,7 @@ const wave: Spec = (() => {
       const t = c.t;
       keys(o, t, K);
       armTo(o, 0, WAVE_R, pump(t, 0.4, 0.9) * win(t, 0.3, 9, 0.2));
-      o[EC.TWIST] += Math.sin(t * 0.8) * 0.15;
+      o[EC.TWIST] += DM.sin(t * 0.8) * 0.15;
       c.face = 'crowd';
       c.turn = 1.2;
       c.gaze = 'crowd';
@@ -579,8 +580,8 @@ const lap: Spec = (() => {
       const t = c.t;
       keys(o, t, K);
       // shoulders roll with the walk
-      o[EC.TWIST] += Math.sin(t * 4.6) * 0.08;
-      o[armI(1) + 2] += Math.sin(t * 4.6) * 0.06;
+      o[EC.TWIST] += DM.sin(t * 4.6) * 0.08;
+      o[armI(1) + 2] += DM.sin(t * 4.6) * 0.06;
       c.walk = (c.v < 0.5 ? -1 : 1) * 0.85 * win(t, 0.3, c.T - 0.2, 0.4);
       c.face = 'travel';
       c.turn = 3;
@@ -627,7 +628,7 @@ const shrug: Spec = (() => {
       keys(o, t, K);
       // shake the head
       const shake = win(t, 0.5, 1.4, 0.15) + win(t, 2.95, 3.8, 0.15);
-      o[EC.HEAD] += Math.sin(t * 15) * 0.045 * shake;
+      o[EC.HEAD] += DM.sin(t * 15) * 0.045 * shake;
       c.gaze = t > 1.6 && t < 2.7 ? 'crowd' : 'down';
       c.beat(0.45, 0.35);
     },
@@ -652,8 +653,8 @@ const pointDown: Spec = (() => {
       }
       // wag it: "you're done"
       const wag = win(t, 1.5, 2.7, 0.2);
-      o[armI(0)] += Math.sin((t - 1.5) * 12) * 0.16 * wag;
-      o[EC.TWIST] += Math.sin((t - 1.5) * 12) * 0.08 * wag;
+      o[armI(0)] += DM.sin((t - 1.5) * 12) * 0.16 * wag;
+      o[EC.TWIST] += DM.sin((t - 1.5) * 12) * 0.08 * wag;
       c.gaze = 'down';
       c.beat(0.7, 0.3);
     },
@@ -674,10 +675,10 @@ const shuffle: Spec = (() => {
       keys(o, t, K);
       const go = win(t, 0.4, 1.5, 0.12) + win(t, 2.7, 3.7, 0.12);
       const ph = (t - 0.4) * Math.PI * 2 * 3.4;
-      const s = Math.sin(ph);
+      const s = DM.sin(ph);
       for (let k = 0; k < 2; k++) {
         const i = footI(k);
-        o[i + 3] = 0.03 * Math.abs(Math.sin(ph + k * Math.PI * 0.5)) * go;
+        o[i + 3] = 0.03 * Math.abs(DM.sin(ph + k * Math.PI * 0.5)) * go;
         o[i + 4] = (k === 0 ? s : -s) * 0.1 * go;
         o[i + 6] = go;
       }
@@ -731,8 +732,8 @@ const stompRoar: Spec = (() => {
       const t = c.t;
       keys(o, t, K);
       const shake = win(t, 0.8, 1.65, 0.1);
-      o[armI(0)] += Math.sin(t * 53) * 0.009 * shake;
-      o[armI(1)] += Math.sin(t * 47 + 1) * 0.009 * shake;
+      o[armI(0)] += DM.sin(t * 53) * 0.009 * shake;
+      o[armI(1)] += DM.sin(t * 47 + 1) * 0.009 * shake;
       c.gaze = t > 0.7 && t < 1.7 ? 'ahead' : 'down';
       c.beat(0.78, 0.7, 0.16);
     },
@@ -759,8 +760,8 @@ const gloveTap: Spec = (() => {
       }
       // roll the neck while waiting
       const roll = win(t, 1.6, 2.4, 0.2);
-      o[EC.HEAD] += Math.sin(t * 6) * 0.03 * roll;
-      o[EC.HEAD + 2] += Math.cos(t * 6) * 0.02 * roll;
+      o[EC.HEAD] += DM.sin(t * 6) * 0.03 * roll;
+      o[EC.HEAD + 2] += DM.cos(t * 6) * 0.02 * roll;
     },
   };
 })();
@@ -776,7 +777,7 @@ const strut: Spec = (() => {
     sample(o, c) {
       const t = c.t;
       keys(o, t, K);
-      const s = Math.sin(t * 4.4);
+      const s = DM.sin(t * 4.4);
       o[EC.TWIST] += s * 0.12;
       o[armI(0) + 2] += s * 0.1;
       o[armI(1) + 2] -= s * 0.1;
@@ -1010,9 +1011,9 @@ export class Showman {
     this.inLen = kind === 'taunt' ? 0.32 : 0.25;
     this.outLen = 0.4;
     // the crowd: the nearest stands, or away from the opponent near the centre
-    const r = Math.hypot(me.root.x, me.root.z);
-    const away = Math.atan2(me.root.x - opp.root.x, me.root.z - opp.root.z);
-    this.crowdYaw = r > 1 ? Math.atan2(me.root.x, me.root.z) : away + (v - 0.5) * 1.2;
+    const r = DM.hypot(me.root.x, me.root.z);
+    const away = DM.atan2(me.root.x - opp.root.x, me.root.z - opp.root.z);
+    this.crowdYaw = r > 1 ? DM.atan2(me.root.x, me.root.z) : away + (v - 0.5) * 1.2;
     if (!chain) this.pose.gaze.copy(opp.body.pos[J.Head]);
   }
 
@@ -1057,9 +1058,9 @@ export class Showman {
     const a = this.auth;
     spec.sample(a, c);
     // never quite still: breathing and a slow sway
-    a[EC.CROUCH] += Math.sin(c.t * 2.6) * 0.008;
-    a[EC.TWIST] += Math.sin(c.t * 0.9 + c.v * 6) * 0.035;
-    a[EC.ROLL] += Math.sin(c.t * 0.7 + c.v * 3) * 0.015;
+    a[EC.CROUCH] += DM.sin(c.t * 2.6) * 0.008;
+    a[EC.TWIST] += DM.sin(c.t * 0.9 + c.v * 6) * 0.035;
+    a[EC.ROLL] += DM.sin(c.t * 0.7 + c.v * 3) * 0.015;
     const o = this.raw;
     o.set(a);
     if (this.mirror) {
@@ -1089,8 +1090,8 @@ export class Showman {
     let yaw: number | null = null;
     const opp = this.opp;
     if (c.face === 'crowd') yaw = this.crowdYaw;
-    else if (c.face === 'away') yaw = Math.atan2(me.root.x - opp.root.x, me.root.z - opp.root.z);
-    else if (c.face === 'travel' && me.rootVel.lengthSq() > 0.04) yaw = Math.atan2(me.rootVel.x, me.rootVel.z);
+    else if (c.face === 'away') yaw = DM.atan2(me.root.x - opp.root.x, me.root.z - opp.root.z);
+    else if (c.face === 'travel' && me.rootVel.lengthSq() > 0.04) yaw = DM.atan2(me.rootVel.x, me.rootVel.z);
     P.faceOn = yaw !== null && !ending;
     if (yaw !== null) P.face = wrapAngle(yaw);
     P.turn = c.turn;
@@ -1099,14 +1100,14 @@ export class Showman {
     const head = me.body.pos[J.Head];
     const g = ending ? 'opp' : c.gaze;
     const fy = P.faceOn ? P.face : me.faceYaw;
-    _f.set(Math.sin(fy), 0, Math.cos(fy));
+    _f.set(DM.sin(fy), 0, DM.cos(fy));
     const tgt = this._gt;
     if (g === 'sky') tgt.copy(head).addScaledVector(_f, 0.7).y += 1.7;
     else if (g === 'down') tgt.copy(opp.body.pos[J.Pelvis]);
     else if (g === 'crowd') tgt.copy(head).addScaledVector(_f, 4).y += 1.4;
     else if (g === 'ahead') tgt.copy(head).addScaledVector(_f, 3).y -= 0.2;
     else tgt.copy(opp.body.pos[J.Head]);
-    P.gaze.lerp(tgt, 1 - Math.exp(-6 * dt));
+    P.gaze.lerp(tgt, 1 - DM.exp(-6 * dt));
     P.gazeOn = true;
 
     // feet and travel: plant for the big moments, walk for laps and struts
@@ -1117,7 +1118,7 @@ export class Showman {
     me.intentVel.multiplyScalar(1 - plant);
     if (c.walk !== 0) {
       // circle the ring centre, staying a step off the ropes
-      const r = Math.max(0.5, Math.hypot(me.root.x, me.root.z));
+      const r = Math.max(0.5, DM.hypot(me.root.x, me.root.z));
       const tx = -me.root.z / r, tz = me.root.x / r;
       const want = 2.3;
       me.intentVel.set(tx * c.walk + (me.root.x / r) * (want - r) * 0.8, 0, tz * c.walk + (me.root.z / r) * (want - r) * 0.8);
