@@ -1017,64 +1017,158 @@ button {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+.fbar .nm {
+  align-self: stretch;
+}
+.fbar.right .nm {
+  justify-content: flex-end;
+}
+/* the running total of the current flurry, by the name on the clock side, while the chip is up */
+.chipn {
+  margin-left: auto;
+  font-family: var(--display);
+  font-size: 0.85em;
+  letter-spacing: 0.02em;
+  color: #ffd6dc;
+  text-shadow: 0 0 8px rgba(255, 52, 72, 0.85), 0 2px 4px rgba(0, 0, 0, 0.9);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+.chipn.on {
+  opacity: 1;
+  transition-duration: 0.08s;
+}
+.fbar.right .chipn {
+  order: -2;
+  margin-left: 0;
+  margin-right: auto;
+}
+
+/*
+ * Health bar. A chamfered steel frame, tinted with the bot's colours at the outer end,
+ * around a dark track. Inside: the bot's paint as the fill, the hot "chip" of recent
+ * damage behind it, and ten cells notched over both. The right bot's bar is the same bar
+ * mirrored, so it drains toward the clock too.
+ */
 .hp {
+  --cut: 0.75em;
+  --chamfer: 0.45em;
   position: relative;
   width: 100%;
-  height: 1.25em;
-  background: rgba(8, 10, 18, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  clip-path: polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
-  overflow: hidden;
+  height: 1.45em;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.55));
 }
-.fbar.right .hp {
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 10px 100%);
-}
-.hp i {
+.hp-frame,
+.hp-bar {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  transform-origin: left;
+  clip-path: polygon(0 0, 100% 0, calc(100% - var(--cut)) 100%, var(--chamfer) 100%, 0 calc(100% - var(--chamfer)));
 }
-.fbar.right .hp i {
-  left: auto;
-  right: 0;
-  transform-origin: right;
+.hp-frame {
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.12) 55%, rgba(255, 255, 255, 0.24));
 }
-.hp .lag {
-  background: #fff;
-  opacity: 0.85;
+.fbar.right .hp-frame {
+  transform: scaleX(-1);
 }
-.hp .fill {
-  /* the bot's own paint: second colour at the outer end, main colour at the leading edge, with a gloss on top */
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0.22)),
-    linear-gradient(90deg, var(--c2, #1590c4), var(--c1, #20b9e8));
-}
-.fbar.right .hp .fill {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0.22)),
-    linear-gradient(270deg, var(--c2, #e2620b), var(--c1, #ff8a1f));
-}
-/* low health: the bar keeps its colours but pulses, and the track glows red */
-.hp::after {
+/* the frame's outer end takes the bot's colour */
+.hp-frame::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, rgba(255, 40, 70, 0.45), rgba(255, 40, 70, 0.1));
+  background: linear-gradient(90deg, var(--c2, #1590c4), var(--c1, #20b9e8) 18%, transparent 46%);
+  opacity: 0.9;
+}
+.hp-bar {
+  inset: 2px;
+  overflow: hidden;
+  background: repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.04) 0 2px, transparent 2px 6px), linear-gradient(180deg, #05070d, #10141f);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.8);
+}
+.hp-bar i {
+  position: absolute;
+  inset: 0;
+}
+.hp-bar .chip {
+  /* white-hot damage with a red hazard hatch: the stripes tell it apart from any bot's paint */
+  background: repeating-linear-gradient(-60deg, rgba(255, 52, 72, 0) 0 4px, rgba(255, 52, 72, 0.62) 4px 8px),
+    linear-gradient(180deg, #ffffff, #ffe6d6 60%, #ffb9a8);
+  box-shadow: 0 0 10px rgba(255, 80, 80, 0.55);
+}
+.hp-bar .fill {
+  /* the bot's own paint: second colour at the outer end, main colour at the leading edge */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 42%, rgba(0, 0, 0, 0.28)),
+    linear-gradient(90deg, var(--c2, #1590c4) 10%, var(--c1, #20b9e8));
+}
+/* a bright glint riding the leading edge */
+.hp-bar .fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 3px;
+  background: #fff;
+  box-shadow: 0 0 6px 2px var(--c1, #20b9e8), 0 0 14px 4px rgba(255, 255, 255, 0.35);
+  opacity: 0.9;
+}
+/* ten cells, notched on the same slant as the frame, with a hairline at each half */
+.hp-bar .cells {
+  transform: skewX(-24deg);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 30%),
+    repeating-linear-gradient(90deg, transparent 0 calc(10% - 2px), rgba(4, 6, 12, 0.85) calc(10% - 2px) 10%),
+    repeating-linear-gradient(90deg, transparent 0 calc(5% - 0.5px), rgba(4, 6, 12, 0.32) calc(5% - 0.5px) calc(5% + 0.5px), transparent calc(5% + 0.5px) 10%);
+}
+.hp-bar .flash {
+  opacity: 0;
+  background: #fff;
+}
+.hp-num {
+  position: absolute;
+  top: 50%;
+  left: 0.75em;
+  transform: translateY(-52%);
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 0.74em;
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.75);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.fbar.right .hp-num {
+  left: auto;
+  right: 0.75em;
+}
+/* low health: the bar keeps its colours but pulses, and the frame and track glow red */
+.hp-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(255, 40, 70, 0.5), rgba(255, 40, 70, 0.08));
   opacity: 0;
   pointer-events: none;
 }
-.fbar.right .hp::after {
-  background: linear-gradient(270deg, rgba(255, 40, 70, 0.45), rgba(255, 40, 70, 0.1));
+.hp.low .hp-frame {
+  background: linear-gradient(180deg, #ff6b83, var(--red) 55%, #b3203a);
 }
-.hp.low {
-  border-color: var(--red);
-}
-.hp.low::after {
+.hp.low .hp-bar::after {
   animation: hpLow 0.7s ease-in-out infinite alternate;
 }
 .hp.low .fill {
   animation: hpLowFill 0.7s ease-in-out infinite alternate;
+}
+.hp.low .hp-num {
+  color: #ffd0d8;
+}
+.hp.dead .hp-frame {
+  background: rgba(255, 255, 255, 0.14);
+}
+.hp.dead .hp-frame::before {
+  opacity: 0.25;
+}
+.hp.dead .hp-num {
+  color: var(--red);
 }
 @keyframes hpLow {
   to {
@@ -1083,7 +1177,7 @@ button {
 }
 @keyframes hpLowFill {
   to {
-    opacity: 0.55;
+    opacity: 0.6;
   }
 }
 .st {
