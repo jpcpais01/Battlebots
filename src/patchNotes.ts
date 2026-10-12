@@ -25,6 +25,7 @@ export const PATCH_NOTES: PatchNote[] = [
       'Rebuilt robot models with smoother, weightier punches and kicks.',
       'Installed app opens as a normal window and goes fullscreen in landscape on first tap.',
       'Fixed the screen flickering on some phones.',
+      'Fixed a brief zoom flicker during fights on phones; resolution changes now happen on camera cuts.',
     ],
   },
   {

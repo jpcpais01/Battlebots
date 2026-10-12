@@ -47,6 +47,8 @@ export class Game {
   fixedDt: number | null = null;
   /** Debug: frames are driven externally via frame(). */
   manual = false;
+  private lastCuts = 0;
+  private lastMode = '';
   cb: GameCallbacks = {};
 
   constructor(canvas: HTMLCanvasElement, quality: Quality) {
@@ -60,7 +62,7 @@ export class Game {
       this.fx.setPixelScale(h);
       this.arena.setPixelScale(h);
       const narrow = w / Math.max(1, h / (window.devicePixelRatio || 1)) < 1.2;
-      this.director.setBaseFov(this.stage.camera.fov, narrow);
+      this.director.setBaseFov(this.stage.baseFov, narrow);
     };
     this.stage.resize();
     requestAnimationFrame(this.loop);
@@ -300,7 +302,10 @@ export class Game {
       this.sfx.crowdTick(dt, m && f && !this.paused ? { phase: m.phase, clock: m.clock, hp: [f[0].hpRatio, f[1].hpRatio] } : null);
     }
     if (!render) return;
-    this.stage.govern(dt);
+    const cut = this.director.cuts !== this.lastCuts || this.director.mode !== this.lastMode;
+    this.lastCuts = this.director.cuts;
+    this.lastMode = this.director.mode;
+    this.stage.govern(dt, cut);
     this.stage.render();
     this.cb.onFrame?.(dt);
   }
