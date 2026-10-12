@@ -1,11 +1,9 @@
 import * as THREE from 'three';
 
 /**
- * Dissolves scenery with a screen-door dither so it never smothers the lens. Two rules:
- * - near (fights): only what is within about a metre of the camera fades, so a lens that grazes a
- *   rope or post sees through it while ropes and barriers farther away stay solid, even in front;
- * - between (garage): everything between the camera and the subject fades, so only the subject
- *   can stand in front of it.
+ * Keeps the garage camera's view of the bot clear: workshop scenery (gantry, benches, racks) that
+ * sits between the camera and the bot is dissolved with a screen-door dither, so only the bot itself
+ * can stand in front of it. The fight arena is not patched: its ropes and barriers always draw solid.
  *
  * Works on any material, including custom shader ones. Floor-level meshes (canvas, apron, stage
  * base, ground) are left alone so the ring never shows holes underfoot.
@@ -18,9 +16,7 @@ export class ClearView {
    * forward distance), so a post beside them stays whole. Edges are dithered so ropes fade out.
    */
   readonly uniforms = {
-    /** 0 off, 1 between camera and subject, 2 near the camera only. */
     uClearOn: { value: 0 },
-    uClearEye: { value: new THREE.Vector3() },
     uClearDepth: { value: 0 },
     uClearSpan: { value: new THREE.Vector2() },
     uClearCam: { value: new THREE.Vector2() },
@@ -57,20 +53,20 @@ export class ClearView {
       Object.assign(shader.uniforms, u);
       const vs = shader.vertexShader;
       shader.vertexShader = vs.includes('#include <project_vertex>')
-        ? vs.replace('#include <common>', '#include <common>\nvarying vec3 vClearW;').replace(
+        ? vs.replace('#include <common>', '#include <common>\nvarying vec2 vClearXZ;').replace(
             '#include <project_vertex>',
             `#include <project_vertex>
             vec4 clearW = vec4(transformed, 1.0);
             #ifdef USE_INSTANCING
               clearW = instanceMatrix * clearW;
             #endif
-            vClearW = (modelMatrix * clearW).xyz;`,
+            vClearXZ = (modelMatrix * clearW).xz;`,
           )
-        : vs.replace(main, 'varying vec3 vClearW;\nvoid main() {\n  vClearW = (modelMatrix * vec4(position, 1.0)).xyz;');
+        : vs.replace(main, 'varying vec2 vClearXZ;\nvoid main() {\n  vClearXZ = (modelMatrix * vec4(position, 1.0)).xz;');
       shader.fragmentShader = shader.fragmentShader.replace(
         main,
         `uniform float uClearOn; uniform float uClearDepth; uniform vec2 uClearSpan;
-uniform vec2 uClearCam; uniform vec2 uClearFwd; uniform vec3 uClearEye; varying vec3 vClearW;
+uniform vec2 uClearCam; uniform vec2 uClearFwd; varying vec2 vClearXZ;
 float clearBayer(vec2 p) {
   vec2 q = mod(floor(p), 4.0);
   vec2 lo = mod(q, 2.0), hi = floor(q * 0.5);
@@ -78,11 +74,8 @@ float clearBayer(vec2 p) {
   return (b + 0.5) / 16.0;
 }
 void main() {
-  if (uClearOn > 1.5) {
-    // gone inside 0.8 m of the lens, solid again past 1.2 m
-    if (smoothstep(0.8, 1.2, distance(vClearW, uClearEye)) < clearBayer(gl_FragCoord.xy)) discard;
-  } else if (uClearOn > 0.5) {
-    vec2 rel = vClearW.xz - uClearCam;
+  if (uClearOn > 0.5) {
+    vec2 rel = vClearXZ - uClearCam;
     float d = dot(rel, uClearFwd);
     float a = dot(rel, vec2(-uClearFwd.y, uClearFwd.x)) / max(d, 0.05);
     float beside = smoothstep(0.0, 0.25, max(uClearSpan.x - a, a - uClearSpan.y) * max(d, 0.0));
@@ -97,19 +90,14 @@ void main() {
   }
 
   /**
-   * 'near': clears only what is within about a metre of `camera`. A list of points (the subject's
-   * chests): clears everything between `camera` and the nearest of them. No points: off.
+   * Clears everything nearer to `camera` than the nearest of `points` (the showcased bot's chest).
+   * Pass no points to switch the effect off.
    */
-  update(camera: THREE.PerspectiveCamera, points: readonly THREE.Vector3[] | 'near') {
+  update(camera: THREE.PerspectiveCamera, points: readonly THREE.Vector3[]) {
     const u = this.uniforms;
-    camera.updateMatrixWorld();
-    u.uClearEye.value.setFromMatrixPosition(camera.matrixWorld);
-    if (points === 'near') {
-      u.uClearOn.value = 2;
-      return;
-    }
     u.uClearOn.value = points.length ? 1 : 0;
     if (!points.length) return;
+    camera.updateMatrixWorld();
     camera.getWorldDirection(this.fwd);
     const fx = this.fwd.x, fz = this.fwd.z, l = Math.hypot(fx, fz) || 1;
     u.uClearFwd.value.set(fx / l, fz / l);
