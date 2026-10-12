@@ -10,6 +10,7 @@ import { Match, SIM_DT, type DetachInfo, type HitInfo } from '../sim/match';
 import { CUT_JOINTS, P, PART_COUNT } from '../sim/damage';
 import { Debris } from '../render/debris';
 import { Fighter } from '../sim/fighter';
+import { Showman } from '../sim/emote';
 import { J } from '../sim/body';
 import { Rng } from '../sim/math';
 import { MOVES, type MoveId } from '../sim/moves';
@@ -92,7 +93,7 @@ export class Game {
   paused = false;
   private last = performance.now();
   private time = 0;
-  private showcase: { fighter: Fighter; dummy: Fighter; model: BotModel } | null = null;
+  private showcase: { fighter: Fighter; dummy: Fighter; model: BotModel; show: Showman } | null = null;
   private groundedPrev: number[][] = [
     [1, 1, 1],
     [1, 1, 1],
@@ -227,7 +228,14 @@ export class Game {
     const model = new BotModel(spec.loadout, spec.palette);
     this.probe.tag(model.root, 'bots');
     this.stage.scene.add(model.root);
-    this.showcase = { fighter, dummy, model };
+    this.showcase = { fighter, dummy, model, show: new Showman(fighter, dummy, null) };
+  }
+
+  /** Let the showcase bot perform a celebration or taunt (garage preview), to the camera. */
+  previewEmote(id: string) {
+    const sc = this.showcase;
+    if (!sc || sc.fighter.action) return;
+    sc.show.preview(id, this.director.garageYaw);
   }
 
   /** Let the showcase bot throw a move into the air (garage preview). */
@@ -236,6 +244,7 @@ export class Game {
     if (!sc) return;
     const f = sc.fighter;
     if (f.action) return;
+    sc.show.stop();
     f.cooldowns = {};
     f.stamina = f.build.stats.stamina;
     const m = MOVES[id];
@@ -471,7 +480,7 @@ export class Game {
       perf.lap('bots');
     }
     if (this.showcase) {
-      const { fighter, model } = this.showcase;
+      const { fighter, model, show } = this.showcase;
       this.showAcc += dt;
       let n = 0;
       while (this.showAcc >= SIM_DT && n++ < 16) {
@@ -479,10 +488,11 @@ export class Game {
         // drift back to the mark between previews
         if (!fighter.action) fighter.intentVel.set(-fighter.root.x, 0, -fighter.root.z).multiplyScalar(2.5);
         else fighter.intentVel.set(0, 0, 0);
+        show.tick(SIM_DT);
         fighter.update(SIM_DT);
         this.showAcc -= SIM_DT;
       }
-      model.update(fighter, this.showAcc / SIM_DT, this.time);
+      model.update(fighter, this.showAcc / SIM_DT, this.time, show.pose.gazeOn ? show.pose.gaze : undefined);
       perf.lap('bots');
     }
     // contact occlusion follows whichever robots are on screen

@@ -17,8 +17,9 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-12 21:00',
-    title: 'Cleaner hits, a tidier HUD and a clean load',
+    title: 'Pick your emotes, cleaner hits, a tidier HUD and a clean load',
     notes: [
+      'New Emotes tab in the garage: equip up to 3 celebrations and 3 taunts, and tap any of them to watch your bot perform it. Your bot only uses the ones you equip (and they show on your opponent\'s screen online). Leave a list empty and it picks its own.',
       'Fixed a big robot part on a white square flashing in the bottom-left corner while the game loads.',
       'The x-ray condition panels now sit at the top of the screen, right under each robot\'s health bar.',
       'The orange glow on a robot part when it gets hit is gone. Dents, scorch marks, cracks and sparks still show the damage.',
