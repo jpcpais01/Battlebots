@@ -16,6 +16,15 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-12 20:00',
+    title: 'Better kicks',
+    notes: [
+      'Reworked kicks: the push kick lifts the knee and drives the foot straight out, the roundhouse turns the hips over and whips the shin in at head height, and the spinning heel turns on the planted foot and drives the heel back.',
+      'Kicking legs no longer fold up, flip at the knee or cross the standing leg, even up close or when the opponent steps aside.',
+      'The standing foot stays planted and pivots through every kick, and the sweep and Jet Knee recover more cleanly.',
+    ],
+  },
+  {
     hour: '2026-10-12 19:00',
     title: 'Settings that fit your phone',
     notes: [
