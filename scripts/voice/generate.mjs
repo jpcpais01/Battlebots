@@ -1,5 +1,5 @@
 // Voices the commentary with ElevenLabs into voice-raw/ (not committed).
-//   ELEVENLABS_API_KEY=... node scripts/voice/generate.mjs [--takes 2] [--only hit.] [--dry] [--spread]
+//   ELEVENLABS_API_KEY=... node scripts/voice/generate.mjs [--takes 2] [--only hit.] [--voices pbp,colour] [--lines] [--dry] [--spread]
 // Skips anything already generated, so editing a line only re-voices that line.
 // --spread voices one line of every trigger, then a second of each, and so on (first
 // takes before second takes, names last), stopping cleanly when the credits run out,
@@ -21,7 +21,10 @@ const jobs = +arg('jobs', 4);
 const API = 'https://api.elevenlabs.io/v1';
 
 const voices = readVoices();
-let todo = items(voices, takes).filter((it) => it.id.startsWith(only) && !existsSync(join(RAW, `${it.key}.mp3`)));
+// --voices pbp,colour limits it to those speakers (conversations need all of theirs)
+const who = arg('voices', '');
+const speaks = (it) => !who || (it.req.inputs ? it.req.inputs.map((i) => i.voice_id) : [it.req.voice_id]).every((id) => who.split(',').some((w) => voices[w]?.id === id));
+let todo = items(voices, takes).filter((it) => it.id.startsWith(only) && speaks(it) && !(it.kind === 'name' && process.argv.includes('--lines')) && !existsSync(join(RAW, `${it.key}.mp3`)));
 if (process.argv.includes('--spread')) {
   // rank = how many lines of the same trigger (and take) come before it
   const seen = new Map();
@@ -33,7 +36,7 @@ if (process.argv.includes('--spread')) {
   };
   todo = todo.map((it) => [rank(it), it]).sort((a, b) => a[0] - b[0]).map((p) => p[1]);
 }
-const chars = todo.reduce((n, it) => n + it.req.text.length, 0);
+const chars = todo.reduce((n, it) => n + it.chars, 0);
 console.log(`${todo.length} clips to generate, ${chars} characters`);
 if (dry || !todo.length) process.exit(0);
 if (!KEY) {
@@ -58,8 +61,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function one(it) {
   const { voice_id, ...body } = it.req;
+  // conversations go to text-to-dialogue, single lines to text-to-speech
+  const url = body.inputs ? `${API}/text-to-dialogue` : `${API}/text-to-speech/${voice_id}`;
   for (let attempt = 0; attempt < 6; attempt++) {
-    const r = await fetch(`${API}/text-to-speech/${voice_id}?output_format=mp3_44100_128`, {
+    const r = await fetch(`${url}?output_format=mp3_44100_128`, {
       method: 'POST',
       headers: { 'xi-api-key': KEY, 'content-type': 'application/json', accept: 'audio/mpeg' },
       body: JSON.stringify(body),
