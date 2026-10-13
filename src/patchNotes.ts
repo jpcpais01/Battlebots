@@ -17,8 +17,9 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-13 22:00',
-    title: 'Bots move with real weight',
+    title: 'Bots move with real weight, and leak oil',
     notes: [
+      'A badly beaten chest or lower torso now leaks oil: a slow drip at first, then a pumping stream as it fails. Hits to the wound splash it out, puddles spread across the canvas, and bots that step in them leave oily footprints.',
       'Renaming your bot and recording its name now use proper in-game popups instead of the browser\'s plain boxes.',
       'If voicing your bot\'s name fails, the message now says why, so it\'s easier to fix.',
       'Bots move like they have real weight: torsos wind up and carry a little past each punch before settling, and power shots sit down into the legs first.',
