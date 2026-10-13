@@ -12,6 +12,8 @@ import { perf } from '../perf';
 import { DM } from './dmath';
 
 export const SIM_DT = 1 / 120;
+/** Seconds on the canvas before a bot that stays down is counted out. */
+export const COUNT_OUT = 9.6;
 export const ROUND_TIME = 99;
 
 export type MatchPhase = 'intro' | 'countdown' | 'fight' | 'ko' | 'end';
@@ -104,6 +106,8 @@ export class Match {
   private wearSeen = [new Int8Array(PART_COUNT).fill(-1), new Int8Array(PART_COUNT).fill(-1)];
   private listeners: MatchListener[] = [];
   private ropeCooldown = [0, 0];
+  /** A knocked-down bot that will not beat the count, and who put it there. */
+  private countOut: { att: Fighter; def: Fighter; at: number } | null = null;
   introLength = 2.6;
 
   constructor(a: BotSpec, b: BotSpec, seed: number) {
@@ -181,10 +185,16 @@ export class Match {
           this.emit('fightStart');
         }
         break;
-      case 'fight':
+      case 'fight': {
         this.clock = Math.max(0, this.clock - dt);
-        if (this.clock <= 0) this.decision();
+        // counted out: the referee reaches ten (the HUD count shows 10 at 9.35 s)
+        const co = this.countOut;
+        if (co && co.def.state === 'down' && this.time - co.at >= COUNT_OUT) {
+          this.countOut = null;
+          this.ko(co.att, co.def, 'KO');
+        } else if (this.clock <= 0) this.decision();
         break;
+      }
       case 'ko':
         this.slowmo = this.phaseTime < 1.6 ? 0.3 : lerp(0.3, 1, smoothstep(1.6, 2.4, this.phaseTime));
         // a beat to watch them fall, then the celebration (it opens in the slow-mo)
@@ -588,6 +598,17 @@ export class Match {
         knockdown = true;
         def.knockDown(dir, 2.2 + kb * 0.7);
         def.poise = def.maxPoise * 0.6;
+        // Does it beat the count? A fresh bot usually does; a battered one, one already
+        // dropped before, or one flattened by a huge shot often stays down for ten.
+        const beat = clamp(
+          0.92 - (1 - def.hpRatio) * 0.65 - (def.knockdowns - 1) * 0.22 - Math.min(0.25, (dmg / def.build.stats.maxHp) * 2) + def.passive('composure') * 0.4,
+          0.05,
+          0.9,
+        );
+        if (def.knockdowns < 3 && !rng.chance(beat)) {
+          def.downTime = COUNT_OUT + 1; // ko() lands first
+          this.countOut = { att, def, at: this.time };
+        }
       } else {
         stagger = true;
         guardBreak = blocked;

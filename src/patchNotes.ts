@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-13 00:00',
+    title: 'Knockdowns hit harder',
+    notes: [
+      'Knocked-down bots get up less often. A fresh bot usually beats the count, but a battered one, one that has already been dropped, or one flattened by a huge shot often stays down for ten and loses by KO.',
+    ],
+  },
+  {
     hour: '2026-10-12 21:00',
     title: 'Paint shop, new health bars, emotes and cleaner hits',
     notes: [
