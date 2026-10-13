@@ -1047,6 +1047,11 @@ export class Showman {
     this.outLen = 0.45;
   }
 
+  /** Being presented before the fight: bang the gloves together for the camera. */
+  present(len: number) {
+    this.play(gloveTap, 'greet', 0.5, false, len);
+  }
+
   /** Garage: perform this emote now, playing to `yaw` (the camera). */
   preview(id: string, yaw: number) {
     const spec = EMOTES[id];

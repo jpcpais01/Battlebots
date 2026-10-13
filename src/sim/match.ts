@@ -184,7 +184,10 @@ export class Match {
   }
 
   skipIntro() {
-    if (this.phase === 'intro') this.setPhase('countdown');
+    if (this.phase !== 'intro') return;
+    this.shows[0].stop();
+    this.shows[1].stop();
+    this.setPhase('countdown');
   }
 
   step(dt = SIM_DT) {
@@ -201,6 +204,9 @@ export class Match {
 
     switch (this.phase) {
       case 'intro':
+        // each fighter shows off for the camera in turn
+        if (this.phaseTime - dt < 0.25 && this.phaseTime >= 0.25) this.shows[0].present(PRESENT - 0.35);
+        if (this.phaseTime - dt < PRESENT + 0.25 && this.phaseTime >= PRESENT + 0.25) this.shows[1].present(PRESENT - 0.35);
         if (this.phaseTime >= this.introLength) this.setPhase('countdown');
         break;
       case 'countdown':
