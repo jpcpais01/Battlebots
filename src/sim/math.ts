@@ -151,6 +151,57 @@ export class SpringVec {
   }
 }
 
+/**
+ * Second-order spring on a number, stepped in closed form: exact for any step, so even
+ * a stiff spring stays stable at the sim rate. Unlike an exponential ease it starts
+ * moving gently (no instant jump in speed), and with zeta below 1 it carries a little
+ * past the target and settles back: the follow-through of something with weight.
+ */
+export class Spring1 {
+  v = 0;
+  vel = 0;
+  /** Step towards target (omega: stiffness in rad/s, zeta: damping ratio, <= 1). dt 0 snaps. */
+  to(target: number, omega: number, zeta: number, dt: number) {
+    if (dt <= 0) {
+      this.v = target;
+      this.vel = 0;
+      return target;
+    }
+    const y = this.v - target;
+    if (zeta >= 0.999) {
+      const j = this.vel + omega * y;
+      const e = DM.exp(-omega * dt);
+      this.v = target + (y + j * dt) * e;
+      this.vel = (this.vel - omega * j * dt) * e;
+    } else {
+      const a = zeta * omega;
+      const wd = omega * Math.sqrt(1 - zeta * zeta);
+      const e = DM.exp(-a * dt), c = DM.cos(wd * dt), s = DM.sin(wd * dt);
+      const b = (this.vel + a * y) / wd;
+      this.v = target + e * (y * c + b * s);
+      this.vel = e * (this.vel * c - (y * wd + a * b) * s);
+    }
+    return this.v;
+  }
+}
+
+/**
+ * Slope at a key between two others that keeps the curve through them from overshooting
+ * (Fritsch-Butland): zero where the motion turns round or holds, otherwise a weighted
+ * mean of the two neighbouring speeds, so the motion flows through the key.
+ */
+export function keySlope(y0: number, y1: number, y2: number, h0: number, h1: number) {
+  const d0 = (y1 - y0) / h0, d1 = (y2 - y1) / h1;
+  if (d0 * d1 <= 0) return 0;
+  return (3 * (h0 + h1)) / ((2 * h1 + h0) / d0 + (h1 + 2 * h0) / d1);
+}
+
+/** Cubic Hermite from y0 (slope m0) to y1 (slope m1) over a segment of length h, at u in 0..1. */
+export function hermite(y0: number, y1: number, m0: number, m1: number, h: number, u: number) {
+  const u2 = u * u, u3 = u2 * u;
+  return (2 * u3 - 3 * u2 + 1) * y0 + (u3 - 2 * u2 + u) * h * m0 + (3 * u2 - 2 * u3) * y1 + (u3 - u2) * h * m1;
+}
+
 export class SpringNum {
   v = 0;
   vel = 0;
