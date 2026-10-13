@@ -49,7 +49,13 @@ export async function POST(req: Request): Promise<Response> {
       headers: { 'xi-api-key': key, 'content-type': 'application/json', accept: 'audio/mpeg' },
       body: JSON.stringify({ text: t.text, model_id: MODEL, voice_settings: { stability: t.stability } }),
     });
-    if (!r.ok) return json({ error: 'The voice service said no. Try again later.', status: r.status }, 502);
+    if (!r.ok) {
+      // pass ElevenLabs' own reason along (bad key, missing permission, out of credits)
+      const why = (await r.json().catch(() => null)) as { detail?: { status?: string; message?: string } | string } | null;
+      const d = why?.detail;
+      const reason = typeof d === 'string' ? d : [d?.status, d?.message].filter(Boolean).join(': ');
+      return json({ error: `The voice service said no (${r.status}${reason ? `, ${reason.slice(0, 200)}` : ''}).`, status: r.status }, 502);
+    }
     clips[cut] = base64(await r.arrayBuffer());
   }
   return json({ name, clips });
