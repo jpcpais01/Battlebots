@@ -52,6 +52,8 @@ export class CrowdMood {
   private applauseHold = 0;
   private sinceLanded = 0;
   private lull = false;
+  /** A fight was on screen last tick (the house goes up the moment one starts). */
+  private live = false;
   private combo = { who: -1, n: 0, t: -9 };
   private t = 0;
   private cool: Record<string, number> = {};
@@ -186,9 +188,16 @@ export class CrowdMood {
   tick(dt: number, state: CrowdState | null): CrowdLevels {
     this.t += dt;
     let floor = 0.15;
+    // the fighters walk out to a full house: noise from the first second, not the bell
+    if (state?.phase === 'intro' && !this.live) {
+      this.excite = Math.max(this.excite, 0.6);
+      this.cue('cheer', 0.7, 0.1, 0);
+      this.clap(0.6, 2.5);
+    }
+    this.live = !!state;
     if (state) {
       const p = state.phase;
-      if (p === 'intro' || p === 'countdown') floor = 0.45;
+      if (p === 'intro' || p === 'countdown') floor = 0.55;
       else if (p === 'greet') floor = 0.55;
       else if (p === 'fight') {
         floor = 0.22;
@@ -240,6 +249,9 @@ export class Crowd {
   private gains: Record<'murmur' | 'roar' | 'applause', GainNode>;
   private shots: Partial<Record<Reaction, AudioBuffer[]>> = {};
   private level = 0;
+  private ducked = 1;
+  private duckSet = 1;
+  private prefight = false;
   private acc = 0;
   private pending: { at: number; cue: CrowdCue }[] = [];
   private time = 0;
@@ -320,6 +332,15 @@ export class Crowd {
 
   /** Crowd level under the commentary (1 = no dip). Dips quickly, comes back slowly. */
   duck(gain: number) {
+    this.ducked = gain;
+    this.applyDuck();
+  }
+
+  private applyDuck() {
+    // before the bell the house stays loud under the booth's opening
+    const gain = this.prefight ? Math.max(this.ducked, 0.85) : this.ducked;
+    if (Math.abs(gain - this.duckSet) < 1e-3) return;
+    this.duckSet = gain;
     this.ducker.gain.setTargetAtTime(gain, this.ctx.currentTime, gain < this.ducker.gain.value ? 0.06 : 0.35);
   }
 
@@ -329,6 +350,11 @@ export class Crowd {
 
   tick(dt: number, state: CrowdState | null) {
     this.time += dt;
+    const pre = state?.phase === 'intro' || state?.phase === 'countdown';
+    if (pre !== this.prefight) {
+      this.prefight = pre;
+      this.applyDuck();
+    }
     const lv = this.mood.tick(dt, state);
     for (const c of this.mood.cues) this.pending.push({ at: this.time + c.delay, cue: c });
     this.mood.cues.length = 0;
