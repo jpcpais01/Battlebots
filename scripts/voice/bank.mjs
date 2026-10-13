@@ -64,6 +64,8 @@ export function readVoices() {
 /** What gets said: delivery tags for Eleven v3 by energy, and spoken names. */
 function speakable(text, energy, model) {
   if (!model.includes('v3')) return text.replace(/\[[^\]]+\]\s*/g, '');
+  // a line that opens with its own delivery tag keeps it
+  if (/^\[[^\]]+\]/.test(text)) return text;
   const lead = energy >= 4 ? '[shouting] ' : energy === 3 ? '[excited] ' : '';
   return lead + text;
 }
@@ -77,7 +79,7 @@ export function items(voices, takes = 2) {
   const model = voices.model;
   const add = (o) => {
     const v = voices[o.voice];
-    const stability = o.energy >= 4 ? 0 : 0.5;
+    const stability = o.energy >= 3 ? 0 : 0.5; // v3: 0 Creative, 0.5 Natural
     const seed = parseInt(createHash('sha1').update(`${o.text}|${o.take}`).digest('hex').slice(0, 7), 16);
     const req = { voice_id: v.id, model_id: model, text: speakable(o.text, o.energy, model), voice_settings: { stability }, seed };
     const key = createHash('sha1').update(JSON.stringify(req)).digest('hex').slice(0, 20);
