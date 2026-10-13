@@ -1,7 +1,10 @@
 // Turns voice-raw/ into the game's clips: trims the silence, levels every clip
 // (louder for louder deliveries), encodes small mono MP3s named by content hash
 // into public/voice/c/, and writes public/voice/manifest.json for the booth.
-//   node scripts/voice/pack.mjs [--takes 2]
+//   node scripts/voice/pack.mjs [--takes 2] [--merge]
+// --merge keeps what the current manifest already has for every line and name with no
+// clip in voice-raw/, so new lines can be added from a fresh checkout without
+// regenerating the rest. Without it the manifest is rebuilt from voice-raw/ alone.
 // Needs ffmpeg. Lines without a generated clip are left out (the booth skips them).
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -13,6 +16,9 @@ import { items, OUT, RAW, readBank, readVoices } from './bank.mjs';
 const i = process.argv.indexOf('--takes');
 const takes = i < 0 ? 2 : +process.argv[i + 1];
 const CLIPS = join(OUT, 'c');
+const merge = process.argv.includes('--merge');
+const old = merge && existsSync(join(OUT, 'manifest.json')) ? JSON.parse(readFileSync(join(OUT, 'manifest.json'), 'utf8')) : { lines: [], names: {} };
+const oldTakes = new Map(old.lines.map((l) => [l.id, l.f]));
 mkdirSync(CLIPS, { recursive: true });
 const TMP = join(tmpdir(), `bb-voice-${process.pid}`);
 mkdirSync(TMP, { recursive: true });
@@ -78,13 +84,14 @@ await Promise.all(
 
 const takesOf = new Map();
 const names = {};
+for (const [k, cuts] of Object.entries(old.names)) names[k] = { ...cuts };
 for (const [it, clip] of done) {
   if (it.kind === 'line') (takesOf.get(it.id) ?? takesOf.set(it.id, []).get(it.id)).push([it.take, clip]);
   else (names[it.id] ??= {})[it.cut] = clip;
 }
 const lines = [];
 for (const l of readBank()) {
-  const f = (takesOf.get(l.id) ?? []).sort((a, b) => a[0] - b[0]).map((t) => t[1]);
+  const f = takesOf.has(l.id) ? takesOf.get(l.id).sort((a, b) => a[0] - b[0]).map((t) => t[1]) : oldTakes.get(l.id) ?? [];
   if (!f.length) continue;
   const { text, d, ...rest } = l; // eslint-disable-line no-unused-vars
   // a conversation keeps how many turns it has, not its script
@@ -93,7 +100,7 @@ for (const l of readBank()) {
 writeFileSync(join(OUT, 'manifest.json'), JSON.stringify({ v: 1, lines, names }));
 
 // drop clips nothing points at any more
-const live = new Set([...done.values()].map((c) => c[0]));
+const live = new Set([...lines.flatMap((l) => l.f), ...Object.values(names).flatMap((n) => Object.values(n))].map((c) => c[0]));
 let removed = 0;
 for (const f of readdirSync(CLIPS)) if (!live.has(f)) rmSync(join(CLIPS, f)), removed++;
 rmSync(TMP, { recursive: true, force: true });

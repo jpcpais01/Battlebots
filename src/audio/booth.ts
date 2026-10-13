@@ -152,6 +152,9 @@ const DECK: Record<string, [number, number, number?]> = {
   'lull.robot': [1, 1, 2],
   'lull.boo': [1, 2],
   'ko.call': [3, 0],
+  'finisher.start': [3, 2, 2],
+  'finisher.impact': [3, 0, 0],
+  'ko.finisher': [2, 2, 1],
   'ko.colour': [0, 3],
   'tko.call': [2, 2],
   'detach.arm': [2, 2],
@@ -219,6 +222,8 @@ export class Booth {
   private lastHit: HitInfo | null = null;
   private koPending: { winner: Fighter; loser: Fighter; kind: string; reason: string | null } | null = null;
   private fatalCalled = false;
+  /** The finisher being performed, if any (its id). */
+  private fin: string | null = null;
   enabled = true;
 
   constructor(out: BoothOut) {
@@ -308,6 +313,7 @@ export class Booth {
     this.lastHit = null;
     this.koPending = null;
     this.fatalCalled = false;
+    this.fin = null;
     this.hold = 0;
     const names: string[] = [];
     for (const f of m.fighters) {
@@ -358,9 +364,22 @@ export class Booth {
         this.onHit(data as HitInfo);
         break;
       case 'finisher': {
-        // the booth goes up for it; the blows themselves speak for it
-        const d = data as { f: Fighter };
-        this.say({ chain: ['hit.big', 'stagger'], prio: 78, voice: 'p', about: d.f, name: 0.6, follow: 0.3 }, 0.2);
+        // the booth goes up for it: the caller names the move over whatever was being
+        // said, colour or the robot jumps in on top, and nothing else gets a word in
+        // until it's over
+        const d = data as { f: Fighter; id: string };
+        this.fin = d.id;
+        this.queue.length = 0;
+        if (this.cur) this.cut('p');
+        this.say({ chain: [`finisher.${d.id}`, 'finisher.start', 'hit.big'], prio: 90, voice: 'p', about: d.f, name: 0.45, follow: 0.9 }, 0.6);
+        break;
+      }
+      case 'finisherBlow': {
+        // the last blow: a scream on impact, and the knockout call names it once they land
+        // (Headhunter's is called off the head coming off, just before this)
+        const d = data as { f: Fighter; id: string };
+        if (this.fatalCalled) break;
+        this.say({ chain: [`finisher.impact.${d.id}`, 'finisher.impact', 'hit.crit'], prio: 100, voice: 'p' }, 0.4);
         break;
       }
       case 'knockdown':
@@ -383,8 +402,9 @@ export class Booth {
         const d = data as DetachInfo;
         if (d.fatal) {
           this.fatalCalled = true;
-          this.say({ chain: [`detach.fatal.${d.fatal}`], prio: 100, voice: 'p', about: d.f }, 0.3);
-          this.push({ chain: [`detach.fatal.${d.fatal}`, 'ko.colour'], prio: 96, voice: 'c' }, 0.2, 6);
+          const fin = !!this.fin;
+          this.say({ chain: [...(fin ? [`finisher.impact.${this.fin}`] : []), `detach.fatal.${d.fatal}`], prio: 100, voice: 'p', about: d.f }, 0.3);
+          this.push({ chain: [...(fin ? ['ko.finisher'] : []), `detach.fatal.${d.fatal}`, 'ko.colour'], prio: 96, voice: 'c' }, 0.2, 6);
         } else {
           const arm = d.part === P.UpL || d.part === P.UpR || d.part === P.ForeL || d.part === P.ForeR;
           this.say({ chain: [arm ? 'detach.arm' : 'detach.leg', 'detach.arm'], prio: 85, voice: 'p', follow: 0.7, about: d.f }, 0.3);
@@ -583,13 +603,16 @@ export class Booth {
     } else {
       const chain: string[] = [];
       const ft = this.fightT;
+      // a finisher's knockout is called for what it was; the usual calls back it up
+      if (this.fin) chain.push(`ko.finisher.${this.fin}`, 'ko.finisher');
       if (h && h.move.kind === 'kick' && chance(0.5)) chain.push('ko.kick');
       if (h && h.counter && chance(0.6)) chain.push('ko.counter');
       if (m.clock <= 10 && chance(0.6)) chain.push('ko.late');
       if (ft < 20 && chance(0.6)) chain.push('ko.early');
       if (this.worst[k.winner.index] < -0.25 && chance(0.7)) chain.push('ko.comeback');
       chain.push('ko.call');
-      this.say({ chain, prio: 100, voice: 'p' }, 0.3);
+      // after a finisher the impact scream may still be ringing out: the call waits for it
+      this.say({ chain, prio: 100, voice: 'p' }, this.fin ? 2.5 : 0.3);
       // the specific pools hold colour lines too; the general reaction is the fallback
       this.push({ chain: [...chain.filter((c) => c !== 'ko.call'), 'ko.colour'], prio: 96, voice: 'c' }, 0.2, 6);
     }
@@ -664,9 +687,12 @@ export class Booth {
     return true;
   }
 
-  /** Waits its turn: someone is answering a question, and this is no knockdown or finish. */
+  /**
+   * Waits its turn: someone is answering a question, or a finisher is being called,
+   * and this is no knockdown or finish.
+   */
   private held(s: Say) {
-    return this.t < this.hold && !s.quick && s.prio < 90;
+    return (this.t < this.hold || !!this.m?.fin) && !s.quick && s.prio < 90;
   }
 
   /** Still talking, or about to: the opening waits for this before the countdown. */
