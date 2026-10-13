@@ -44,8 +44,8 @@ export const EC = {
   STANCE: 42,
   N: 43,
 } as const;
-const ARM_N = 8;
-const FOOT_N = 7;
+export const ARM_N = 8;
+export const FOOT_N = 7;
 
 /** What the rig reads each step. Arms and feet are resolved to left (0) and right (1). */
 export class EmotePose {
@@ -68,18 +68,18 @@ export class EmotePose {
 // outward from that limb's side, twist > 0 turns the right shoulder back, roll >
 // 0 tilts to the right. Southpaws and mirrored plays are flipped on output.
 
-type V3 = readonly [number, number, number];
-interface ArmDef {
+export type V3 = readonly [number, number, number];
+export interface ArmDef {
   at: V3;
   pole: V3;
   roll?: number;
 }
-interface FootDef {
+export interface FootDef {
   off?: V3;
   knee?: number;
   w?: number;
 }
-interface ShapeDef {
+export interface ShapeDef {
   crouch?: number;
   pitch?: number;
   roll?: number;
@@ -99,46 +99,46 @@ interface ShapeDef {
   heel?: number;
 }
 
-const arm = (at: V3, pole: V3, roll = 0): ArmDef => ({ at, pole, roll });
+export const arm = (at: V3, pole: V3, roll = 0): ArmDef => ({ at, pole, roll });
 // fists (shoulder at about [0.31, 0.1, 0], head at [0, 0.43, 0.03], reach 0.66)
-const DOWN = arm([0.35, -0.42, 0.08], [0.3, -0.1, -1], 0.2);
-const LOOSE = arm([0.33, -0.34, 0.18], [0.4, -0.2, -1], 0.3);
-const UP = arm([0.32, 0.74, 0.1], [1, 0, -0.4]);
-const V = arm([0.56, 0.64, 0.1], [1, -0.3, -0.4], 0.2);
-const SKY = arm([0.28, 0.75, 0.22], [1, 0, -0.3]);
-const FLEX = arm([0.56, 0.4, 0], [0.9, -0.8, -0.3], -0.6);
-const CRUNCH = arm([0.08, -0.2, 0.34], [1, 0.2, -0.1], 0.9);
-const GATHER = arm([0.26, -0.18, 0.3], [0.8, -1, -0.3], 0.6);
-const CHEST = arm([0.02, 0.06, 0.3], [1, -0.6, -0.2], 0.6);
+export const DOWN = arm([0.35, -0.42, 0.08], [0.3, -0.1, -1], 0.2);
+export const LOOSE = arm([0.33, -0.34, 0.18], [0.4, -0.2, -1], 0.3);
+export const UP = arm([0.32, 0.74, 0.1], [1, 0, -0.4]);
+export const V = arm([0.56, 0.64, 0.1], [1, -0.3, -0.4], 0.2);
+export const SKY = arm([0.28, 0.75, 0.22], [1, 0, -0.3]);
+export const FLEX = arm([0.56, 0.4, 0], [0.9, -0.8, -0.3], -0.6);
+export const CRUNCH = arm([0.08, -0.2, 0.34], [1, 0.2, -0.1], 0.9);
+export const GATHER = arm([0.26, -0.18, 0.3], [0.8, -1, -0.3], 0.6);
+export const CHEST = arm([0.02, 0.06, 0.3], [1, -0.6, -0.2], 0.6);
 const CHEST_OUT = arm([0.26, 0.18, 0.5], [1, -0.7, -0.2], 0.4);
-const ROAR = arm([0.62, 0.36, 0.14], [1, -0.6, -0.3], -0.4);
-const POINT = arm([0.18, -0.04, 0.6], [1, -0.6, 0.2]);
+export const ROAR = arm([0.62, 0.36, 0.14], [1, -0.6, -0.3], -0.4);
+export const POINT = arm([0.18, -0.04, 0.6], [1, -0.6, 0.2]);
 const POINT_UP = arm([0.42, 0.6, 0.32], [1, -0.2, -0.2]);
 const CUP = arm([0.23, 0.43, 0.04], [1, 0.3, -0.5], -0.8);
-const HIP = arm([0.31, -0.34, 0.02], [1, 0.1, -0.7], 0.7);
+export const HIP = arm([0.31, -0.34, 0.02], [1, 0.1, -0.7], 0.7);
 const BECK_OUT = arm([0.16, 0, 0.56], [0.5, -1, -0.2], -1);
 const BECK_IN = arm([0.2, 0.17, 0.3], [0.5, -1, -0.2], -1);
-const SHRUG = arm([0.5, -0.08, 0.3], [0.6, -1, -0.4], -1);
+export const SHRUG = arm([0.5, -0.08, 0.3], [0.6, -1, -0.4], -1);
 const ROOF_LO = arm([0.36, 0.46, 0.16], [1, -0.5, -0.3], -1);
 const ROOF_HI = arm([0.36, 0.72, 0.12], [1, -0.2, -0.3], -1);
-const GUARD = arm([0.13, 0.3, 0.32], [0.6, -1, -0.3], 0.1);
-const LOW_GUARD = arm([0.2, -0.05, 0.3], [0.6, -1, -0.3], 0.2);
+export const GUARD = arm([0.13, 0.3, 0.32], [0.6, -1, -0.3], 0.1);
+export const LOW_GUARD = arm([0.2, -0.05, 0.3], [0.6, -1, -0.3], 0.2);
 const JAB = arm([0.1, 0.42, 0.64], [0.6, -1, -0.2], 0.9);
 const TAP_IN = arm([0.03, 0.14, 0.42], [0.8, -1, -0.2]);
 const TAP_OUT = arm([0.2, 0.16, 0.44], [0.8, -1, -0.2]);
-const LOAD = arm([0.36, -0.4, -0.3], [0.2, 0, -1], 0.3);
-const PULL = arm([0.27, -0.12, 0.26], [0.7, -1, -0.6], 0.4);
+export const LOAD = arm([0.36, -0.4, -0.3], [0.2, 0, -1], 0.3);
+export const PULL = arm([0.27, -0.12, 0.26], [0.7, -1, -0.6], 0.4);
 const SWEEP = arm([0.58, -0.18, 0.24], [0.5, -1, -0.3], -0.6);
-const KNEE_REST = arm([0.24, -0.44, 0.3], [0.6, 0, -1], 0.4);
-const FIST_DOWN = arm([0.28, -0.4, 0.36], [0.6, -0.3, -1], 0.5);
+export const KNEE_REST = arm([0.24, -0.44, 0.3], [0.6, 0, -1], 0.4);
+export const FIST_DOWN = arm([0.28, -0.4, 0.36], [0.6, -0.3, -1], 0.5);
 const WAVE_L = arm([0.3, 0.7, 0.14], [1, -0.2, -0.3], -1);
 const WAVE_R = arm([0.62, 0.6, 0.14], [1, -0.2, -0.3], -1);
 
-const SQUARE = [0.19, 0.02, 0.19, 0.02] as const;
-const WIDE = [0.3, 0.03, 0.3, 0.03] as const;
-const TOGETHER = [0.12, 0, 0.12, 0] as const;
+export const SQUARE = [0.19, 0.02, 0.19, 0.02] as const;
+export const WIDE = [0.3, 0.03, 0.3, 0.03] as const;
+export const TOGETHER = [0.12, 0, 0.12, 0] as const;
 /** A (primary) is the rear foot: taunts keep the fighting stance. */
-const FIGHT = [0.17, -0.22, 0.15, 0.2] as const;
+export const FIGHT = [0.17, -0.22, 0.15, 0.2] as const;
 
 const BASE: ShapeDef = {
   crouch: 0.03,
@@ -158,7 +158,7 @@ const BASE: ShapeDef = {
   heel: 0,
 };
 
-type Shape = Float32Array;
+export type Shape = Float32Array;
 
 function writeArm(o: Shape, k: number, d: ArmDef, w: number) {
   const i = EC.ARM + k * ARM_N;
@@ -173,7 +173,7 @@ function writeArm(o: Shape, k: number, d: ArmDef, w: number) {
 }
 
 /** Build a pose from BASE, a parent shape's definition and this one's overrides. */
-function S(d: ShapeDef, parent: ShapeDef = BASE): Shape & { def: ShapeDef } {
+export function S(d: ShapeDef, parent: ShapeDef = BASE): Shape & { def: ShapeDef } {
   const m: ShapeDef = { ...parent, ...d };
   const o = new Float32Array(EC.N) as Shape & { def: ShapeDef };
   o.def = m;
@@ -203,22 +203,22 @@ function S(d: ShapeDef, parent: ShapeDef = BASE): Shape & { def: ShapeDef } {
   return o;
 }
 
-type Ease = (u: number) => number;
+export type Ease = (u: number) => number;
 /** Explosive: most of the travel early, then settle. */
-const snap: Ease = (u) => 1 - DM.pow(1 - u, 3);
+export const snap: Ease = (u) => 1 - DM.pow(1 - u, 3);
 /** Overshoot a touch and settle. */
-const punchy: Ease = (u) => {
+export const punchy: Ease = (u) => {
   const c = 1.9;
   return 1 + (c + 1) * DM.pow(u - 1, 3) + c * DM.pow(u - 1, 2);
 };
-type Key = readonly [number, Shape, Ease?];
+export type Key = readonly [number, Shape, Ease?];
 
-function mix(o: Shape, a: Shape, b: Shape, u: number) {
+export function mix(o: Shape, a: Shape, b: Shape, u: number) {
   for (let i = 0; i < EC.N; i++) o[i] = a[i] + (b[i] - a[i]) * u;
 }
 
 /** Pose at time t along keys; each segment eases (minimum jerk unless the key says otherwise). */
-function keys(o: Shape, t: number, K: readonly Key[]) {
+export function keys(o: Shape, t: number, K: readonly Key[]) {
   if (t <= K[0][0]) {
     o.set(K[0][1]);
     return;
@@ -236,7 +236,7 @@ function keys(o: Shape, t: number, K: readonly Key[]) {
 }
 
 /** Move arm k of o toward an arm definition by u. */
-function armTo(o: Shape, k: number, d: ArmDef, u: number) {
+export function armTo(o: Shape, k: number, d: ArmDef, u: number) {
   if (u <= 0) return;
   const i = EC.ARM + k * ARM_N;
   o[i] += (d.at[0] - o[i]) * u;
@@ -247,24 +247,45 @@ function armTo(o: Shape, k: number, d: ArmDef, u: number) {
   o[i + 5] += (d.pole[2] - o[i + 5]) * u;
   o[i + 6] += ((d.roll ?? 0) - o[i + 6]) * u;
 }
-const armI = (k: number) => EC.ARM + k * ARM_N;
-const footI = (k: number) => EC.FOOT + k * FOOT_N;
+export const armI = (k: number) => EC.ARM + k * ARM_N;
+export const footI = (k: number) => EC.FOOT + k * FOOT_N;
 
 /** 0 → 1 → 0 strike pulse: snaps out over `out` seconds from t0, then eases back over `back`. */
-function pulse(t: number, t0: number, out = 0.09, back = 0.16) {
+export function pulse(t: number, t0: number, out = 0.09, back = 0.16) {
   const d = t - t0;
   if (d < 0 || d > out + back) return 0;
   return d < out ? snap(d / out) : 1 - minJerk((d - out) / back);
 }
 /** Smooth 0..1 window: rises over `e` after a, falls over `e` before b. */
-function win(t: number, a: number, b: number, e = 0.2) {
+export function win(t: number, a: number, b: number, e = 0.2) {
   if (t <= a || t >= b) return 0;
   return minJerk(clamp01((t - a) / e)) * minJerk(clamp01((b - t) / e));
 }
 /** Repeating 0..1..0 pump at f Hz from t0 (0 before it). */
-function pump(t: number, t0: number, f: number) {
+export function pump(t: number, t0: number, f: number) {
   if (t < t0) return 0;
   return 0.5 - 0.5 * DM.cos((t - t0) * f * Math.PI * 2);
+}
+
+/**
+ * Turn an authored pose (A = the primary, right-hand limb) into the rig's left/right
+ * channels: A is the right limb unless mirrored (a southpaw, or a mirrored play).
+ */
+export function resolveSides(a: Shape, o: Shape, mirror: boolean) {
+  o.set(a);
+  if (mirror) {
+    o[EC.ROLL] = -a[EC.ROLL];
+    o[EC.TWIST] = -a[EC.TWIST];
+    o[EC.HIP] = -a[EC.HIP];
+    o[EC.HEAD] = -a[EC.HEAD];
+    o[EC.PELVIS] = -a[EC.PELVIS];
+  }
+  // resolved: left = B unless mirrored (then A), right = the other
+  const left = mirror ? 0 : 1;
+  o.set(a.subarray(armI(left), armI(left) + ARM_N), armI(0));
+  o.set(a.subarray(armI(1 - left), armI(1 - left) + ARM_N), armI(1));
+  o.set(a.subarray(footI(left), footI(left) + FOOT_N), footI(0));
+  o.set(a.subarray(footI(1 - left), footI(1 - left) + FOOT_N), footI(1));
 }
 
 // ------------------------------------------------------------------ emotes
@@ -1132,20 +1153,7 @@ export class Showman {
     a[EC.TWIST] += DM.sin(c.t * 0.9 + c.v * 6) * 0.035;
     a[EC.ROLL] += DM.sin(c.t * 0.7 + c.v * 3) * 0.015;
     const o = this.raw;
-    o.set(a);
-    if (this.mirror) {
-      o[EC.ROLL] = -a[EC.ROLL];
-      o[EC.TWIST] = -a[EC.TWIST];
-      o[EC.HIP] = -a[EC.HIP];
-      o[EC.HEAD] = -a[EC.HEAD];
-      o[EC.PELVIS] = -a[EC.PELVIS];
-    }
-    // resolved: left = B unless mirrored (then A), right = the other
-    const left = this.mirror ? 0 : 1;
-    o.set(a.subarray(armI(left), armI(left) + ARM_N), armI(0));
-    o.set(a.subarray(armI(1 - left), armI(1 - left) + ARM_N), armI(1));
-    o.set(a.subarray(footI(left), footI(left) + FOOT_N), footI(0));
-    o.set(a.subarray(footI(1 - left), footI(1 - left) + FOOT_N), footI(1));
+    resolveSides(a, o, this.mirror);
     if (this.fade < 1) {
       this.fade = Math.min(1, this.fade + dt / 0.45);
       mix(P.ch, this.from, o, minJerk(this.fade));
@@ -1210,9 +1218,11 @@ export const EMOTES: Record<string, Spec> = Object.fromEntries(
 export interface EmotePicks {
   win: string[];
   taunt: string[];
+  /** Finishers (see finisher.ts); missing in saves from before they existed. */
+  finish?: string[];
 }
 
-export type EmoteKind = 'win' | 'taunt';
+export type EmoteKind = 'win' | 'taunt' | 'finish';
 export interface EmoteInfo {
   id: string;
   kind: EmoteKind;
@@ -1245,6 +1255,12 @@ export const EMOTE_INFO: readonly EmoteInfo[] = [
   { id: 'stompRoar', kind: 'taunt', name: 'Stomp & Roar', blurb: 'Stomps the canvas and roars over them.' },
   { id: 'gloveTap', kind: 'taunt', name: 'Glove Tap', blurb: 'Bangs the gloves together and waits.' },
   { id: 'strut', kind: 'taunt', name: 'Strut', blurb: 'Struts around the ring.' },
+  // finishers: the moves themselves live in finisher.ts
+  { id: 'skyfall', kind: 'finish', name: 'Skyfall', blurb: 'Charges a crackling uppercut and launches them sky-high.' },
+  { id: 'meteor', kind: 'finish', name: 'Meteor Hammer', blurb: 'Folds them with a body shot, leaps and hammers them into the canvas.' },
+  { id: 'cyclone', kind: 'finish', name: 'Cyclone', blurb: 'Roundhouse to the ribs, then a spinning heel that sends them flying.' },
+  { id: 'overdrive', kind: 'finish', name: 'Piston Overdrive', blurb: 'A storm of pistons drives them to the ropes, then a rocket fist.' },
+  { id: 'headhunter', kind: 'finish', name: 'Headhunter', blurb: 'Chops them to their knees and kicks the head clean off.' },
 ];
 
 export const EMOTE_KIND: Record<string, EmoteKind> = Object.fromEntries(EMOTE_INFO.map((e) => [e.id, e.kind]));

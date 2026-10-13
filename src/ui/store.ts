@@ -48,8 +48,8 @@ export function sanitizeBot(raw: unknown): BotSpec {
     const ok = ids.filter((id): id is string => typeof id === 'string' && EMOTE_KIND[id] === kind);
     return [...new Set(ok)].slice(0, MAX_PICKS);
   };
-  const win = picks('win'), taunt = picks('taunt');
-  if (win.length || taunt.length) out.emotes = { win, taunt };
+  const win = picks('win'), taunt = picks('taunt'), finish = picks('finish');
+  if (win.length || taunt.length || finish.length) out.emotes = { win, taunt, finish };
   return out;
 }
 

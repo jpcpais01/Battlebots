@@ -16,6 +16,8 @@ const POSES = 7;
 const EMPTY = COLS - 1;
 /** Sprite size in metres; feet at the bottom edge. */
 const SPR_W = 0.9;
+/** How many spots in the stands can be going wild over flying debris at once. */
+const HOT = 4;
 const SPR_H = 2.1;
 /** Below this fraction of the sprite's height, "other" pixels are trousers; above it, hair and hats. */
 const HAIR_LINE = 0.6;
@@ -1031,6 +1033,7 @@ const vert = /* glsl */ `
   ${HOUSE_GLSL}
   uniform vec2 uJoy, uDismay;
   uniform vec4 uSpots[3];
+  uniform vec4 uHot[${HOT}];  // where a torn-off part came down among the fans: xyz, how wild
   uniform vec3 uSkin[7];
   uniform vec3 uPants[8];
   varying vec4 vUv;       // atlas uv, height up the sprite, side light across it
@@ -1064,6 +1067,20 @@ const vert = /* glsl */ `
     float da = abs(mod(ang - uWaveA + PI, 2.0 * PI) - PI);
     float wave = staff ? 0.0 : uWave * smoothstep(0.55, 0.0, da);
 
+    // a robot part just came flying into the seats: everyone near it is up and losing it
+    float hot = 0.0;
+    vec3 hotAt = vec3(0.0);
+    for (int i = 0; i < ${HOT}; i++) {
+      vec4 h = uHot[i];
+      float k = h.w * (1.0 - smoothstep(0.6, 5.5, distance(iPos, h.xyz)));
+      if (k > hot) { hot = k; hotAt = h.xyz; }
+    }
+    hot *= 0.75 + 0.5 * fract(seed * 3.97);
+    // they crowd in towards it, the nearest jostling to grab it
+    vec2 toHot = hotAt.xz - iPos.xz;
+    float dHot = length(toHot);
+    if (!empty && hot > 0.01 && dHot > 0.4) base.xz += toHot / dHot * min(dHot - 0.4, 0.35) * clamp(hot, 0.0, 1.0);
+
     // each fan backs the robot from their side of the arena (a few sit with the other lot)
     float sup = step(0.0, iPos.x + (h1(seed * 5.3) - 0.5) * 30.0);
     float joy = mix(uJoy.x, uJoy.y, sup);
@@ -1075,7 +1092,7 @@ const vert = /* glsl */ `
 
     // on their feet once the fight gets to them (keen fans first), otherwise sat down
     float standT = mix(0.78, 0.32, exc);
-    float stand = staff ? 1.0 : smoothstep(standT - 0.1, standT + 0.1, e + react * 1.5 + upset * 0.8 + wave);
+    float stand = staff ? 1.0 : smoothstep(standT - 0.1, standT + 0.1, e + react * 1.5 + upset * 0.8 + wave + hot * 3.0);
 
     float rate = 0.5 + exc * 0.7;
     float slot = floor(uTime * rate + seed * 13.0);
@@ -1091,14 +1108,20 @@ const vert = /* glsl */ `
     else pose = r < 0.1 ? clap : r < 0.45 ? 3.0 : 4.0;
     if (stand < 0.5 && pose == 4.0) pose = clap;
     if (wave > 0.45) pose = 4.0;
+    if (hot > 0.15) {
+      // wild: arms up, hands on heads, fists pumping, swapping fast
+      float rh = h1(floor(uTime * (2.5 + exc * 2.0) + seed * 7.0) * 2.17 + seed * 53.1);
+      pose = rh < 0.45 ? 4.0 : rh < 0.75 ? 5.0 : 3.0;
+    }
     if (calm) pose = stride;
 
     float t = uTime * (5.0 + exc * 3.0) + seed * 20.0;
     float hop = max(0.0, sin(t)) * (0.16 * react + 0.12 * clamp(e - 0.8, 0.0, 1.0));
+    hop += max(0.0, sin(t * 1.5)) * 0.26 * clamp(hot, 0.0, 1.0);
     float lift = -0.46 * (1.0 - stand) + hop * stand;
     lift += pose == 3.0 ? max(0.0, sin(t * 1.3)) * 0.03 : 0.0;
     lift += wave * 0.28;
-    float sway = sin(uTime * (0.9 + exc) + seed * 30.0) * (0.012 + 0.03 * min(e + react, 1.0));
+    float sway = sin(uTime * (0.9 + exc + hot * 4.0) + seed * 30.0) * (0.012 + 0.03 * min(e + react + hot * 2.0, 1.0));
     if (empty || calm) { lift = 0.0; sway *= 0.3; }
     if (empty) pose = 0.0;
 
@@ -1194,6 +1217,8 @@ export class Crowd {
   private combo = { who: -1, n: 0, t: -9 };
   private t = 0;
   readonly count: number;
+  /** Debris among the fans: position and how wild they are (decays in `update`). */
+  private hot = Array.from({ length: HOT }, () => new THREE.Vector4(0, -100, 0, 0));
 
   constructor(
     seats: (Seat & { role?: Role; team?: number; walk?: boolean })[],
@@ -1342,6 +1367,7 @@ export class Crowd {
           uJoy: { value: new THREE.Vector2() },
           uDismay: { value: new THREE.Vector2() },
           uSpots: { value: null },
+          uHot: { value: null },
           uSkin: { value: SKIN.map((h) => new THREE.Color(h)) },
           uPants: { value: PANTS.map((h) => new THREE.Color(h)) },
         },
@@ -1354,6 +1380,7 @@ export class Crowd {
     const u = this.mat.uniforms;
     u.uAtlas.value = atlas;
     u.uSpots.value = this.spots;
+    u.uHot.value = this.hot;
     u.uTime = uniforms.uTime;
     u.uHype = uniforms.uHype;
     u.uFlash = uniforms.uFlash;
@@ -1431,6 +1458,25 @@ export class Crowd {
   }
 
   /**
+   * A torn-off part is out among the fans at `p`: everyone around it goes wild. Called every
+   * frame while it's still stirring them up, so the spot follows it as it bounces down the rows.
+   */
+  stir(p: THREE.Vector3, k: number) {
+    let slot = this.hot[0];
+    let best = Infinity;
+    for (const h of this.hot) {
+      const d = (h.x - p.x) * (h.x - p.x) + (h.y - p.y) * (h.y - p.y) + (h.z - p.z) * (h.z - p.z);
+      // follow the same piece (it's moved a little since last frame), else take the quietest spot
+      const score = d < 4 ? d - 100 : h.w;
+      if (score < best) {
+        best = score;
+        slot = h;
+      }
+    }
+    slot.set(p.x, p.y, p.z, Math.max(slot.w, Math.min(1.4, k * 1.4)));
+  }
+
+  /**
    * `excite` is the arena's excitement (the same mood that drives the crowd you hear);
    * `fighting` is true while the bell is live.
    */
@@ -1463,6 +1509,7 @@ export class Crowd {
       this.wave = Math.min(1, this.wave + dt * 0.8);
       if (this.excite > 0.6 || Math.random() < dt / 9) this.waveOn = false;
     } else this.wave = Math.max(0, this.wave - dt * 0.7);
+    for (const h of this.hot) h.w = Math.max(0, h.w - dt * 0.35);
     const u = this.mat.uniforms;
     u.uWave.value = this.wave;
     u.uWaveA.value = this.waveA;

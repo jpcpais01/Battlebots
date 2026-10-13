@@ -346,6 +346,12 @@ export class Booth {
       case 'hit':
         this.onHit(data as HitInfo);
         break;
+      case 'finisher': {
+        // the booth goes up for it; the blows themselves speak for it
+        const d = data as { f: Fighter };
+        this.say({ chain: ['hit.big', 'stagger'], prio: 78, voice: 'p', about: d.f, name: 0.6, follow: 0.3 }, 0.2);
+        break;
+      }
       case 'knockdown':
         this.onKnockdown(data as HitInfo);
         break;
@@ -443,6 +449,7 @@ export class Booth {
       return;
     }
     this.lastHit = h;
+    if (h.finisher) return;
     const a = h.attacker;
     if (!h.blocked && !h.shielded) {
       this.sinceLanded = 0;

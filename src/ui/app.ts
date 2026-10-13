@@ -341,6 +341,7 @@ export class App {
     const d = this.game.director;
     d.garageTarget.set(f[0], f[1], f[2]);
     d.garageDist = f[3];
+    if (this.tab === 'emotes' && this.emoteKind === 'finish') this.game.sparring(true);
     this.garageEls!.view.innerHTML = slot ? `${ICON.expand}<span>Whole bot</span>` : `${ICON.zoom}<span>Inspect ${SLOT_LABEL[this.slot]}</span>`;
   }
 
@@ -356,6 +357,8 @@ export class App {
   private refreshGarage() {
     const g = this.garageEls!;
     const p = this.player;
+    // the sparring dummy only stands in while finishers are on show
+    if (!(this.tab === 'emotes' && this.emoteKind === 'finish')) this.game.sparring(false);
     const build = computeBuild(p.loadout);
     g.name.innerHTML = `${esc(p.name)} <span class="muted">✎</span>`;
     g.power.innerHTML = `<span>Power</span><b>${build.rating}</b>`;
@@ -382,7 +385,7 @@ export class App {
       t.style.setProperty('--rc', RARITIES[eq.rarity].color);
       if (this.tab !== 'part') t.classList.remove('on');
     }
-    const picked = (p.emotes?.win.length ?? 0) + (p.emotes?.taunt.length ?? 0);
+    const picked = (p.emotes?.win.length ?? 0) + (p.emotes?.taunt.length ?? 0) + (p.emotes?.finish?.length ?? 0);
     const tabBtn = (tab: 'emotes' | 'paint', icon: string, label: string, rc: string) => {
       const b = button(`slot ${tab}${this.tab === tab ? ' on' : ''}`, `${icon}<span>${label}</span>`, () => {
         if (this.tab === tab) return;
@@ -555,15 +558,19 @@ export class App {
     const p = this.player;
     const kind = this.emoteKind;
     const mine = p.emotes?.[kind] ?? [];
-    const count = (k: EmoteKind) => p.emotes?.[k].length ?? 0;
-    g.title.innerHTML = `<b>Emotes</b><span>${kind === 'win' ? 'After a win' : 'While they are down'} · ${mine.length ? `${mine.length}/${MAX_PICKS} equipped` : 'bot picks its own'}</span>`;
+    const count = (k: EmoteKind) => p.emotes?.[k]?.length ?? 0;
+    const when = kind === 'win' ? 'After a win' : kind === 'taunt' ? 'While they are down' : 'When they are almost out';
+    g.title.innerHTML = `<b>Emotes</b><span>${when} · ${mine.length ? `${mine.length}/${MAX_PICKS} equipped` : 'bot picks its own'}</span>`;
     this.setFocus(null);
+    // finishers need someone to finish: a sparring dummy steps in while they're on show
+    this.game.sparring(kind === 'finish');
 
     g.rar.className = 'rarities kinds';
     g.rar.innerHTML = '';
     const kinds: [EmoteKind, string, string][] = [
       ['win', 'Celebrations', '#ffc23d'],
       ['taunt', 'Taunts', '#ff5a5a'],
+      ['finish', 'Finishers', '#ff8a1f'],
     ];
     for (const [k, label, color] of kinds) {
       const b = button(`rar${k === kind ? ' on' : ''}`, `${label} <small>${count(k)}/${MAX_PICKS}</small>`, () => {
@@ -581,9 +588,11 @@ export class App {
     el(
       'div',
       'emote-hint',
-      mine.length
-        ? `Your bot only performs what you equip here, picking whatever suits the fight.`
-        : `Nothing equipped: your bot picks its own. Equip up to ${MAX_PICKS} to choose.`,
+      kind === 'finish'
+        ? `When the other bot is down to 15% and yours still has 40%, your next clean shot becomes a finisher. ${mine.length ? 'Yours picks one of these.' : 'Nothing equipped: your bot picks one to suit its style.'}`
+        : mine.length
+          ? `Your bot only performs what you equip here, picking whatever suits the fight.`
+          : `Nothing equipped: your bot picks its own. Equip up to ${MAX_PICKS} to choose.`,
       g.items,
     );
     for (const e of EMOTE_INFO) {
@@ -602,7 +611,7 @@ export class App {
 
   private emoteHtml(e: EmoteInfo, slot: number) {
     const badge = slot >= 0 ? `<i>${slot + 1}</i>` : '';
-    return `<div class="pic">${e.kind === 'win' ? ICON.trophy : ICON.flame}${badge}</div>
+    return `<div class="pic">${e.kind === 'win' ? ICON.trophy : e.kind === 'finish' ? ICON.bolt : ICON.flame}${badge}</div>
       <div class="t"><b>${esc(e.name)}</b><span class="play">${ICON.play}</span></div>
       <div class="tag">${esc(e.blurb)}</div>`;
   }
@@ -610,8 +619,8 @@ export class App {
   /** Equip or take off an emote; a fourth pick replaces the oldest. */
   private toggleEmote(e: EmoteInfo) {
     const p = this.player;
-    const picks = p.emotes ?? { win: [], taunt: [] };
-    const list = picks[e.kind];
+    const picks = p.emotes ?? { win: [], taunt: [], finish: [] };
+    const list = (picks[e.kind] ??= []);
     const i = list.indexOf(e.id);
     if (i >= 0) {
       this.tap('back');
@@ -622,7 +631,7 @@ export class App {
       if (list.length > MAX_PICKS) list.shift();
       this.game.previewEmote(e.id);
     }
-    if (picks.win.length || picks.taunt.length) p.emotes = picks;
+    if (picks.win.length || picks.taunt.length || picks.finish?.length) p.emotes = picks;
     else delete p.emotes;
     // keep the showcase bot (and its preview) as it is: only the picks changed
     this.commitPlayer(false);

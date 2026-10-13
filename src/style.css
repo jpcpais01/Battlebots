@@ -3067,3 +3067,175 @@ button {
     padding: 0.7em 0.85em;
   }
 }
+
+/* ------------------------------------------------------------ finishers */
+/* "Finisher ready": lit under a bot's bars while its next clean shot starts one */
+.finready {
+  display: none;
+  align-items: center;
+  gap: 0.3em;
+  align-self: flex-start;
+  margin-top: 0.25em;
+  padding: 0.12em 0.65em 0.12em 0.45em;
+  font-family: var(--display);
+  font-size: 0.72em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #1b0d03;
+  background: linear-gradient(90deg, #ffe08a, var(--amber), var(--orange));
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+  animation: finReady 0.9s ease-in-out infinite;
+}
+.finready svg {
+  width: 1em;
+  height: 1em;
+}
+.fbar.right .finready {
+  align-self: flex-end;
+}
+.fbar.finready-on .finready {
+  display: flex;
+}
+@keyframes finReady {
+  0%,
+  100% {
+    filter: brightness(1);
+    box-shadow: 0 0 0 rgba(255, 170, 40, 0);
+  }
+  50% {
+    filter: brightness(1.25);
+    box-shadow: 0 0 14px rgba(255, 170, 40, 0.8);
+  }
+}
+
+/* the finisher's name sweeps across the lower third in the finisher's colours */
+.finban {
+  --fc: var(--bot0, #ffb347);
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+}
+.finban.p2 {
+  --fc: var(--bot1, #ffb347);
+}
+.finban.go {
+  opacity: 1;
+}
+.fb-edge {
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 14vh color-mix(in srgb, var(--fc) 70%, transparent);
+  animation: fbEdge 2.6s ease-out both;
+}
+.fb-band {
+  position: absolute;
+  left: -8%;
+  right: -8%;
+  top: 70%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5vh 0 0.9vh;
+  transform: skewY(-3deg);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--fc) 55%, #05070d) 16%,
+    color-mix(in srgb, var(--fc) 75%, #05070d) 50%,
+    color-mix(in srgb, var(--fc) 55%, #05070d) 84%,
+    transparent 100%
+  );
+  border-top: 2px solid color-mix(in srgb, var(--fc) 60%, #fff);
+  border-bottom: 2px solid color-mix(in srgb, var(--fc) 60%, #fff);
+  animation: fbIn 0.42s cubic-bezier(0.2, 1.3, 0.4, 1) both, fbOut 0.45s 2.3s ease-in forwards;
+}
+.finban.p2 .fb-band {
+  animation-name: fbInR, fbOut;
+}
+.fb-band small {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  font-family: var(--display);
+  font-size: min(2.4vh, 3.4vw);
+  letter-spacing: 0.5em;
+  text-transform: uppercase;
+  color: #fff;
+  opacity: 0.9;
+}
+.fb-band small svg {
+  width: 1.1em;
+  height: 1.1em;
+  color: #ffe08a;
+}
+.fb-band b {
+  font-family: var(--display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: min(9vh, 9.5vw);
+  line-height: 1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: #fff;
+  text-shadow: 0 0 3vh color-mix(in srgb, var(--fc) 90%, #fff), 0 0.5vh 0 rgba(0, 0, 0, 0.45);
+  animation: fbWord 0.7s 0.12s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+.fb-band em {
+  font-style: normal;
+  font-family: var(--display);
+  font-size: min(2vh, 3vw);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.75);
+}
+@keyframes fbIn {
+  0% {
+    opacity: 0;
+    translate: -60% 0;
+  }
+  100% {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes fbInR {
+  0% {
+    opacity: 0;
+    translate: 60% 0;
+  }
+  100% {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes fbOut {
+  to {
+    opacity: 0;
+    translate: 0 30%;
+  }
+}
+@keyframes fbWord {
+  0% {
+    opacity: 0;
+    transform: scale(1.9);
+    letter-spacing: 0.3em;
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    letter-spacing: 0.02em;
+  }
+}
+@keyframes fbEdge {
+  0% {
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}

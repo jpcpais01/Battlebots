@@ -38,7 +38,7 @@ function reach(mx: number, mz: number, dx: number, dz: number, r: number) {
   return disc < 0 ? 0 : Math.max(0, -md + Math.sqrt(disc));
 }
 
-type ShotKind = 'wide' | 'medium' | 'low' | 'ots' | 'orbit' | 'high' | 'down' | 'ko' | 'win' | 'intro';
+type ShotKind = 'wide' | 'medium' | 'low' | 'ots' | 'orbit' | 'high' | 'down' | 'ko' | 'win' | 'intro' | 'fin';
 
 /** A camera setup, described relative to the line between the fighters so it follows them around the ring. */
 interface Shot {
@@ -164,6 +164,8 @@ export class Director {
   cuts = 0;
   private alignedFor = 0;
   private rawAxis = 0;
+  /** Fighter performing a finisher (its shot favours them). */
+  private finBy = 0;
   /** Direction from the KO'd fighter away from the winner. */
   private koAng = 0;
   private koSnap = false;
@@ -237,6 +239,11 @@ export class Director {
     if (this.mode !== 'match' || type !== 'hit') return;
     const h = data as HitInfo;
     if (h.shielded) return;
+    if (h.finisher) {
+      // the finisher has its own shot: glance at the blow, but never cut away
+      this.kick.subVectors(h.point, this.center).multiplyScalar(0.12);
+      return;
+    }
     const big = !h.blocked && (h.damage >= 55 || h.crit || h.knockdown);
     this.heat = Math.min(3, this.heat + (h.blocked ? 0.15 : 0.3 + h.damage / 80));
     // glance toward the impact
@@ -359,6 +366,12 @@ export class Director {
       if (sh.kind !== 'win') {
         this.shot = makeShot('win', Math.random);
         this.shot.subject = match.winner.index;
+      }
+    } else if (match.fin) {
+      // a finisher: one low, slow-turning hero shot from in front of the finisher, no cuts
+      if (sh.kind !== 'fin') {
+        this.finBy = match.fin.att.index;
+        this.cut(match, 'fin');
       }
     } else {
       if (sh.kind === 'intro') {
@@ -483,6 +496,10 @@ export class Director {
       const i = this.downIndex;
       const toward = (i === 0 ? 1 : -1) * (r() < 0.65 ? 1 : -1);
       Object.assign(s, { dur: 3.2, az: toward * (0.25 + r() * 0.35), el: -0.02 + r() * 0.06, fovK: 1.2, fill: 0.82, roll: (r() < 0.5 ? -1 : 1) * 0.06, wobble: 0.02, subject: i, bias: 0.35 });
+    } else if (s.kind === 'fin') {
+      const i = this.finBy;
+      // in front of the finisher, past the victim's shoulder, low and close
+      Object.assign(s, { dur: 99, az: (i === 0 ? -1 : 1) * (0.42 + r() * 0.2), orbit: (i === 0 ? -1 : 1) * 0.06, el: 0.02 + r() * 0.05, fovK: 1.18, fill: 0.8, roll: (r() < 0.5 ? -1 : 1) * 0.045, wobble: 0.012, subject: i, bias: 0.18 });
     } else if (s.kind === 'ko') {
       const i = this.koFocus ?? 0;
       Object.assign(s, { dur: 99, az: (r() < 0.5 ? -1 : 1) * (0.45 + r() * 0.3), orbit: 0.06, el: 0.02, fovK: 1.1, fill: 0.62, roll: 0.05, wobble: 0.01, subject: i, bias: 0.65 });
@@ -512,7 +529,7 @@ export class Director {
       s.az += s.orbit * dt;
       // orbits turn back before the fighters line up behind each other
       if (s.kind === 'orbit' && Math.abs(s.az) > 0.85 && s.az * s.orbit > 0) s.orbit = -s.orbit;
-      if (s.kind === 'ko' && Math.abs(s.az) > 1 && s.az * s.orbit > 0) s.orbit = -s.orbit;
+      if ((s.kind === 'ko' || s.kind === 'fin') && Math.abs(s.az) > 1 && s.az * s.orbit > 0) s.orbit = -s.orbit;
       if (s.kind === 'ko') wantEl = 0.02 + Math.min(0.26, s.t * 0.06);
       wantYaw = this.shotYaw(s) + this.noise.at(this.t * 0.07 + 40) * 0.1;
       // keep off the fight line so neither fighter hides behind the other

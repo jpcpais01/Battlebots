@@ -3,6 +3,7 @@ import { Brain, type BrainEvent } from './brain';
 import { J, RING_CORNER, ROPE_LINE, ropeSide, SIDE_NX, SIDE_NZ } from './body';
 import { Fighter, resetUids, type StrikeAction } from './fighter';
 import { Showman } from './emote';
+import { FINISH_AT, FINISH_SELF, FINISHER_NAME, FinisherRun, pickFinisher } from './finisher';
 import type { MoveDef, Zone } from './moves';
 import { clamp, closestOnSegment, lerp, Rng, smoothstep } from './math';
 import { armPart, CUT_JOINTS, legPart, LOOSE, P, PART_COUNT, type LossReason } from './damage';
@@ -41,6 +42,16 @@ export interface HitInfo {
   partCond: number;
   /** A part was torn off by this hit (the part that was hit, not everything it carried). */
   tore: number;
+  /** A blow of a finisher. */
+  finisher?: boolean;
+}
+
+/** A finisher starting: who, on whom, which one. */
+export interface FinisherInfo {
+  f: Fighter;
+  opp: Fighter;
+  id: string;
+  name: string;
 }
 
 /** A part torn off a robot. */
@@ -106,6 +117,8 @@ export class Match {
   private wearSeen = [new Int8Array(PART_COUNT).fill(-1), new Int8Array(PART_COUNT).fill(-1)];
   private listeners: MatchListener[] = [];
   private ropeCooldown = [0, 0];
+  /** The finisher being performed (the clock stops and both brains wait). */
+  fin: FinisherRun | null = null;
   /** A knocked-down bot that will not beat the count, and who put it there. */
   private countOut: { att: Fighter; def: Fighter; at: number } | null = null;
   introLength = 2.6;
@@ -186,6 +199,8 @@ export class Match {
         }
         break;
       case 'fight': {
+        // a finisher stops the clock until it has played out
+        if (this.fin) break;
         this.clock = Math.max(0, this.clock - dt);
         // counted out: the referee reaches ten (the HUD count shows 10 at 9.35 s)
         const co = this.countOut;
@@ -212,7 +227,7 @@ export class Match {
         break;
     }
 
-    if (this.phase !== 'intro' && this.phase !== 'countdown') {
+    if (this.phase !== 'intro' && this.phase !== 'countdown' && !this.fin) {
       const t0 = perf.now();
       this.brains[0].update(dt, this.time);
       this.brains[1].update(dt, this.time);
@@ -220,10 +235,19 @@ export class Match {
     }
     this.shows[0].update(dt, this);
     this.shows[1].update(dt, this);
+    const fin = this.fin;
+    if (fin) {
+      fin.update(dt);
+      this.slowmo = fin.slowmo;
+    }
     this.fighters[0].update(dt);
     this.fighters[1].update(dt);
     this.separate();
-    if (this.phase === 'fight') {
+    if (fin && fin.over) {
+      fin.end();
+      this.fin = null;
+      this.ko(fin.att, fin.def, fin.final === 'decap' ? 'Dismantled' : 'KO');
+    } else if (this.phase === 'fight' && !fin) {
       this.checkStrike(this.fighters[0], this.fighters[1]);
       this.checkStrike(this.fighters[1], this.fighters[0]);
     }
@@ -410,10 +434,51 @@ export class Match {
         }
       }
       if (hit) {
-        this.resolveHit(att, def, s, hit === 'block' ? s.zone : hit, hit === 'block', _p.clone(), blockHand, part);
+        // a bot this close to the end can't stop the shot that starts a finisher, guard or no guard
+        if (this.canFinish(att)) this.beginFinisher(att, s, hit === 'block' ? s.zone : hit, _p.clone());
+        else this.resolveHit(att, def, s, hit === 'block' ? s.zone : hit, hit === 'block', _p.clone(), blockHand, part);
         return;
       }
     }
+  }
+
+  // ---------------------------------------------------------------- finishers
+  /** Would this fighter's next strike that connects start a finisher? */
+  canFinish(att: Fighter) {
+    const def = att.opp;
+    return (
+      this.phase === 'fight' &&
+      !this.fin &&
+      att.state === 'fight' &&
+      (def.state === 'fight' || def.state === 'stun' || def.state === 'stagger') &&
+      def.hp > 0 &&
+      def.hpRatio <= FINISH_AT &&
+      att.hpRatio >= FINISH_SELF
+    );
+  }
+
+  private beginFinisher(att: Fighter, s: StrikeAction, zone: Zone, point: Vector3) {
+    const def = att.opp;
+    // its own stream, so fights without a finisher draw the same numbers as before
+    const rng = new Rng((Math.floor(this.time * 120) * 2654435761 + (att.index + 1) * 97 + 13) >>> 0);
+    const id = pickFinisher(rng, this.specs[att.index].emotes?.finish, this.brains[att.index].traits.style);
+    this.countOut = null;
+    const fin = new FinisherRun(id, att, def, {
+      emit: (t, d) => {
+        if (t === 'detach') this.lossReason = 'head';
+        this.emit(t, d);
+      },
+      hitstop: (x) => (this.hitstop = Math.max(this.hitstop, x)),
+      wear: (f, p) => this.wearCheck(f, p),
+    });
+    this.fin = fin;
+    // the opening shot connects (through the guard if it has to)
+    s.hasHit = true;
+    s.result = 'hit';
+    att.finishStrike(s);
+    const info: FinisherInfo = { f: att, opp: def, id, name: FINISHER_NAME[id] ?? 'Finisher' };
+    this.emit('finisher', info);
+    fin.opener(point, zone, s.move.id);
   }
 
   // ---------------------------------------------------------------- damage

@@ -10,12 +10,13 @@ import { Match, SIM_DT, type DetachInfo, type HitInfo } from '../sim/match';
 import { CUT_JOINTS, P, PART_COUNT } from '../sim/damage';
 import { Debris } from '../render/debris';
 import { Fighter } from '../sim/fighter';
-import { Showman } from '../sim/emote';
+import { EMOTE_KIND, Showman } from '../sim/emote';
+import { FinisherRun } from '../sim/finisher';
 import { J } from '../sim/body';
 import { Rng } from '../sim/math';
 import { MOVES, type MoveId } from '../sim/moves';
 import { computeBuild, RARITIES } from './items';
-import type { BotSpec } from './loadout';
+import { DEFAULT_PLAYER, type BotSpec } from './loadout';
 import { DEFAULT_PAINT, type Paint } from './paint';
 import type { Sfx } from '../audio/sfx';
 import { perf } from '../perf';
@@ -94,7 +95,11 @@ export class Game {
   paused = false;
   private last = performance.now();
   private time = 0;
-  private showcase: { fighter: Fighter; dummy: Fighter; model: BotModel; show: Showman } | null = null;
+  private showcase: { fighter: Fighter; dummy: Fighter; model: BotModel; show: Showman; spec: BotSpec } | null = null;
+  /** Garage finisher previews: a sparring dummy to perform them on, and the one playing. */
+  private spar: { model: BotModel; mark: THREE.Vector3; yaw: number } | null = null;
+  private sparRun: FinisherRun | null = null;
+  private sparStop = 0;
   private groundedPrev: number[][] = [
     [1, 1, 1],
     [1, 1, 1],
@@ -202,6 +207,7 @@ export class Game {
   // ------------------------------------------------------------- showcase
   /** Show a single bot idling in the ring (home + garage). */
   showBot(spec: BotSpec | null) {
+    this.sparring(false);
     if (this.showcase) {
       this.stage.scene.remove(this.showcase.model.root);
       this.showcase.model.dispose();
@@ -229,14 +235,145 @@ export class Game {
     const model = new BotModel(spec.loadout, spec.paint);
     this.probe.tag(model.root, 'bots');
     this.stage.scene.add(model.root);
-    this.showcase = { fighter, dummy, model, show: new Showman(fighter, dummy, null) };
+    this.showcase = { fighter, dummy, model, show: new Showman(fighter, dummy, null), spec };
   }
 
   /** Let the showcase bot perform a celebration or taunt (garage preview), to the camera. */
   previewEmote(id: string) {
     const sc = this.showcase;
-    if (!sc || sc.fighter.action) return;
+    if (!sc) return;
+    if (EMOTE_KIND[id] === 'finish') {
+      this.previewFinisher(id);
+      return;
+    }
+    if (sc.fighter.action || this.sparRun) return;
     sc.show.preview(id, this.director.garageYaw);
+  }
+
+  // ------------------------------------------------------------- sparring
+  /** Bring out (or put away) the sparring dummy the garage shows finishers on. */
+  sparring(on: boolean) {
+    const sc = this.showcase;
+    if (!sc) return;
+    if (!on) {
+      if (!this.spar) return;
+      this.endSparRun();
+      this.stage.scene.remove(this.spar.model.root);
+      this.spar.model.dispose();
+      this.spar = null;
+      this.debris.clear();
+      sc.dummy.place(new THREE.Vector3(0, 0, 3), Math.PI);
+      sc.dummy.state = 'ready';
+      return;
+    }
+    if (!this.spar) {
+      // side on to the camera, a step from the showcase bot
+      const yaw = this.director.garageYaw;
+      const mark = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw)).multiplyScalar(1.02);
+      this.spar = { model: this.dummyModel(), mark, yaw };
+      this.resetDummy();
+    }
+    // frame the pair
+    const d = this.director;
+    d.garageTarget.set(this.spar.mark.x * 0.5, 0.98, this.spar.mark.z * 0.5);
+    d.garageDist = 5.3;
+  }
+
+  /** A fresh sparring dummy: bare metal with hazard-yellow trim. */
+  private dummyModel() {
+    const paint: Paint = { primary: 0x6b717c, secondary: 0x30343c, accent: 0xffb81f, finish: 2, frame: 0 };
+    const m = new BotModel(DEFAULT_PLAYER.loadout, paint);
+    this.probe.tag(m.root, 'bots');
+    this.stage.scene.add(m.root);
+    return m;
+  }
+
+  /** Stand the dummy back on its mark, whole again. */
+  private resetDummy() {
+    const sc = this.showcase!;
+    const sp = this.spar!;
+    const torn = sc.dummy.parts.off.some((o) => o);
+    if (torn || !sc.dummy.hooks) {
+      // a fresh body (and model) if the last finisher took its head
+      if (torn) {
+        this.stage.scene.remove(sp.model.root);
+        sp.model.dispose();
+        sp.model = this.dummyModel();
+        this.debris.clear();
+      }
+      const d = new Fighter(1, 'Sparring Dummy', computeBuild(DEFAULT_PLAYER.loadout), new Rng(7));
+      d.opp = sc.fighter;
+      sc.fighter.opp = d;
+      sc.dummy = d;
+      d.hooks = { time: sc.fighter.hooks?.time ?? 0, emit: () => {} };
+      sc.show = new Showman(sc.fighter, d, null);
+    }
+    const d = sc.dummy;
+    const face = Math.atan2(-sp.mark.x, -sp.mark.z);
+    d.place(sp.mark, face);
+    d.state = 'fight';
+    d.bounce = 0.4;
+    d.hp = d.build.stats.maxHp;
+    d.knockdowns = 0;
+  }
+
+  /** Perform a finisher on the sparring dummy. */
+  private previewFinisher(id: string) {
+    const sc = this.showcase;
+    if (!sc) return;
+    this.sparring(true);
+    this.endSparRun();
+    sc.show.stop();
+    const f = sc.fighter;
+    if (f.strike) f.finishStrike(f.strike, true, 'interrupted');
+    f.action = null;
+    f.state = 'fight';
+    f.place(new THREE.Vector3(0, 0, 0), Math.atan2(this.spar!.mark.x, this.spar!.mark.z));
+    this.resetDummy();
+    const dummy = sc.dummy;
+    const pal = sc.spec.paint;
+    const run = new FinisherRun(id, f, dummy, {
+      emit: (type, data) => {
+        if (type === 'hit') {
+          const h = data as HitInfo;
+          this.fx.sparks(h.point, h.dir, h.damage >= 55 ? 30 : 14, h.damage >= 55 ? 0xffb347 : pal.accent, h.damage >= 55 ? 8 : 6, 1);
+          this.fx.flash(h.point, 0xffd28a, h.damage >= 55 ? 1.3 : 0.7, 0.14);
+          this.sfx?.hit(Math.min(140, h.damage), h.zone, h.knockdown, h.move.kind, 0);
+          this.director.shake(Math.min(0.5, 0.12 + h.damage / 300));
+        } else if (type === 'finisherBlow') {
+          const d = data as { point: THREE.Vector3; dir: THREE.Vector3; kind: string };
+          this.fx.flash(d.point, 0xfff0d0, 2.2, 0.28);
+          this.fx.burst(d.point, pal.accent, 44, 5);
+          this.fx.sparks(d.point, d.dir, 46, 0xffc070, 8, 1.3);
+          this.stage.ripples.add(d.point, 2.2, 1.4, 0xffc070);
+          if (d.kind === 'slam') this.fx.dust(_dp.set(d.point.x, 0.05, d.point.z), 40, 1.5);
+          this.director.shake(0.7);
+          this.director.punch(4);
+          this.sfx?.ko();
+        } else if (type === 'detach') {
+          const d = data as DetachInfo;
+          const piece = this.spar?.model.tearOff(d.part);
+          if (piece && this.spar) {
+            const anchor = this.debris.spawn(piece, d.dir, d.strength * 0.6, false);
+            for (const j of CUT_JOINTS[d.part]) this.spar.model.anchors[j] = anchor;
+          }
+          this.fx.sparks(d.point, _up, 40, 0xffc070, 7, 1.4);
+          this.fx.arc(d.point, 0.8);
+          this.sfx?.zap();
+        }
+      },
+      hitstop: (x) => (this.sparStop = Math.max(this.sparStop, x)),
+      wear: () => {},
+    }, true);
+    this.sparRun = run;
+    run.opener(dummy.body.pos[J.Chest].clone(), 'body', 'jab');
+    this.sfx?.charge(false);
+  }
+
+  private endSparRun() {
+    if (!this.sparRun) return;
+    this.sparRun.end();
+    this.sparRun = null;
   }
 
   /** Let the showcase bot throw a move into the air (garage preview). */
@@ -407,6 +544,25 @@ export class Game {
         this.arena.excite(1.5);
         sfx?.ko();
         break;
+      case 'finisher': {
+        // the house lights flare, the finisher's colours burst off it, the crowd comes up
+        const f = data.f as Fighter;
+        const pal = this.match!.specs[f.index].paint;
+        const at = f.body.pos[J.Chest];
+        fx.flash(at, pal.accent, 2.4, 0.3);
+        fx.burst(at, pal.accent, 46, 4);
+        this.stage.ripples.add(at, 2.4, 1.4, pal.accent);
+        this.arena.venue.strobe?.(0.8);
+        this.arena.excite(1.3);
+        this.director.punch(3);
+        this.director.shake(0.25);
+        sfx?.charge(false);
+        sfx?.zap();
+        break;
+      }
+      case 'finisherBlow':
+        this.finisherBlow(data);
+        break;
       case 'emote':
         // the crowd answers a celebration or taunt; stomps shake the camera
         this.arena.excite(data.k * 0.6);
@@ -470,6 +626,7 @@ export class Game {
           model.root.position.set((Math.random() - 0.5) * k, 0, (Math.random() - 0.5) * k);
         } else model.root.position.set(0, 0, 0);
         this.updateTrailsAndFlames(i);
+        if (m.fin && m.fin.att === f) this.finisherGlow(m, i, dt);
         this.groundImpacts(i);
         this.damageEffects(i, dt * this.speed * m.slowmo);
       }
@@ -479,27 +636,66 @@ export class Game {
         if (!f.parts.legOut(0)) this.feet.push(this.models[i].joints[J.FootL]);
         if (!f.parts.legOut(1)) this.feet.push(this.models[i].joints[J.FootR]);
       }
-      this.debris.update(dt * this.speed * m.slowmo, this.fx, this.feet, (p, sp) => this.sfx?.thud(Math.min(0.7, sp / 6), this.pan(p)));
+      this.debris.update(
+        dt * this.speed * m.slowmo,
+        this.fx,
+        this.feet,
+        (p, sp) => this.sfx?.thud(Math.min(0.7, sp / 6), this.pan(p)),
+        (p, k, first) => {
+          this.arena.venue.crowd.stir(p, k);
+          if (!first) return;
+          // a part came down in the seats: the fans there erupt, and the whole house hears it
+          this.crowdMood.event('debrisCrowd');
+          this.sfx?.crowdEvent('debrisCrowd');
+          this.arena.excite(0.8);
+        },
+      );
       perf.lap('bots');
     }
     if (this.showcase) {
-      const { fighter, model, show } = this.showcase;
-      this.showAcc += dt;
+      const { fighter, model, show, dummy } = this.showcase;
+      const run = this.sparRun;
+      this.showAcc += dt * (run ? run.slowmo : 1);
       let n = 0;
       while (this.showAcc >= SIM_DT && n++ < 16) {
+        this.showAcc -= SIM_DT;
+        if (this.sparStop > 0) {
+          this.sparStop -= SIM_DT;
+          continue;
+        }
         if (fighter.hooks) fighter.hooks.time += SIM_DT;
+        if (dummy.hooks) dummy.hooks.time += SIM_DT;
         // drift back to the mark between previews
         if (!fighter.action) fighter.intentVel.set(-fighter.root.x, 0, -fighter.root.z).multiplyScalar(2.5);
         else fighter.intentVel.set(0, 0, 0);
         show.tick(SIM_DT);
+        if (this.spar && !run && dummy.state === 'fight') dummy.intentVel.set(this.spar.mark.x - dummy.root.x, 0, this.spar.mark.z - dummy.root.z).multiplyScalar(2.5);
+        if (run) {
+          run.update(SIM_DT);
+          if (run.over) this.endSparRun();
+        }
         fighter.update(SIM_DT);
-        this.showAcc -= SIM_DT;
+        if (this.spar) dummy.update(SIM_DT);
       }
-      model.update(fighter, this.showAcc / SIM_DT, this.time, show.pose.gazeOn ? show.pose.gaze : undefined);
+      const alpha = this.showAcc / SIM_DT;
+      const gaze = fighter.emote?.gazeOn ? fighter.emote.gaze : undefined;
+      if (this.spar) {
+        const dm = this.spar.model;
+        model.begin(fighter, alpha, gaze ?? dummy.body.pos[J.Head]);
+        dm.begin(dummy, alpha, dummy.emote?.gazeOn ? dummy.emote.gaze : fighter.body.pos[J.Head]);
+        model.end(fighter, this.time, dm);
+        dm.end(dummy, this.time, model);
+        if (run && run.glow > 0.03) {
+          const at = model.joints[run.glowJoint];
+          if (Math.random() < dt * 30 * run.glow) this.fx.sparks(at, _up, 1 + Math.round(run.glow * 4), this.showcase.spec.paint.accent, 1.6 + run.glow * 2, 1.5);
+          if (Math.random() < dt * 9 * run.glow) this.fx.arc(at, 0.06 + run.glow * 0.12, this.showcase.spec.paint.accent);
+        }
+        this.debris.update(dt * (run ? run.slowmo : 1), this.fx, [], () => {});
+      } else model.update(fighter, alpha, this.time, gaze);
       perf.lap('bots');
     }
     // contact occlusion follows whichever robots are on screen
-    const shown = m && this.models.length === 2 ? this.models : this.showcase ? [this.showcase.model] : [];
+    const shown = m && this.models.length === 2 ? this.models : this.showcase ? (this.spar ? [this.showcase.model, this.spar.model] : [this.showcase.model]) : [];
     for (let i = 0; i < 2; i++) contactAO.set(i, shown[i]?.joints ?? null);
     this.fx.update(dt, this.stage.camera);
     this.stage.ripples.update(dt);
@@ -582,6 +778,50 @@ export class Game {
         this.fx.sparks(h, _v.set(0, 0.5, 0), 2, 0xff7a2a, 1.5, 0.6);
       }
     }
+  }
+
+  // ------------------------------------------------------------- finishers
+  /** A finisher charging up: the fist crackles and spits sparks, more as it builds. */
+  private finisherGlow(m: Match, i: number, dt: number) {
+    const fin = m.fin!;
+    const g = fin.glow;
+    if (g < 0.03 || this.quiet) return;
+    const at = this.models[i].joints[fin.glowJoint];
+    const col = this.match!.specs[i].paint.accent;
+    const k = dt * this.speed * Math.max(0.3, m.slowmo);
+    if (Math.random() < k * 30 * g) this.fx.sparks(at, _up, 1 + Math.round(g * 4), col, 1.6 + g * 2, 1.5);
+    if (Math.random() < k * 9 * g) this.fx.arc(at, 0.06 + g * 0.12, col);
+    if (Math.random() < k * 14 * g) this.fx.flash(at, col, 0.25 + g * 0.5, 0.08);
+  }
+
+  /** The last blow of a finisher: each one lands with its own kind of bang. */
+  private finisherBlow(d: { f: Fighter; opp: Fighter; kind: string; point: THREE.Vector3; dir: THREE.Vector3 }) {
+    const fx = this.fx;
+    const pal = this.match!.specs[d.f.index].paint;
+    const p = d.point;
+    fx.flash(p, 0xfff0d0, 3, 0.32);
+    fx.burst(p, pal.accent, 60, 6);
+    fx.sparks(p, d.dir, 70, 0xffc070, 10, 1.3);
+    this.stage.ripples.add(p, 2.6, 1.8, 0xffc070);
+    this.stage.ripples.add(p, 1.6, 1.1, pal.accent, 0.6);
+    this.arena.venue.strobe?.(1);
+    this.arena.flashRopes(1);
+    this.director.shake(1);
+    this.director.punch(6);
+    this.arena.excite(2);
+    if (d.kind === 'slam') {
+      // the canvas takes it: a ring of dust and a thud through the floor
+      _dp.set(p.x, 0.05, p.z);
+      fx.dust(_dp, 60, 2);
+      this.stage.ripples.add(_dp, 3.2, 2, 0xffffff, 0.5);
+      this.sfx?.thud(1, this.pan(p));
+    } else if (d.kind === 'launch') {
+      fx.sparks(p, _up, 50, pal.accent, 9, 0.6);
+    } else if (d.kind === 'blast') {
+      fx.flame(d.f.body.pos[d.f.rearSide === 'L' ? J.HandL : J.HandR], d.dir, 1.6);
+      fx.burst(p, 0xff7a2a, 40, 7);
+    }
+    this.sfx?.ko();
   }
 
   // ------------------------------------------------------------- battle damage
