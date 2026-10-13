@@ -52,6 +52,10 @@ export function readBank() {
     }
     const id = `${trig}.${String(++n).padStart(2, '0')}`;
     const line = { id, t: trig, v, e: +energy, text };
+    // every other routine call at talking pitch, so the big ones still land
+    if (v === 'p' && ROUTINE.test(trig) && line.e >= 3 && n % 2) line.e -= 1;
+    // screaming is for knockdowns, finishes and huge shots, not every exchange
+    if (v === 'p' && line.e === 4 && /^(hit|kick|combo|defence|miss|stagger|ropes|fight\.opening)/.test(trig) && !/^hit\.(big|crit)$/.test(trig)) line.e = 3;
     if (tags.length) line.g = tags;
     if (mark === '+' && lead) line.r = lead;
     lead = pool ? null : id;
@@ -77,13 +81,23 @@ export function readVoices() {
 }
 
 /** What gets said: delivery tags for Eleven v3 by energy, and spoken names. */
-function speakable(text, energy, model) {
+function speakable(text, energy, model, voice = '', trig = '') {
   if (!model.includes('v3')) return text.replace(/\[[^\]]+\]\s*/g, '');
   // a line that opens with its own delivery tag keeps it
   if (/^\[[^\]]+\]/.test(text)) return text;
-  const lead = energy >= 4 ? '[shouting] ' : energy === 3 ? '[excited] ' : '';
+  const lead = energy >= 4 ? '[shouting] ' : energy === 3 ? '[excited] ' : voice === 'r' ? '' : calm(text, energy, trig);
   return lead + text;
 }
+
+/** The humans talk like people in quiet moments: relaxed, soft or thoughtful, never flat. */
+function calm(text, energy, trig) {
+  const pick = parseInt(createHash('sha1').update(text).digest('hex').slice(0, 4), 16) % 3;
+  if (energy <= 1) return ['[relaxed] ', '[thoughtful] ', '[speaking softly] '][pick];
+  return /^(lull|intro\.(preview|matchup|sponsor|reply)|wrap|fight\.opening|round|between)/.test(trig) ? ['[relaxed] ', '[conversational] ', '[relaxed] '][pick] : '';
+}
+
+/** Routine exchanges where the caller talks at a normal pitch, saving the shouting for big moments. */
+const ROUTINE = /^(hit\.(jab|straight|hook|body|solid)|defence\.(dodge|block)|kick\.(push|low|knee)|combo\.three|miss\.whiff|ropes\.pinned)$/;
 
 const VOICE = { p: 'pbp', c: 'colour', r: 'robot' };
 
@@ -102,13 +116,13 @@ export function items(voices, takes = 2) {
   };
   const add = (o) => {
     const stability = o.energy >= 3 ? 0 : 0.5; // v3: 0 Creative, 0.5 Natural
-    const text = speakable(o.text, o.energy, model);
+    const text = speakable(o.text, o.energy, model, o.line?.v, o.line?.t);
     push(o, { voice_id: voices[o.voice].id, model_id: model, text, voice_settings: { stability }, seed: seedOf(`${o.text}|${o.take}`) }, text.length);
   };
   for (const l of readBank()) {
     if (l.d) {
       // a conversation: one recording, every speaker in it
-      const inputs = l.d.map((p) => ({ text: speakable(p.text, p.e, model), voice_id: voices[VOICE[p.v]].id }));
+      const inputs = l.d.map((p) => ({ text: speakable(p.text, p.e, model, p.v, l.t), voice_id: voices[VOICE[p.v]].id }));
       const req = { inputs, model_id: model, settings: { stability: 0.5 }, seed: seedOf(l.d.map((p) => p.text).join('|')) };
       push({ kind: 'line', id: l.id, line: l, take: 0, voice: VOICE[l.v], energy: l.e, text: l.text }, req, inputs.reduce((n, i) => n + i.text.length, 0));
       continue;
