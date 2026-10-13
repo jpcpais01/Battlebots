@@ -343,6 +343,65 @@ function band(b: PB, secs: Sec[], y0: number, y1: number, grow: number, key: Mat
   b.add(G.loft(s, cham), key);
 }
 
+/** Clip a convex polygon to lo <= x <= hi. */
+function clipX(pts: P2[], lo: number, hi: number): P2[] {
+  const cut = (poly: P2[], keep: (x: number) => boolean, at: number): P2[] => {
+    const out: P2[] = [];
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length];
+      const ia = keep(a[0]), ib = keep(b[0]);
+      if (ia) out.push(a);
+      if (ia !== ib) {
+        const t = (at - a[0]) / (b[0] - a[0]);
+        out.push([at, a[1] + (b[1] - a[1]) * t]);
+      }
+    }
+    return out;
+  };
+  return cut(cut(pts, (x) => x >= lo, lo), (x) => x <= hi, hi);
+}
+
+/**
+ * Bastion's hazard stripes: a w×h dark panel facing +Z of its frame, crossed by diagonal
+ * paint2 bars that stand a hair proud of it.
+ */
+function hazard(b: PB, w: number, h: number, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0) {
+  b.group(x, y, z, rx, ry, rz, (g) => {
+    g.add(G.cbox(w, h, 0.012, 0.003), 'dark');
+    const r = (v: number) => Math.round(v * 1e4) / 1e4;
+    const hh = h * 0.43, pitch = Math.min(0.05, Math.max(0.03, Math.min(w, h) * 1.6)), bar = pitch * 0.5, k = hh * 1.7;
+    for (let x0 = -w / 2 - k; x0 < w / 2; x0 += pitch) {
+      const poly = clipX([[x0, -hh], [x0 + bar, -hh], [x0 + bar + k, hh], [x0 + k, hh]], -w / 2 + 0.004, w / 2 - 0.004).map(([px, py]) => [r(px), r(py)] as P2);
+      if (poly.length >= 3) g.add(G.prism(poly, 0.008, 0.001), 'paint2', 0, 0, 0.006);
+    }
+  });
+}
+
+/** A row of chrome rivet heads from (x0, y0, z0) to (x1, y1, z1). */
+function rivets(b: PB, n: number, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, r = 0.008) {
+  for (let i = 0; i < n; i++) {
+    const t = n > 1 ? i / (n - 1) : 0.5;
+    b.add(G.sphere(r, 6, 4), 'chrome', x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, z0 + (z1 - z0) * t);
+  }
+}
+
+/** A torus arc lying flat (in the XZ plane), centred on +Z: visor bands and collars. */
+function arcFlat(b: PB, r: number, t: number, arc: number, key: MatKey, x: number, y: number, z: number, rs = 6) {
+  b.add(G.torus(r, t, rs, Math.max(8, Math.round(arc * 7)), arc), key, x, y, z, HP, 0, HP - arc / 2);
+}
+
+/**
+ * One laced row of Kensei lamellar hugging a loft between heights yA and yB: `growA` and `growB`
+ * set how far it stands off the loft at each end, so a row flares over the one below it.
+ */
+function lamellar(b: PB, secs: Sec[], yA: number, yB: number, growA: number, growB: number, key: MatKey, cham: number) {
+  const s = [secAt(secs, yA), secAt(secs, yB)].map(([y, w, d, z, x], i) => {
+    const g = i ? growB : growA;
+    return [y, w + g * 2, d + g * 2, z, x] as Sec;
+  });
+  b.add(G.loft(s, cham), key);
+}
+
 // ======================================================================= HEADS
 /** Where a head's crown, temples and brow are, so rarity add-ons sit on any helmet. */
 interface HeadFit {
@@ -510,6 +569,123 @@ export function buildHead(look: number, r = 0): PB {
       fit = { top: 0.135, hw: 0.13, front: 0.12, brow: 0.07, crown: true };
       break;
     }
+    case 5: {
+      // Rampart Helm (Bastion): a slab-sided bunker with a recessed vision slit under a striped brow,
+      // a gridded jaw block, riveted side plates and a squat roof hatch
+      b.add(G.loft([[-0.085, 0.19, 0.19, 0.0], [-0.03, 0.225, 0.215], [0.07, 0.225, 0.215, -0.005], [0.12, 0.2, 0.19, -0.012], [0.135, 0.15, 0.15, -0.015]], 0.14), 'paint');
+      b.add(G.cbox(0.19, 0.044, 0.05, 0.006), 'dark', 0, 0.03, 0.094);
+      b.add(G.cbox(0.15, 0.011, 0.012, 0.004), 'glow', 0, 0.03, 0.118);
+      b.add(G.cbox(0.235, 0.046, 0.07, 0.008), 'paint2', 0, 0.074, 0.09);
+      hazard(b, 0.2, 0.03, 0, 0.074, 0.127);
+      b.add(G.cbox(0.205, 0.08, 0.066, 0.01), 'paint', 0, -0.032, 0.088);
+      for (let i = 0; i < 4; i++) b.add(G.cbox(0.014, 0.048, 0.01, 0.003), 'dark', -0.054 + i * 0.036, -0.036, 0.121);
+      b.both((s) => {
+        s.add(G.cbox(0.03, 0.15, 0.18, 0.006), 'paint2', 0.118, 0.012, -0.005);
+        rivets(s, 2, 0.134, 0.07, 0.065, 0.134, 0.07, -0.075);
+        rivets(s, 2, 0.134, -0.045, 0.065, 0.134, -0.045, -0.075);
+      });
+      b.add(G.cyl(0.042, 0.048, 0.022, 10), 'metal', 0, 0.142, -0.02);
+      b.add(G.cyl(0.032, 0.032, 0.008, 10), 'dark', 0, 0.155, -0.02);
+      b.add(G.cbox(0.05, 0.008, 0.012, 0.003), 'chrome', 0, 0.162, -0.02);
+      vent(b, 0.12, 0.06, 3, 0, 0.01, -0.108, 0, PI, 0);
+      fit = { top: 0.16, hw: 0.133, front: 0.127, brow: 0.074, crown: false };
+      break;
+    }
+    case 6: {
+      // Peregrine Canopy (Kestrel): a swept cockpit shell with a bulging canopy, a hooked beak of
+      // a chin, intake gills and two fins raked back off the crown
+      b.add(G.loft([[-0.08, 0.14, 0.16, 0.02], [-0.02, 0.165, 0.2, 0.01], [0.05, 0.155, 0.205, -0.01], [0.1, 0.11, 0.17, -0.035], [0.125, 0.05, 0.1, -0.055]], 0.42), 'paint');
+      b.add(G.loft([[-0.012, 0.15, 0.07, 0.083], [0.045, 0.135, 0.06, 0.08], [0.088, 0.085, 0.045, 0.06]], 0.45), 'dark');
+      b.add(G.cbox(0.12, 0.007, 0.01, 0.003), 'glow', 0, 0.02, 0.115, -0.1, 0, 0);
+      b.add(G.fin([[0.0, 0.0], [0.05, -0.02], [0.02, -0.06], [-0.02, -0.055]], 0.06, 0.006), 'paint2', 0, -0.02, 0.075);
+      b.both((s) => {
+        s.add(G.cbox(0.012, 0.04, 0.05, 0.004), 'dark', 0.077, -0.035, 0.035);
+        for (let i = 0; i < 3; i++) s.add(G.box(0.006, 0.034, 0.006), 'metal', 0.084, -0.035, 0.02 + i * 0.015);
+        s.group(0.055, 0.075, -0.02, 0, 0, -0.35, (v) => {
+          v.add(G.fin([[0.03, 0], [-0.1, 0.02], [-0.13, 0.07], [-0.05, 0.035]], 0.012), 'paint2');
+          v.add(G.fin([[-0.1, 0.024], [-0.124, 0.064], [-0.116, 0.066], [-0.092, 0.03]], 0.016, 0.002), 'glow');
+        });
+      });
+      ears(b, -0.015, -0.01, 0.083, 0.03);
+      b.add(G.cbox(0.02, 0.008, 0.04, 0.003), 'glow', 0, 0.127, -0.055);
+      fit = { top: 0.125, hw: 0.083, front: 0.118, brow: 0.06, crown: true };
+      break;
+    }
+    case 7: {
+      // Crucible Mask (Vulkan): a heavy skull with a furnace door for a face, glowing between its
+      // grate bars, a hooded brow, cooling fins over the ears and twin exhaust stacks behind
+      b.add(G.loft([[-0.085, 0.17, 0.17, 0.01], [-0.03, 0.21, 0.205], [0.06, 0.21, 0.205, -0.01], [0.11, 0.16, 0.165, -0.022], [0.13, 0.09, 0.1, -0.03]], 0.3), 'paint');
+      b.add(G.cbox(0.15, 0.12, 0.04, 0.01), 'metal', 0, -0.008, 0.096);
+      b.add(G.cbox(0.124, 0.094, 0.012, 0.004), 'dark', 0, -0.008, 0.113);
+      for (let i = 0; i < 4; i++) b.add(G.cbox(0.108, 0.01, 0.01, 0.003), 'glow', 0, -0.044 + i * 0.024, 0.116);
+      for (let i = -1; i <= 1; i++) b.add(G.cbox(0.009, 0.1, 0.012, 0.003), 'chrome', i * 0.04, -0.008, 0.122);
+      b.addSym(G.cyl(0.007, 0.007, 0.1, 6), 'chrome', 0.078, -0.008, 0.115);
+      b.add(G.cbox(0.21, 0.035, 0.07, 0.01), 'paint2', 0, 0.07, 0.088, -0.25, 0, 0);
+      b.add(G.cbox(0.13, 0.03, 0.05, 0.008), 'paint2', 0, -0.08, 0.08);
+      b.both((s) => {
+        for (let i = 0; i < 4; i++) s.add(G.cbox(0.034, 0.01, 0.11, 0.003), 'metal', 0.108, -0.04 + i * 0.026, -0.01);
+        s.group(0.05, 0.095, -0.06, -0.4, 0, -0.12, (v) => {
+          v.add(G.cyl(0.017, 0.02, 0.09, 10), 'metal', 0, 0.045, 0);
+          v.add(G.cyl(0.021, 0.021, 0.012, 10), 'dark', 0, 0.092, 0);
+          v.add(G.cyl(0.012, 0.012, 0.004, 10), 'glow', 0, 0.099, 0);
+          v.add(G.torus(0.02, 0.004, 4, 12), 'chrome', 0, 0.03, 0, HP, 0, 0);
+        });
+      });
+      fit = { top: 0.13, hw: 0.105, front: 0.122, brow: 0.07, crown: true };
+      break;
+    }
+    case 8: {
+      // Seraph Halo (Halcyon): a smooth egg of a helmet, a lit visor band wrapping the face, ear
+      // discs, hex cells in the jaw and a halo floating over the crown
+      b.add(G.sphere(0.108, 20, 14), 'paint', 0, 0.02, -0.005, 0, 0, 0, 1, 1.08, 1.04);
+      arcFlat(b, 0.1, 0.02, PI * 1.15, 'dark', 0, 0.015, -0.005);
+      arcFlat(b, 0.118, 0.006, PI * 0.9, 'glow', 0, 0.018, -0.005);
+      b.both((s) => {
+        s.add(G.cyl(0.042, 0.042, 0.02, 16), 'metal', 0.105, 0.0, -0.01, 0, 0, HP);
+        s.add(G.torus(0.032, 0.005, 4, 16), 'glow', 0.116, 0.0, -0.01, 0, HP, 0);
+        s.add(G.cyl(0.018, 0.018, 0.006, 12), 'paint2', 0.117, 0.0, -0.01, 0, 0, HP);
+      });
+      b.add(G.loft([[-0.085, 0.12, 0.12, 0.03], [-0.04, 0.15, 0.14, 0.035]], 0.4), 'paint2');
+      for (let i = -1; i <= 1; i++) {
+        b.add(G.cyl(0.016, 0.016, 0.01, 6), 'dark', i * 0.034, -0.06, 0.102, HP, 0, 0);
+        b.add(G.cyl(0.007, 0.007, 0.012, 6), 'glow', i * 0.034, -0.06, 0.104, HP, 0, 0);
+      }
+      b.add(G.cyl(0.006, 0.008, 0.045, 8), 'chrome', 0, 0.152, -0.03);
+      b.add(G.sphere(0.009, 8, 6), 'glow', 0, 0.178, -0.03);
+      b.add(G.torus(0.082, 0.007, 6, 32), 'glow', 0, 0.188, -0.03, HP - 0.3, 0, 0);
+      fit = { top: 0.137, hw: 0.108, front: 0.12, brow: 0.05, crown: false };
+      break;
+    }
+    case 9: {
+      // Kabuto Helm (Kensei): a helmet bowl over a menpo face mask with lit eye slits, a three-row
+      // neck guard of laced plates fanning round the back and a crescent crest off the brow
+      const bowl: Sec[] = [[-0.005, 0.205, 0.215, -0.005], [0.06, 0.2, 0.21, -0.012], [0.105, 0.155, 0.165, -0.02], [0.135, 0.07, 0.08, -0.025]];
+      b.add(G.loft(bowl, 0.38), 'paint');
+      band(b, bowl, -0.005, 0.01, 0.005, 'paint2', 0.38);
+      b.add(G.cbox(0.215, 0.012, 0.05, 0.004), 'paint2', 0, 0.002, 0.11, 0.25, 0, 0);
+      b.add(G.cbox(0.15, 0.09, 0.06, 0.012), 'dark', 0, -0.045, 0.075);
+      b.addPlatePair([[0.012, 0.004], [0.062, 0.016], [0.06, 0.002], [0.012, -0.006]], 0.012, 'glow', -0.016, 0.106);
+      b.add(G.prism([[-0.068, 0.018], [0.068, 0.018], [0.058, -0.02], [0.016, -0.05], [-0.016, -0.05], [-0.058, -0.02]], 0.026, 0.006), 'paint2', 0, -0.056, 0.112);
+      for (let i = 0; i < 3; i++) b.add(G.box(0.03 - i * 0.006, 0.004, 0.006), 'dark', 0, -0.072 - i * 0.01, 0.126);
+      // shikoro: rows of plates fanning out round the back and sides, each row further out
+      for (let row = 0; row < 3; row++) {
+        const R = 0.108 + row * 0.016, y = -0.004 - row * 0.03;
+        for (let k = 0; k < 7; k++) {
+          const a = HP + 0.15 + (k / 6) * (PI - 0.3);
+          b.group(Math.sin(a) * R, y, Math.cos(a) * R, 0, a, 0, (g) => g.add(G.cbox(0.064, 0.036, 0.012, 0.004), row === 1 ? 'paint2' : 'paint', 0, 0, 0, -0.42, 0, 0));
+        }
+      }
+      // fukigaeshi: the turned-back wings at the front corners
+      b.both((s) => {
+        s.add(G.cbox(0.07, 0.05, 0.012, 0.004), 'paint2', 0.072, 0.022, 0.064, 0, PI / 4, 0);
+        bolt(s, 0.077, 0.022, 0.069, 'z', 0.006);
+      });
+      // maedate: a crescent rising off a chrome mount on the brow
+      b.add(G.cbox(0.03, 0.026, 0.022, 0.006), 'chrome', 0, 0.045, 0.1);
+      b.add(G.torus(0.068, 0.008, 4, 22, PI * 1.25), 'paint2', 0, 0.115, 0.108, 0, 0, 1.5 * PI - PI * 0.625, 1, 1, 0.6);
+      fit = { top: 0.135, hw: 0.105, front: 0.112, brow: 0.03, crown: true };
+      break;
+    }
     default: {
       // Berserker Crest: angled brow, V optics, a toothed jaw and swept crest fins
       b.add(G.loft([[-0.08, 0.12, 0.15, 0.025], [-0.02, 0.18, 0.2], [0.06, 0.18, 0.2, -0.01], [0.095, 0.13, 0.16, -0.02]], 0.28), 'paint');
@@ -570,6 +746,26 @@ const TORSO_FIT: TorsoFit[] = [
   { side: 0.28, flank: -0.06, back: -0.23 },
   { side: 0.212, flank: 0.0, back: -0.18 },
   { side: 0.209, flank: -0.06, back: -0.18 },
+  // the makers' lines: Bastion, Kestrel, Vulkan, Halcyon, Kensei
+  { side: 0.285, flank: -0.02, back: -0.245 },
+  { side: 0.2, flank: -0.04, back: -0.17 },
+  { side: 0.285, flank: -0.07, back: -0.2 },
+  { side: 0.25, flank: -0.04, back: -0.18 },
+  { side: 0.245, flank: -0.03, back: -0.165 },
+];
+
+/** Where each chest seats the core unit: [y, z] of its housing. */
+const CORE_AT: [number, number][] = [
+  [0.045, 0.195],
+  [-0.02, 0.15],
+  [0.02, 0.215],
+  [0.045, 0.17],
+  [0.045, 0.195],
+  [0.035, 0.232],
+  [0.05, 0.178],
+  [0.04, 0.205],
+  [0.035, 0.175],
+  [0.04, 0.175],
 ];
 
 function torsoTier(b: PB, r: number, f: TorsoFit) {
@@ -708,6 +904,132 @@ export function buildTorso(look: number, r = 0): PB {
       vent(b, 0.14, 0.06, 3, 0, 0.06, -0.181, 0, PI, 0);
       break;
     }
+    case 5: {
+      // Citadel Hull (Bastion): a slab-sided fortress chest, a riveted blast door round the core with
+      // hazard stripes on its sill, a high collar wall, armoured flank boxes and a ribbed back plate
+      b.add(G.loft([[-0.15, 0.44, 0.3, 0.0], [-0.02, 0.6, 0.355, 0.01], [0.13, 0.62, 0.35, 0.0], [0.22, 0.5, 0.28, -0.01]], 0.13), 'paint');
+      b.add(G.cbox(0.32, 0.26, 0.045, 0.008), 'paint2', 0, 0.02, 0.188);
+      b.add(G.torus(0.074, 0.012, 5, 22), 'dark', 0, 0.035, 0.212);
+      rivets(b, 9, -0.14, 0.135, 0.211, 0.14, 0.135, 0.211);
+      b.both((s) => rivets(s, 3, 0.145, 0.085, 0.211, 0.145, -0.035, 0.211));
+      hazard(b, 0.28, 0.034, 0, -0.085, 0.212);
+      b.add(G.loft([[0.17, 0.42, 0.3, -0.02], [0.26, 0.34, 0.25, -0.03]], 0.14), 'paint2');
+      b.both((s) => {
+        s.add(G.cbox(0.04, 0.16, 0.2, 0.008), 'paint2', 0.262, -0.02, 0.0);
+        rivets(s, 2, 0.283, 0.03, 0.07, 0.283, -0.07, 0.07);
+        rivets(s, 2, 0.283, 0.03, -0.07, 0.283, -0.07, -0.07);
+      });
+      rivets(b, 9, -0.2, -0.125, 0.16, 0.2, -0.125, 0.16, 0.01);
+      b.add(G.cbox(0.38, 0.26, 0.07, 0.01), 'metal', 0, 0.04, -0.195);
+      for (let i = -1; i <= 1; i++) b.add(G.cbox(0.03, 0.24, 0.03, 0.008), 'dark', i * 0.15, 0.04, -0.235);
+      hazard(b, 0.3, 0.03, 0, -0.06, -0.236, 0, PI, 0);
+      break;
+    }
+    case 6: {
+      // Skyframe Shell (Kestrel): a narrow V of a chest with a keeled chevron breastplate and its
+      // light lines, big swept intakes under the ribs, twin dorsal fins and a pair of back jets
+      b.add(G.loft([[-0.14, 0.26, 0.22, 0.012], [0.0, 0.42, 0.26, 0.02], [0.14, 0.53, 0.25, 0.0], [0.205, 0.46, 0.235, -0.015]], 0.42), 'paint');
+      b.add(G.prism([[-0.19, 0.1], [0.19, 0.1], [0.0, -0.15]], 0.035, 0.008), 'paint2', 0, 0.02, 0.14, -0.08, 0, 0);
+      b.addPlatePair([[0.02, -0.14], [0.034, -0.14], [0.12, -0.03], [0.106, -0.03]], 0.008, 'glow', 0.02, 0.159, -0.08);
+      b.add(G.cbox(0.02, 0.2, 0.025, 0.006), 'paint', 0, 0.0, 0.16);
+      b.both((s) => {
+        s.group(0.17, -0.06, 0.07, 0, -0.4, 0.22, (v) => {
+          v.add(G.cbox(0.06, 0.15, 0.1, 0.014), 'paint2');
+          v.add(G.cbox(0.036, 0.12, 0.02, 0.006), 'dark', 0.004, 0, 0.046);
+          v.add(G.box(0.02, 0.1, 0.006), 'glow', 0.004, 0, 0.05);
+          for (let i = 0; i < 3; i++) v.add(G.box(0.03, 0.006, 0.01), 'metal', 0.004, -0.04 + i * 0.04, 0.054);
+        });
+        s.group(0.085, 0.06, -0.12, 0, 0, -0.18, (v) => {
+          v.add(G.fin([[0.05, 0.0], [-0.06, 0.0], [-0.13, 0.28], [-0.09, 0.29]], 0.016), 'paint2');
+          v.add(G.fin([[-0.075, 0.03], [-0.085, 0.03], [-0.125, 0.26], [-0.115, 0.265]], 0.022, 0.002), 'glow');
+        });
+        s.group(0.07, -0.08, -0.12, -2.0, 0, 0, (v) => {
+          v.add(G.cyl(0.024, 0.032, 0.05, 12), 'metal', 0, 0.025, 0);
+          v.add(G.cyl(0.02, 0.02, 0.006, 12), 'glow', 0, 0.048, 0);
+        });
+      });
+      b.add(G.cbox(0.05, 0.28, 0.05, 0.012), 'dark', 0, 0.02, -0.13);
+      break;
+    }
+    case 7: {
+      // Foundry Plate (Vulkan): a cast barrel chest with heavy pecs, a glowing furnace grate under the
+      // core, banks of cooling fins down the flanks and twin smokestacks behind the shoulders
+      const main: Sec[] = [[-0.14, 0.4, 0.27, 0.005], [-0.02, 0.56, 0.33, 0.01], [0.12, 0.58, 0.33, 0.0], [0.21, 0.46, 0.27, -0.01]];
+      b.add(G.loft(main, 0.32), 'paint');
+      b.addLoftPair([[-0.04, 0.2, 0.05, 0.17, 0.125], [0.06, 0.24, 0.06, 0.178, 0.14], [0.15, 0.22, 0.05, 0.165, 0.13]], 'paint2', 0.3);
+      b.add(G.cbox(0.16, 0.1, 0.04, 0.01), 'metal', 0, -0.1, 0.165);
+      b.add(G.cbox(0.13, 0.072, 0.012, 0.004), 'dark', 0, -0.1, 0.184);
+      for (let i = 0; i < 3; i++) b.add(G.cbox(0.11, 0.009, 0.01, 0.003), 'glow', 0, -0.122 + i * 0.022, 0.188);
+      for (let i = 0; i < 4; i++) b.add(G.box(0.008, 0.08, 0.012), 'chrome', -0.045 + i * 0.03, -0.1, 0.192);
+      b.add(G.loft([[0.17, 0.32, 0.26, -0.02], [0.24, 0.24, 0.2, -0.03]], 0.35), 'paint2');
+      b.both((s) => {
+        for (let i = 0; i < 5; i++) {
+          const y = -0.13 + i * 0.03;
+          s.add(G.cbox(0.04, 0.012, 0.17, 0.003), 'metal', secAt(main, y)[1] / 2 + 0.006, y, 0.0);
+        }
+        s.add(G.cbox(0.07, 0.03, 0.05, 0.008), 'dark', 0.12, 0.13, -0.165);
+        s.group(0.12, 0.1, -0.18, -0.12, 0, -0.06, (v) => {
+          v.add(G.cyl(0.028, 0.034, 0.24, 12), 'metal', 0, 0.12, 0);
+          v.add(G.cyl(0.034, 0.034, 0.028, 12), 'dark', 0, 0.245, 0);
+          v.add(G.cyl(0.022, 0.022, 0.006, 12), 'glow', 0, 0.258, 0);
+          for (const yy of [0.04, 0.16]) v.add(G.torus(0.032, 0.005, 4, 14), 'chrome', 0, yy, 0, HP, 0, 0);
+        });
+      });
+      b.add(G.cbox(0.3, 0.22, 0.06, 0.014), 'paint2', 0, 0.02, -0.17);
+      break;
+    }
+    case 8: {
+      // Lattice Frame (Halcyon): a smooth sculpted chest set with lit hex cells, an orbit ring round the
+      // core, a glowing seam down the sternum and flanks, and a big hex plate on the back
+      const main: Sec[] = [[-0.135, 0.34, 0.25, 0.01], [0.0, 0.48, 0.29, 0.02], [0.13, 0.53, 0.29, 0.0], [0.21, 0.42, 0.25, -0.012]];
+      const cham = 0.4;
+      b.add(G.loft(main, cham), 'paint');
+      b.add(G.loft([[0.16, 0.36, 0.24, -0.01], [0.235, 0.26, 0.18, -0.02]], 0.45), 'paint2');
+      b.both((s) => {
+        for (const y of [-0.06, 0.02, 0.1]) {
+          const [, w, d, z] = secAt(main, y);
+          const c = Math.min(w, d) * cham;
+          for (const t of [0.28, 0.72]) {
+            const x = w / 2 - c * t, zz = z + d / 2 - c + c * t;
+            s.group(x + 0.003, y, zz + 0.003, 0, PI / 4, 0, (g) => {
+              g.add(G.cyl(0.026, 0.026, 0.012, 6), 'paint2', 0, 0, 0, HP, 0, 0);
+              g.add(G.cyl(0.011, 0.011, 0.016, 6), 'glow', 0, 0, 0.001, HP, 0, 0);
+            });
+          }
+        }
+        const fy = -0.03;
+        s.add(G.box(0.006, 0.16, 0.006), 'glow', secAt(main, fy)[1] / 2 + 0.001, fy, secAt(main, fy)[3]);
+      });
+      b.add(G.cbox(0.03, 0.12, 0.012, 0.004), 'dark', 0, -0.07, 0.149);
+      b.add(G.box(0.008, 0.11, 0.008), 'glow', 0, -0.07, 0.154);
+      b.add(G.torus(0.088, 0.006, 6, 30), 'glow', 0, 0.035, 0.17);
+      for (let i = 0; i < 3; i++) {
+        const a = HP + (i / 3) * PI * 2;
+        b.add(G.cbox(0.014, 0.022, 0.016, 0.004), 'chrome', Math.cos(a) * 0.088, 0.035 + Math.sin(a) * 0.088, 0.168, 0, 0, a);
+      }
+      b.add(G.cyl(0.11, 0.11, 0.04, 6), 'paint2', 0, 0.05, -0.155, HP, 0, 0);
+      break;
+    }
+    case 9: {
+      // Lamellar Do (Kensei): rows of laced scale plates wrapping the torso, each row flaring over the
+      // one below, a lacquered breastplate across the top, shoulder straps, lacing cords and a sash
+      const main: Sec[] = [[-0.14, 0.34, 0.24, 0.005], [0.0, 0.46, 0.27, 0.012], [0.12, 0.5, 0.27, 0.0], [0.205, 0.42, 0.235, -0.012]];
+      b.add(G.loft(main, 0.3), 'dark');
+      for (let i = 0; i < 4; i++) {
+        const top = 0.12 - i * 0.06;
+        lamellar(b, main, top - 0.055, top, 0.016, 0.005, 'paint', 0.3);
+        const mid = top - 0.0275;
+        const [, , d, z] = secAt(main, mid);
+        for (const x of [-0.11, -0.04, 0.04, 0.11]) b.add(G.box(0.008, 0.05, 0.006), 'dark', x, mid, z + d / 2 + 0.0135, -0.2, 0, 0);
+      }
+      b.add(G.loft([[0.115, 0.52, 0.3, 0.004], [0.205, 0.44, 0.255, -0.012]], 0.3), 'paint2');
+      b.add(G.loft([[-0.142, 0.37, 0.27, 0.005], [-0.118, 0.38, 0.275, 0.006]], 0.3), 'paint2');
+      b.both((s) => {
+        s.add(G.cbox(0.06, 0.02, 0.24, 0.006), 'paint2', 0.17, 0.212, -0.01);
+        s.add(G.cbox(0.02, 0.012, 0.02, 0.004), 'chrome', 0.17, 0.222, 0.1);
+      });
+      break;
+    }
     default: {
       // Counter Plate: angular layered plates with crossed straps, buckles and shoulder spikes
       b.add(G.loft([[-0.13, 0.36, 0.25], [0.04, 0.5, 0.29, 0.01], [0.2, 0.54, 0.26]], 0.12), 'paint2');
@@ -795,6 +1117,69 @@ export function buildUpperArm(chestLook: number, out: number, r = 0): PB {
       face = 0.135;
       py = 0.035;
       break;
+    case 5:
+      // Bastion: a slab pauldron, double-layered, riveted, with hazard stripes down its face
+      shell([[-0.1, 0.15, 0.19, 0, 0.0], [-0.04, 0.29, 0.27, 0, 0.045], [0.06, 0.29, 0.27, 0, 0.065], [0.12, 0.23, 0.22, 0, 0.075]], 0.14);
+      shell([[0.11, 0.25, 0.235, 0, 0.07], [0.145, 0.22, 0.21, 0, 0.075]], 0.14, 'paint2');
+      hazard(b, 0.16, 0.03, o * 0.207, 0.05, 0, 0, o * HP, 0);
+      rivets(b, 5, o * 0.196, -0.02, -0.1, o * 0.196, -0.02, 0.1);
+      rivets(b, 5, o * 0.198, 0.1, -0.09, o * 0.198, 0.1, 0.09);
+      rim = 0.145;
+      rw = 0.22;
+      rx = 0.075;
+      face = 0.21;
+      py = -0.02;
+      break;
+    case 6:
+      // Kestrel: a slim swept pauldron with a wing raking up and back, edged in light
+      shell([[-0.075, 0.12, 0.13, 0, 0.0], [-0.02, 0.185, 0.18, 0, 0.03], [0.05, 0.17, 0.17, 0, 0.045], [0.08, 0.13, 0.14, 0, 0.05]], 0.42);
+      b.group(o * 0.1, -0.04, 0.0, 0, 0, o * (PI + 0.25), (v) => {
+        v.add(G.fin([[0.09, 0.0], [-0.06, 0.0], [-0.13, 0.12], [-0.03, 0.07]], 0.012), 'paint2');
+        v.add(G.fin([[-0.04, 0.012], [-0.055, 0.012], [-0.115, 0.105], [-0.1, 0.105]], 0.016, 0.002), 'glow');
+      });
+      b.add(G.box(0.006, 0.006, 0.09), 'glow', o * 0.123, 0.02, 0.0);
+      rim = 0.065;
+      rw = 0.145;
+      rx = 0.05;
+      face = 0.118;
+      py = 0.03;
+      break;
+    case 7:
+      // Vulkan: a rounded heavy pauldron with heat-sink fins standing off the cap and a lit vent
+      shell([[-0.09, 0.14, 0.16, 0, 0.0], [-0.035, 0.245, 0.235, 0, 0.04], [0.06, 0.245, 0.235, 0, 0.058], [0.115, 0.185, 0.185, 0, 0.065]], 0.33);
+      shell([[0.105, 0.2, 0.2, 0, 0.062], [0.135, 0.18, 0.18, 0, 0.066]], 0.33, 'paint2');
+      for (let i = 0; i < 3; i++) b.add(G.cbox(0.012, 0.055, 0.15 - i * 0.02, 0.003), 'metal', o * (0.02 + i * 0.04), -0.1, 0);
+      b.add(G.cbox(0.012, 0.045, 0.1, 0.004), 'dark', o * 0.176, 0.03, 0);
+      for (const y of [0.02, 0.04]) b.add(G.box(0.006, 0.007, 0.08), 'glow', o * 0.182, y, 0);
+      rim = 0.135;
+      rw = 0.18;
+      rx = 0.066;
+      face = 0.176;
+      py = 0.03;
+      break;
+    case 8:
+      // Halcyon: a smooth dome ringed with a light band, a lit hex cell on its face
+      shell([[-0.08, 0.13, 0.15, 0, 0.0], [-0.02, 0.215, 0.215, 0, 0.035], [0.06, 0.205, 0.205, 0, 0.05], [0.105, 0.15, 0.15, 0, 0.056]], 0.46);
+      shell([[0.02, 0.222, 0.222, 0, 0.042], [0.034, 0.222, 0.222, 0, 0.044]], 0.46, 'glow');
+      b.add(G.cyl(0.034, 0.034, 0.014, 6), 'paint2', o * 0.15, 0.065, 0, 0, 0, HP);
+      b.add(G.cyl(0.014, 0.014, 0.018, 6), 'glow', o * 0.152, 0.065, 0, 0, 0, HP);
+      rim = 0.1;
+      rw = 0.15;
+      rx = 0.056;
+      face = 0.152;
+      py = 0.065;
+      break;
+    case 9:
+      // Kensei: a small cap under a sode, a flat shoulder board of laced rows hanging off the outside
+      shell([[-0.08, 0.12, 0.15, 0, 0.0], [-0.025, 0.19, 0.19, 0, 0.03], [0.04, 0.18, 0.18, 0, 0.04]], 0.3, 'dark');
+      for (let i = 0; i < 4; i++) b.add(G.cbox(0.018, 0.052, 0.21, 0.004), i === 0 ? 'paint2' : 'paint', o * (0.122 + i * 0.012), -0.05 + i * 0.046, 0, 0, 0, o * -0.12);
+      for (const zz of [-0.06, 0.06]) b.add(G.box(0.006, 0.17, 0.006), 'dark', o * 0.156, 0.02, zz, 0, 0, o * -0.12);
+      rim = 0.04;
+      rw = 0.18;
+      rx = 0.04;
+      face = 0.16;
+      py = 0.0;
+      break;
     default:
       shell([[-0.09, 0.12, 0.16, 0, 0.0], [-0.03, 0.21, 0.21, 0, 0.035], [0.06, 0.2, 0.2, 0, 0.055]], 0.14);
       b.add(G.cone(0.032, 0.11, 4), 'metal', o * 0.13, -0.05, 0, 0, PI / 4, o * -1.0);
@@ -828,8 +1213,7 @@ export function buildUpperArm(chestLook: number, out: number, r = 0): PB {
 /** Power core on the chest and the matching reactor on the back (rides the torso bone). */
 export function buildCore(look: number, chestLook: number, r = 0): PB {
   const b = new PB();
-  const z = chestLook === 2 ? 0.215 : chestLook === 3 ? 0.17 : chestLook === 1 ? 0.15 : 0.195;
-  const y = chestLook === 2 ? 0.02 : chestLook === 1 ? -0.02 : 0.045;
+  const [y, z] = CORE_AT[chestLook] ?? CORE_AT[0];
   const bz = (TORSO_FIT[chestLook] ?? TORSO_FIT[0]).back;
   // the chest unit: housing, bezel, then the core itself
   b.addDisc(0.06, 0.05, 'dark', 0, y, z, 18);
@@ -876,6 +1260,52 @@ export function buildCore(look: number, chestLook: number, r = 0): PB {
           v.add(G.prism([[-0.008, 0], [0.008, 0], [0.002, -0.022]], 0.014, 0.003), 'chrome', 0, -0.012, 0.004);
         });
       }
+      break;
+    case 5:
+      // Bunker: the core glows through a cross-shaped gap in an armoured shutter
+      b.add(G.cbox(0.074, 0.074, 0.02, 0.004), 'core', 0, y, z + 0.02);
+      b.both((s) => {
+        for (const sy of [-1, 1]) s.add(G.cbox(0.033, 0.033, 0.016, 0.004), 'paint2', 0.021, y + sy * 0.021, z + 0.036);
+      });
+      b.add(G.torus(0.052, 0.008, 4, 4), 'chrome', 0, y, z + 0.032, 0, 0, PI / 4);
+      b.add(G.torus(0.06, 0.004, 4, 20), 'rarity', 0, y, z + 0.036);
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * PI * 2;
+        bolt(b, Math.cos(a) * 0.06, y + Math.sin(a) * 0.06, z + 0.035, 'z', 0.007);
+      }
+      break;
+    case 6:
+      // Turbine: a lit intake behind a ring of pitched fan blades round a chrome spinner
+      b.addDisc(0.046, 0.012, 'core', 0, y, z + 0.02, 18);
+      for (let i = 0; i < 9; i++) b.group(0, y, z + 0.03, 0, 0, (i / 9) * PI * 2, (v) => v.add(G.box(0.01, 0.04, 0.003), 'metal', 0, 0.028, 0, 0, 0.6, 0));
+      b.add(G.cone(0.016, 0.03, 12), 'chrome', 0, y, z + 0.045, HP, 0, 0);
+      b.add(G.torus(0.05, 0.004, 4, 24), 'rarity', 0, y, z + 0.031);
+      break;
+    case 7:
+      // Magma: a molten pool in a heavy crucible lip, held behind chunky grate bars
+      b.add(G.sphere(0.042, 14, 10), 'core', 0, y, z + 0.008, 0, 0, 0, 1, 1, 0.7);
+      b.add(G.torus(0.046, 0.012, 6, 20), 'metal', 0, y, z + 0.03);
+      for (let i = -1; i <= 1; i++) b.add(G.cbox(0.096, 0.011, 0.012, 0.003), 'chrome', 0, y + i * 0.026, z + 0.044);
+      b.add(G.torus(0.06, 0.004, 4, 22), 'rarity', 0, y, z + 0.036);
+      break;
+    case 8:
+      // Zenith: a small star hung in two crossed gimbal rings
+      b.add(G.sphere(0.03, 16, 12), 'core', 0, y, z + 0.036);
+      b.add(G.torus(0.042, 0.004, 4, 24), 'chrome', 0, y, z + 0.036, 0, 0.6, 0);
+      b.add(G.torus(0.042, 0.004, 4, 24), 'chrome', 0, y, z + 0.036, 0, -0.6, 0);
+      for (const s of [-1, 1]) b.add(G.cyl(0.006, 0.006, 0.012, 8), 'metal', 0, y + s * 0.045, z + 0.036);
+      b.add(G.torus(0.06, 0.004, 4, 22), 'rarity', 0, y, z + 0.036);
+      break;
+    case 9:
+      // Zen: a lit disc framed like a sword guard, four petals round a dark diamond
+      b.addDisc(0.036, 0.01, 'core', 0, y, z + 0.026, 18);
+      b.add(G.torus(0.044, 0.007, 4, 28), 'chrome', 0, y, z + 0.032);
+      for (let i = 0; i < 4; i++) {
+        const a = PI / 4 + (i / 4) * PI * 2;
+        b.add(G.cyl(0.011, 0.011, 0.008, 10), 'paint2', Math.cos(a) * 0.044, y + Math.sin(a) * 0.044, z + 0.037, HP, 0, 0);
+      }
+      b.add(G.cbox(0.024, 0.024, 0.01, 0.003), 'dark', 0, y, z + 0.034, 0, 0, PI / 4);
+      b.add(G.torus(0.06, 0.004, 4, 22), 'rarity', 0, y, z + 0.036);
       break;
     default:
       // Static: a crackling crystal inside a tilted Tesla ring with three spark nodes
@@ -942,6 +1372,55 @@ export function buildCore(look: number, chestLook: number, r = 0): PB {
         s.add(G.torus(0.041, 0.006, 4, 12), 'dark', 0.06, 0.0, rz, HP, 0, 0);
       });
       b.add(G.cbox(0.06, 0.04, 0.04, 0.008), 'dark', 0, 0.06, rz);
+      break;
+    case 5:
+      // a blocky generator with twin glow slits over a hazard-striped sill and side pipes
+      b.add(G.cbox(0.2, 0.17, 0.08, 0.012), 'metal', 0, 0.05, rz);
+      for (const yy of [0.08, 0.05]) b.add(G.cbox(0.16, 0.012, 0.012, 0.004), 'core', 0, yy, rz - 0.041);
+      hazard(b, 0.17, 0.026, 0, 0.0, rz - 0.046, 0, PI, 0);
+      rivets(b, 2, -0.085, 0.12, rz - 0.041, 0.085, 0.12, rz - 0.041);
+      b.addSym(G.cyl(0.018, 0.018, 0.14, 8), 'dark', 0.12, 0.05, rz + 0.01);
+      break;
+    case 6:
+      // twin turbine pods on a spar, exhausts lit
+      b.add(G.cbox(0.1, 0.04, 0.05, 0.01), 'dark', 0, 0.03, rz);
+      b.both((s) => {
+        s.add(G.cyl(0.035, 0.03, 0.1, 14), 'metal', 0.07, 0.03, rz - 0.01, HP, 0, 0);
+        s.add(G.torus(0.033, 0.005, 4, 14), 'chrome', 0.07, 0.03, rz - 0.055);
+        s.add(G.cyl(0.024, 0.024, 0.006, 14), 'core', 0.07, 0.03, rz - 0.062, HP, 0, 0);
+      });
+      break;
+    case 7:
+      // a squat firebox with a lit grate and a short flue
+      b.add(G.cbox(0.16, 0.16, 0.08, 0.016), 'metal', 0, 0.02, rz);
+      b.add(G.cbox(0.11, 0.07, 0.012, 0.004), 'dark', 0, 0.0, rz - 0.04);
+      for (let i = 0; i < 3; i++) b.add(G.cbox(0.09, 0.008, 0.01, 0.003), 'core', 0, -0.022 + i * 0.022, rz - 0.044);
+      for (let i = -1; i <= 1; i++) b.add(G.box(0.008, 0.075, 0.012), 'chrome', i * 0.035, 0.0, rz - 0.047);
+      b.add(G.cyl(0.024, 0.028, 0.06, 10), 'metal', 0, 0.12, rz - 0.01);
+      b.add(G.cyl(0.016, 0.016, 0.004, 10), 'core', 0, 0.152, rz - 0.01);
+      break;
+    case 8:
+      // a halo ring round a sphere on three light spokes
+      b.add(G.torus(0.11, 0.009, 6, 36), 'core', 0, 0.06, rz - 0.02);
+      b.add(G.sphere(0.04, 14, 10), 'metal', 0, 0.06, rz + 0.005);
+      b.add(G.sphere(0.026, 12, 8), 'core', 0, 0.06, rz - 0.03);
+      for (let i = 0; i < 3; i++) {
+        const a = HP + (i / 3) * PI * 2;
+        b.add(G.cyl(0.004, 0.004, 0.07, 5), 'chrome', Math.cos(a) * 0.075, 0.06 + Math.sin(a) * 0.075, rz - 0.015, 0, 0, a - HP);
+      }
+      break;
+    case 9:
+      // two sheathed blades crossed on the back, hilts over the shoulders
+      b.add(G.cbox(0.06, 0.06, 0.04, 0.01), 'paint2', 0, 0.06, rz + 0.01);
+      for (const s of [-1, 1])
+        b.group(0, 0.06, rz + (s < 0 ? 0.012 : -0.016), 0, 0, s * 0.62, (v) => {
+          v.add(G.cbox(0.034, 0.46, 0.026, 0.01), 'dark', 0, -0.03, 0);
+          v.add(G.cbox(0.038, 0.02, 0.03, 0.006), 'paint2', 0, -0.25, 0);
+          v.add(G.cyl(0.03, 0.03, 0.008, 12), 'chrome', 0, 0.204, 0);
+          v.add(G.cbox(0.026, 0.11, 0.022, 0.006), 'paint2', 0, 0.264, 0);
+          for (let i = 0; i < 4; i++) v.add(G.box(0.03, 0.006, 0.026), 'dark', 0, 0.226 + i * 0.024, 0);
+          v.add(G.cyl(0.015, 0.015, 0.008, 8), 'chrome', 0, 0.322, 0);
+        });
       break;
     default:
       // a coil tower
@@ -1024,6 +1503,70 @@ export function buildForearm(look: number, r = 0): PB {
         s.add(G.cyl(0.014, 0.014, 0.005, 10), 'glow', 0.055, -0.026, -0.05);
       });
       break;
+    case 5:
+      // Breaker Mauls: a square riot bracer, hazard-striped on top and riveted down both edges
+      main = [[0.04, 0.16, 0.16], [0.11, 0.2, 0.19, 0.005], [0.24, 0.21, 0.2, 0.005], [0.275, 0.19, 0.18]];
+      cham = 0.14;
+      b.add(G.loft(main, cham), 'paint');
+      band(b, main, 0.06, 0.085, 0.006, 'paint2', cham);
+      band(b, main, 0.245, 0.265, 0.006, 'paint2', cham);
+      hazard(b, 0.13, 0.1, 0, 0.17, 0.106);
+      b.both((s) => {
+        rivets(s, 3, 0.106, 0.12, 0.055, 0.106, 0.22, 0.055);
+        rivets(s, 3, 0.106, 0.12, -0.045, 0.106, 0.22, -0.045);
+      });
+      side = 0.11;
+      break;
+    case 6:
+      // Talon Strikers: a slim aero sleeve with a swept fin down its back, light slits and a cuff
+      main = [[0.05, 0.1, 0.11], [0.12, 0.125, 0.13, 0.006], [0.26, 0.11, 0.115, 0.004]];
+      cham = 0.44;
+      b.add(G.loft(main, cham), 'paint');
+      b.add(G.fin([[0.0, 0.03], [0.0, 0.25], [0.035, 0.2], [0.05, 0.06]], 0.012), 'paint2', 0, 0, 0.06);
+      b.addSym(G.box(0.006, 0.12, 0.006), 'glow', 0.062, 0.16, 0.02);
+      band(b, main, 0.235, 0.255, 0.004, 'dark', cham);
+      side = 0.065;
+      break;
+    case 7:
+      // Anvil Breakers: a thick sleeve ringed with cooling fins, molten light between them, and open
+      // rams down both sides
+      main = [[0.05, 0.145, 0.145], [0.12, 0.165, 0.165, 0.004], [0.26, 0.17, 0.17, 0.004]];
+      cham = 0.34;
+      b.add(G.loft(main, cham), 'paint2');
+      b.add(G.cbox(0.05, 0.13, 0.01, 0.003), 'glow', 0, 0.165, 0.089);
+      for (let i = 0; i < 5; i++) band(b, main, 0.1 + i * 0.03, 0.11 + i * 0.03, 0.012, 'metal', cham);
+      b.both((s) => {
+        s.add(G.cyl(0.024, 0.024, 0.09, 10), 'dark', 0.1, 0.11, -0.02);
+        s.add(G.cyl(0.012, 0.012, 0.12, 8), 'chrome', 0.1, 0.2, -0.02);
+        s.add(G.cyl(0.02, 0.02, 0.02, 8), 'metal', 0.1, 0.262, -0.02);
+      });
+      side = 0.124;
+      break;
+    case 8:
+      // Arc Emitters: a smooth sleeve wrapped in two floating light rings, emitter nodes either side
+      main = [[0.05, 0.115, 0.115], [0.15, 0.135, 0.135, 0.004], [0.265, 0.12, 0.12]];
+      cham = 0.46;
+      b.add(G.loft(main, cham), 'paint');
+      for (const y of [0.11, 0.2]) b.add(G.torus(0.088, 0.005, 6, 28), 'glow', 0, y, 0.002, HP, 0, 0);
+      b.both((s) => {
+        s.add(G.sphere(0.017, 10, 8), 'metal', 0.072, 0.155, 0.0);
+        s.add(G.sphere(0.009, 8, 6), 'glow', 0.086, 0.155, 0.0);
+      });
+      b.add(G.cbox(0.05, 0.12, 0.012, 0.004), 'paint2', 0, 0.16, 0.07);
+      side = 0.09;
+      break;
+    case 9:
+      // Kote Gauntlets: lacquered splints laced over a dark sleeve, with a chrome wrist ring
+      main = [[0.05, 0.115, 0.115], [0.26, 0.125, 0.122]];
+      b.add(G.loft(main, cham), 'dark');
+      for (let i = 0; i < 5; i++) {
+        const a = -0.9 + i * 0.45;
+        b.group(Math.sin(a) * 0.066, 0.155, Math.cos(a) * 0.066, 0, a, 0, (v) => v.add(G.cbox(0.024, 0.19, 0.012, 0.004), 'paint', 0, 0, 0));
+      }
+      for (const y of [0.1, 0.21]) band(b, main, y, y + 0.008, 0.016, 'dark', cham);
+      band(b, main, 0.245, 0.262, 0.008, 'chrome', cham);
+      side = 0.072;
+      break;
     default:
       // Titan: a massive banded bracer with riveted bands
       main = [[0.05, 0.15, 0.15], [0.12, 0.18, 0.17], [0.24, 0.19, 0.18], [0.27, 0.17, 0.16]];
@@ -1063,7 +1606,7 @@ export function buildForearm(look: number, r = 0): PB {
 /** Fist: origin at the hand joint, knuckles +Y, back of hand +Z, thumb on `thumb` X side. */
 export function buildFist(look: number, thumb: number, r = 0): PB {
   const b = new PB();
-  const big = look === 4 ? 1.2 : look === 1 ? 0.93 : 1.04;
+  const big = [1.04, 0.93, 1.04, 1.04, 1.2, 1.18, 0.92, 1.12, 1.0, 1.0][look] ?? 1.04;
   const f = new PB();
   // hand: palm block, two-segment curled fingers with knuckle caps, wrapped thumb, wrist drum
   f.add(G.loft([[-0.075, 0.13, 0.11], [0.03, 0.15, 0.13]], 0.25), 'dark', 0, 0, -0.005);
@@ -1115,6 +1658,52 @@ export function buildFist(look: number, thumb: number, r = 0): PB {
         f.add(G.fin([[0.0, -0.02], [0.0, 0.05], [0.028, 0.0], [0.028, -0.03]], 0.008), 'paint2', Math.sin(a) * 0.066, -0.075, Math.cos(a) * 0.066, 0, a, 0);
       }
       break;
+    case 5:
+      // Breaker Mauls: a brick of a knuckle guard with a riveted steel striking face and side cheeks
+      f.add(G.loft([[0.025, 0.18, 0.15, 0.012], [0.105, 0.18, 0.15, 0.012]], 0.14), 'paint');
+      f.add(G.cbox(0.17, 0.02, 0.13, 0.005), 'metal', 0, 0.112, 0.012);
+      for (const zz of [-0.035, 0.045]) rivets(f, 3, -0.055, 0.122, zz, 0.055, 0.122, zz);
+      f.add(G.loft([[-0.07, 0.15, 0.035], [0.04, 0.16, 0.035]], 0.14), 'paint2', 0, 0, 0.075);
+      hazard(f, 0.14, 0.04, 0, -0.03, 0.094);
+      f.addSym(G.cbox(0.012, 0.07, 0.12, 0.004), 'dark', 0.093, 0.06, 0.012);
+      break;
+    case 6:
+      // Talon Strikers: a sleek knuckle visor with a light line, two swept blades off the back of the hand
+      f.add(G.loft([[0.05, 0.15, 0.09, 0.03], [0.1, 0.14, 0.075, 0.035]], 0.42), 'paint');
+      f.add(G.cbox(0.13, 0.008, 0.01, 0.003), 'glow', 0, 0.075, 0.075);
+      f.add(G.loft([[-0.07, 0.12, 0.028], [0.05, 0.135, 0.028]], 0.4), 'paint2', 0, 0, 0.068);
+      for (const x of [-0.03, 0.03]) f.add(G.fin([[0.0, -0.06], [0.0, 0.05], [0.04, -0.04], [0.035, -0.07]], 0.008), 'paint', x, 0.0, 0.08);
+      break;
+    case 7:
+      // Anvil Breakers: an anvil-faced knuckle block flaring over the fingers, a molten seam along its face
+      // and a pair of rams on the back of the hand
+      f.add(G.loft([[0.03, 0.15, 0.12, 0.012], [0.075, 0.14, 0.11, 0.012], [0.1, 0.19, 0.15, 0.012], [0.128, 0.19, 0.15, 0.012]], 0.2), 'paint');
+      f.add(G.cbox(0.17, 0.008, 0.01, 0.002), 'glow', 0, 0.114, 0.088);
+      f.addSym(G.cbox(0.012, 0.02, 0.11, 0.003), 'metal', 0.096, 0.114, 0.012);
+      f.add(G.loft([[-0.07, 0.14, 0.032], [0.05, 0.15, 0.034]], 0.3), 'paint2', 0, 0, 0.072);
+      for (const x of [-0.04, 0.04]) {
+        f.add(G.cyl(0.012, 0.012, 0.06, 8), 'metal', x, -0.02, 0.098);
+        f.add(G.cyl(0.007, 0.007, 0.05, 6), 'chrome', x, 0.03, 0.098);
+      }
+      break;
+    case 8:
+      // Arc Emitters: a smooth knuckle shell with a lit bar and an emitter disc on the back of the hand
+      f.add(G.loft([[0.05, 0.158, 0.1, 0.025], [0.1, 0.15, 0.09, 0.027]], 0.46), 'paint');
+      f.add(G.cbox(0.12, 0.012, 0.016, 0.005), 'glow', 0, 0.104, 0.05);
+      f.add(G.loft([[-0.07, 0.14, 0.03], [0.05, 0.15, 0.03]], 0.46), 'paint', 0, 0, 0.07);
+      f.add(G.cyl(0.03, 0.03, 0.012, 18), 'metal', 0, -0.012, 0.09, HP, 0, 0);
+      f.add(G.cyl(0.02, 0.02, 0.014, 18), 'glow', 0, -0.012, 0.092, HP, 0, 0);
+      f.add(G.torus(0.035, 0.004, 4, 20), 'chrome', 0, -0.012, 0.095);
+      f.add(G.torus(0.068, 0.006, 6, 18), 'glow', 0, -0.05, 0, HP, 0, 0);
+      break;
+    case 9:
+      // Kote Gauntlets: a pointed tekko plate laced over the back of the hand, a keen-edged knuckle guard
+      f.add(G.loft([[0.055, 0.15, 0.08, 0.03], [0.098, 0.145, 0.07, 0.032]], 0.3), 'paint');
+      f.add(G.cbox(0.15, 0.006, 0.02, 0.002), 'chrome', 0, 0.1, 0.06);
+      f.add(G.prism([[-0.062, 0.06], [0.062, 0.06], [0.05, -0.04], [0.0, -0.075], [-0.05, -0.04]], 0.022, 0.006), 'paint2', 0, 0.0, 0.075);
+      for (const y of [-0.03, 0.02]) f.add(G.box(0.1, 0.005, 0.006), 'dark', 0, y, 0.088);
+      f.add(G.torus(0.064, 0.006, 4, 16), 'chrome', 0, -0.065, 0, HP, 0, 0);
+      break;
     default:
       // Titan: a hammerhead block with a riveted striking face and banded sides
       f.add(G.loft([[0.03, 0.19, 0.16], [0.105, 0.2, 0.16]], 0.18), 'paint');
@@ -1126,8 +1715,8 @@ export function buildFist(look: number, thumb: number, r = 0): PB {
       break;
   }
   // back-of-hand surface and knuckle top, for the tier add-ons
-  const back = [0.0875, 0.08, 0.085, 0.085, 0.095][look] ?? 0.085;
-  const ktop = [0.1, 0.1, 0.1, 0.098, 0.125][look] ?? 0.1;
+  const back = [0.0875, 0.08, 0.085, 0.085, 0.095, 0.093, 0.082, 0.09, 0.096, 0.091][look] ?? 0.085;
+  const ktop = [0.1, 0.1, 0.1, 0.098, 0.125, 0.122, 0.1, 0.128, 0.11, 0.103][look] ?? 0.1;
   if (r >= 2) f.add(G.cbox(0.06, 0.04, 0.012, 0.004), 'paint2', 0, 0.0, back + 0.006);
   if (r >= 3) f.add(G.cbox(0.16, 0.012, 0.016, 0.004), 'chrome', 0, ktop + 0.004, 0.068);
   if (r >= 4) {
@@ -1196,6 +1785,62 @@ export function buildPelvis(look: number, r = 0): PB {
       tx = 0.215;
       ty = -0.12;
       break;
+    case 5:
+      // Pylon: slab tassets with riveted faces and a hazard-striped front plate
+      b.addSym(G.cbox(0.07, 0.17, 0.22, 0.01), 'paint', 0.215, -0.07, 0);
+      b.both((s) => {
+        rivets(s, 2, 0.25, -0.02, 0.07, 0.25, -0.12, 0.07);
+        rivets(s, 2, 0.25, -0.02, -0.07, 0.25, -0.12, -0.07);
+      });
+      hazard(b, 0.11, 0.026, 0, -0.035, 0.127);
+      tx = 0.25;
+      ty = -0.155;
+      break;
+    case 6:
+      // Swift: slim swept tassets, a fin trailing off each hip and a light line
+      b.addSym(G.loft([[-0.12, 0.035, 0.13, -0.01], [0.02, 0.045, 0.16]], 0.4), 'paint', 0.19);
+      b.both((s) => {
+        s.add(G.fin([[0.04, 0.0], [-0.05, 0.0], [-0.12, -0.08], [-0.07, -0.08]], 0.012), 'paint2', 0.215, -0.02, 0.0);
+        s.add(G.box(0.006, 0.08, 0.006), 'glow', 0.214, -0.05, 0.06);
+      });
+      tx = 0.212;
+      ty = -0.12;
+      break;
+    case 7:
+      // Steamhammer: heavy finned tassets with a steam stack on each hip
+      b.addSym(G.loft([[-0.14, 0.055, 0.19], [0.02, 0.065, 0.21]], 0.3), 'paint', 0.205);
+      b.both((s) => {
+        for (let i = 0; i < 3; i++) s.add(G.cbox(0.02, 0.012, 0.16, 0.003), 'metal', 0.24, -0.04 - i * 0.035, 0.0);
+        s.add(G.cyl(0.018, 0.02, 0.11, 10), 'metal', 0.2, 0.02, -0.11, -0.3, 0, 0);
+        s.add(G.cyl(0.012, 0.012, 0.004, 10), 'glow', 0.2, 0.074, -0.127, -0.3, 0, 0);
+      });
+      tx = 0.25;
+      ty = -0.14;
+      break;
+    case 8:
+      // Drift: smooth tassets with a light ring at each hip
+      b.addSym(G.loft([[-0.12, 0.04, 0.15, 0.0], [0.02, 0.05, 0.17]], 0.46), 'paint', 0.19);
+      b.both((s) => {
+        s.add(G.torus(0.05, 0.005, 6, 22), 'glow', 0.218, -0.05, 0, 0, HP, 0);
+        s.add(G.cyl(0.028, 0.028, 0.012, 6), 'paint2', 0.218, -0.05, 0, 0, 0, HP);
+      });
+      tx = 0.225;
+      ty = -0.12;
+      break;
+    case 9: {
+      // Hakama: kusazuri, laced panels of plate rows hanging front, back and over each hip
+      const panel = (s: PB, x: number, z: number, ry: number) =>
+        s.group(x, -0.02, z, 0, ry, 0, (g) => {
+          for (let i = 0; i < 3; i++) g.add(G.cbox(0.13, 0.05, 0.014, 0.004), i === 2 ? 'paint2' : 'paint', 0, -i * 0.045, i * 0.008, -0.16, 0, 0);
+          for (const xx of [-0.035, 0.035]) g.add(G.box(0.006, 0.12, 0.006), 'dark', xx, -0.045, 0.02, -0.16, 0, 0);
+        });
+      b.both((s) => panel(s, 0.2, 0, HP));
+      panel(b, 0, 0.138, 0);
+      panel(b, 0, -0.138, PI);
+      tx = 0.215;
+      ty = -0.14;
+      break;
+    }
     default:
       // Strider: plain bolted tassets
       b.addSym(G.loft([[-0.13, 0.045, 0.16], [0.02, 0.055, 0.18]], 0.3), 'paint', 0.19);
@@ -1204,7 +1849,7 @@ export function buildPelvis(look: number, r = 0): PB {
       ty = -0.13;
       break;
   }
-  if (look !== 4) b.add(G.box(0.008, 0.05, 0.008), 'rarity', 0, -0.06, 0.127);
+  if (look <= 3) b.add(G.box(0.008, 0.05, 0.008), 'rarity', 0, -0.06, 0.127);
   if (r >= 2) b.both((s) => s.add(G.cbox(0.014, 0.05, 0.1, 0.004), 'paint2', tx + 0.004, -0.06, 0));
   if (r >= 3) b.add(G.loft([[0.0, 0.316, 0.226], [0.016, 0.314, 0.222]], 0.3), 'chrome');
   if (r >= 4) b.both((s) => s.add(G.box(0.008, 0.008, 0.13), 'rarity', tx + 0.004, ty + 0.012, 0));
@@ -1256,6 +1901,68 @@ export function buildThigh(look: number, r = 0): PB {
         s.add(G.cyl(0.02, 0.02, 0.02, 8), 'metal', 0.06, 0.34, 0.075);
         s.add(G.torus(0.03, 0.006, 4, 8, PI), 'dark', 0.088, 0.09, 0.04, 0, HP, 0);
       });
+      break;
+    case 5: {
+      // Pylon: a square column of plate with riveted bands and a hazard-striped front
+      main = [[0.05, 0.19, 0.19, 0.005], [0.12, 0.23, 0.225, 0.012], [0.3, 0.225, 0.215, 0.012], [0.38, 0.18, 0.17, 0.006], [0.42, 0.14, 0.13]];
+      cham = 0.14;
+      b.add(G.loft(main, cham), 'paint');
+      for (const y of [0.14, 0.29]) {
+        band(b, main, y, y + 0.025, 0.005, 'metal', cham);
+        const [, , d, z] = secAt(main, y + 0.0125);
+        rivets(b, 3, -0.06, y + 0.0125, z + d / 2 + 0.006, 0.06, y + 0.0125, z + d / 2 + 0.006);
+      }
+      const [, , d, z] = secAt(main, 0.225);
+      hazard(b, 0.15, 0.05, 0, 0.225, z + d / 2 + 0.006);
+      break;
+    }
+    case 6:
+      // Swift: a slim aero blade with a light line down the front and a fin off the back
+      main = [[0.05, 0.13, 0.14, 0.004], [0.14, 0.15, 0.165, 0.014], [0.3, 0.12, 0.135, 0.008], [0.41, 0.09, 0.09]];
+      cham = 0.42;
+      b.add(G.loft(main, cham), 'paint');
+      b.add(G.loft([[0.1, 0.05, 0.02], [0.32, 0.04, 0.02]], 0.4), 'paint2', 0, 0, 0.088);
+      b.add(G.box(0.006, 0.18, 0.006), 'glow', 0, 0.21, 0.1);
+      b.add(G.fin([[0.0, 0.0], [-0.07, 0.0], [-0.06, 0.16], [-0.02, 0.12]], 0.012), 'paint2', 0, 0.1, -0.06);
+      break;
+    case 7:
+      // Steamhammer: a thick thigh with one big exposed ram down the front and cooling fins on the sides
+      main = [[0.05, 0.16, 0.16, -0.01], [0.12, 0.2, 0.19, -0.004], [0.28, 0.19, 0.18, -0.004], [0.4, 0.13, 0.12, -0.006]];
+      b.add(G.loft(main, cham), 'paint2');
+      b.add(G.cyl(0.03, 0.03, 0.14, 12), 'dark', 0, 0.13, 0.105);
+      b.add(G.cyl(0.036, 0.036, 0.02, 12), 'metal', 0, 0.065, 0.105);
+      b.add(G.torus(0.032, 0.006, 4, 12), 'glow', 0, 0.19, 0.105, HP, 0, 0);
+      b.add(G.cyl(0.017, 0.017, 0.2, 10), 'chrome', 0, 0.28, 0.105);
+      b.add(G.cyl(0.03, 0.03, 0.025, 12), 'metal', 0, 0.385, 0.105);
+      b.add(G.cbox(0.05, 0.03, 0.05, 0.008), 'metal', 0, 0.385, 0.075);
+      b.both((s) => {
+        for (let i = 0; i < 4; i++) {
+          const y = 0.15 + i * 0.035;
+          s.add(G.cbox(0.03, 0.012, 0.14, 0.003), 'metal', secAt(main, y)[1] / 2 + 0.006, y, -0.004);
+        }
+      });
+      break;
+    case 8: {
+      // Drift: a smooth thigh shell ringed with light and set with a hex cell
+      main = [[0.05, 0.14, 0.15, 0.005], [0.14, 0.17, 0.18, 0.012], [0.3, 0.15, 0.155, 0.008], [0.41, 0.1, 0.1]];
+      cham = 0.46;
+      b.add(G.loft(main, cham), 'paint');
+      band(b, main, 0.2, 0.212, 0.006, 'glow', cham);
+      band(b, main, 0.33, 0.342, 0.006, 'glow', cham);
+      const [, , d, z] = secAt(main, 0.27);
+      b.add(G.cyl(0.026, 0.026, 0.012, 6), 'paint2', 0, 0.27, z + d / 2 + 0.002, HP, 0, 0);
+      b.add(G.cyl(0.011, 0.011, 0.014, 6), 'glow', 0, 0.27, z + d / 2 + 0.004, HP, 0, 0);
+      break;
+    }
+    case 9:
+      // Hakama: haidate, rows of small plates over the front of a dark thigh
+      main = [[0.05, 0.14, 0.15, 0.004], [0.13, 0.17, 0.175, 0.01], [0.3, 0.155, 0.16, 0.008], [0.41, 0.1, 0.1]];
+      b.add(G.loft(main, cham), 'dark');
+      for (let row = 0; row < 4; row++) {
+        const y = 0.12 + row * 0.07;
+        const [, w, d, z] = secAt(main, y);
+        b.add(G.cbox(w * 0.82, 0.064, 0.014, 0.004), row % 2 ? 'paint2' : 'paint', 0, y, z + d / 2 + 0.006, 0.18, 0, 0);
+      }
       break;
     default:
       // Phantom: a sleek blade with light lines and swept fins
@@ -1321,6 +2028,54 @@ export function buildShin(legLook: number, r = 0): PB {
       b.add(G.cyl(0.015, 0.015, 0.24, 8), 'chrome', 0, 0.25, 0.094);
       b.addSym(G.cyl(0.011, 0.011, 0.2, 6), 'dark', 0.072, 0.25, -0.03);
       break;
+    case 5: {
+      // Pylon: a slab calf with a riveted band
+      calf = [[0.06, 0.15, 0.16, -0.008], [0.15, 0.19, 0.2, -0.016], [0.32, 0.185, 0.19, -0.008], [0.42, 0.16, 0.16]];
+      cham = 0.14;
+      b.add(G.loft(calf, cham), 'paint2');
+      band(b, calf, 0.2, 0.225, 0.005, 'metal', cham);
+      const [, , d, z] = secAt(calf, 0.2125);
+      rivets(b, 3, -0.05, 0.2125, z - d / 2 - 0.006, 0.05, 0.2125, z - d / 2 - 0.006);
+      break;
+    }
+    case 6:
+      // Swift: a slim calf with a curved running blade sprung behind it
+      calf = [[0.06, 0.1, 0.11, -0.01], [0.15, 0.12, 0.14, -0.02], [0.32, 0.1, 0.11, -0.008], [0.41, 0.08, 0.085]];
+      cham = 0.42;
+      b.add(G.loft(calf, cham), 'paint2');
+      b.add(G.fin([[-0.065, 0.08], [-0.12, 0.17], [-0.118, 0.3], [-0.075, 0.4], [-0.065, 0.39], [-0.098, 0.3], [-0.1, 0.18], [-0.055, 0.1]], 0.04, 0.004), 'paint');
+      b.addSym(G.box(0.005, 0.14, 0.005), 'glow', secAt(calf, 0.24)[1] / 2 + 0.002, 0.24, -0.01);
+      break;
+    case 7:
+      // Steamhammer: a finned calf with twin exhaust pipes up the back
+      calf = [[0.06, 0.13, 0.14, -0.01], [0.15, 0.17, 0.18, -0.02], [0.31, 0.16, 0.17, -0.01], [0.42, 0.13, 0.13]];
+      b.add(G.loft(calf, cham), 'paint2');
+      for (let i = 0; i < 3; i++) band(b, calf, 0.26 + i * 0.03, 0.27 + i * 0.03, 0.008, 'metal', cham);
+      b.both((s) => {
+        s.add(G.cyl(0.016, 0.018, 0.16, 10), 'metal', 0.05, 0.2, -0.1);
+        s.add(G.cyl(0.012, 0.012, 0.004, 10), 'glow', 0.05, 0.118, -0.1);
+        s.add(G.torus(0.018, 0.004, 4, 12), 'dark', 0.05, 0.16, -0.1, HP, 0, 0);
+      });
+      break;
+    case 8:
+      // Drift: a smooth calf with a light band and a hover jet pod at its foot
+      calf = [[0.06, 0.11, 0.13, -0.01], [0.16, 0.14, 0.17, -0.022], [0.32, 0.12, 0.13, -0.01], [0.41, 0.09, 0.095]];
+      cham = 0.46;
+      b.add(G.loft(calf, cham), 'paint2');
+      band(b, calf, 0.23, 0.24, 0.005, 'glow', cham);
+      b.add(G.cyl(0.03, 0.022, 0.07, 14), 'metal', 0, 0.36, -0.07);
+      b.add(G.cyl(0.018, 0.018, 0.006, 14), 'glow', 0, 0.397, -0.07);
+      break;
+    case 9:
+      // Hakama: lacquered splints round the back of a dark calf, tied with two bands
+      calf = [[0.06, 0.11, 0.12, -0.008], [0.15, 0.135, 0.155, -0.018], [0.32, 0.115, 0.125, -0.008], [0.41, 0.09, 0.09]];
+      b.add(G.loft(calf, cham), 'dark');
+      for (let i = 0; i < 3; i++) {
+        const a = PI - 0.55 + i * 0.55;
+        b.group(Math.sin(a) * 0.072, 0.24, Math.cos(a) * 0.072 - 0.012, 0, a, 0, (v) => v.add(G.cbox(0.026, 0.25, 0.012, 0.004), 'paint', 0, 0, 0));
+      }
+      for (const y of [0.15, 0.33]) band(b, calf, y, y + 0.008, 0.018, 'paint2', cham);
+      break;
     default:
       calf = [[0.06, 0.11, 0.13, -0.01], [0.16, 0.14, 0.17, -0.025], [0.32, 0.11, 0.12, -0.01], [0.41, 0.085, 0.09]];
       cham = 0.16;
@@ -1369,6 +2124,46 @@ export function buildShinGuard(kickLook: number, r = 0): PB {
       b.add(G.torus(0.022, 0.004, 4, 14), 'chrome', 0, 0.26, 0.097);
       for (let i = 0; i < 3; i++) b.add(G.prism([[-0.03, 0.0], [0.0, 0.016], [0.03, 0.0], [0.03, 0.008], [0.0, 0.024], [-0.03, 0.008]], 0.008, 0.002), 'glow', 0, 0.3 + i * 0.025, 0.097);
       break;
+    case 5:
+      // Battering Boots: a slab guard under a steel-faced ram block at the knee, striped at the ankle
+      b.add(G.cbox(0.14, 0.24, 0.04, 0.008), 'paint', 0, 0.26, 0.082);
+      b.add(G.cbox(0.15, 0.08, 0.06, 0.01), 'paint2', 0, 0.09, 0.08, 0.12, 0, 0);
+      b.add(G.cbox(0.12, 0.05, 0.012, 0.003), 'metal', 0, 0.09, 0.114, 0.12, 0, 0);
+      hazard(b, 0.12, 0.034, 0, 0.36, 0.104);
+      b.both((s) => rivets(s, 2, 0.058, 0.17, 0.103, 0.058, 0.3, 0.103));
+      break;
+    case 6:
+      // Gale Blades: a narrow blade guard with a shark fin down the front and chrome edges
+      b.add(G.prism([[-0.032, 0.14], [0.032, 0.14], [0.026, -0.12], [0.0, -0.16], [-0.026, -0.12]], 0.026, 0.006), 'paint', 0, 0.24, 0.08);
+      b.add(G.fin([[0.0, -0.12], [0.0, 0.1], [0.03, 0.08], [0.045, -0.06]], 0.01), 'paint2', 0, 0.24, 0.092);
+      b.addSym(G.box(0.004, 0.24, 0.008), 'chrome', 0.03, 0.25, 0.088, 0, 0, 0.02);
+      b.addSym(G.box(0.005, 0.15, 0.005), 'glow', 0.016, 0.25, 0.094);
+      break;
+    case 7:
+      // Firebrand Greaves: a heavy guard with glowing heat slots, a flame chevron and knee cooling fins
+      b.add(G.prism([[-0.058, 0.12], [0.058, 0.12], [0.05, -0.1], [0.0, -0.13], [-0.05, -0.1]], 0.034, 0.008), 'paint', 0, 0.25, 0.082);
+      for (let i = 0; i < 4; i++) {
+        b.add(G.cbox(0.07 - i * 0.008, 0.012, 0.012, 0.003), 'dark', 0, 0.28 + i * 0.026, 0.1);
+        b.add(G.box(0.056 - i * 0.008, 0.005, 0.006), 'glow', 0, 0.28 + i * 0.026, 0.105);
+      }
+      b.add(G.prism([[-0.05, 0.0], [0.0, 0.03], [0.05, 0.0], [0.05, 0.016], [0.0, 0.046], [-0.05, 0.016]], 0.012, 0.003), 'paint2', 0, 0.17, 0.102);
+      for (let i = 0; i < 3; i++) b.add(G.cbox(0.13, 0.01, 0.05, 0.002), 'metal', 0, 0.09 + i * 0.022, 0.075);
+      break;
+    case 8:
+      // Nova Spurs: a smooth guard with a lit orb ring at the knee and a light seam down the shin
+      b.add(G.loft([[0.13, 0.1, 0.03, 0.08], [0.25, 0.11, 0.032, 0.083], [0.37, 0.08, 0.026, 0.08]], 0.46), 'paint');
+      b.add(G.torus(0.036, 0.006, 6, 24), 'glow', 0, 0.075, 0.09);
+      b.add(G.sphere(0.022, 12, 8), 'paint2', 0, 0.075, 0.088);
+      b.add(G.sphere(0.012, 10, 6), 'glow', 0, 0.075, 0.106);
+      b.add(G.box(0.006, 0.2, 0.006), 'glow', 0, 0.26, 0.099);
+      break;
+    case 9:
+      // Kama Greaves: three lacquered splints tied at two bands, a knee cop and a hooked blade at each side
+      for (let i = 0; i < 3; i++) b.add(G.cbox(0.03, 0.26, 0.016, 0.005), 'paint', (i - 1) * 0.034, 0.26, 0.086 - Math.abs(i - 1) * 0.008, 0, (i - 1) * 0.3, 0);
+      for (const y of [0.17, 0.35]) b.add(G.cbox(0.12, 0.008, 0.02, 0.003), 'dark', 0, y, 0.086);
+      b.add(G.sphere(0.042, 12, 8), 'paint2', 0, 0.07, 0.065, 0, 0, 0, 1, 0.75, 0.5);
+      b.both((s) => s.add(G.fin([[0.03, 0.0], [-0.03, -0.01], [-0.075, 0.03], [-0.03, 0.02]], 0.008), 'chrome', 0.062, 0.34, 0.0, 0, 0, -0.2));
+      break;
     default:
       // Jet Knees: an armoured knee with twin jets and a calf booster
       b.add(G.prism([[-0.055, 0.08], [0.055, 0.08], [0.045, -0.1], [-0.045, -0.1]], 0.03, 0.008), 'paint', 0, 0.28, 0.08);
@@ -1393,9 +2188,12 @@ export function buildShinGuard(kickLook: number, r = 0): PB {
 }
 
 /** Foot heel/ankle section: origin at the ankle; the sole sits at y = -0.08. */
+/** Foot width per kick look. */
+const FOOT_W = [1, 0.92, 1.12, 1, 1, 1.14, 0.9, 1.06, 1, 0.96];
+
 export function buildFoot(look: number, r = 0): PB {
   const b = new PB();
-  const w = look === 2 ? 1.12 : look === 1 ? 0.92 : 1;
+  const w = FOOT_W[look] ?? 1;
   b.add(G.loft([[-0.058, 0.14 * w, 0.16, 0.0], [0.0, 0.12 * w, 0.13, -0.01], [0.02, 0.09 * w, 0.09, -0.01]], 0.3), 'paint');
   b.add(G.cbox(0.148 * w, 0.024, 0.165, 0.008), 'dark', 0, -0.068, -0.002);
   b.add(G.cbox(0.152 * w, 0.008, 0.16, 0.003), 'metal', 0, -0.058, -0.002);
@@ -1419,6 +2217,36 @@ export function buildFoot(look: number, r = 0): PB {
       b.add(G.cyl(0.028, 0.028, 0.01, 12), 'glow', 0, -0.08, -0.06);
       b.addSym(G.cyl(0.016, 0.02, 0.04, 8), 'metal', 0.055, -0.03, -0.09, -1.2, 0, 0);
       break;
+    case 5:
+      // Battering: a steel heel block with hazard stripes
+      b.add(G.cbox(0.12 * w, 0.05, 0.03, 0.006), 'metal', 0, -0.035, -0.09);
+      hazard(b, 0.09, 0.03, 0, -0.035, -0.111, 0, PI, 0);
+      b.both((s) => s.add(G.cbox(0.012, 0.05, 0.1, 0.004), 'paint2', 0.07 * w + 0.004, -0.03, -0.02));
+      break;
+    case 6:
+      // Gale: a raked heel spur and light lines down the sides
+      b.add(G.fin([[0, 0], [-0.09, 0], [-0.02, 0.1]], 0.016, 0.004), 'paint2', 0, -0.025, -0.06);
+      b.addSym(G.box(0.004, 0.004, 0.09), 'glow', 0.066 * w, -0.04, 0.0);
+      break;
+    case 7:
+      // Firebrand: a heel thruster flaring back, lit inside
+      b.add(G.cyl(0.034, 0.026, 0.04, 12), 'metal', 0, -0.035, -0.12, -HP, 0, 0);
+      b.add(G.cyl(0.024, 0.024, 0.004, 12), 'glow', 0, -0.035, -0.139, -HP, 0, 0);
+      b.add(G.cbox(0.02, 0.07, 0.09, 0.006), 'paint2', 0, 0.03, -0.04);
+      break;
+    case 8:
+      // Nova: a glowing sole line and a smooth heel cap
+      b.add(G.cbox(0.156 * w, 0.006, 0.164, 0.002), 'glow', 0, -0.058, -0.002);
+      b.add(G.sphere(0.04, 12, 8), 'paint2', 0, -0.03, -0.088, 0, 0, 0, 1.3, 0.8, 0.8);
+      break;
+    case 9:
+      // Kama: tabi straps over the instep and lacquered ankle plates
+      for (const y of [-0.012, 0.006]) {
+        const t = (y + 0.058) / 0.058;
+        b.add(G.cbox((0.14 + (0.12 - 0.14) * Math.min(1, t)) * w + 0.01, 0.008, 0.16 - 0.03 * Math.min(1, t) + 0.01, 0.003), 'dark', 0, y, -0.006);
+      }
+      b.both((s) => s.add(G.cbox(0.01, 0.05, 0.07, 0.003), 'paint2', 0.07 * w, -0.025, -0.02));
+      break;
     default:
       b.add(G.box(0.1, 0.008, 0.008), 'rarity', 0, 0.005, 0.07);
       b.add(G.cbox(0.12, 0.04, 0.02, 0.006), 'paint2', 0, -0.025, -0.087);
@@ -1432,13 +2260,26 @@ export function buildFoot(look: number, r = 0): PB {
 /** Toe section: origin at the ball of the foot; hinges for heel raises and pointed kicks. */
 export function buildToe(look: number, r = 0): PB {
   const b = new PB();
-  const w = look === 2 ? 1.12 : look === 1 ? 0.92 : 1;
+  const w = FOOT_W[look] ?? 1;
   b.add(G.loft([[-0.03, 0.142 * w, 0.115, 0.05], [0.012, 0.13 * w, 0.1, 0.045], [0.028, 0.1 * w, 0.06, 0.03]], 0.3), 'paint');
   b.add(G.cbox(0.146 * w, 0.02, 0.118, 0.006), 'dark', 0, -0.032, 0.052);
   b.add(G.cbox(0.11 * w, 0.03, 0.018, 0.006), r >= 3 ? 'chrome' : 'metal', 0, -0.016, 0.106);
   if (look === 1) b.add(G.prism([[-0.05, 0], [0.05, 0], [0, 0.06]], 0.035, 0.008), 'paint2', 0, -0.005, 0.1, -HP, 0, 0);
   if (look === 2) b.add(G.box(0.12, 0.008, 0.008), 'rarity', 0, 0.02, 0.1);
-  if (look === 3 || look === 4) b.add(G.box(0.008, 0.008, 0.05), 'glow', 0, 0.03, 0.04);
+  if (look === 3 || look === 4 || look === 8) b.add(G.box(0.008, 0.008, 0.05), 'glow', 0, 0.03, 0.04);
+  if (look === 5) {
+    // a thick steel toe cap
+    b.add(G.cbox(0.14 * w, 0.042, 0.03, 0.008), 'metal', 0, -0.006, 0.1);
+    rivets(b, 3, -0.04, 0.004, 0.116, 0.04, 0.004, 0.116, 0.006);
+  }
+  if (look === 6) b.add(G.prism([[-0.05, 0], [0.05, 0], [0, 0.075]], 0.03, 0.008), 'paint2', 0, -0.006, 0.1, -HP, 0, 0);
+  if (look === 6) b.add(G.box(0.006, 0.006, 0.05), 'glow', 0, 0.026, 0.04);
+  if (look === 7) {
+    b.add(G.cbox(0.13 * w, 0.012, 0.08, 0.004), 'paint2', 0, 0.026, 0.045);
+    b.add(G.box(0.1 * w, 0.006, 0.006), 'glow', 0, 0.006, 0.099);
+  }
+  // a tabi strap round the toe
+  if (look === 9) b.add(G.loft([[0.0, 0.1334 * w + 0.008, 0.112, 0.0464], [0.008, 0.1311 * w + 0.008, 0.109, 0.0452]], 0.3), 'dark');
   if (r >= 4) b.add(G.box(0.1 * w, 0.006, 0.006), 'rarity', 0, -0.0, 0.117);
   return b;
 }

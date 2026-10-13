@@ -32,7 +32,8 @@ import { contactStats, Hull, partRadius, pushOut, samplePB, tally, type PlacedHu
 import { damageUniforms, patchDamage, patchDamageGlow, type DamageUniforms } from './damageLook';
 import { P, PART_COUNT } from '../sim/damage';
 
-const CORE_COLORS = [0x49c6ff, 0xff4a2a, 0x3cffd8, 0x52ff6a, 0xc77dff];
+/** Core light per core look: the five originals, then Bastion amber, Kestrel ice, Vulkan molten, Halcyon violet, Kensei crimson. */
+const CORE_COLORS = [0x49c6ff, 0xff4a2a, 0x3cffd8, 0x52ff6a, 0xc77dff, 0xffa820, 0x8ff4ff, 0xff6200, 0xb48dff, 0xff2d55];
 
 /** Bones of the rigid skin. Every bone is a direct child of the model root. */
 const enum B {
@@ -446,12 +447,12 @@ export class BotModel {
       sb.add(buildShinGuard(look('kick'), rar('kick')), L ? B.ShinL : B.ShinR, 'kick', leg + 1);
       sb.add(buildFoot(look('kick'), rar('kick')), L ? B.FootL : B.FootR, 'kick', leg + 2);
       sb.add(buildToe(look('kick'), rar('kick')), L ? B.ToeL : B.ToeR, 'kick', leg + 2);
-      const heavyLegs = look('legs') === 3;
+      const heavyLegs = !!ITEM_BY_ID.get(loadout.legs.id)!.rams;
       sb.add(buildPistonBarrel(ARM_BAR, ARM_R), L ? B.ArmBarL : B.ArmBarR, 'chest', arm);
       sb.add(buildPistonRod(ARM_ROD, ARM_R), L ? B.ArmRodL : B.ArmRodR, 'chest', arm + 1);
       sb.add(buildPistonBarrel(LEG_BAR, heavyLegs ? LEG_R * 1.35 : LEG_R), L ? B.LegBarL : B.LegBarR, 'legs', leg);
       sb.add(buildPistonRod(LEG_ROD, heavyLegs ? LEG_R * 1.35 : LEG_R), L ? B.LegRodL : B.LegRodR, 'legs', leg + 1);
-      if (look('fist') === 3) {
+      if (ITEM_BY_ID.get(loadout.fist.id)!.ability === 'rocketPunch') {
         sb.add(buildRocketPiston(), L ? B.RocketL : B.RocketR, 'fist', arm + 1);
         this.rocket[side] = true;
       }

@@ -2,7 +2,7 @@ import { Vector3 } from 'three';
 import { Body, J, JOINT_COUNT } from './body';
 import { MOVES, type MoveDef, type MoveId, type Zone } from './moves';
 import { Parts } from './damage';
-import type { FighterBuild, PassiveId } from '../game/items';
+import { ITEM_BY_ID, type FighterBuild, type PassiveId } from '../game/items';
 import {
   clamp,
   clamp01,
@@ -53,6 +53,8 @@ export interface StrikeAction {
   activeProgress: number;
   /** Strike landed while the defender was mid-attack. */
   counter: boolean;
+  /** Thrown after a pause of 2s or more (the iaido passive's first strike). */
+  poised?: boolean;
 }
 
 export interface DodgeAction {
@@ -349,7 +351,7 @@ export class Fighter {
   private _c1 = new Vector3();
   private _c2 = new Vector3();
   private headOff = new Vector3();
-  /** 1 for the bulky juggernaut chest (its armour sits further out). */
+  /** 1 for a bulky chest (Juggernaut, Citadel: its armour sits further out). */
   private bulk = 0;
   private pelvisOff = new Vector3();
   flinch = new SpringVec(150, 11);
@@ -369,6 +371,11 @@ export class Fighter {
   shieldTimer = 0;
   rage = 0;
   rageDecay = 0;
+  /** Furnace stacks: clean hits in a row. */
+  heat = 0;
+  heatTime = 0;
+  /** When this fighter last threw a real strike (iaido). */
+  lastStrikeAt = -10;
   afterimage = 0;
   lastHitTime = -10;
   lastStagger = -10;
@@ -412,12 +419,12 @@ export class Fighter {
     this.build = build;
     this.rng = rng;
     this.noise = new Noise1(rng);
-    this.parts = new Parts(build.loadout);
+    this.parts = new Parts(build.loadout, build.tough);
     this.hp = build.stats.maxHp;
     this.stamina = build.stats.stamina;
     this.poise = this.maxPoise;
     this.stance = rng.chance(0.25) ? 1 : -1;
-    this.bulk = build.loadout?.chest?.id === 'juggernaut' ? 1 : 0;
+    this.bulk = ITEM_BY_ID.get(build.loadout?.chest?.id ?? '')?.bulky ? 1 : 0;
     const shieldCd = this.passive('aegis');
     if (shieldCd > 0) {
       this.shield = true;
@@ -534,7 +541,7 @@ export class Fighter {
   /** Speed multiplier a move would be thrown at (a damaged arm or leg is slower). */
   strikeSpeed(move: MoveDef, side = this.strikeSide(move)) {
     const i = side === 'L' ? 0 : 1;
-    if (move.kind === 'kick') return (this.build.stats.punchSpeed * 0.5 + 0.5) * (1 + this.overdrive) * this.parts.legSpeed(i);
+    if (move.kind === 'kick') return (this.build.stats.punchSpeed * 0.5 + 0.5) * (1 + this.overdrive) * (1 + this.passive('tailwind')) * this.parts.legSpeed(i);
     return this.speedMult() * this.parts.armSpeed(i);
   }
 
@@ -618,6 +625,8 @@ export class Fighter {
     this.action = s;
     this.lastActTime = this.hooksTime;
     if (!feint && !scripted) {
+      s.poised = this.hooksTime - this.lastStrikeAt >= 2;
+      this.lastStrikeAt = this.hooksTime;
       this.stamina -= move.stamina;
       if (move.cooldown) this.cooldowns[move.id] = move.cooldown;
       this.stats.thrown++;
@@ -749,6 +758,13 @@ export class Fighter {
         this.shield = true;
         this.hooks?.emit('shieldUp', { f: this });
       }
+    }
+    // nanite self-repair while nothing is landing
+    const nano = this.passive('nanoRepair');
+    if (nano > 0 && this.state === 'fight' && this.hp > 0 && t - this.lastHitTime > 3) this.hp = Math.min(st.maxHp, this.hp + nano * dt);
+    if (this.heat > 0) {
+      this.heatTime += dt;
+      if (this.heatTime > 5) this.heat = 0;
     }
     if (this.rage > 0) {
       this.rageDecay += dt;

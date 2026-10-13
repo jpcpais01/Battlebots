@@ -1,5 +1,5 @@
 import { Rng } from '../sim/math';
-import { MAX_RARITY, SLOTS, capRarity, itemsForSlot, type Loadout, type Rarity } from './items';
+import { COMPANIES, MAX_RARITY, SLOTS, capRarity, itemsForSlot, type Loadout, type Rarity } from './items';
 import type { EmotePicks } from '../sim/emote';
 import { DEFAULT_PAINT, SCHEMES, samePaint, type Paint } from './paint';
 
@@ -25,8 +25,12 @@ export function rollRarity(rng: Rng, tier = 0.35): Rarity {
 
 export function randomLoadout(rng: Rng, tier = 0.35): Loadout {
   const out: Partial<Loadout> = {};
+  // about half of all bots are loyal to one maker and wear mostly its parts (often enough for a set bonus)
+  const fan = rng.chance(0.45) ? rng.pick(COMPANIES).id : null;
   for (const slot of SLOTS) {
-    const item = rng.pick(itemsForSlot(slot));
+    const all = itemsForSlot(slot);
+    const theirs = fan && rng.chance(0.75) ? all.filter((it) => it.maker === fan) : [];
+    const item = rng.pick(theirs.length ? theirs : all);
     out[slot] = { id: item.id, rarity: rollRarity(rng, tier) };
   }
   return out as Loadout;

@@ -1,4 +1,4 @@
-import type { Slot } from '../game/items';
+import type { CompanyId, Slot } from '../game/items';
 import type { MoveId } from '../sim/moves';
 
 const svg = (body: string, extra = '') =>
@@ -11,6 +11,20 @@ export const SLOT_ICON: Record<Slot, string> = {
   chest: svg('<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M9 11h6M12 8v6"/>'),
   legs: svg('<path d="M8 3h8l-1 7h-6z"/><path d="M9 10l-1 6 0 5M15 10l1 6v5"/><path d="M6 21h4M14 21h4"/>'),
   kick: svg('<path d="M8 3v8l-3 5v3h9l6-2v-2l-7-2-1-10z"/><path d="M5 19h15"/>'),
+};
+
+/** Maker logos, drawn in the brand colour (currentColor). */
+export const COMPANY_ICON: Record<CompanyId, string> = {
+  // a riveted blast shield
+  bastion: svg('<path d="M4 4.5h16v7.5c0 4.6-3.6 7.6-8 9.5-4.4-1.9-8-4.9-8-9.5z" fill="currentColor" fill-opacity=".18"/><path d="M8 9h8M8 12.5h8M9.5 16h5"/>'),
+  // a stooping falcon, wings swept back
+  kestrel: svg('<path d="M2 7.5c4.2.2 7.4 1.8 10 5 2.6-3.2 5.8-4.8 10-5-2.9 2.4-4.8 5.6-5.7 9.8L12 14.6l-4.3 2.7C6.8 13.1 4.9 9.9 2 7.5z" fill="currentColor" fill-opacity=".18"/><path d="M12 12.5V21"/>'),
+  // a forge flame
+  vulkan: svg('<path d="M12 2.5c.6 3.8 6 6 6 11.3a6 6 0 0 1-12 0c0-2.9 1.6-4.4 3-6.3.2 2 1 3.2 2.4 3.4-.2-3.2-.6-5.6.6-8.4z" fill="currentColor" fill-opacity=".18"/><path d="M12 20.5a2.6 2.6 0 0 1-2.6-2.6c0-1.6 1.4-2.4 2.6-4 1.2 1.6 2.6 2.4 2.6 4a2.6 2.6 0 0 1-2.6 2.6z"/>'),
+  // a small star on its orbit
+  halcyon: svg('<circle cx="12" cy="12" r="3.4" fill="currentColor" fill-opacity=".45"/><ellipse cx="12" cy="12" rx="10" ry="4.2" transform="rotate(-24 12 12)"/><path d="M12 2v2M12 20v2"/>'),
+  // a crescent crest over a blade
+  kensei: svg('<path d="M3.5 3.5c1.8 5.6 15.2 5.6 17 0"/><path d="M12 8.5V21.5"/><path d="M8 12.5h8"/><path d="M12 8.5l-1.6 2.4h3.2z" fill="currentColor"/>'),
 };
 
 export const ICON = {

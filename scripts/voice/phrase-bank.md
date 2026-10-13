@@ -2322,6 +2322,267 @@ Reaction lines have to start within about 0.2 s of the hit, so they are short. C
 - C4 [yelling] Keep going! KEEP GOING!
 - R3 [mechanical] Impact! Impact! More!
 
+# Finishers
+
+A finisher is a scripted fight-ending combo (see `src/sim/finisher.ts`). The clock stops, the game drops into slow motion, and the booth goes up with it: the caller calls it as it starts, colour or the robot jumps in over the top, the caller screams the final blow, and the knockout call names the move.
+
+Lines are short. A finisher lasts two to four seconds on screen, and the knockout call talks over whatever is left.
+
+## `finisher.start` · A finisher begins
+**When:** `finisher`, the opening shot lands and the finisher takes over. Tried after the finisher's own section. The attacker's name may lead the line.
+
+- P4 Here it COMES!
+- P4 OH, this is IT!
+- P4 It's going for the FINISH!
+- P4 Uh-oh! UH-OH! Here we go!
+- P4 [shouting] LOOK OUT! LOOK OUT!
+- P4 Oh, it smells blood! It SMELLS BLOOD!
+- P4 It's TIME! It's finishing time!
+- P4 OH NO! Not this! NOT THIS!
+- P4 Somebody stop it! It's going for the KILL!
+- P4 OHHH, it's loading up the big one!
+- P4 [screaming] HERE IT IS! HERE IT IS!
+- P4 It's going in for the FINISHER!
+- P4 Oh, you do NOT want to be on the end of this!
+- P4 Hold on to your seats, folks!
+- P4 This is the moment! THIS IS THE MOMENT!
+- P3 Oh, here we go. Here we GO!
+- P3 It's got that look... oh no, it's got that LOOK!
+- P3 Oh, it's been waiting for THIS!
+- P3 Wait, wait, wait... OH, it's going for it!
+- P3 [gasps] It's lining it up! It's lining it UP!
+- P3 Defenceless! It's totally defenceless!
+- P3 It's out on its feet and here comes the finish!
+- P3 Oh, the crowd knows what's coming!
+- P3 That's the cue! That's the CUE!
+- C4 FINISH IT! Go on, FINISH IT!
+- C4 Oh, that's curtains! That's CURTAINS!
+- C4 [yelling] Somebody throw the towel in!
+- C4 Oh no, no, no, NO! Not like this!
+- C4 Put it AWAY! Put it away NOW!
+- C3 Oh, I can't watch. I CAN'T WATCH!
+- C3 Here comes the party piece!
+- C3 Oh, this is gonna hurt. This is gonna HURT!
+- C3 [laughs] Oh, it's showboating now! Love it!
+- C3 Say your prayers, sunshine!
+- C3 It's sat there like a sitting duck!
+- C3 Oh, it's been saving that one up all night!
+- R3 [excited] Finishing protocol: ENGAGED!
+- R2 [mechanical] Termination sequence initiated. Please stand back.
+- R3 [excited] Oh! Oh! I have seen this subroutine! It is my favourite!
+- R2 [deadpan] Opponent defence: zero percent. This will be educational.
+- R2 [mechanical] Warning. Warning. Something very bad is about to happen. Good.
+- R3 [excited] Execute! EXECUTE!
+- R2 [deadpan] I am recording this. In high definition.
+- R2 [mechanical] Countdown to shutdown: three. Two...
+
+## `finisher.skyfall` · Skyfall: the charged uppercut
+**When:** `finisher` with id `skyfall`. It sinks low, the rear fist crackles with charge, then the uppercut launches them sky-high.
+
+- P4 It's loading the SKYFALL!
+- P4 Look at that fist CRACKLE! SKYFALL!
+- P4 Down low... charging up... OH, SKYFALL!
+- P4 [shouting] SKYFALL! Send it to the MOON!
+- P4 It's charging the uppercut! Look out ABOVE!
+- P3 It's sinking down... it's CHARGING it! Oh, this is the Skyfall!
+- P3 You can hear that fist humming from up here! SKYFALL!
+- P3 Oh, it's crouching under it! It's the Skyfall, folks!
+- C4 That fist is glowing, Danny! It's GLOWING!
+- C3 Oh, it's winding up from the basement! Hide the chandeliers!
+- C3 Air traffic control, we've got incoming!
+- C3 Skyfall! Oh, they're gonna need a ladder for this one!
+- R3 [excited] Fist charge at one hundred percent! Launch window: NOW!
+- R2 [mechanical] Calculating trajectory. Upward. Very upward.
+- R2 [deadpan] I have alerted the ceiling.
+
+## `finisher.meteor` · Meteor Hammer: body shot, leap, double-fist slam
+**When:** `finisher` with id `meteor`. A hook to the body folds them in half, then it leaps and brings both fists down.
+
+- P4 METEOR HAMMER!
+- P4 Folded in half! And here comes the HAMMER!
+- P4 It's going UP! It's in the AIR! METEOR HAMMER!
+- P4 [shouting] Body shot... and it's LEAPING! Oh my!
+- P4 Both fists up! Bring it DOWN!
+- P3 Oh, the body shot folds it right over! It's the Meteor Hammer!
+- P3 Doubled up... and that's the cue for the Meteor Hammer!
+- P3 Look at the hang time on this thing!
+- C4 Oh, it's jumping! It's bloody JUMPING!
+- C3 Doubled over and wide open! Oh, mate, no!
+- C3 Here comes the sledgehammer! Mind the canvas!
+- C3 Somebody tell the floor it's about to have a bad day!
+- R3 [excited] Altitude gained! Impact imminent! I am so happy!
+- R2 [mechanical] Gravity has been recruited. Gravity is on our side.
+- R2 [deadpan] The canvas has filed a complaint in advance.
+
+## `finisher.cyclone` · Cyclone: rib kick, then the spinning heel
+**When:** `finisher` with id `cyclone`. A roundhouse to the ribs bends them sideways, a skip back, then the spinning heel sends them flying.
+
+- P4 CYCLONE! Here comes the SPIN!
+- P4 Roundhouse to the ribs... and here's the SPINNING HEEL!
+- P4 It's spinning! It's SPINNING! CYCLONE!
+- P4 [shouting] Oh, it's skipping back for the CYCLONE!
+- P4 Here comes the WHIRLWIND!
+- P3 Kick to the ribs bends it right over! Oh, this is the Cyclone!
+- P3 One skip back... it's setting up the spin!
+- P3 Oh, I know this one! I KNOW this one! Cyclone!
+- C4 Oh, here comes the windmill! Duck! DUCK!
+- C3 Ribs first, then the head! Textbook, that is!
+- C3 Oh, it's gonna spin it round! Lovely footwork!
+- C3 Batten down the hatches, there's a storm coming!
+- R3 [excited] Rotational velocity climbing! Wheee!
+- R2 [mechanical] Spin detected. Opponent head: in the flight path.
+- R2 [deadpan] Weather advisory. Cyclone approaching. Visibility: zero.
+
+## `finisher.overdrive` · Piston Overdrive: piston barrage, then the rocket fist
+**When:** `finisher` with id `overdrive`. A storm of pistons drives them back to the ropes, then the rocket arm cocks and fires.
+
+- P4 PISTON OVERDRIVE!
+- P4 Pistons! PISTONS! PISTONS!
+- P4 [shouting] It's a STORM of punches! Piston Overdrive!
+- P4 Bang bang bang bang! And the rocket arm is COCKED!
+- P4 It's in OVERDRIVE! Look at those hands GO!
+- P3 Oh, it's unloading everything! It's the Piston Overdrive!
+- P3 Both hands like pistons! It can't get out of there!
+- P3 Driving it back, driving it back... and here comes the rocket!
+- C4 Pistons going like a bloody sewing machine!
+- C3 Oh, it's emptying the clip! Every last round!
+- C3 Pinned and pounded! There's nowhere to go!
+- C3 Here comes the rocket! Somebody light the fuse!
+- R3 [excited] Piston speed: maximum! Rocket arm: armed! I am having a wonderful time!
+- R2 [mechanical] Seven impacts per second. Then one more. A large one.
+- R2 [deadpan] Overdrive engaged. Warranty: void.
+
+## `finisher.headhunter` · Headhunter: leg kick, point, head kick
+**When:** `finisher` with id `headhunter`. A low kick drops them to both knees, a point and a set, then the roundhouse takes the head clean off. Ends in DISMANTLED.
+
+- P4 HEADHUNTER! Oh no!
+- P4 It's on its KNEES! Oh, this is the HEADHUNTER!
+- P4 [shouting] It's POINTING at it! It's calling the SHOT!
+- P4 Down to its knees! And it's lining up the HEAD!
+- P4 Oh no! Oh no! Not the HEADHUNTER!
+- P3 Low kick, both knees on the canvas! I know what's coming!
+- P3 It's pointing at it. It's actually pointing at it! Oh, that's cold!
+- P3 It's kneeling there, helpless! This is the Headhunter!
+- C4 Oh, it's pointing! That's disrespectful! I LOVE it!
+- C3 On its knees like it's praying! It should be!
+- C3 Oh, it's measuring it up! Like a golfer on the tee!
+- C3 Somebody catch that head, it's going in the stands!
+- R3 [excited] Target acquired: head! I repeat: HEAD!
+- R2 [mechanical] Head assembly warranty. Expiring. Now.
+- R2 [deadpan] Opponent kneeling. Head at optimal kicking height. Lovely.
+
+## `finisher.impact` · The final blow lands
+**When:** `finisherBlow`, the last blow of a finisher connects. The knockout call follows a beat later, once they hit the canvas.
+
+- P4 OHHHHH!
+- P4 BOOM!
+- P4 [screaming] OH MY GOODNESS!
+- P4 GOODNIGHT!
+- P4 [screaming] OHHH! OHHH!
+- P4 WHAT A SHOT!
+- P4 Oh, SWEET MERCY!
+- P4 [screaming] NO WAY! NO WAY!
+- P4 OH! It's DEVASTATING!
+- P4 GOOD! NIGHT! IRENE!
+- P4 Ka-BOOM!
+- P4 [screaming] HOLY SMOKES!
+- P4 OHHH, LIGHTS OUT!
+- P4 [screaming] ARE YOU KIDDING ME?!
+
+## `finisher.impact.skyfall` · Skyfall lands
+**When:** `finisherBlow` for Skyfall: the uppercut launches them sky-high.
+
+- P4 LIFT-OFF!
+- P4 [screaming] SKYFALL! Up, up and AWAY!
+- P4 Into ORBIT! Oh my goodness!
+- P4 We have LIFT-OFF!
+
+## `finisher.impact.meteor` · Meteor Hammer lands
+**When:** `finisherBlow` for Meteor Hammer: both fists slam them into the canvas.
+
+- P4 INTO THE CANVAS!
+- P4 [screaming] METEOR HAMMER! Oh my!
+- P4 Hammered into the FLOOR!
+- P4 FLATTENED! Absolutely FLATTENED!
+
+## `finisher.impact.cyclone` · Cyclone lands
+**When:** `finisherBlow` for Cyclone: the spinning heel sends them flying.
+
+- P4 [screaming] CYCLONE! Look at it FLY!
+- P4 Spun it into NEXT WEEK!
+- P4 SPINNING HEEL! Oh my goodness!
+- P4 Blown AWAY!
+
+## `finisher.impact.overdrive` · Piston Overdrive lands
+**When:** `finisherBlow` for Piston Overdrive: the rocket fist blows them off their feet.
+
+- P4 ROCKET FIST! BOOM!
+- P4 [screaming] Blasted off its FEET!
+- P4 OVERDRIVE! It's flying across the ring!
+- P4 FIRED! And it's GONE!
+
+## `finisher.impact.headhunter` · Headhunter lands
+**When:** `detach` fatal head during Headhunter: the roundhouse takes the head clean off. DISMANTLED.
+
+- P4 [screaming] HEADHUNTER! The head is GONE!
+- P4 It kicked the HEAD OFF! DISMANTLED!
+- P4 [screaming] OFF! It's OFF! Oh my goodness!
+- P4 HEADS WILL ROLL! And one just DID!
+
+## `ko.finisher` · Knockout by a finisher
+**When:** `ko` after a finisher, tried before the plain knockout calls. Colour lines here answer the call.
+
+- P4 What a FINISHER! It's OVER!
+- P4 [screaming] FINISHED! And I mean FINISHED!
+- P4 That is how you END a fight, folks!
+- P4 Signature move! Signature WIN!
+- P4 They came for a show, and they GOT ONE!
+- P4 Oh, put that on the POSTER! It's OVER!
+- P4 It called its shot and it DELIVERED!
+- P4 [screaming] Highlight of the YEAR! It's OVER!
+- P4 OHHH! That's the finisher, that's the fight!
+- P4 From the ROOFTOPS! What a way to win!
+- C4 Oh, that's the money shot! That's the bloody MONEY SHOT!
+- C3 That's not a knockout, that's a demolition!
+- C3 Oh, it saved the best for last, didn't it!
+- C3 [laughs] Oh, that's just showing off now! Brilliant!
+- C3 They'll be playing that one at its funeral!
+- C3 That's the one they'll put on the T-shirts!
+- C2 You give a bot like that an opening, that's what happens.
+- C2 [laughs] Somebody fetch a mop. And a dustpan.
+- R3 [excited] Finisher complete! Style points: maximum! I am vibrating!
+- R2 [mechanical] Sequence executed flawlessly. I would like to learn it.
+- R1 [deadpan] The opponent has been finished. Like a sentence. With an exclamation mark.
+- R2 [mechanical] Replay saved. Replay saved again. Just in case.
+
+## `ko.finisher.skyfall` · Skyfall knockout
+**When:** `ko` after Skyfall.
+
+- P4 SKYFALL! Sent to the MOON and it's not coming back!
+- P4 It's coming down... and it's OUT COLD!
+- C3 Hope it packed a parachute!
+
+## `ko.finisher.meteor` · Meteor Hammer knockout
+**When:** `ko` after Meteor Hammer.
+
+- P4 METEOR HAMMER! Buried in the CANVAS!
+- P4 It's in a CRATER! It's OVER!
+- C3 They'll need a shovel to get that one out!
+
+## `ko.finisher.cyclone` · Cyclone knockout
+**When:** `ko` after Cyclone.
+
+- P4 CYCLONE! Swept clean off the map!
+- P4 The storm has PASSED! And it took a bot with it!
+- C3 Spun its lights right out, that did!
+
+## `ko.finisher.overdrive` · Piston Overdrive knockout
+**When:** `ko` after Piston Overdrive.
+
+- P4 PISTON OVERDRIVE! Fully, completely DESTROYED!
+- P4 Pistons, then the ROCKET! Good NIGHT!
+- C3 Every piston, then the rocket. Overkill, and I love it!
+
 # The finish
 
 During the KO slow-motion the booth stays at normal speed. The caller screams first, the colour line lands while the winner celebrates, and the wrap-up plays over the results screen.
