@@ -32,7 +32,7 @@ if (process.argv.includes('--spread')) {
     const k = it.kind === 'line' ? `${it.line.t}|${it.take}` : 'name';
     const r = seen.get(k) ?? 0;
     seen.set(k, r + 1);
-    return (it.kind === 'name' ? 1e6 : 0) + it.take * 1e4 + r;
+    return it.kind === 'name' ? 5e3 + r : it.take * 1e4 + r;
   };
   todo = todo.map((it) => [rank(it), it]).sort((a, b) => a[0] - b[0]).map((p) => p[1]);
 }
