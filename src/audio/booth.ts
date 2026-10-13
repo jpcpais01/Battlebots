@@ -338,7 +338,11 @@ export class Booth {
     if (!m || !this.man || !this.enabled) return;
     switch (type) {
       case 'phase':
-        if (data === 'countdown') this.say({ chain: ['countdown.start'], prio: 40, voice: 'p' }, 1.2);
+        if (data === 'countdown') {
+          // the crowd counts it down: the booth lets them
+          if (this.cur) this.cut();
+          this.queue.length = 0;
+        } else if (data === 'greet') this.push({ chain: ['countdown.start'], prio: 40, voice: 'p' }, 1.4, 2);
         break;
       case 'fightStart':
         this.say({ chain: ['fight.start'], prio: 80, voice: 'p' }, 0.3);

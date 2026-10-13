@@ -27,8 +27,8 @@ export function simFingerprint(): number {
   const rng = new Rng(0xb07b07);
   const m = new Match(randomBot(rng, 0.9), randomBot(rng, 0.9), 0x5eed);
   m.skipIntro();
-  // the countdown, then a few seconds of fighting
-  for (let i = 0; i < 1200 && m.phase !== 'end'; i++) m.step();
+  // the countdown, touching gloves, then a few seconds of fighting
+  for (let i = 0; i < 1800 && m.phase !== 'end'; i++) m.step();
   mix(matchHash(m));
   cached = h >>> 0;
   return cached;

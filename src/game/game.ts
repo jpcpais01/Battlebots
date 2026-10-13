@@ -563,6 +563,15 @@ export class Game {
       case 'finisherBlow':
         this.finisherBlow(data);
         break;
+      case 'fistBump': {
+        // touching gloves: a clink, a few sparks off the knuckles, and the house cheers
+        _v.set(data.x, data.y, data.z);
+        fx.sparks(_v, _up, 8, 0xffe2b0, 2.2, 1.4);
+        fx.flash(_v, 0xfff0d0, 0.35, 0.1);
+        sfx?.fistBump();
+        this.arena.excite(0.5);
+        break;
+      }
       case 'emote':
         // the crowd answers a celebration or taunt; stomps shake the camera
         this.arena.excite(data.k * 0.6);
@@ -708,7 +717,7 @@ export class Game {
     if (this.place === 'garage') this.garage!.update(dt, this.time, this.fx);
     else {
       // the stands and crowd are hidden in the workshop, so they don't need updating there
-      this.arena.venue.crowd.update(dt, this.crowdMood.excite, crowdState?.phase === 'fight');
+      this.arena.venue.crowd.update(dt, this.crowdMood.excite, crowdState?.phase === 'fight' || crowdState?.phase === 'greet');
       this.arena.venue.score(dt, m && f ? { names: [f[0].name, f[1].name], hp: [f[0].hpRatio, f[1].hpRatio], clock: m.clock, phase: m.phase } : null);
       this.arena.update(dt, this.time);
     }

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Game } from '../game/game';
-import type { Match, HitInfo, DetachInfo, FinishKind, FinisherInfo, WearInfo } from '../sim/match';
+import { COUNTDOWN, type Match, type HitInfo, type DetachInfo, type FinishKind, type FinisherInfo, type WearInfo } from '../sim/match';
 import { DETACHABLE, LOOSE, P, PART_COUNT, PART_NAME, type LossReason } from '../sim/damage';
 import type { Fighter } from '../sim/fighter';
 import type { BrainEvent } from '../sim/brain';
@@ -11,7 +11,7 @@ import type { Paint } from '../game/paint';
 import { button, el, esc } from './dom';
 import { ABILITY_ICON, ICON, SLOT_ICON } from './icons';
 import { saveZoom, type Zoom } from './store';
-import { botCardHtml } from './botCard';
+import { botCardHtml, paintOf } from './botCard';
 
 const _p = new THREE.Vector3();
 
@@ -139,7 +139,10 @@ export class Hud {
   private pendingFinish: { kind: FinishKind; winner: Fighter; reason: LossReason | null } | null = null;
   private dmgLayer: HTMLElement;
   private commentary: HTMLElement;
+  /** The intro: a presentation panel per fighter (card and name banner). */
   private vs: HTMLElement | null = null;
+  private presents: HTMLElement[] = [];
+  private shownPresent = -1;
   private speedBtn!: HTMLButtonElement;
   private zoomBtn!: HTMLButtonElement;
   private match: Match | null = null;
@@ -217,6 +220,9 @@ export class Hud {
     this.match = null;
     this.vs?.remove();
     this.vs = null;
+    this.presents = [];
+    this.shownPresent = -1;
+    this.root.classList.remove('intro');
   }
 
   private build(m: Match) {
@@ -333,11 +339,25 @@ export class Hud {
     if (this.speedBtn) this.speedBtn.textContent = '1×';
   }
 
+  /**
+   * The intro: a panel per fighter, shown in turn while the camera presents it. Its card
+   * slides in on its corner's side, and its name lands big across the other side, under the
+   * robot. Offline, a tap skips to the countdown.
+   */
   private showVs(m: Match) {
     const on = this.online;
     const tag = (i: number) => (on ? (i === on.me ? 'You' : 'Opponent') : i ? 'Challenger' : 'Your bot');
-    const card = (i: number) => botCardHtml(this.game, m.specs[i], m.fighters[i].build, { side: i ? 'r' : 'l', tag: tag(i) });
-    this.vs = el('div', `vs${on ? '' : ' interactive'}`, `${card(0)}${card(1)}<div class="mid"><i></i><b>VS</b><i></i></div>`, this.root);
+    const panel = (i: number) => {
+      const spec = m.specs[i];
+      const card = botCardHtml(this.game, spec, m.fighters[i].build, { side: i ? 'r' : 'l', tag: tag(i), delay: 0.3 });
+      const corner = i ? 'And in the orange corner' : 'In the blue corner';
+      const style = m.brains[i].traits.style;
+      return `<div class="present ${i ? 'r' : 'l'}" style="--paint:${paintOf(spec)}">${card}
+        <div class="banner"><span class="corner">${corner}</span><b class="pname">${esc(spec.name)}</b><span class="style">${esc(style)}</span></div></div>`;
+    };
+    this.vs = el('div', `vs${on ? '' : ' interactive'}`, `${panel(0)}${panel(1)}`, this.root);
+    this.presents = [...this.vs.querySelectorAll<HTMLElement>('.present')];
+    this.shownPresent = -1;
     // tapping skips the intro, except online, where both phones have to show the same moment
     if (!on) this.vs.addEventListener('click', () => this.match?.skipIntro());
   }
@@ -346,20 +366,27 @@ export class Hud {
   update(dt: number) {
     const m = this.match;
     if (!m) return;
+    // the intro: each fighter in turn, then the bars come in for the countdown
+    const who = m.presenting;
+    if (who !== this.shownPresent) {
+      if (this.shownPresent >= 0) this.presents[this.shownPresent]?.classList.replace('on', 'off');
+      if (who >= 0) this.presents[who]?.classList.add('on');
+      this.shownPresent = who;
+    }
+    this.root.classList.toggle('intro', m.phase === 'intro');
     if (this.vs && m.phase !== 'intro') {
       const v = this.vs;
       this.vs = null;
-      v.style.transition = 'opacity .3s';
-      v.style.opacity = '0';
-      setTimeout(() => v.remove(), 320);
+      v.classList.add('gone');
+      setTimeout(() => v.remove(), 450);
     }
-    // countdown
+    // countdown: 3, 2, 1, with the crowd
     if (m.phase === 'countdown') {
-      const n = 3 - Math.floor(m.phaseTime);
+      const n = COUNTDOWN - Math.floor(m.phaseTime);
       if (n !== this.lastCount && n >= 1) {
         this.lastCount = n;
         this.count(String(n));
-        this.game.sfx?.ui('tap');
+        this.game.sfx?.countdown(n);
       }
     }
     this.timer.textContent = String(Math.ceil(m.clock));
@@ -531,6 +558,7 @@ export class Hud {
     switch (type) {
       case 'fightStart':
         this.count('FIGHT!', true);
+        this.game.sfx?.countdown(0);
         break;
       case 'finisher':
         this.finisher(data as FinisherInfo);
@@ -699,12 +727,13 @@ export class Hud {
     this.lastCalloutAt = this.match?.time ?? 0;
   }
 
+  /** A countdown number or FIGHT!: slams in over a ring that bursts outward. */
   private count(text: string, go = false) {
     const c = this.countEl;
     c.className = 'count';
+    c.innerHTML = `<i></i><b>${text}</b>`;
     void c.offsetWidth;
     c.className = `count go${go ? ' fight' : ''}`;
-    c.textContent = text;
   }
 
   /** Knockdown pips beside the fighter's name: three of them is a TKO. */

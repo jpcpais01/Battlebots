@@ -315,14 +315,14 @@ class Scoreboard {
     }
     const t = Math.ceil(s.clock);
     const label =
-      s.phase === 'fight' || s.phase === 'countdown' ? `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}` : s.phase === 'intro' ? 'VS' : 'FINAL';
+      s.phase === 'fight' || s.phase === 'greet' || s.phase === 'countdown' ? `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}` : s.phase === 'intro' ? 'VS' : 'FINAL';
     g.textAlign = 'center';
     g.font = 'bold 74px "Russo One", Impact, sans-serif';
     g.fillStyle = s.phase === 'fight' && t <= 10 ? '#ff5a3a' : '#ffffff';
     g.fillText(label, 256, 214);
     g.font = 'bold 18px "Russo One", Impact, sans-serif';
     g.fillStyle = '#8f9bb3';
-    g.fillText(s.phase === 'fight' ? 'ROUND 1' : s.phase === 'countdown' ? 'GET READY' : s.phase === 'intro' ? 'MAIN EVENT' : 'RESULT', 256, 160);
+    g.fillText(s.phase === 'fight' || s.phase === 'greet' ? 'ROUND 1' : s.phase === 'countdown' ? 'GET READY' : s.phase === 'intro' ? 'MAIN EVENT' : 'RESULT', 256, 160);
     this.finish();
   }
 }

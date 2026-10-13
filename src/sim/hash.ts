@@ -1,7 +1,7 @@
 import type { Match } from './match';
 
 const buf = new DataView(new ArrayBuffer(8));
-const PHASES = ['intro', 'countdown', 'fight', 'ko', 'end'];
+const PHASES = ['intro', 'countdown', 'greet', 'fight', 'ko', 'end'];
 
 /**
  * 32-bit fingerprint of everything that decides how a fight goes: clock, random streams,
