@@ -29,7 +29,7 @@ export class Sfx {
   readonly booth = new Booth({
     ready: (f) => !!this.voice?.ready(f),
     want: (f) => this.voice?.want(f),
-    speak: (clips, energy, within) => this.voice?.speak(clips, energy, within) ?? { done: true, stop() {} },
+    speak: (clips, energy, within, voice) => this.voice?.speak(clips, energy, within, voice) ?? { done: true, stop() {}, fade() {}, left: () => 0 },
   });
 
   constructor() {

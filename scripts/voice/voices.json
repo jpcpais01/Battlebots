@@ -1,5 +1,6 @@
 {
   "model": "eleven_v3",
-  "pbp": { "name": "Battlebots Caller", "id": "PoTCcGQ5eHRgpFEV2UPx" },
-  "colour": { "name": "Battlebots Analyst", "id": "viuiZC00khQGLJneD7Vn" }
+  "pbp": { "name": "Battlebots Caller II", "id": "Zslxs1OEAobxl6H8LPJU" },
+  "colour": { "name": "Battlebots Analyst II", "id": "K80i1bBHSXMTRtIddT9I" },
+  "robot": { "name": "Battlebots Robot", "id": "Bwv7mCkMQ6b2aHjKISsO" }
 }

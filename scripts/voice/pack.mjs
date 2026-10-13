@@ -86,8 +86,9 @@ const lines = [];
 for (const l of readBank()) {
   const f = (takesOf.get(l.id) ?? []).sort((a, b) => a[0] - b[0]).map((t) => t[1]);
   if (!f.length) continue;
-  const { text, ...rest } = l; // eslint-disable-line no-unused-vars
-  lines.push({ ...rest, f });
+  const { text, d, ...rest } = l; // eslint-disable-line no-unused-vars
+  // a conversation keeps how many turns it has, not its script
+  lines.push(d ? { ...rest, n: d.length, f } : { ...rest, f });
 }
 writeFileSync(join(OUT, 'manifest.json'), JSON.stringify({ v: 1, lines, names }));
 

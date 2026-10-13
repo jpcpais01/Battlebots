@@ -4,21 +4,30 @@ import type { BrainEvent } from '../sim/brain';
 import { P } from '../sim/damage';
 
 /**
- * The commentary booth: a play-by-play caller and a colour analyst, voiced from
- * pre-recorded clips (public/voice, made by scripts/voice). This file is the
- * director only: it listens to the fight, decides who says what and when, and
- * hands clips to the audio side. It reads the match and never writes to it.
+ * The commentary booth: a play-by-play caller, a colour analyst and a robot
+ * co-commentator, voiced from pre-recorded clips (public/voice, made by
+ * scripts/voice). This file is the director only: it listens to the fight,
+ * decides who says what and when, and hands clips to the audio side. It reads
+ * the match and never writes to it.
+ *
+ * It tries to sound like a live booth rather than a soundboard: replies come in
+ * a beat before the last line finishes, a big moment talks over whoever was
+ * chatting (they trail off under it instead of being cut dead), and quiet
+ * spells fill up with conversation about the fight, the circuit and the gear.
  */
 
 /** A clip: file name in public/voice/c and its length in seconds. */
 export type Clip = [file: string, dur: number];
 
+/** p = play-by-play, c = colour, r = the robot. */
+export type BoothVoice = 'p' | 'c' | 'r';
+
 export interface VoiceLine {
   id: string;
   /** Trigger (section of the phrase bank). */
   t: string;
-  /** p = play-by-play, c = colour. */
-  v: 'p' | 'c';
+  /** Who speaks (who opens, for a conversation). */
+  v: BoothVoice;
   /** Energy 1 (calm) .. 4 (screaming). */
   e: number;
   /** Only plays straight after this line (a two-line exchange). */
@@ -27,6 +36,8 @@ export interface VoiceLine {
   g?: string[];
   /** Takes. */
   f: Clip[];
+  /** Turns, when the clip is a whole recorded conversation. */
+  n?: number;
 }
 
 /** How a bot's name was read: calm, hyped and screamed by the caller, and calmly by the analyst. */
@@ -42,7 +53,12 @@ export interface VoiceManifest {
 export interface Speech {
   /** Finished, stopped, or dropped because it couldn't start in time. */
   readonly done: boolean;
+  /** Cut it short. */
   stop(): void;
+  /** Trail off over this many seconds, as when someone talks over it. */
+  fade(secs: number): void;
+  /** Seconds of audio still to play (Infinity before it starts). */
+  left(): number;
 }
 
 /** What the booth needs from the audio side. */
@@ -52,7 +68,7 @@ export interface BoothOut {
   /** Download these in the background. */
   want(files: string[]): void;
   /** Plays clips back to back; drops them if they can't start within `within` seconds. */
-  speak(clips: { clip: Clip; gap: number }[], energy: number, within: number): Speech;
+  speak(clips: { clip: Clip; gap: number }[], energy: number, within: number, voice: BoothVoice): Speech;
 }
 
 interface Say {
@@ -61,7 +77,8 @@ interface Say {
   prio: number;
   /** The bot the line is about (names, ahead/behind). */
   about?: Fighter | null;
-  voice?: 'p' | 'c';
+  /** Who should say it. 'c' lets the robot answer instead now and then. */
+  voice?: BoothVoice;
   /** Chance of putting the bot's name in front (lines that need a name always get it). */
   name?: number;
   /** A colour line from the same chain afterwards, with this chance. */
@@ -72,6 +89,8 @@ interface Say {
   side?: 'L' | 'R';
   /** A line already picked (bound replies). */
   line?: VoiceLine;
+  /** An answer: comes straight in, without waiting for a breath. */
+  quick?: boolean;
 }
 
 interface Queued {
@@ -89,12 +108,16 @@ interface Talking {
   speech: Speech;
   until: number;
   stopped: boolean;
+  /** The next speaker has been let in while this one finishes. */
+  handed: boolean;
+  /** How early the next speaker may come in, in seconds. */
+  overlap: number;
 }
 
 const HISTORY_KEY = 'bb.booth.heard';
 const HISTORY_MAX = 900;
-/** Lines per trigger (play-by-play, colour) kept downloaded and ready. The rest get one of each. */
-const DECK: Record<string, [number, number]> = {
+/** Lines per trigger (play-by-play, colour, robot) kept downloaded and ready. The rest get one of each. */
+const DECK: Record<string, [number, number, number?]> = {
   'hit.solid': [6, 0],
   'hit.big': [6, 3],
   'hit.jab': [3, 1],
@@ -118,8 +141,13 @@ const DECK: Record<string, [number, number]> = {
   'kick.round': [3, 1],
   'kick.low': [3, 2],
   'kick.push': [2, 1],
-  'lull.chatter': [1, 4],
-  'lull.pair': [2, 0],
+  'lull.chatter': [2, 4, 2],
+  'lull.pair': [2, 2, 1],
+  'lull.convo': [3, 2, 1],
+  'lull.tournament': [1, 2, 1],
+  'lull.gear': [1, 2, 1],
+  'lull.fighters': [1, 2, 1],
+  'lull.robot': [1, 1, 2],
   'lull.boo': [1, 2],
   'ko.call': [3, 0],
   'ko.colour': [0, 3],
@@ -222,18 +250,27 @@ export class Booth {
   private restock() {
     const files: string[] = [];
     for (const [t, lines] of this.byTrig) {
-      const [np, nc] = DECK[t] ?? [1, 1];
-      for (const [v, n] of [['p', np], ['c', nc]] as const) {
+      const [np, nc, nr = 1] = DECK[t] ?? [1, 1, 1];
+      for (const [v, n] of [['p', np], ['c', nc], ['r', nr]] as const) {
         if (n <= 0) continue;
         const pool = lines.filter((l) => l.v === v && !this.used.has(l.id));
         pool.sort((a, b) => this.fresh(b) * (0.7 + rnd() * 0.6) - this.fresh(a) * (0.7 + rnd() * 0.6));
         for (const l of pool.slice(0, n)) {
           files.push(l.f[(rnd() * l.f.length) | 0][0]);
-          for (const r of this.replies.get(l.id) ?? []) files.push(r.f[0][0]);
+          this.thread(l.id, files, 4);
         }
       }
     }
     this.out.want(files);
+  }
+
+  /** The replies chained under a line, so a whole exchange is ready to play. */
+  private thread(id: string, files: string[], depth: number) {
+    if (depth <= 0) return;
+    for (const r of this.replies.get(id) ?? []) {
+      files.push(r.f[0][0]);
+      this.thread(r.id, files, depth - 1);
+    }
   }
 
   /** How much a line wants to be said: lines not heard for a long time win. */
@@ -561,9 +598,13 @@ export class Booth {
     this.excite = excite;
     const m = this.m;
     if (this.koPending && m) this.finish(this.lastHit);
-    if (this.cur) {
+    const c = this.cur;
+    if (c) {
       if (m?.phase === 'fight') this.talk += dt;
-      if (this.cur.speech.done || this.t > this.cur.until) this.finished();
+      if (c.speech.done || this.t > c.until) this.finished();
+      // nearly done: let the next voice in now, the way people answer before the
+      // last word has quite landed; this line plays out underneath
+      else if (!c.handed && c.speech.left() <= c.overlap) this.handOff(c);
     }
     if (!m || !this.man || !this.enabled) return;
     if (live && m.phase === 'fight') {
@@ -578,16 +619,38 @@ export class Booth {
     const c = this.cur!;
     this.cur = null;
     this.lastEnd = this.t;
-    if (c.stopped) return;
+    if (!c.stopped && !c.handed) this.answer(c, 0.12);
+  }
+
+  /** The next voice comes in over the end of this line, which keeps playing on its own. */
+  private handOff(c: Talking) {
+    c.handed = true;
+    this.cur = null;
+    const left = c.speech.left();
+    this.lastEnd = this.t + left;
+    this.answer(c, 0, left);
+  }
+
+  /** Whoever answers a line that has just finished (or is finishing). */
+  private answer(c: Talking, after: number, left = 0) {
+    // a line from the same voice waits for the last one to end; another voice can overlap it
+    const when = (v: BoothVoice | undefined) => (v === c.line.v ? left + 0.15 : after);
     const bound = this.replies.get(c.line.id);
     if (bound?.length) {
       const line = bound[(rnd() * bound.length) | 0];
-      this.push({ chain: [], line, prio: c.say.prio - 1 }, 0.25, 2.5);
+      this.push({ chain: [], line, prio: c.say.prio - 1, quick: true }, when(line.v), 2.5);
     } else if (c.say.reply && chance(c.say.reply.chance)) {
-      this.push({ chain: c.say.reply.chain, prio: c.say.prio - 1, voice: 'c' }, 0.25, 2.5);
+      this.push({ chain: c.say.reply.chain, prio: c.say.prio - 1, voice: 'c', quick: true }, when('c'), 2.5);
     } else if (c.say.follow && c.line.v === 'p' && chance(c.say.follow)) {
-      this.push({ chain: c.say.chain, prio: c.say.prio - 8, voice: 'c', about: c.say.about, side: c.say.side }, 0.2, 2);
+      // colour usually; the robot chips in with a reading now and then
+      const v: BoothVoice = chance(0.3) && this.has(c.say.chain, 'r') ? 'r' : 'c';
+      this.push({ chain: c.say.chain, prio: c.say.prio - 8, voice: v, about: c.say.about, side: c.say.side, quick: true }, when(v) + 0.1, 2);
     }
+  }
+
+  /** Any line from this voice in these triggers. */
+  private has(chain: string[], v: BoothVoice) {
+    return chain.some((t) => this.byTrig.get(t)?.some((l) => l.v === v));
   }
 
   /** Clock calls, the scoreboard, and filling quiet moments. */
@@ -617,10 +680,11 @@ export class Booth {
         return;
       }
     }
-    // a quiet spell: talk about the fight, the night, the sport
-    if (this.sinceLanded > 3 && this.t - this.lastEnd > 4.5 && this.t >= this.nextChat && this.talk < this.fightT * 0.5) {
-      this.nextChat = this.t + 8;
-      this.say({ chain: chance(0.35) ? ['lull.pair', 'lull.chatter'] : ['lull.chatter'], prio: 10 }, 1);
+    // a quiet spell: talk about the fight, the circuit, the gear, anything; a live
+    // booth is rarely silent for long, and a big moment just talks over it
+    if (this.sinceLanded > 1.5 && this.t - this.lastEnd > 1.6 + rnd() * 1.4 && this.t >= this.nextChat && this.talk < this.fightT * 0.8) {
+      this.nextChat = this.t + 2.5 + rnd() * 2.5;
+      this.say({ chain: [chat(), 'lull.chatter'], prio: 10 }, 1);
     }
   }
 
@@ -678,11 +742,11 @@ export class Booth {
   /** Says it now if it's important enough, otherwise waits up to `wait` seconds for a gap. */
   private say(s: Say, wait: number) {
     const c = this.cur;
-    if (!c && this.t - this.lastEnd >= breath(s.prio) && !this.queue.some((q) => q.say.prio > s.prio && q.from <= this.t)) {
+    if (!c && this.t - this.lastEnd >= breath(s) && !this.queue.some((q) => q.say.prio > s.prio && q.from <= this.t)) {
       if (this.start(s)) return;
     }
-    if (c && s.prio >= 40 && s.prio >= c.say.prio + 15) {
-      this.cut();
+    if (c && overrides(s, c)) {
+      this.cut(s.voice);
       if (this.start(s)) return;
     }
     this.push(s, 0, wait);
@@ -706,18 +770,24 @@ export class Booth {
     if (!best) return;
     const c = this.cur;
     if (c) {
-      if (best.say.prio >= 40 && best.say.prio >= c.say.prio + 15) this.cut();
+      if (overrides(best.say, c)) this.cut(best.say.voice ?? best.say.line?.v);
       else return;
-    } else if (this.t - this.lastEnd < breath(best.say.prio)) return;
+    } else if (this.t - this.lastEnd < breath(best.say)) return;
     this.queue.splice(this.queue.indexOf(best), 1);
     // a line with nothing ready to say is dropped, and the next one gets its turn
     if (!this.start(best.say)) this.drain();
   }
 
-  private cut() {
+  /**
+   * Stops the current line for something bigger. Talked over by someone else, it
+   * trails off underneath (longer for a conversation); a voice cutting itself off
+   * just stops.
+   */
+  private cut(next?: BoothVoice) {
     const c = this.cur!;
     c.stopped = true;
-    c.speech.stop();
+    if (next && next === c.line.v && !c.line.n) c.speech.stop();
+    else c.speech.fade(c.line.n ? 1.4 : 0.8);
     this.cur = null;
     this.lastEnd = this.t;
   }
@@ -730,8 +800,8 @@ export class Booth {
     const clip = takes[(rnd() * takes.length) | 0];
     const clips: { clip: Clip; gap: number }[] = [];
     const about = s.about ?? null;
-    const needName = s.chain[0]?.startsWith('intro.style') || s.chain[0] === 'name.win' || !!line.g?.some((g) => g === 'ahead' || g === 'behind');
-    if (about && (needName || chance(s.name ?? 0))) {
+    const needName = needsName(s, line);
+    if (about && line.v !== 'r' && (needName || chance(s.name ?? 0))) {
       const n = this.names(about);
       const cut: NameCut = line.v === 'c' ? 'ccall' : s.chain[0] === 'name.win' || line.e >= 4 ? 'scream' : line.e === 3 ? 'hype' : 'call';
       const nc = n?.[cut];
@@ -744,8 +814,10 @@ export class Booth {
     if (!clips.length) clips.push({ clip, gap: 0 });
     const dur = clips.reduce((t, c) => t + c.clip[1] + c.gap, 0);
     const within = s.prio >= 40 ? 0.25 : 0.6;
-    const speech = this.out.speak(clips, line.e, within);
-    this.cur = { say: s, line, speech, until: this.t + within + dur + 0.25, stopped: false };
+    const speech = this.out.speak(clips, line.e, within, line.v);
+    // big calls jump in hard on the end of the last line; chat leaves a natural beat
+    const overlap = line.n ? 0.2 : line.e >= 3 ? 0.3 + rnd() * 0.25 : 0.1 + rnd() * 0.3;
+    this.cur = { say: s, line, speech, until: this.t + within + dur + 0.25, stopped: false, handed: false, overlap };
     this.used.add(line.id);
     this.heard.set(line.id, ++this.seq);
     if (++this.dirty >= 12) this.save();
@@ -761,11 +833,14 @@ export class Booth {
       let sum = 0;
       const ok: [VoiceLine, number][] = [];
       for (const l of pool) {
-        if (this.used.has(l.id) || (s.voice && l.v !== s.voice)) continue;
+        if (this.used.has(l.id)) continue;
+        // asked for the analyst, the robot may take it instead
+        if (s.voice && l.v !== s.voice && !(s.voice === 'c' && l.v === 'r')) continue;
+        if (l.v === 'r' && needsName(s, l)) continue;
         if (l.g && m && !this.fits(l.g, s)) continue;
         if (!l.f.some((f) => this.out.ready(f[0]))) continue;
         const fit = 1 / (1 + Math.abs(l.e - (1 + this.excite * 3)) * 0.35);
-        const w = this.fresh(l) * fit;
+        const w = this.fresh(l) * fit * (s.voice === 'c' && l.v === 'r' ? 0.45 : 1);
         ok.push([l, w]);
         sum += w;
       }
@@ -846,8 +921,36 @@ export class Booth {
   }
 }
 
-/** Seconds of silence a line needs after the last one: big moments don't wait. */
-const breath = (prio: number) => (prio >= 60 ? 0.05 : prio >= 40 ? 0.25 : 0.9);
+/** Seconds of silence a line needs after the last one: big moments and answers don't wait. */
+const breath = (s: Say) => (s.quick || s.prio >= 60 ? 0.05 : s.prio >= 40 ? 0.25 : 0.7);
+
+/**
+ * Whether a new line talks over the current one. Someone else jumping in on a
+ * big moment needs less of a reason than a voice interrupting itself, and
+ * nobody talks over the finish.
+ */
+function overrides(s: Say, c: Talking) {
+  if (s.prio < 40) return false;
+  const v = s.voice ?? s.line?.v;
+  return s.prio >= c.say.prio + (v && v !== c.line.v ? 10 : 15);
+}
+
+/** Lines that only make sense after a bot's name clip. */
+function needsName(s: Say, l: VoiceLine) {
+  return !!s.chain[0]?.startsWith('intro.style') || s.chain[0] === 'name.win' || !!l.g?.some((g) => g === 'ahead' || g === 'behind');
+}
+
+/** What the booth talks about in a quiet spell. */
+function chat() {
+  const r = rnd();
+  return r < 0.26 ? 'lull.convo'
+    : r < 0.42 ? 'lull.chatter'
+    : r < 0.54 ? 'lull.pair'
+    : r < 0.66 ? 'lull.tournament'
+    : r < 0.78 ? 'lull.gear'
+    : r < 0.9 ? 'lull.fighters'
+    : 'lull.robot';
+}
 
 const SPECIAL: Record<string, string> = {
   flurry: 'special.flurry',

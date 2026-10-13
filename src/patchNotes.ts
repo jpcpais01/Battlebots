@@ -16,6 +16,16 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-13 04:00',
+    title: 'A three-voice commentary booth',
+    notes: [
+      'Meet Unit Seven, a robot co-commentator who joins Danny on the call and Reg on analysis, with fight numbers, damage readouts and a worrying love of robot violence.',
+      'All three commentators have new, stronger voices, and every line was rewritten to sound like a real live broadcast.',
+      'The booth talks like a real one now: they answer each other before the last word lands, trail off when a big moment talks over them, and fill quiet spells with real conversations about the fight, the circuit, the gear and each other.',
+      'The caller now shouts many bots\' names when they land big shots and win.',
+    ],
+  },
+  {
     hour: '2026-10-13 03:00',
     title: 'Finishers',
     notes: [

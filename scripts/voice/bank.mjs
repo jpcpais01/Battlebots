@@ -11,10 +11,13 @@ export const RAW = join(ROOT, 'voice-raw');
 export const OUT = join(ROOT, 'public', 'voice');
 
 /**
- * Lines look like `- P3 {right} Big right hand!`: voice (P play-by-play, C colour),
- * energy 1-4, optional {tags}, text. A leading `+` marks a reply: straight after a
- * normal line it answers that line only; a section of nothing but replies is a
- * pool of general answers (intro.reply, wrap.reply).
+ * Lines look like `- P3 {right} Big right hand!`: voice (P play-by-play, C colour,
+ * R the robot), energy 1-4, optional {tags}, text.
+ * - A leading `+` marks a reply: it plays straight after the line above it, and
+ *   replies chain (`-`, `+`, `+` is a three-turn exchange). A section that opens
+ *   with a reply is a pool of general answers instead (intro.reply, wrap.reply).
+ * - A leading `~` continues a conversation: it is voiced in one recording with
+ *   the lines above it (ElevenLabs text-to-dialogue), overlaps and all.
  */
 export function readBank() {
   const md = readFileSync(join(HERE, 'phrase-bank.md'), 'utf8');
@@ -22,24 +25,36 @@ export function readBank() {
   let trig = null;
   let n = 0;
   let lead = null;
+  let pool = false;
+  let first = true;
   for (const raw of md.split('\n')) {
     const sec = raw.match(/^## `([^`]+)`/);
     if (sec) {
       trig = sec[1];
       n = 0;
       lead = null;
+      first = true;
       continue;
     }
-    const m = raw.trimEnd().match(/^- (\+?)([PC])([1-4]) (.*)$/);
+    const m = raw.trimEnd().match(/^- ([+~]?)([PCR])([1-4]) (.*)$/);
     if (!m || !trig) continue;
-    const [, reply, voice, energy, body] = m;
+    const [, mark, voice, energy, body] = m;
     const tags = [...body.matchAll(/\{([^}]+)\}/g)].map((t) => t[1]);
     const text = body.replace(/\{[^}]+\}\s*/g, '').trim();
+    const v = { P: 'p', C: 'c', R: 'r' }[voice];
+    if (first) pool = mark === '+';
+    first = false;
+    const prev = lines[lines.length - 1];
+    if (mark === '~' && prev?.t === trig) {
+      (prev.d ??= [{ v: prev.v, e: prev.e, text: prev.text }]).push({ v, e: +energy, text });
+      prev.e = Math.max(prev.e, +energy);
+      continue;
+    }
     const id = `${trig}.${String(++n).padStart(2, '0')}`;
-    const line = { id, t: trig, v: voice === 'P' ? 'p' : 'c', e: +energy, text };
+    const line = { id, t: trig, v, e: +energy, text };
     if (tags.length) line.g = tags;
-    if (reply && lead) line.r = lead;
-    lead = reply ? null : id;
+    if (mark === '+' && lead) line.r = lead;
+    lead = pool ? null : id;
     lines.push(line);
   }
   return lines;
@@ -70,23 +85,35 @@ function speakable(text, energy, model) {
   return lead + text;
 }
 
+const VOICE = { p: 'pbp', c: 'colour', r: 'robot' };
+
 /**
- * Everything to voice: two takes of each line (TAKES), and each bot name read
- * calm, hyped and screamed by the caller and calm by the analyst.
+ * Everything to voice: two takes of each line (TAKES; conversations get one),
+ * and each bot name read calm, hyped and screamed by the caller and calm by
+ * the analyst. The robot never says names.
  */
 export function items(voices, takes = 2) {
   const out = [];
   const model = voices.model;
-  const add = (o) => {
-    const v = voices[o.voice];
-    const stability = o.energy >= 3 ? 0 : 0.5; // v3: 0 Creative, 0.5 Natural
-    const seed = parseInt(createHash('sha1').update(`${o.text}|${o.take}`).digest('hex').slice(0, 7), 16);
-    const req = { voice_id: v.id, model_id: model, text: speakable(o.text, o.energy, model), voice_settings: { stability }, seed };
+  const seedOf = (s) => parseInt(createHash('sha1').update(s).digest('hex').slice(0, 7), 16);
+  const push = (o, req, chars) => {
     const key = createHash('sha1').update(JSON.stringify(req)).digest('hex').slice(0, 20);
-    out.push({ ...o, req, key });
+    out.push({ ...o, req, key, chars });
+  };
+  const add = (o) => {
+    const stability = o.energy >= 3 ? 0 : 0.5; // v3: 0 Creative, 0.5 Natural
+    const text = speakable(o.text, o.energy, model);
+    push(o, { voice_id: voices[o.voice].id, model_id: model, text, voice_settings: { stability }, seed: seedOf(`${o.text}|${o.take}`) }, text.length);
   };
   for (const l of readBank()) {
-    for (let take = 0; take < takes; take++) add({ kind: 'line', id: l.id, line: l, take, voice: l.v === 'p' ? 'pbp' : 'colour', energy: l.e, text: l.text });
+    if (l.d) {
+      // a conversation: one recording, every speaker in it
+      const inputs = l.d.map((p) => ({ text: speakable(p.text, p.e, model), voice_id: voices[VOICE[p.v]].id }));
+      const req = { inputs, model_id: model, settings: { stability: 0.5 }, seed: seedOf(l.d.map((p) => p.text).join('|')) };
+      push({ kind: 'line', id: l.id, line: l, take: 0, voice: VOICE[l.v], energy: l.e, text: l.text }, req, inputs.reduce((n, i) => n + i.text.length, 0));
+      continue;
+    }
+    for (let take = 0; take < takes; take++) add({ kind: 'line', id: l.id, line: l, take, voice: VOICE[l.v], energy: l.e, text: l.text });
   }
   for (const name of botNames()) {
     const key = name.toLowerCase();
