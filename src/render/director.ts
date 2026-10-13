@@ -19,6 +19,8 @@ export const ZOOM: Record<CamZoom, { dist: number; fov: number }> = {
   wide: { dist: 1.38, fov: 1.12 },
 };
 
+/** How long the camera holds its shot after a part is torn off before it may cut. */
+const HOLD_TEAR = 0.7;
 /**
  * Radius the camera roams within. The ropes and posts fade out when they come between the lens
  * and the robots (clearView.ts), so the ring edge is no obstacle; only the stands are (front row
@@ -163,6 +165,8 @@ export class Director {
   private rawCenter = new THREE.Vector3();
   private kick = new THREE.Vector3();
   private cutIn = -1;
+  /** Seconds left holding the current shot still after a tear-off: no cut until it runs out. */
+  private hold = 0;
   private nextShot: ShotKind | null = null;
   private heat = 0;
   /** Number of hard cuts so far (for the headless camera check). */
@@ -239,6 +243,7 @@ export class Director {
     this.fresh = true;
     this.heat = 0;
     this.cutIn = -1;
+    this.hold = 0;
     this.nextShot = null;
     this.wasDown = [false, false];
     this.beat = '';
@@ -246,7 +251,10 @@ export class Director {
 
   /** Match events the camera reacts to. */
   cue(type: string, data: unknown) {
-    if (this.mode !== 'match' || type !== 'hit') return;
+    if (this.mode !== 'match') return;
+    // a part tearing off is the shot: stay on it while the piece flies, then cut
+    if (type === 'detach') this.hold = HOLD_TEAR;
+    if (type !== 'hit') return;
     const h = data as HitInfo;
     if (h.shielded) return;
     if (h.finisher) {
@@ -360,6 +368,8 @@ export class Director {
       this.koAng = wrap(this.koAng + clamp(d * (1 - Math.exp(-1.5 * dt)), -0.8 * dt, 0.8 * dt));
     }
     this.heat = Math.max(0, this.heat - dt * 0.35);
+    this.hold = Math.max(0, this.hold - dt);
+    const held = this.hold > 0;
     this.kick.multiplyScalar(Math.exp(-5 * dt));
 
     if (this.koSnap) {
@@ -385,7 +395,7 @@ export class Director {
     else if (ph === 'greet') {
       if (sh.kind !== 'greet') this.shot = makeShot('greet', Math.random);
     } else if (ph === 'ko') {
-      if (sh.kind !== 'ko' && this.koFocus !== null) this.cut(match, 'ko');
+      if (sh.kind !== 'ko' && this.koFocus !== null && !held) this.cut(match, 'ko');
     } else if (ph === 'end' && match.winner) {
       if (sh.kind !== 'win') {
         this.shot = makeShot('win', Math.random);
@@ -393,7 +403,7 @@ export class Director {
       }
     } else if (match.fin) {
       // a finisher: one low, slow-turning hero shot from in front of the finisher, no cuts
-      if (sh.kind !== 'fin') {
+      if (sh.kind !== 'fin' && !held) {
         this.finBy = match.fin.att.index;
         this.cut(match, 'fin');
       }
@@ -426,6 +436,11 @@ export class Director {
       }
       if (!down && this.wasDown[f.index] && sh.kind === 'down') sh.dur = Math.min(sh.dur, sh.t + 0.6);
       this.wasDown[f.index] = down;
+    }
+    // holding on a tear-off: any cut due waits, and lands the moment the hold ends
+    if (this.hold > 0) {
+      if (this.cutIn >= 0) this.cutIn = Math.max(0, this.cutIn - dt);
+      return;
     }
     if (this.cutIn >= 0) {
       this.cutIn -= dt;

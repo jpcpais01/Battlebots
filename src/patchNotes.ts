@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-13 20:00',
+    title: 'Steadier tear-offs',
+    notes: [
+      'When a part gets torn off, the camera now holds steady on it for a moment before switching angles, so you see the piece fly off without a jarring cut.',
+    ],
+  },
+  {
     hour: '2026-10-13 15:00',
     title: 'Player accounts',
     notes: [
