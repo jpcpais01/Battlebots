@@ -161,6 +161,8 @@ export class Hud {
   private dmgCount = 0;
   private xrays: XrayEls[] = [];
   onPause: () => void = () => {};
+  /** Watching a replay. */
+  private replay = false;
 
   constructor(private game: Game, parent: HTMLElement) {
     this.root = el('div', 'screen hud', '', parent);
@@ -186,10 +188,11 @@ export class Hud {
   }
 
   // ----------------------------------------------------------------- setup
-  attach(match: Match, online: { me: number } | null = null) {
+  attach(match: Match, online: { me: number } | null = null, replay = false) {
     this.detach();
     this.match = match;
     this.online = online;
+    this.replay = replay;
     this.lastCount = -1;
     this.ref = null;
     this.refEl.className = 'refcount';
@@ -296,6 +299,7 @@ export class Hud {
     button('icon-btn', this.online ? ICON.menu : ICON.pause, () => this.onPause(), bl);
     this.netEl = el('div', 'net-pill', '', bl);
     this.netEl.hidden = !this.online;
+    if (this.replay) el('div', 'replay-pill', 'Replay', bl);
     const br = el('div', 'hud-br', '', this.root);
     this.zoomBtn = button('icon-btn zoom', '', () => this.cycleZoom(), br);
     this.syncZoom();
@@ -359,7 +363,16 @@ export class Hud {
     this.presents = [...this.vs.querySelectorAll<HTMLElement>('.present')];
     this.shownPresent = -1;
     // tapping skips the intro, except online, where both phones have to show the same moment
-    if (!on) this.vs.addEventListener('click', () => this.match?.skipIntro());
+    if (!on) this.vs.addEventListener('click', () => this.skipIntro());
+  }
+
+  private skipIntro() {
+    const m = this.match;
+    if (!m || m.phase !== 'intro') return;
+    // A replay must cut the intro at the same step the fight did (a different cut is a
+    // different fight), so it runs ahead to there instead.
+    if (this.replay) this.game.fastForward(Infinity, (mm) => mm.phase !== 'intro');
+    else m.skipIntro();
   }
 
   // ----------------------------------------------------------------- per frame

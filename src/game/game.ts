@@ -421,13 +421,14 @@ export class Game {
 
   /**
    * Run the match ahead n steps at once, without sound or effects (an online fight
-   * catching up with the other player after a stall or a trip to the background).
+   * catching up with the other player after a stall or a trip to the background, or a
+   * replay skipping ahead). Stops early once `until` holds (by default, the end).
    */
-  fastForward(n: number) {
+  fastForward(n: number, until: (m: Match) => boolean = (m) => m.phase === 'end') {
     const m = this.match;
     if (!m) return;
     this.quiet = true;
-    for (let i = 0; i < n && m.phase !== 'end'; i++) {
+    for (let i = 0; i < n && !until(m); i++) {
       m.step(SIM_DT);
       this.onStep?.(m);
     }
