@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "sim": "tsx scripts/simulate.ts",
     "feel": "tsx scripts/feel.ts",
-    "cam": "tsx scripts/camera.ts"
+    "cam": "tsx scripts/camera.ts",
+    "voice:gen": "node scripts/voice/generate.mjs",
+    "voice:pack": "node scripts/voice/pack.mjs"
   },
   "dependencies": {
     "@fontsource/rajdhani": "^5.3.0",

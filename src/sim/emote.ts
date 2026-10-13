@@ -1058,7 +1058,7 @@ export class Showman {
     const spec = pickWeighted(rng, w);
     this.lastTaunt = spec;
     this.play(spec, 'taunt', rng.next(), false, Math.min(spec.len, room));
-    if (spec.line) m.emit('brain', { kind: 'taunt', text: spec.line(this.me.name, this.opp.name) });
+    if (spec.line) m.emit('brain', { kind: 'taunt', text: spec.line(this.me.name, this.opp.name), f: this.me });
   }
 
   private play(spec: Spec, kind: 'taunt' | 'celebrate', v: number, flip = false, len = spec.len) {

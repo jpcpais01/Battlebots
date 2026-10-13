@@ -205,6 +205,8 @@ type Stereo = [Float32Array, Float32Array];
 export class Crowd {
   readonly mood = new CrowdMood();
   private bus: GainNode;
+  /** Dips the crowd under the commentary. */
+  private ducker: GainNode;
   private tone: BiquadFilterNode;
   private gains: Record<'murmur' | 'roar' | 'applause', GainNode>;
   private shots: Partial<Record<Reaction, AudioBuffer[]>> = {};
@@ -216,7 +218,8 @@ export class Crowd {
   constructor(private ctx: AudioContext, out: AudioNode) {
     this.bus = ctx.createGain();
     this.bus.gain.value = 0;
-    this.bus.connect(out);
+    this.ducker = ctx.createGain();
+    this.bus.connect(this.ducker).connect(out);
     this.tone = ctx.createBiquadFilter();
     this.tone.type = 'lowpass';
     this.tone.frequency.value = 1500;
@@ -284,6 +287,11 @@ export class Crowd {
   ambience(level: number) {
     this.level = level;
     this.bus.gain.setTargetAtTime(level, this.ctx.currentTime, 0.6);
+  }
+
+  /** Crowd level under the commentary (1 = no dip). Dips quickly, comes back slowly. */
+  duck(gain: number) {
+    this.ducker.gain.setTargetAtTime(gain, this.ctx.currentTime, gain < this.ducker.gain.value ? 0.06 : 0.35);
   }
 
   event(type: string, data?: unknown) {

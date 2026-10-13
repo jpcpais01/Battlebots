@@ -1,5 +1,7 @@
 import { BANK, renderImpact, type ImpactKind } from './impacts';
 import { Crowd, type CrowdState } from './crowd';
+import { Booth } from './booth';
+import { Voice } from './voice';
 
 const MASTER = 0.7;
 
@@ -7,7 +9,8 @@ const MASTER = 0.7;
  * Tiny synthesized sound kit (WebAudio, no assets): metallic impacts, whooshes,
  * a live crowd that reacts to the fight (crowd.ts), bell, and UI blips. Impacts come from a bank of
  * procedurally rendered metal hits (see impacts.ts), played back with random
- * variation, pitch and pan so no two punches sound the same.
+ * variation, pitch and pan so no two punches sound the same. The commentary
+ * booth (booth.ts) talks over all of it with recorded voices (voice.ts).
  */
 export class Sfx {
   private ctx: AudioContext | null = null;
@@ -19,10 +22,33 @@ export class Sfx {
   private lastStep = [0, 0];
   private bank: Partial<Record<ImpactKind, AudioBuffer[]>> = {};
   private lastPick: Partial<Record<ImpactKind, AudioBuffer>> = {};
+  private voice: Voice | null = null;
+  /** Commentary volume: 1 on, 0.5 quiet, 0 off. */
+  commentary = 1;
+  /** The commentators. Silent until audio starts and the voice list has loaded. */
+  readonly booth = new Booth({
+    ready: (f) => !!this.voice?.ready(f),
+    want: (f) => this.voice?.want(f),
+    speak: (clips, energy, within) => this.voice?.speak(clips, energy, within) ?? { done: true, stop() {} },
+  });
 
   constructor() {
     try {
       this.muted = localStorage.getItem('bb.muted') === '1';
+      const c = localStorage.getItem('bb.commentary');
+      if (c !== null) this.commentary = Math.min(1, Math.max(0, +c || 0));
+    } catch {
+      /* ignore */
+    }
+    this.booth.enabled = this.commentary > 0;
+  }
+
+  setCommentary(v: number) {
+    this.commentary = v;
+    this.booth.enabled = v > 0;
+    this.voice?.setLevel(v);
+    try {
+      localStorage.setItem('bb.commentary', String(v));
     } catch {
       /* ignore */
     }
@@ -66,6 +92,10 @@ export class Sfx {
     this.buildBank();
     this.crowd = new Crowd(ctx, this.master);
     this.crowd.ambience(this.crowdLevel);
+    const crowd = this.crowd;
+    const voice = new Voice(ctx, this.master, this.commentary, (g) => crowd.duck(g));
+    this.voice = voice;
+    void voice.manifest().then((m) => m && this.booth.setManifest(m));
   }
 
   /**

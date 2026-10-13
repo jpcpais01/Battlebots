@@ -85,6 +85,8 @@ type OppEntryReact = 'meet' | 'back' | 'pivot' | 'hold';
 export interface BrainEvent {
   kind: 'read' | 'switch' | 'adapt' | 'taunt' | 'retreat' | 'rally';
   text: string;
+  /** Who it's about. */
+  f?: Fighter;
 }
 
 export class Brain {
@@ -276,7 +278,7 @@ export class Brain {
   private say(kind: BrainEvent['kind'], text: string, minGap = 6) {
     if (this.time - this.lastEventT < minGap) return;
     this.lastEventT = this.time;
-    this.onEvent?.({ kind, text });
+    this.onEvent?.({ kind, text, f: this.me });
   }
 
   // ---------------------------------------------------------------- perception

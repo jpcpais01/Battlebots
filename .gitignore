@@ -4,3 +4,4 @@ dev-dist
 .vercel
 *.log
 .DS_Store
+voice-raw
