@@ -354,7 +354,7 @@ export class Game {
           const d = data as DetachInfo;
           const piece = this.spar?.model.tearOff(d.part);
           if (piece && this.spar) {
-            const anchor = this.debris.spawn(piece, d.dir, d.strength * 0.6);
+            const anchor = this.debris.spawn(piece, d.dir, d.strength * 0.6, false);
             for (const j of CUT_JOINTS[d.part]) this.spar.model.anchors[j] = anchor;
           }
           this.fx.sparks(d.point, _up, 40, 0xffc070, 7, 1.4);
@@ -636,7 +636,20 @@ export class Game {
         if (!f.parts.legOut(0)) this.feet.push(this.models[i].joints[J.FootL]);
         if (!f.parts.legOut(1)) this.feet.push(this.models[i].joints[J.FootR]);
       }
-      this.debris.update(dt * this.speed * m.slowmo, this.fx, this.feet, (p, sp) => this.sfx?.thud(Math.min(0.7, sp / 6), this.pan(p)));
+      this.debris.update(
+        dt * this.speed * m.slowmo,
+        this.fx,
+        this.feet,
+        (p, sp) => this.sfx?.thud(Math.min(0.7, sp / 6), this.pan(p)),
+        (p, k, first) => {
+          this.arena.venue.crowd.stir(p, k);
+          if (!first) return;
+          // a part came down in the seats: the fans there erupt, and the whole house hears it
+          this.crowdMood.event('debrisCrowd');
+          this.sfx?.crowdEvent('debrisCrowd');
+          this.arena.excite(0.8);
+        },
+      );
       perf.lap('bots');
     }
     if (this.showcase) {
