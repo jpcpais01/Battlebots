@@ -5,7 +5,7 @@ import { clamp } from './math';
 import { DM } from './dmath';
 
 /** Root-to-root distance the fighters touch gloves at. */
-const BUMP_D = 1.0;
+const BUMP_D = 1.45;
 /** How far apart they back off before the fight proper. */
 const BACK_D = 2.4;
 
@@ -41,10 +41,11 @@ export class Greeting {
     let speed: number;
     let drop: number;
     if (this.bumpAt < 0) {
-      // walk to the centre, gloves low, slowing into arm's length
-      speed = clamp((d - BUMP_D) * 1.5, 0.12, 1.1);
+      // walk to the centre, gloves low, settling into a long arm's length; the fist
+      // goes out on the last stride, so arriving and reaching are one motion
+      speed = clamp((d - BUMP_D) * 2.4, 0, 1.2);
       drop = 0.55;
-      if (d < BUMP_D + 0.08 || this.t > 3.2) {
+      if (d < BUMP_D + 0.4 || this.t > 3.2) {
         this.bumpAt = this.t;
         m.shows[0].bump();
         m.shows[1].bump();
@@ -57,16 +58,16 @@ export class Greeting {
         const hb = b.body.pos[b.emote!.reachSide ? J.HandR : J.HandL];
         m.emit('fistBump', { x: (ha.x + hb.x) / 2, y: (ha.y + hb.y) / 2, z: (ha.z + hb.z) / 2 });
       }
-      if (s < BUMP_CONTACT + 0.3) {
-        // hold arm's length through the touch
-        speed = clamp((d - BUMP_D) * 2, -0.3, 0.3);
+      if (s < BUMP_CONTACT + 0.18) {
+        // glide the last of the way in and hold arm's length through the touch
+        speed = clamp((d - BUMP_D) * 2.4, -0.3, 1);
         drop = 0.45;
       } else {
         // a respectful step back, hands up
         speed = -clamp((BACK_D - d) * 2.4, 0, 1.4);
         drop = 0;
       }
-      if ((s > BUMP_CONTACT + 1.3 && d > BACK_D - 0.25) || s > 3.4) this.done = true;
+      if ((s > BUMP_CONTACT + 1 && d > BACK_D - 0.25) || s > 3) this.done = true;
     }
     a.intentVel.set(ux * speed, 0, uz * speed);
     b.intentVel.set(-ux * speed, 0, -uz * speed);
