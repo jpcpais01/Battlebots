@@ -10,11 +10,15 @@ import {
   dampAngle,
   easeInOut,
   easeOutQuad,
+  hermite,
+  keySlope,
   lerp,
   minJerk,
   Noise1,
   Rng,
   smoothstep,
+  Spring1,
+  SpringNum,
   SpringVec,
   wrapAngle,
 } from './math';
@@ -219,6 +223,16 @@ const GETUP_FRONT: GetupKey[] = [
   { t: 0.82, ...RISE },
 ];
 const GETUP_BLEND_IN = 0.2;
+/** Where the get-up starts handing over to the fighting pose (it keeps moving through the last key). */
+const GETUP_HANDOVER = 0.72;
+/** A key's channels in one list: py, pz, pitch, roll, feet (6), hands (6), knees (2), elbow. */
+const flatKey = (k: GetupKey) => [k.py, k.pz, k.pitch, k.roll, ...k.feet, ...k.hands, ...k.knee, k.elbow];
+const GETUP_FLAT = new Map<GetupKey[], number[][]>([
+  [GETUP_BACK, GETUP_BACK.map(flatKey)],
+  [GETUP_FRONT, GETUP_FRONT.map(flatKey)],
+]);
+/** How long the legs take to fold under a knocked-out body before it drops as a ragdoll (s). */
+const BUCKLE = 0.36;
 const TRUNK_Y = [-0.62, -0.5, -0.36, -0.2, -0.1, -0.02, 0.14, 0.22, 0.28];
 const TRUNK_W = [0.14, 0.2, 0.16, 0.17, 0.2, 0.25, 0.27, 0.22, 0.1];
 const TRUNK_F = [0.1, 0.13, 0.12, 0.14, 0.16, 0.21, 0.21, 0.1, 0.06];
@@ -310,6 +324,7 @@ export class Fighter {
   private getupSnap = Array.from({ length: JOINT_COUNT }, () => new Vector3());
   private getupKeys: GetupKey[] = GETUP_BACK;
   getupDur = 1.5;
+  private _gch = new Array<number>(19).fill(0);
   private _gk = { py: 0, pz: 0, pitch: 0, roll: 0, w: 0, feet: [0, 0, 0, 0, 0, 0], hands: [0, 0, 0, 0, 0, 0], knee: [0, 0], elbow: 0 };
   knockdowns = 0;
   /** Condition of every body part (locational damage). */
@@ -355,6 +370,24 @@ export class Fighter {
   private bulk = 0;
   private pelvisOff = new Vector3();
   flinch = new SpringVec(150, 11);
+  /** How the trunk gives under a blow: pitch (back on head shots, folding on body shots), knee dip, sideways roll. */
+  private rPitch = new SpringNum(170, 13);
+  private rDip = new SpringNum(140, 12);
+  private rRoll = new SpringNum(160, 12);
+  /**
+   * Second-order smoothing of the body shape: crouch, pitch, roll, shoulder twist, hip
+   * twist, head x/y/z, pelvis x/z. Springs start moving gently and carry a touch past
+   * the target, so the trunk has mass instead of sliding on exponential eases.
+   */
+  private sp = Array.from({ length: 10 }, () => new Spring1());
+  /** Guard mode blend springs: normal, high, body, low. */
+  private gsp = Array.from({ length: 4 }, () => new Spring1());
+  private breathPhase = 0;
+  /** Knockout buckle: time left, its length, where the feet stood and which way it faced. */
+  private buckle = 0;
+  private buckleDur = BUCKLE;
+  private buckleFeet = [new Vector3(), new Vector3()];
+  private buckleFwd = new Vector3();
   private bobPhase = 0;
   private noise: Noise1;
   private feet = [new Foot(), new Foot()]; // 0 = left, 1 = right
@@ -731,7 +764,11 @@ export class Fighter {
     this.updateRoot(dt);
     this.updateFeet(dt);
     this.flinch.step(null, dt);
+    this.rPitch.step(0, dt);
+    this.rDip.step(0, dt);
+    this.rRoll.step(0, dt);
     if (this.state !== 'down' && this.state !== 'ko') this.writeTargets(dt);
+    else if (this.buckle > 0) this.buckleStep(dt);
     this.body.step(dt);
     if (this.state === 'down' || this.state === 'ko') {
       // root follows the ragdoll
@@ -816,7 +853,26 @@ export class Fighter {
     }
   }
 
-  knockDown(dir: Vector3, power: number, counts = true) {
+  /**
+   * A blow lands or is blocked. (x, y, z) kicks the head (local frame); the trunk gives
+   * with it: snapped back by a head shot, folded over a body shot, a leg kicked out from
+   * under it. `give` is how hard the blow was.
+   */
+  recoil(x: number, y: number, z: number, zone: Zone, give: number) {
+    this.flinch.kick(x, y, z);
+    if (zone === 'head') this.rPitch.vel += z * 1.4;
+    else if (zone === 'body') {
+      this.rPitch.vel += Math.max(0.4 * give, -z) * 1.6;
+      this.rDip.vel += give * 0.35;
+    } else {
+      this.rDip.vel += give * 0.5;
+      this.rRoll.vel += x * 1.2;
+    }
+    // the knees soften under any shot
+    this.rDip.vel += give * 0.15;
+  }
+
+  knockDown(dir: Vector3, power: number, counts = true, buckle = counts) {
     if (this.action && this.action.kind === 'strike') this.finishStrike(this.action, true, 'interrupted');
     this.action = null;
     this.spinYaw = 0;
@@ -838,6 +894,39 @@ export class Fighter {
     for (const f of this.feet) {
       f.locked = false;
       f.stepping = false;
+    }
+    // a knockout takes the legs first: they fold under the body, then it drops. The
+    // harder the shot, the less the legs get to do before it's thrown.
+    this.buckle = 0;
+    if (buckle && power < 5) {
+      this.buckleDur = BUCKLE * clamp(1.6 - power * 0.25, 0.45, 1);
+      this.buckle = this.buckleDur;
+      this.buckleFeet[0].copy(this.feet[0].pos).setY(FOOT_Y);
+      this.buckleFeet[1].copy(this.feet[1].pos).setY(FOOT_Y);
+      this.forward(this.buckleFwd);
+    }
+  }
+
+  /** Legs giving out: feet stay where they stood, knees fold forward, hips sink between them. */
+  private buckleStep(dt: number) {
+    this.buckle = Math.max(0, this.buckle - dt);
+    const k = 1 - this.buckle / this.buckleDur;
+    const body = this.body;
+    // under half tone: the ragdoll solver holds the body together, the legs still pull
+    body.tone = 0.45 * (1 - minJerk(k));
+    // the upper body goes with the blow
+    for (let i = 0; i <= J.HandR; i++) body.loose[i] = 0;
+    body.loose[J.HipL] = body.loose[J.HipR] = 0.3;
+    const F = this.buckleFeet, fwd = this.buckleFwd, T = body.target;
+    T[J.FootL].copy(F[0]);
+    T[J.FootR].copy(F[1]);
+    const mx = (F[0].x + F[1].x) * 0.5, mz = (F[0].z + F[1].z) * 0.5;
+    const sink = minJerk(k);
+    T[J.Pelvis].set(mx - fwd.x * 0.06 * sink, lerp(0.9, 0.36, sink), mz - fwd.z * 0.06 * sink);
+    for (let i = 0; i < 2; i++) {
+      const knee = T[i === 0 ? J.KneeL : J.KneeR];
+      knee.copy(F[i]).addScaledVector(fwd, lerp(0.1, 0.34, sink));
+      knee.y = lerp(0.52, 0.24, sink);
     }
   }
 
@@ -1082,7 +1171,9 @@ export class Fighter {
         f.t += dt / f.dur;
         const k = minJerk(f.t);
         f.pos.lerpVectors(f.from, f.to, k);
-        f.pos.y = lerp(f.from.y, f.to.y, k) + DM.sin(Math.PI * clamp01(f.t)) * f.arc;
+        // the foot comes up early and reaches for the floor: the arc peaks before mid-step
+        const ft = clamp01(f.t);
+        f.pos.y = lerp(f.from.y, f.to.y, k) + DM.sin(Math.PI * ft * (1.25 - 0.25 * ft)) * f.arc;
         f.yaw = f.fromYaw + wrapAngle(f.toYaw - f.fromYaw) * smoothstep(0, 0.8, f.t);
         if (f.t >= 1) {
           f.stepping = false;
@@ -1171,7 +1262,9 @@ export class Fighter {
     pivot[0] = pivot[1] = 0;
     // on the balls of the feet: rear heel up, both heels lift with the bounce
     const rearI = st < 0 ? 1 : 0;
-    const onToes = fighting ? 0.08 + 0.1 * this.bounce * (0.5 + 0.5 * DM.sin(this.bobPhase)) : 0;
+    // a real bounce: a quick press off the balls of the feet at the bottom, a float at the top
+    const bounceWave = -0.5 * DM.cos(this.bobPhase) + Math.abs(DM.sin(this.bobPhase * 0.5)) - 0.5;
+    const onToes = fighting ? 0.08 + 0.1 * this.bounce * (0.5 + 0.5 * bounceWave) : 0;
     heel[0] = heel[1] = onToes;
     heel[rearI] += fighting ? 0.14 : 0;
 
@@ -1188,6 +1281,8 @@ export class Fighter {
         const w = Math.max(0, prog.sh);
         const sxp = s.side === 'L' ? -1 : 1;
         crouch += m.crouch * Math.max(prog.load, w);
+        // power shots sit down into the legs as they load: the weight drops, then drives
+        if (m.power) crouch += 0.025 * prog.load + 0.015 * Math.max(0, w) * (1 - prog.ret);
         switch (m.path) {
           case 'straight':
             pd.z += (lead ? 0.04 : 0.085) * w;
@@ -1371,37 +1466,41 @@ export class Fighter {
     }
     // flinch spring (local): pushes head + upper body, hooks spin the torso
     hd.add(this.flinch.v);
-    pitch += -this.flinch.v.z * 0.8;
-    roll += this.flinch.v.x * 0.6;
+    roll += this.flinch.v.x * 0.6 + this.rRoll.v;
     shTw -= this.flinch.v.x * 0.9;
+    // the trunk gives under blows (see recoil): snapped back, folded, knees softening
+    pitch += this.rPitch.v;
+    crouch += this.rDip.v;
+    // breathing: slow and shallow when fresh, the chest heaving when spent
+    if (dt > 0) this.breathPhase += dt * (1.7 + tired * 3.6);
+    const breath = DM.sin(this.breathPhase) * (0.5 + 1.5 * tired);
+    pitch -= 0.012 * breath;
+    hd.y += 0.006 * breath;
 
     // ---------- smoothing
+    // springs, not eases: the trunk picks up speed, and a twist or lean carries a touch
+    // past where it was going before settling, like a body with weight. A nimble build
+    // moves its mass a little quicker than a heavy one.
+    const spr = this.sp;
+    const q = clamp(0.88 + 0.12 * this.build.stats.agility, 0.85, 1.12);
+    const fast = (s && s.phase !== 'windup') || d;
+    this.crouch = spr[0].to(crouch, (fast ? 72 : 40) * q, 0.78, dt);
+    this.pitch = spr[1].to(pitch, (fast ? 72 : 40) * q, 0.72, dt);
+    this.roll = spr[2].to(roll, (fast ? 72 : 40) * q, 0.72, dt);
+    this.twist = spr[3].to(shTw, (s ? 70 : 30) * q, 0.62, dt);
+    this.hipTwist = spr[4].to(hipTw, (s ? 80 : 27) * q, 0.7, dt);
+    // the head stays steadier than the trunk
+    const hw = (d ? 95 : 56) * q;
+    this.headOff.set(spr[5].to(hd.x, hw, 0.9, dt), spr[6].to(hd.y, hw, 0.9, dt), spr[7].to(hd.z, hw, 0.9, dt));
+    const pw = (s ? 55 : 34) * q;
+    this.pelvisOff.x = spr[8].to(pd.x, pw, 0.8, dt);
+    this.pelvisOff.z = spr[9].to(pd.z, pw, 0.8, dt);
     if (dt > 0) {
-      const lam = (s && s.phase !== 'windup') || d ? 36 : 20;
-      this.crouch = damp(this.crouch, crouch, lam, dt);
-      this.pitch = damp(this.pitch, pitch, lam, dt);
-      this.roll = damp(this.roll, roll, lam, dt);
-      this.twist = damp(this.twist, shTw, s ? 34 : 14, dt);
-      this.hipTwist = damp(this.hipTwist, hipTw, s ? 40 : 12, dt);
-      const hl = d ? 48 : 26;
-      this.headOff.x = damp(this.headOff.x, hd.x, hl, dt);
-      this.headOff.y = damp(this.headOff.y, hd.y, hl, dt);
-      this.headOff.z = damp(this.headOff.z, hd.z, hl, dt);
-      const pl = s ? 26 : 16;
-      this.pelvisOff.x = damp(this.pelvisOff.x, pd.x, pl, dt);
-      this.pelvisOff.z = damp(this.pelvisOff.z, pd.z, pl, dt);
       for (let i = 0; i < 2; i++) {
         this.pivot[i] = damp(this.pivot[i], pivot[i], 24, dt);
         this.heel[i] = damp(this.heel[i], heel[i], 24, dt);
       }
     } else {
-      this.crouch = crouch;
-      this.pitch = pitch;
-      this.roll = roll;
-      this.twist = shTw;
-      this.hipTwist = hipTw;
-      this.headOff.copy(hd);
-      this.pelvisOff.copy(pd);
       for (let i = 0; i < 2; i++) {
         this.pivot[i] = pivot[i];
         this.heel[i] = heel[i];
@@ -1412,7 +1511,7 @@ export class Fighter {
     if (dt > 0) this.bobPhase += dt * (5.2 + this.bounce * 2.2 + tired * 1.5 + this.rootVel.length() * 1.2);
     // on the move the steps carry the bounce, so the idle toe-bounce fades out
     const bobAmp = ((fighting ? 0.012 + 0.016 * this.bounce : 0.008) + tired * 0.01) / (1 + this.rootVel.length() * 1.5);
-    const bob = DM.sin(this.bobPhase) * bobAmp;
+    const bob = (-0.5 * DM.cos(this.bobPhase) + Math.abs(DM.sin(this.bobPhase * 0.5)) - 0.5) * bobAmp;
 
     // ---------- skeleton (local)
     let pelvisH = PELVIS_H - this.crouch + bob + this.lift;
@@ -1442,6 +1541,8 @@ export class Fighter {
     _p.set(DM.cos(tw), 0, -DM.sin(tw)); // shoulder axis (towards +x = right)
     L[J.ShR].copy(L[J.Chest]).addScaledVector(_v, 0.1).addScaledVector(_p, 0.31);
     L[J.ShL].copy(L[J.Chest]).addScaledVector(_v, 0.1).addScaledVector(_p, -0.31);
+    L[J.ShR].y += 0.01 * breath;
+    L[J.ShL].y += 0.01 * breath;
     const htw = this.hipTwist;
     _q.set(DM.cos(htw), 0, -DM.sin(htw));
     L[J.HipR].copy(L[J.Pelvis]).addScaledVector(_q, 0.15);
@@ -1474,17 +1575,25 @@ export class Fighter {
       hand.set(head.x + hx, head.y + hy - lower * 0.38, head.z + hz - lower * 0.05);
       // the guard counter-swings a touch against the stepping leg
       hand.z -= sx * this.gaitSwing * 0.08;
+      // the guard is never still, and never on a loop: the lead hand feels out the range,
+      // the rear one breathes with the chest
       if (isLead) {
-        hand.x += DM.sin(t * 2.3 + this.index) * 0.025 * paw;
-        hand.y += DM.cos(t * 2.9 + this.index) * 0.02 * paw + bob * 0.6;
-        hand.z += DM.sin(t * 1.7) * 0.04 * paw;
+        hand.x += this.noise.at(t * 1.3 + 70) * 0.03 * paw;
+        hand.y += this.noise.at(t * 1.6 + 85) * 0.022 * paw + bob * 0.6 + breath * 0.006;
+        hand.z += (this.noise.at(t * 1.1 + 100) * 0.045 + Math.max(0, this.noise.at(t * 2.4 + 115)) * 0.035) * paw;
       } else {
-        hand.y += DM.sin(t * 1.9 + 1) * 0.012 * paw + bob * 0.4;
+        hand.x += this.noise.at(t * 0.9 + 130) * 0.012 * paw;
+        hand.y += this.noise.at(t * 1.2 + 145) * 0.014 * paw + bob * 0.4 + breath * 0.008;
       }
       if (this.state === 'win' && !this.emote) {
         hand.set(sx * 0.38, 2.15 + DM.sin(t * 6 + side) * 0.06, 0.12);
       }
-      if (this.state === 'stagger') hand.lerp(_p.set(sx * 0.32, 0.75, 0.25), 0.5);
+      if (this.state === 'stagger') {
+        // arms heavy and swaying, dragged back up as it comes round
+        const back = smoothstep(0.55, 1, this.stateTime / (this.stateTime + Math.max(0, this.stunTime)));
+        _p.set(sx * (0.32 + this.noise.at(t * 1.5 + side * 7 + 160) * 0.06), 0.78 + this.noise.at(t * 1.8 + side * 7 + 175) * 0.08, 0.24);
+        hand.lerp(_p, 0.6 * (1 - back));
+      }
       // pole: elbows down and out
       const pole = _q.set(sx * 0.55, -1, -0.35);
       if (gu) {
@@ -1596,7 +1705,8 @@ export class Fighter {
         if (f.stepping) {
           const k = clamp01(f.t);
           this.footAirT[side] = DM.sin(Math.PI * k) * 0.8;
-          this.footFlexT[side] = 0.25 * DM.sin(Math.PI * k);
+          // toes push off as it lifts, the heel leads as it comes down
+          this.footFlexT[side] = 0.35 * DM.sin(Math.PI * k) * (1 - 1.6 * k);
         }
       }
       this.smoothPole(2 + side, pole, dt);
@@ -1789,9 +1899,9 @@ export class Fighter {
   private updateGuardWeights(dt: number) {
     const w = this.guardW;
     const mode = this.state === 'fight' || this.state === 'stun' ? this.guardMode : 'normal';
-    const lam = dt > 0 ? 1 - DM.exp(-16 * dt) : 1;
-    (['normal', 'high', 'body', 'low'] as GuardMode[]).forEach((m) => {
-      w[m] += ((m === mode ? 1 : 0) - w[m]) * lam;
+    // critically damped: the hands lift into a new guard and settle, no snap at the start
+    (['normal', 'high', 'body', 'low'] as GuardMode[]).forEach((m, i) => {
+      w[m] = this.gsp[i].to(m === mode ? 1 : 0, 36, 1, dt);
     });
   }
 
@@ -2215,33 +2325,45 @@ export class Fighter {
     const keys = this.getupKeys;
     const k = clamp01(this.stateTime / this.getupDur);
     const last = keys[keys.length - 1];
-    let a = keys[0], b = keys[0], u = 0;
-    if (k >= last.t) {
-      a = b = last;
-    } else {
+    const flat = GETUP_FLAT.get(keys)!;
+    const ch = this._gch;
+    let a = keys.length - 1, u = 0;
+    if (k < last.t) {
       for (let i = 0; i < keys.length - 1; i++) {
         if (k < keys[i + 1].t) {
-          a = keys[i];
-          b = keys[i + 1];
-          u = minJerk((k - a.t) / (b.t - a.t));
+          a = i;
+          u = (k - keys[i].t) / (keys[i + 1].t - keys[i].t);
           break;
         }
       }
     }
-    g.py = lerp(a.py, b.py, u);
-    g.pz = lerp(a.pz, b.pz, u);
-    g.pitch = lerp(a.pitch, b.pitch, u);
-    g.roll = lerp(a.roll, b.roll, u);
+    if (a === keys.length - 1) for (let c = 0; c < ch.length; c++) ch[c] = flat[a][c];
+    else {
+      // one continuous movement through the keys (sit up, roll onto the knee, drive up),
+      // not a stop at each: every channel keeps its speed through a key unless it turns
+      const b = a + 1;
+      const h = keys[b].t - keys[a].t;
+      for (let c = 0; c < ch.length; c++) {
+        const m0 = a > 0 ? keySlope(flat[a - 1][c], flat[a][c], flat[b][c], keys[a].t - keys[a - 1].t, h) : 0;
+        const m1 = b < keys.length - 1 ? keySlope(flat[a][c], flat[b][c], flat[b + 1][c], h, keys[b + 1].t - keys[b].t) : 0;
+        ch[c] = hermite(flat[a][c], flat[b][c], m0, m1, h, u);
+      }
+    }
+    g.py = ch[0];
+    g.pz = ch[1];
+    g.pitch = ch[2];
+    g.roll = ch[3];
     for (let i = 0; i < 6; i++) {
-      g.feet[i] = lerp(a.feet[i], b.feet[i], u);
-      g.hands[i] = lerp(a.hands[i], b.hands[i], u);
+      g.feet[i] = ch[4 + i];
+      g.hands[i] = ch[10 + i];
     }
     // the rear foot lifts as it steps up out of the kneel
-    if (a.knee[1] < 0 && b.knee[1] >= 0) g.feet[4] += DM.sin(Math.PI * u) * 0.12;
-    g.knee[0] = lerp(a.knee[0], b.knee[0], u);
-    g.knee[1] = lerp(a.knee[1], b.knee[1], u);
-    g.elbow = lerp(a.elbow, b.elbow, u);
-    g.w = 1 - minJerk((k - last.t) / (1 - last.t));
+    if (a < keys.length - 1 && keys[a].knee[1] < 0 && keys[a + 1].knee[1] >= 0) g.feet[4] += DM.sin(Math.PI * u) * 0.12;
+    g.knee[0] = ch[16];
+    g.knee[1] = ch[17];
+    g.elbow = ch[18];
+    // hand over to the fighting pose while still rising, so it never pauses on the last key
+    g.w = 1 - minJerk((k - GETUP_HANDOVER) / (1 - GETUP_HANDOVER));
     return g;
   }
 

@@ -3,7 +3,7 @@ import { J } from './body';
 import type { Brain } from './brain';
 import type { Fighter, FState } from './fighter';
 import type { Match } from './match';
-import { clamp01, lerp, minJerk, Rng, wrapAngle } from './math';
+import { clamp01, hermite, keySlope, lerp, minJerk, Rng, wrapAngle } from './math';
 import { DM } from './dmath';
 
 /**
@@ -221,7 +221,12 @@ export function mix(o: Shape, a: Shape, b: Shape, u: number) {
   for (let i = 0; i < EC.N; i++) o[i] = a[i] + (b[i] - a[i]) * u;
 }
 
-/** Pose at time t along keys; each segment eases (minimum jerk unless the key says otherwise). */
+/**
+ * Pose at time t along keys. A key with its own ease snaps or overshoots into place as
+ * authored. Everywhere else the motion flows through the keys on a smooth curve (it
+ * only comes to rest where a channel turns round or holds), rather than stopping dead
+ * at every key the way pose-to-pose easing does.
+ */
 export function keys(o: Shape, t: number, K: readonly Key[]) {
   if (t <= K[0][0]) {
     o.set(K[0][1]);
@@ -231,8 +236,21 @@ export function keys(o: Shape, t: number, K: readonly Key[]) {
     const b = K[i + 1];
     if (t < b[0]) {
       const a = K[i];
-      const u = (t - a[0]) / (b[0] - a[0]);
-      mix(o, a[1], b[1], (b[2] ?? minJerk)(u));
+      const h = b[0] - a[0];
+      const u = (t - a[0]) / h;
+      if (b[2]) {
+        mix(o, a[1], b[1], b[2](u));
+        return;
+      }
+      // neighbours that join on a smooth segment carry the motion through
+      const p = i > 0 && !a[2] ? K[i - 1] : null;
+      const n = i + 2 < K.length && !K[i + 2][2] ? K[i + 2] : null;
+      const A = a[1], B = b[1];
+      for (let c = 0; c < EC.N; c++) {
+        const m0 = p ? keySlope(p[1][c], A[c], B[c], a[0] - p[0], h) : 0;
+        const m1 = n ? keySlope(A[c], B[c], n[1][c], h, n[0] - b[0]) : 0;
+        o[c] = m0 === 0 && m1 === 0 ? A[c] + (B[c] - A[c]) * minJerk(u) : hermite(A[c], B[c], m0, m1, h, u);
+      }
       return;
     }
   }

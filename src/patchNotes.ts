@@ -16,6 +16,17 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-13 21:00',
+    title: 'Bots move with real weight',
+    notes: [
+      'Bots move like they have real weight: torsos wind up and carry a little past each punch before settling, and power shots sit down into the legs first.',
+      'Getting hit looks physical: head shots snap the upper body back, body shots fold it over, leg kicks buckle the knees.',
+      'Knockouts drop the legs first: the knees fold, then the bot goes down.',
+      'Getting up, celebrations and taunts flow as one smooth movement instead of pausing at each pose.',
+      'Idle bots breathe (harder when tired), bounce on their toes with a natural rhythm, and their guard hands never move on a loop. Feet lift, push off the toes and land heel first.',
+    ],
+  },
+  {
     hour: '2026-10-13 20:00',
     title: 'Steadier tear-offs',
     notes: [

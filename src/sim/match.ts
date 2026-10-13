@@ -670,7 +670,7 @@ export class Match {
       def.toLocal(_c.copy(def.root).add(dir), _b);
       const fk = (blocked ? 0.35 : 1) * (0.8 + dmg / 45);
       const zk = zone === 'head' ? 1 : 0.6;
-      def.flinch.kick(_b.x * fk * zk, (zone === 'body' ? -0.6 : 0.2) * fk, _b.z * fk * zk);
+      def.recoil(_b.x * fk * zk, (zone === 'body' ? -0.6 : 0.2) * fk, _b.z * fk * zk, zone, fk);
     }
 
     // stun / stagger / knockdown

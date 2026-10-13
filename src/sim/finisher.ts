@@ -730,7 +730,7 @@ export class FinisherRun {
     }
     def.toLocal(_c.copy(def.root).add(dir), _b);
     const fk = 0.8 + blow.shown / 45;
-    def.flinch.kick(_b.x * fk * (blow.zone === 'head' ? 1 : 0.6), (blow.zone === 'body' ? -0.6 : 0.2) * fk, _b.z * fk);
+    def.recoil(_b.x * fk * (blow.zone === 'head' ? 1 : 0.6), (blow.zone === 'body' ? -0.6 : 0.2) * fk, _b.z * fk, blow.zone, fk);
 
     if (last) {
       this.struck = true;
@@ -770,7 +770,7 @@ export class FinisherRun {
     const dt = 1 / 120;
     if (this.preview) def.hp = Math.max(def.hp, 1);
     // in a preview the sparring dummy goes down and gets back up; in a fight, it's over
-    def.knockDown(dir, kind === 'slam' || kind === 'decap' ? 1 : 2.5, !this.preview);
+    def.knockDown(dir, kind === 'slam' || kind === 'decap' ? 1 : 2.5, !this.preview, false);
     if (this.preview) def.downTime = 2.2;
     _b.set(0, 0, 0);
     switch (kind) {
