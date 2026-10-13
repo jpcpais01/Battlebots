@@ -41,6 +41,10 @@ const _u = new THREE.Vector3();
 const _pan = new THREE.Vector3();
 const _dp = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
+/** Longest the intro waits for the booth's opening, in seconds. */
+const INTRO_MAX = 16;
+/** Extra intro seconds online, where both phones must agree on its length. */
+const ONLINE_INTRO_EXTRA = 4;
 
 /** Where each body part sits on the robot: one joint, or the middle of two. */
 const PART_AT: [number, number][] = [
@@ -93,6 +97,7 @@ export class Game {
   private showAcc = 0;
   speed = 1;
   paused = false;
+  private online = false;
   private last = performance.now();
   private time = 0;
   private showcase: { fighter: Fighter; dummy: Fighter; model: BotModel; show: Showman; spec: BotSpec } | null = null;
@@ -414,6 +419,10 @@ export class Game {
       [1, 1, 1],
       [1, 1, 1],
     ];
+    // online both phones keep one fixed intro, long enough for the booth's opening;
+    // offline it waits for the booth instead (see frame)
+    if (online) m.introLength += ONLINE_INTRO_EXTRA;
+    this.online = online;
     m.on((type, data) => this.onEvent(type, data));
     this.sfx?.booth.begin(m, online);
     return m;
@@ -741,6 +750,10 @@ export class Game {
     perf.lap('camera');
     this.sfx?.crowdTick(dt, crowdState);
     this.sfx?.booth.tick(dt, this.crowdMood.excite, !!m && !this.paused);
+    // offline the countdown waits for the opening speech to finish
+    if (m && !this.online && m.phase === 'intro' && this.sfx?.booth.busy && m.phaseTime >= m.introLength - 0.1 && m.phaseTime < INTRO_MAX) {
+      m.introLength = m.phaseTime + 0.2;
+    }
     perf.lap('audio');
     if (!render) return;
     const cut = this.director.cuts !== this.lastCuts || this.director.mode !== this.lastMode;

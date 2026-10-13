@@ -16,6 +16,15 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-13 13:00',
+    title: 'Commentators who let each other finish',
+    notes: [
+      'When one commentator asks the other something, the booth waits for the answer before moving on. Only a knockdown or a knockout cuts in.',
+      'The opening speech now finishes before the countdown starts.',
+      'The crowd countdown sounds like it comes from the stands: a whole arena of voices echoing around the hall, with a roar on every number.',
+    ],
+  },
+  {
     hour: '2026-10-13 05:00',
     title: 'A proper fight night entrance',
     notes: [

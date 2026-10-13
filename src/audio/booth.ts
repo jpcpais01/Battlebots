@@ -195,6 +195,8 @@ export class Booth {
   private cur: Talking | null = null;
   private queue: Queued[] = [];
   private lastEnd = -9;
+  /** Until when a question and its answer have the floor (only a knockdown or a finish talks over them). */
+  private hold = 0;
   private excite = 0.3;
   // what has happened in this fight
   private sinceLanded = 0;
@@ -304,6 +306,7 @@ export class Booth {
     this.lastHit = null;
     this.koPending = null;
     this.fatalCalled = false;
+    this.hold = 0;
     const names: string[] = [];
     for (const f of m.fighters) {
       const n = this.names(f);
@@ -342,6 +345,7 @@ export class Booth {
           // the crowd counts it down: the booth lets them
           if (this.cur) this.cut();
           this.queue.length = 0;
+          this.hold = 0;
         } else if (data === 'greet') this.push({ chain: ['countdown.start'], prio: 40, voice: 'p' }, 1.4, 2);
         break;
       case 'fightStart':
@@ -637,6 +641,10 @@ export class Booth {
 
   /** Whoever answers a line that has just finished (or is finishing). */
   private answer(c: Talking, after: number, left = 0) {
+    if (!this.reply(c, after, left)) this.hold = Math.min(this.hold, this.t + left);
+  }
+
+  private reply(c: Talking, after: number, left: number): boolean {
     // a line from the same voice waits for the last one to end; another voice can overlap it
     const when = (v: BoothVoice | undefined) => (v === c.line.v ? left + 0.15 : after);
     const bound = this.replies.get(c.line.id);
@@ -649,7 +657,18 @@ export class Booth {
       // colour usually; the robot chips in with a reading now and then
       const v: BoothVoice = chance(0.3) && this.has(c.say.chain, 'r') ? 'r' : 'c';
       this.push({ chain: c.say.chain, prio: c.say.prio - 8, voice: v, about: c.say.about, side: c.say.side, quick: true }, when(v) + 0.1, 2);
-    }
+    } else return false;
+    return true;
+  }
+
+  /** Waits its turn: someone is answering a question, and this is no knockdown or finish. */
+  private held(s: Say) {
+    return this.t < this.hold && !s.quick && s.prio < 90;
+  }
+
+  /** Still talking, or about to: the opening waits for this before the countdown. */
+  get busy() {
+    return !!this.cur || this.t < this.hold || this.queue.some((q) => q.until >= this.t);
   }
 
   /** Any line from this voice in these triggers. */
@@ -746,10 +765,10 @@ export class Booth {
   /** Says it now if it's important enough, otherwise waits up to `wait` seconds for a gap. */
   private say(s: Say, wait: number) {
     const c = this.cur;
-    if (!c && this.t - this.lastEnd >= breath(s) && !this.queue.some((q) => q.say.prio > s.prio && q.from <= this.t)) {
+    if (!c && !this.held(s) && this.t - this.lastEnd >= breath(s) && !this.queue.some((q) => q.say.prio > s.prio && q.from <= this.t)) {
       if (this.start(s)) return;
     }
-    if (c && overrides(s, c)) {
+    if (c && !this.held(s) && overrides(s, c)) {
       this.cut(s.voice);
       if (this.start(s)) return;
     }
@@ -770,7 +789,7 @@ export class Booth {
     if (!this.queue.length) return;
     this.queue = this.queue.filter((q) => q.until >= this.t && (!q.valid || q.valid()));
     let best: Queued | null = null;
-    for (const q of this.queue) if (q.from <= this.t && (!best || q.say.prio > best.say.prio)) best = q;
+    for (const q of this.queue) if (q.from <= this.t && !this.held(q.say) && (!best || q.say.prio > best.say.prio)) best = q;
     if (!best) return;
     const c = this.cur;
     if (c) {
@@ -822,6 +841,9 @@ export class Booth {
     // big calls jump in hard on the end of the last line; chat leaves a natural beat
     const overlap = line.n ? 0.2 : line.e >= 3 ? 0.3 + rnd() * 0.25 : 0.1 + rnd() * 0.3;
     this.cur = { say: s, line, speech, until: this.t + within + dur + 0.25, stopped: false, handed: false, overlap };
+    // a line someone answers keeps the floor until the answer is over
+    if (!s.quick && this.t < this.hold) this.queue = this.queue.filter((q) => !q.say.quick);
+    this.hold = this.replies.get(line.id)?.length || s.reply ? this.t + within + dur + 2.5 : s.quick ? this.t + within + dur : 0;
     this.used.add(line.id);
     this.heard.set(line.id, ++this.seq);
     if (++this.dirty >= 12) this.save();
