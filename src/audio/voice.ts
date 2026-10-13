@@ -82,6 +82,11 @@ export class Voice implements BoothOut {
     this.bus.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05);
   }
 
+  /** A clip that didn't come from the server (a name the player had voiced). */
+  add(file: string, bytes: ArrayBuffer) {
+    this.enc.set(file, bytes);
+  }
+
   ready(file: string) {
     return !!this.enc.get(file);
   }

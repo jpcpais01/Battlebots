@@ -16,6 +16,14 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-13 21:00',
+    title: 'Saved bots and voiced names',
+    notes: [
+      'New Saves button in the garage: keep up to 8 bots, each with its own name, parts and paint, and switch between them any time.',
+      'Voice your bot\'s name: tap the mic by its name in the garage and the commentators record it, then shout it in your fights. One new name a day.',
+    ],
+  },
+  {
     hour: '2026-10-13 20:00',
     title: 'Steadier tear-offs',
     notes: [

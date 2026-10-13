@@ -240,6 +240,17 @@ export class Booth {
     return this.man !== null;
   }
 
+  /** Names the player had voiced on this device: used ahead of the shipped ones. */
+  private custom = new Map<string, Partial<Record<NameCut, Clip>>>();
+
+  nameClip(name: string, cut: NameCut): Clip | null {
+    return this.custom.get(nameKey(name))?.[cut] ?? null;
+  }
+
+  setCustomName(name: string, clips: Partial<Record<NameCut, Clip>>) {
+    this.custom.set(nameKey(name), clips);
+  }
+
   setManifest(man: VoiceManifest) {
     this.man = man;
     this.byTrig.clear();
@@ -968,7 +979,8 @@ export class Booth {
   }
 
   private names(f: Fighter) {
-    return this.man?.names[nameKey(f.name)] ?? null;
+    const k = nameKey(f.name);
+    return this.custom.get(k) ?? this.man?.names[k] ?? null;
   }
 
   private save() {
