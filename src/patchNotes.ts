@@ -16,7 +16,7 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
-    hour: '2026-10-13 21:00',
+    hour: '2026-10-13 22:00',
     title: 'Bots move with real weight',
     notes: [
       'Bots move like they have real weight: torsos wind up and carry a little past each punch before settling, and power shots sit down into the legs first.',
@@ -24,6 +24,14 @@ export const PATCH_NOTES: PatchNote[] = [
       'Knockouts drop the legs first: the knees fold, then the bot goes down.',
       'Getting up, celebrations and taunts flow as one smooth movement instead of pausing at each pose.',
       'Idle bots breathe (harder when tired), bounce on their toes with a natural rhythm, and their guard hands never move on a loop. Feet lift, push off the toes and land heel first.',
+    ],
+  },
+  {
+    hour: '2026-10-13 21:00',
+    title: 'Saved bots and voiced names',
+    notes: [
+      'New Saves button in the garage: keep up to 8 bots, each with its own name, parts and paint, and switch between them any time.',
+      'Voice your bot\'s name: tap the mic by its name in the garage and the commentators record it, then shout it in your fights. One new name a day.',
     ],
   },
   {

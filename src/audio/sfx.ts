@@ -1,6 +1,6 @@
 import { BANK, renderImpact, type ImpactKind } from './impacts';
 import { Crowd, type CrowdState } from './crowd';
-import { Booth } from './booth';
+import { Booth, nameKey, type Clip, type NameCut } from './booth';
 import { Voice } from './voice';
 
 const MASTER = 0.7;
@@ -34,6 +34,8 @@ export class Sfx {
   private chantHall: GainNode | null = null;
   private hallOn = false;
   private hallOff = 0;
+  /** Clips of names the player had voiced, handed to the voice once audio starts. */
+  private userClips = new Map<string, ArrayBuffer>();
   /** Commentary volume: 1 on, 0.5 quiet, 0 off. */
   commentary = 1;
   /** The commentators. Silent until audio starts and the voice list has loaded. */
@@ -64,6 +66,27 @@ export class Sfx {
     } catch {
       /* ignore */
     }
+  }
+
+  /** A name the player had voiced: the booth calls the bot by it from now on. */
+  addName(name: string, clips: Partial<Record<NameCut, [bytes: ArrayBuffer, dur: number]>>) {
+    const key = nameKey(name);
+    const made: Partial<Record<NameCut, Clip>> = {};
+    for (const [cut, c] of Object.entries(clips) as [NameCut, [ArrayBuffer, number]][]) {
+      const file = `user/${key}/${cut}`;
+      this.userClips.set(file, c[0]);
+      this.voice?.add(file, c[0]);
+      made[cut] = [file, c[1]];
+    }
+    this.booth.setCustomName(name, made);
+  }
+
+  /** Plays a voiced name the way the caller shouts it at a big moment. */
+  previewName(name: string) {
+    const file = `user/${nameKey(name)}/scream`;
+    if (!this.voice?.ready(file)) return;
+    const dur = this.booth.nameClip(name, 'scream')?.[1] ?? 1;
+    this.voice.speak([{ clip: [file, dur], gap: 0 }], 4, 0.3, 'p');
   }
 
   /** Must be called from a user gesture. */
@@ -127,6 +150,7 @@ export class Sfx {
     const crowd = this.crowd;
     const voice = new Voice(ctx, this.out, this.commentary, (g) => crowd.duck(g));
     this.voice = voice;
+    for (const [f, b] of this.userClips) voice.add(f, b);
     void voice.manifest().then((m) => m && this.booth.setManifest(m));
     this.loadChant();
   }

@@ -111,3 +111,11 @@ export function saveZoom(z: Zoom) {
     /* ignore */
   }
 }
+
+/** Saved loadouts: whole bots (name, parts, paint, emotes) the player can switch between. */
+export const MAX_SAVES = 8;
+export const loadSaves = (): BotSpec[] => {
+  const raw = read<unknown>('bb.saves', []);
+  return Array.isArray(raw) ? raw.slice(0, MAX_SAVES).map(sanitizeBot) : [];
+};
+export const saveSaves = (s: BotSpec[]) => write('bb.saves', s.slice(0, MAX_SAVES));
