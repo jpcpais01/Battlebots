@@ -25,6 +25,7 @@ export class Sfx {
   private voice: Voice | null = null;
   /** The crowd counting down (3, 2, 1, FIGHT), decoded once audio starts. */
   private chant: Partial<Record<string, AudioBuffer>> = {};
+  private chantBus: AudioNode | null = null;
   /** Commentary volume: 1 on, 0.5 quiet, 0 off. */
   commentary = 1;
   /** The commentators. Silent until audio starts and the voice list has loaded. */
@@ -114,17 +115,73 @@ export class Sfx {
     }
   }
 
+  /**
+   * The chant comes from the stands, not a speaker: a few layers of it slightly out
+   * of step (a house full of voices), dulled by distance and thrown into the hall.
+   */
   private playChant(k: string, gain: number) {
     const buf = this.chant[k];
     if (!buf) return false;
     const ctx = this.ctx!;
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    const g = ctx.createGain();
-    g.gain.value = gain;
-    src.connect(g).connect(this.master!);
-    src.start(ctx.currentTime + 0.01);
+    const t = ctx.currentTime + 0.01;
+    const bus = (this.chantBus ??= this.makeChantBus());
+    const layers: [rate: number, delay: number, pan: number, g: number][] = [
+      [1, 0, 0, 1],
+      [0.985, 0.035, -0.6, 0.5],
+      [1.018, 0.06, 0.6, 0.5],
+      [0.97, 0.09, -0.25, 0.3],
+    ];
+    for (const [rate, delay, pan, lg] of layers) {
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = rate;
+      const g = ctx.createGain();
+      g.gain.value = gain * lg * 0.62;
+      let out: AudioNode = src.connect(g);
+      if (ctx.createStereoPanner) {
+        const p = ctx.createStereoPanner();
+        p.pan.value = pan;
+        out = out.connect(p);
+      }
+      out.connect(bus);
+      src.start(t + delay);
+    }
     return true;
+  }
+
+  /** Distance (band-limited, softened) plus a big arena hall for the chant. */
+  private makeChantBus(): AudioNode {
+    const ctx = this.ctx!;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 150;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 4200;
+    hp.connect(lp);
+    const dry = ctx.createGain();
+    dry.gain.value = 0.7;
+    lp.connect(dry).connect(this.master!);
+    // a synthetic hall: decorrelated noise in each ear, darkening as it decays
+    const len = Math.floor(ctx.sampleRate * 2.6);
+    const ir = ctx.createBuffer(2, len, ctx.sampleRate);
+    const pre = Math.floor(ctx.sampleRate * 0.03);
+    for (let c = 0; c < 2; c++) {
+      const d = ir.getChannelData(c);
+      let lpState = 0;
+      for (let i = pre; i < len; i++) {
+        const x = (i - pre) / (len - pre);
+        const a = 0.35 + 0.6 * x; // more smoothing (darker) further into the tail
+        lpState += (Math.random() * 2 - 1 - lpState) * (1 - a);
+        d[i] = lpState * Math.exp(-x * 5.5);
+      }
+    }
+    const verb = ctx.createConvolver();
+    verb.buffer = ir;
+    const wet = ctx.createGain();
+    wet.gain.value = 0.85;
+    lp.connect(verb).connect(wet).connect(this.master!);
+    return hp;
   }
 
   /**

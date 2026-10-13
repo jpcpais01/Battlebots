@@ -77,6 +77,8 @@ export class CrowdMood {
         // the house counts down with the screen, louder each number
         this.bump(0.12 + (3 - (data as number)) * 0.08);
         this.hold = Math.max(this.hold, 0.9);
+        // and roars along with each number
+        this.cue('cheer', 0.25 + (3 - (data as number)) * 0.1, 0.05, 0);
         break;
       case 'fightStart':
         this.bump(0.5);

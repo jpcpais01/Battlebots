@@ -216,7 +216,12 @@ export class Match {
         // each fighter shows off for the camera in turn
         if (this.phaseTime - dt < 0.25 && this.phaseTime >= 0.25) this.shows[0].present(PRESENT - 0.35);
         if (this.phaseTime - dt < PRESENT + 0.25 && this.phaseTime >= PRESENT + 0.25) this.shows[1].present(PRESENT - 0.35);
-        if (this.phaseTime >= this.introLength) this.setPhase('countdown');
+        // a replay ends the intro where the original did (replayCut), nowhere else
+        if (this.replayCut < 0 && this.phaseTime >= this.introLength) {
+          // an intro held past its usual length (the booth finishing its opening) replays as a cut here
+          if (this.introLength !== PRESENT * 2) this.introCut = this.frame;
+          this.setPhase('countdown');
+        }
         break;
       case 'countdown':
         if (this.phaseTime >= COUNTDOWN) {

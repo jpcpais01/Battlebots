@@ -796,6 +796,7 @@ export class App {
     this.replaying = true;
     const m = this.game.startMatch(r.a, r.b, r.seed);
     m.replayCut = r.cut;
+    this.game.holdIntro = false;
     this.hud.resetSpeed();
     this.hud.attach(m, null, true);
     this.go('fight');
