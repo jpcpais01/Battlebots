@@ -34,6 +34,20 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+        // commentary clips download as fights need them and stay for good (their names are content hashes)
+        globIgnores: ['voice/**'],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname.startsWith('/voice/c/'),
+            handler: 'CacheFirst',
+            options: { cacheName: 'voice', expiration: { maxEntries: 5000 } },
+          },
+          {
+            urlPattern: ({ url }) => url.pathname === '/voice/manifest.json',
+            handler: 'NetworkFirst',
+            options: { cacheName: 'voice-manifest', networkTimeoutSeconds: 4 },
+          },
+        ],
       },
     }),
   ],

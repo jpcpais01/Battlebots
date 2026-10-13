@@ -255,7 +255,7 @@ export class Game {
   }
 
   // ------------------------------------------------------------------ match
-  startMatch(a: BotSpec, b: BotSpec, seed: number) {
+  startMatch(a: BotSpec, b: BotSpec, seed: number, online = false) {
     this.endMatch();
     this.showBot(null);
     const m = new Match(a, b, seed);
@@ -278,6 +278,7 @@ export class Game {
       [1, 1, 1],
     ];
     m.on((type, data) => this.onEvent(type, data));
+    this.sfx?.booth.begin(m, online);
     return m;
   }
 
@@ -299,6 +300,7 @@ export class Game {
   endMatch() {
     this.onStep = null;
     if (!this.match) return;
+    this.sfx?.booth.end();
     for (const md of this.models) {
       this.stage.scene.remove(md.root);
       md.dispose();
@@ -326,6 +328,7 @@ export class Game {
     const sfx = this.sfx;
     this.director.cue(type, data);
     sfx?.crowdEvent(type, data);
+    sfx?.booth.event(type, data);
     this.crowdMood.event(type, data);
     this.arena.venue.event(type, data);
     switch (type) {
@@ -532,6 +535,7 @@ export class Game {
     }
     perf.lap('camera');
     this.sfx?.crowdTick(dt, crowdState);
+    this.sfx?.booth.tick(dt, this.crowdMood.excite, !!m && !this.paused);
     perf.lap('audio');
     if (!render) return;
     const cut = this.director.cuts !== this.lastCuts || this.director.mode !== this.lastMode;

@@ -804,6 +804,13 @@ export class App {
         { text: 'On', on: !this.game.sfx?.muted, pick: () => this.game.sfx?.muted && this.toggleSound() },
         { text: 'Off', on: !!this.game.sfx?.muted, pick: () => !this.game.sfx?.muted && this.toggleSound() },
       ]);
+      this.segRow(game, 'Commentary', () =>
+        ([['On', 1], ['Quiet', 0.5], ['Off', 0]] as const).map(([text, v]) => ({
+          text,
+          on: (this.game.sfx?.commentary ?? 1) === v,
+          pick: () => this.game.sfx?.setCommentary(v),
+        })),
+      );
       this.segRow(game, 'Camera zoom', () =>
         (['close', 'normal', 'wide'] as Zoom[]).map((z) => ({
           text: z[0].toUpperCase() + z.slice(1),
@@ -1047,7 +1054,7 @@ export class App {
     this.closeModal();
     this.closeResults();
     this.leaveNetFight();
-    const m = this.game.startMatch(a, b, seed);
+    const m = this.game.startMatch(a, b, seed, true);
     this.netFight = s;
     s.watch(this.game, m);
     this.hud.resetSpeed();
