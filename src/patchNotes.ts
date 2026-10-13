@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-13 03:00',
+    title: 'Parts into the crowd',
+    notes: [
+      'Parts blown off a bot no longer hit an invisible wall at the ropes. A big enough blow sends them sailing over the top rope, off the apron and into the stands, where they clatter down the rows. The fans where it lands leap up and go wild, and the whole arena roars.',
+    ],
+  },
+  {
     hour: '2026-10-13 02:00',
     title: 'Live commentary',
     notes: [
