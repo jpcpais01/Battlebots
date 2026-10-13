@@ -119,11 +119,13 @@ export class Parts {
   /** Parts torn off so far, in order (the part that was hit, not the ones it carried). */
   readonly lost: number[] = [];
 
-  constructor(loadout?: Loadout) {
+  /** `tough`: extra durability per armouring slot (heavy makers' parts take more wear before they give). */
+  constructor(loadout?: Loadout, tough?: Partial<Record<Slot, number>>) {
     this.durability = new Float32Array(PART_COUNT);
     for (let i = 0; i < PART_COUNT; i++) {
       const r = loadout ? RARITIES[loadout[PART_SLOT[i]].rarity].mult : 1;
-      this.durability[i] = DURABILITY[i] * (0.85 + 0.15 * r);
+      const t = Math.max(-0.4, tough?.[PART_SLOT[i]] ?? 0);
+      this.durability[i] = DURABILITY[i] * (0.85 + 0.15 * r) * (1 + t);
     }
   }
 

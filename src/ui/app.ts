@@ -6,8 +6,11 @@ import { Rng } from '../sim/math';
 import { MOVES } from '../sim/moves';
 import type { Fighter } from '../sim/fighter';
 import {
+  COMPANIES,
   computeBuild,
   formatPassive,
+  partTint,
+  setsOf,
   formatStatLine,
   ITEM_BY_ID,
   MAX_RARITY,
@@ -16,6 +19,7 @@ import {
   scaledStat,
   SLOT_LABEL,
   SLOTS,
+  type Equipped,
   type ItemDef,
   type Rarity,
   type Slot,
@@ -29,7 +33,7 @@ import { button, el, esc } from './dom';
 import { Hud } from './hud';
 import { botCardInner, paintOf } from './botCard';
 import { PerfOverlay } from './perfOverlay';
-import { ABILITY_ICON, ICON, SLOT_ICON } from './icons';
+import { ABILITY_ICON, COMPANY_ICON, ICON, SLOT_ICON } from './icons';
 import { forceUpdate } from '../update';
 import { OnlineScreen } from './online';
 import type { OnlineSession } from '../net/session';
@@ -392,7 +396,7 @@ export class App {
           this.refreshGarage();
         }
       }, g.rail);
-      t.style.setProperty('--rc', RARITIES[eq.rarity].color);
+      t.style.setProperty('--rc', partTint(item, eq.rarity));
       if (this.tab !== 'part') t.classList.remove('on');
     }
     const picked = (p.emotes?.win.length ?? 0) + (p.emotes?.taunt.length ?? 0) + (p.emotes?.finish?.length ?? 0);
@@ -442,22 +446,40 @@ export class App {
 
     const scroll = g.items.scrollTop;
     g.items.innerHTML = '';
-    for (const item of itemsForSlot(this.slot)) {
-      const on = item.id === eq.id;
-      const delta = on ? 0 : computeBuild({ ...p.loadout, [this.slot]: { id: item.id, rarity: eq.rarity } }).rating - build.rating;
-      const card = button(`item${on ? ' on' : ''}`, this.itemHtml(item, eq.rarity, on, delta), () => {
-        if (item.id !== eq.id) {
-          this.tap('select');
-          eq.id = item.id;
-          this.commitPlayer();
-          this.game.garagePulse();
-        }
-        if (item.ability) setTimeout(() => this.game.previewMove(item.ability!), 120);
-      }, g.items);
-      card.style.setProperty('--rc', RARITIES[eq.rarity].color);
+    // grouped by maker: a brand header (how many of its parts are fitted, and its set bonuses), then its parts
+    const fitted = new Map(setsOf(p.loadout).map((st) => [st.company.id, st.count]));
+    const slotItems = itemsForSlot(this.slot);
+    for (const co of COMPANIES) {
+      const mine = slotItems.filter((it) => it.maker === co.id);
+      if (!mine.length) continue;
+      const n = fitted.get(co.id) ?? 0;
+      const pips = Array.from({ length: 6 }, (_, k) => `<i class="${k < n ? 'on' : ''}${k === 2 ? ' gap' : ''}"></i>`).join('');
+      const bon = co.sets.map((b) => `<span class="${n >= b.at ? 'on' : ''}"><b>${b.at}</b>${esc(b.text)}</span>`).join('');
+      const h = el('div', `maker${n >= 3 ? ' live' : ''}`, `<div class="mlogo">${COMPANY_ICON[co.id]}</div>
+        <div class="mname"><b>${esc(co.name)}</b><span>${esc(co.motto)} <em>${esc(co.focus)}</em></span></div>
+        <div class="pips" title="${n} of 6 parts fitted">${pips}</div>
+        <div class="mbon">${bon}</div>`, g.items);
+      h.style.setProperty('--mc', co.color);
+      for (const item of mine) this.itemCard(item, eq, build.rating);
     }
     g.items.scrollTop = scroll;
     this.prewarmThumbs();
+  }
+
+  /** One part's card in the slot list; tapping fits it (and shows its move, if it has one). */
+  private itemCard(item: ItemDef, eq: Equipped, rating: number) {
+    const on = item.id === eq.id;
+    const delta = on ? 0 : computeBuild({ ...this.player.loadout, [this.slot]: { id: item.id, rarity: eq.rarity } }).rating - rating;
+    const card = button(`item${on ? ' on' : ''}`, this.itemHtml(item, eq.rarity, on, delta), () => {
+      if (item.id !== eq.id) {
+        this.tap('select');
+        eq.id = item.id;
+        this.commitPlayer();
+        this.game.garagePulse();
+      }
+      if (item.ability) setTimeout(() => this.game.previewMove(item.ability!), 120);
+    }, this.garageEls!.items);
+    card.style.setProperty('--rc', partTint(item, eq.rarity));
   }
 
   /** The Paint tab: ready-made schemes, each colour, the finish and the frame metal, all shown live on the bot. */
@@ -700,7 +722,15 @@ export class App {
       `<div class="sh"><span>Diagnostics</span><span class="muted">${MOVES[b.fistAbility].name} · ${MOVES[b.kickAbility].name}</span></div>` +
       rows
         .map(([l, k, v]) => `<span class="lbl">${l}</span><div class="bar"><i style="width:${Math.round(Math.max(0.04, Math.min(1, k)) * 100)}%"></i></div><span class="val">${v}</span>`)
-        .join('');
+        .join('') +
+      `<div class="sets">${b.sets
+        .map((st) => {
+          const next = st.company.sets.find((x) => st.count < x.at);
+          const live = st.company.sets.filter((x) => st.count >= x.at).map((x) => esc(x.text)).join(' · ');
+          const hint = live || (next ? `${next.at - st.count} more for ${esc(next.text)}` : '');
+          return `<span class="set${st.active ? ' on' : ''}" style="--mc:${st.company.color}" title="${esc(st.company.name)}">${COMPANY_ICON[st.company.id]}<b>${st.count}</b><span>${hint}</span></span>`;
+        })
+        .join('')}</div>`;
   }
 
   /** Drag to turn the robot (it keeps spinning a little when let go), and drift slowly when left alone. */
