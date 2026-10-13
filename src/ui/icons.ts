@@ -43,6 +43,8 @@ export const ICON = {
   forward: svg('<path d="M4 6l7 6-7 6z" fill="currentColor"/><path d="M12 6l7 6-7 6z" fill="currentColor"/>'),
   paint: svg('<path d="M18.4 2.6a2 2 0 0 1 2.8 2.8L12.4 14.2 9.8 11.6z"/><path d="M9.2 12.4c-2.2 0-3.9 1.6-3.9 3.7 0 1.5-.9 2.5-2.7 3.2 1.3 1.2 3 1.8 4.6 1.8 2.9 0 5.2-2.2 5.2-5.1z"/>'),
   star: svg('<path d="M12 2.5l2.9 6 6.6.8-4.9 4.5 1.3 6.5L12 17l-5.9 3.3 1.3-6.5L2.5 9.3l6.6-.8z"/>'),
+  user: svg('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'),
+  cloud: svg('<path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 8.5a4.8 4.8 0 0 1-.5 9.5z"/>'),
   trophy: svg('<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4"/>'),
 };
 

@@ -3457,3 +3457,128 @@ button {
     opacity: 0;
   }
 }
+
+/* ------------------------------------------------------------ account */
+.account-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  max-width: 13em;
+  font-family: var(--body);
+  font-weight: 700;
+  font-size: 0.78em;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0.35em 0.9em 0.35em 0.7em;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+}
+.account-btn svg {
+  width: 1.15em;
+  height: 1.15em;
+  flex: none;
+}
+.account-btn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-btn.in {
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: 0.04em;
+  border-color: rgba(42, 216, 255, 0.35);
+}
+.account-btn.in svg {
+  color: var(--cyan);
+}
+.account-btn.offline svg {
+  color: var(--amber);
+}
+.modal .box.account {
+  width: min(22em, calc(100vw - 2 * var(--pad)));
+  max-height: calc(100dvh - 1.2em);
+  overflow-y: auto;
+  pointer-events: auto;
+  gap: 0.55em;
+}
+.acct-tabs {
+  grid-template-columns: repeat(2, 1fr);
+}
+.acct-tabs button {
+  min-height: max(2.2em, 34px);
+}
+.acct-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+}
+.acct-in {
+  font-family: var(--body);
+  font-weight: 600;
+  font-size: 1.05em;
+  color: #fff;
+  background: rgba(5, 8, 14, 0.8);
+  border: 1px solid rgba(42, 216, 255, 0.3);
+  border-radius: 10px;
+  padding: 0.5em 0.75em;
+  min-height: 40px;
+  outline: none;
+}
+.acct-in:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(42, 216, 255, 0.18);
+}
+.acct-in::placeholder {
+  color: rgba(143, 155, 179, 0.5);
+}
+.acct-error {
+  margin: 0;
+  font-size: 0.88em;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--red) 75%, white);
+}
+.acct-who {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  font-size: 1.25em;
+}
+.acct-who svg {
+  width: 1.3em;
+  height: 1.3em;
+  color: var(--cyan);
+}
+.acct-sync {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45em;
+  margin: 0;
+  font-size: 0.88em;
+  font-weight: 700;
+  color: var(--green);
+}
+.acct-sync svg {
+  width: 1.2em;
+  height: 1.2em;
+  flex: none;
+}
+.acct-sync.syncing {
+  color: var(--muted);
+}
+.acct-sync.offline {
+  color: var(--amber);
+}
+.acct-actions {
+  display: flex;
+  gap: 0.6em;
+  justify-content: center;
+}
+.modal .box.account .muted {
+  margin: 0;
+  line-height: 1.3;
+}
