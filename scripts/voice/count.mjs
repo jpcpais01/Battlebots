@@ -25,7 +25,6 @@ const WORDS = { 3: 'THREE!', 2: 'TWO!', 1: 'ONE!', fight: 'FIGHT!' };
 /** Stock ElevenLabs voices (no custom voice slots needed): a mixed, mostly male, house. */
 const CROWD = [
   'pNInz6obpgDQGcFmaJgB', // Adam
-  'TxGEqnHWrfWFTfGW9XJX', // Josh
   'VR6AewLTigWG4xSOukaG', // Arnold
   '2EiwWnXFnvU5JabPnv8n', // Clyde
   'nPczCjzI2devNBz1zQrb', // Brian
@@ -33,7 +32,6 @@ const CROWD = [
   'onwK4e9ZLuTAKqWW03F9', // Daniel
   'JBFqnCBsd6RMkjVDRZzb', // George
   'TX3LPaxmHKxFdv7VOQHJ', // Liam
-  'pqHfZKP75CVOyRK4NiuS', // Bill
   'cjVigY5qzO86Huf0OWal', // Eric
   'EXAVITQu4vr4xnSDxMaL', // Sarah
   'FGY2WhTYpPnrIDTdsKH5', // Laura
@@ -74,11 +72,17 @@ async function voiceTakes(k) {
   for (const id of CROWD) {
     const file = join(dir, `${k}-${id}.mp3`);
     if (!existsSync(file)) {
-      const r = await fetch(`${API}/text-to-speech/${id}?output_format=mp3_44100_128`, {
-        method: 'POST',
-        headers: { 'xi-api-key': KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: `[shouting] ${WORDS[k]}`, model_id: 'eleven_v3' }),
-      });
+      let r;
+      // the account allows only a few requests at once: wait for a free slot
+      for (let tries = 0; ; tries++) {
+        r = await fetch(`${API}/text-to-speech/${id}?output_format=mp3_44100_128`, {
+          method: 'POST',
+          headers: { 'xi-api-key': KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: `[shouting] ${WORDS[k]}`, model_id: 'eleven_v3' }),
+        });
+        if (r.status !== 429 || tries >= 12) break;
+        await new Promise((ok) => setTimeout(ok, 2000 + tries * 1500));
+      }
       if (!r.ok) {
         const msg = await r.text();
         if (msg.includes('quota_exceeded')) throw new Error('Out of ElevenLabs credits');
