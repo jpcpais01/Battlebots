@@ -3,6 +3,7 @@ import { J } from '../sim/body';
 import type { Fighter } from '../sim/fighter';
 import { COUNTDOWN, PRESENT, type HitInfo, type Match } from '../sim/match';
 import { clamp, damp, Noise1, Rng, smoothstep } from '../sim/math';
+import { AX, AZ, SUITE_D, UPPER_Y } from './bowl';
 
 export type CamMode = 'menu' | 'garage' | 'match';
 export type CamZoom = 'close' | 'normal' | 'wide';
@@ -179,6 +180,8 @@ export class Director {
   private downIndex = 0;
   /** The intro beat being filmed (a presentation, the countdown): a change is a hard cut. */
   private beat = '';
+  /** Arena and crowd shots while the booth's opening outlasts the presentations. */
+  private filler = { n: 0, kind: 0, t: 0, dur: 0, a: 0, dir: 1 };
   private pts = Array.from({ length: 18 }, () => new THREE.Vector3());
   private room = new Float32Array(18);
   private npts = 0;
@@ -366,10 +369,18 @@ export class Director {
     const ph = match.phase;
     const sh = this.shot;
     sh.t += dt;
-    const beat = ph === 'intro' ? `p${match.presenting}` : ph === 'countdown' ? 'count' : '';
+    // both bots shown and the booth still talking: cut around the arena until the countdown
+    const fill = ph === 'intro' && match.phaseTime >= PRESENT * 2;
+    if (fill) {
+      const fl = this.filler;
+      fl.t += dt;
+      if (!this.beat.startsWith('f') || fl.t >= fl.dur) this.nextFiller();
+    } else this.filler.n = 0;
+    const beat = fill ? `f${this.filler.n}` : ph === 'intro' ? `p${match.presenting}` : ph === 'countdown' ? 'count' : '';
     const cut = beat !== this.beat;
     this.beat = beat;
-    if (ph === 'intro') this.presentShot(match, cut);
+    if (fill) this.fillerShot(cut);
+    else if (ph === 'intro') this.presentShot(match, cut);
     else if (ph === 'countdown') this.introShot(dt, match, cut);
     else if (ph === 'greet') {
       if (sh.kind !== 'greet') this.shot = makeShot('greet', Math.random);
@@ -621,6 +632,58 @@ export class Director {
     // aim off to the card's side, which puts the fighter on the other side of the frame
     const off = 0.34 * this.dist * Math.tan((this.fov * Math.PI) / 360) * this.camera.aspect;
     this.look.set(this.center.x + dz * off * sw, this.center.y, this.center.z - dx * off * sw);
+    if (cut) this.cuts++;
+  }
+
+  private nextFiller() {
+    const fl = this.filler;
+    let kind = (Math.random() * 4) | 0;
+    if (fl.n && kind === fl.kind) kind = (kind + 1) % 4;
+    fl.n++;
+    fl.kind = kind;
+    fl.t = 0;
+    fl.dur = 2.6 + Math.random() * 1.4;
+    fl.a = Math.random() * Math.PI * 2;
+    fl.dir = Math.random() < 0.5 ? -1 : 1;
+  }
+
+  /**
+   * Waiting on the booth after the presentations: the house itself. A slow pan along the
+   * stands from ringside, a high orbit over the whole bowl, the ring from up in the upper
+   * tier, or a low dolly across the canvas to the far seats.
+   */
+  private fillerShot(cut: boolean) {
+    const fl = this.filler;
+    const u = fl.t / fl.dur;
+    // a point on the bowl at angle a, pushed out by d from the front row
+    const bowl = (out: THREE.Vector3, a: number, d: number, y: number) => out.set(Math.cos(a) * (AX + d), y, Math.sin(a) * (AZ + d));
+    const base = this.baseFov * ZOOM[this.zoom].fov;
+    this.roll = 0;
+    if (fl.kind === 0) {
+      // ringside, panning along the faces in the lower tier
+      const a = fl.a + fl.dir * (u - 0.5) * 0.35;
+      // from the floor between the ring and the front row, across from the faces it films
+      this.pos.set(Math.cos(fl.a + Math.PI) * 8, 1.5, Math.sin(fl.a + Math.PI) * 6.5);
+      bowl(this.look, a, 4, 2.4);
+      this.fov = base * 0.7;
+    } else if (fl.kind === 1) {
+      // high over the bowl, orbiting slowly round the ring
+      const a = fl.a + fl.dir * u * 0.3;
+      this.pos.set(Math.cos(a) * 22, 14, Math.sin(a) * 18);
+      this.look.set(0, 0.6, 0);
+      this.fov = base * 1.1;
+    } else if (fl.kind === 2) {
+      // from the front of the upper tier, down onto the ring, drifting sideways
+      bowl(this.pos, fl.a + fl.dir * u * 0.12, SUITE_D - 2, UPPER_Y + 1.2);
+      this.look.set(0, 0.8, 0);
+      this.fov = base * 0.85;
+    } else {
+      // low on the floor, dollying across the canvas towards the far seats
+      const a = fl.a + fl.dir * (u - 0.5) * 0.25;
+      bowl(this.pos, a, -2.5, 0.4);
+      bowl(this.look, fl.a + Math.PI, 6, 3.2);
+      this.fov = base;
+    }
     if (cut) this.cuts++;
   }
 

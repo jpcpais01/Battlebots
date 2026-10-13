@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-13 14:00',
+    title: 'Arena shots before the bell',
+    notes: [
+      'If the commentators are still talking after both bots are introduced, the camera cuts around the arena: pans along the crowd, a high sweep over the bowl, the ring from the upper tier and low shots across the canvas.',
+    ],
+  },
+  {
     hour: '2026-10-13 13:00',
     title: 'Fight replays and a better booth',
     notes: [
