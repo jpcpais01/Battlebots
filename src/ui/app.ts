@@ -358,11 +358,50 @@ export class App {
 
   private rename() {
     this.tap();
-    const n = prompt('Name your bot', this.player.name);
-    if (n && n.trim()) {
-      this.player.name = n.trim().slice(0, 20);
-      this.commitPlayer(false);
-    }
+    this.openModal('Name your bot', (box) => {
+      box.classList.add('dialog');
+      const form = el('form', 'acct-form', '', box);
+      const inp = el('input', 'acct-in', '', form) as HTMLInputElement;
+      inp.value = this.player.name;
+      inp.maxLength = 20;
+      inp.spellcheck = false;
+      inp.autocomplete = 'off';
+      inp.setAttribute('aria-label', 'Bot name');
+      const row = el('div', 'dialog-btns', '', form);
+      button('btn small cyan', 'Cancel', () => this.closeModal(), row).type = 'button';
+      el('button', 'btn small primary', 'Save', row);
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const n = inp.value.trim().slice(0, 20);
+        if (!n) return inp.focus();
+        this.tap('select');
+        this.closeModal();
+        if (n !== this.player.name) {
+          this.player.name = n;
+          this.commitPlayer(false);
+        }
+      });
+      requestAnimationFrame(() => {
+        inp.focus();
+        inp.select();
+      });
+    });
+  }
+
+  /** A small in-game dialog: a message and buttons; resolves with the button picked (-1 if closed). */
+  private ask(title: string, text: string, buttons: [cls: string, label: string][]): Promise<number> {
+    return new Promise((done) => {
+      let picked = -1;
+      this.openModal(title, (box) => {
+        box.classList.add('dialog');
+        el('p', 'dialog-text', esc(text), box);
+        const row = el('div', 'dialog-btns', '', box);
+        buttons.forEach(([cls, label], i) => button(`btn small ${cls}`, label, () => {
+          picked = i;
+          this.closeModal();
+        }, row));
+      }, () => done(picked));
+    });
   }
 
   /** The voice button by the bot's name: record it, play it back, or wait for tomorrow. */
@@ -385,7 +424,8 @@ export class App {
       return;
     }
     if (!canVoiceToday() || b.classList.contains('busy')) return;
-    if (!confirm(`Have the commentators record "${name}"? You can record one name a day.`)) return;
+    const go = await this.ask('Voice your bot\'s name', `The commentators will record "${name}" and call it out in your fights. You can record one name a day.`, [['cyan', 'Not now'], ['primary', 'Record it']]);
+    if (go !== 1 || this.player.name !== name || b.classList.contains('busy')) return;
     b.classList.add('busy');
     this.syncVoiceBtn();
     try {
@@ -395,7 +435,7 @@ export class App {
       this.game.sfx?.addName(v.name, clips);
       this.game.sfx?.previewName(v.name);
     } catch (e) {
-      alert((e as Error).message);
+      void this.ask('Couldn\'t record the name', (e as Error).message, [['cyan', 'OK']]);
     }
     b.classList.remove('busy');
     this.syncVoiceBtn();

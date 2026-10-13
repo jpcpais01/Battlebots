@@ -3855,3 +3855,22 @@ button {
   border-color: #ff5a5a;
   color: #ff5a5a;
 }
+
+/* small in-game dialogs (rename, confirm, errors) */
+.modal .box.dialog {
+  max-width: min(22em, calc(100vw - 32px));
+}
+.dialog-text {
+  margin: 0;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.dialog-btns {
+  display: flex;
+  gap: 0.5em;
+  justify-content: center;
+  margin-top: 0.3em;
+}
+.dialog-btns .btn {
+  flex: 1;
+}
