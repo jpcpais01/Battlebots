@@ -37,7 +37,8 @@ import { ABILITY_ICON, COMPANY_ICON, ICON, SLOT_ICON } from './icons';
 import { forceUpdate } from '../update';
 import { OnlineScreen } from './online';
 import type { OnlineSession } from '../net/session';
-import { loadPlayer, loadQuality, loadRecord, loadZoom, savePlayer, saveQuality, saveRecord, saveZoom, setOnSaved, type Record_, type Zoom } from './store';
+import { loadPlayer, loadQuality, loadRecord, loadSaves, loadZoom, MAX_SAVES, savePlayer, saveSaves, saveQuality, saveRecord, saveZoom, setOnSaved, type Record_, type Zoom } from './store';
+import { bytesOf, canVoiceToday, isVoiced, voicedNames, voiceName } from '../audio/nameVoice';
 import { Account, PASSWORD_MIN, USERNAME_MAX, type SyncState } from '../net/account';
 
 type PaintPage = 'schemes' | 'primary' | 'secondary' | 'accent' | 'finish';
@@ -88,6 +89,7 @@ export class App {
   private paintPage: PaintPage = 'schemes';
   private garageEls: {
     name: HTMLElement;
+    voice: HTMLButtonElement;
     power: HTMLElement;
     stats: HTMLElement;
     rail: HTMLElement;
@@ -125,6 +127,12 @@ export class App {
   constructor(private game: Game, private quality: Quality) {
     this.ui = document.getElementById('ui')!;
     this.player = loadPlayer();
+    // names the player had voiced on this device: the booth calls their bots by them
+    for (const v of voicedNames()) {
+      const clips: Parameters<NonNullable<Game['sfx']>['addName']>[1] = {};
+      for (const [cut, c] of Object.entries(v.clips)) if (c) clips[cut as keyof typeof clips] = [bytesOf(c[0]), c[1]];
+      game.sfx?.addName(v.name, clips);
+    }
     this.record = loadRecord();
     game.director.zoom = loadZoom();
     this.account = new Account({
@@ -318,7 +326,9 @@ export class App {
       this.go(this.online.active ? 'online' : 'home');
     }, top);
     const id = el('div', 'garage-id', '', top);
-    const name = button('name', '', () => this.rename(), id);
+    const nameRow = el('div', 'gname-row', '', id);
+    const name = button('name', '', () => this.rename(), nameRow);
+    const voice = button('voice-btn', '', () => this.voiceBotName(), nameRow);
     const power = el('div', 'gpower', '', id);
     const stats = el('div', 'statbox', '', s);
     const view = button('view-btn', '', () => {
@@ -340,8 +350,9 @@ export class App {
       this.commitPlayer();
       this.game.garagePulse();
     }, actions);
+    button('btn small', `${ICON.copy}Saves`, () => this.savesMenu(), actions);
     button('btn small primary', `${ICON.swords}Fight`, () => this.fight(), actions);
-    this.garageEls = { name, power, stats, rail, title, rar, items, view };
+    this.garageEls = { name, voice, power, stats, rail, title, rar, items, view };
     return s;
   }
 
@@ -352,6 +363,96 @@ export class App {
       this.player.name = n.trim().slice(0, 20);
       this.commitPlayer(false);
     }
+  }
+
+  /** The voice button by the bot's name: record it, play it back, or wait for tomorrow. */
+  private syncVoiceBtn() {
+    const b = this.garageEls?.voice;
+    if (!b) return;
+    const done = isVoiced(this.player.name);
+    const busy = b.classList.contains('busy');
+    b.classList.toggle('done', done);
+    b.innerHTML = busy ? `${ICON.mic}<span>Recording…</span>` : done ? `${ICON.sound}<span>Hear name</span>` : `${ICON.mic}<span>${canVoiceToday() ? 'Voice name' : 'Voice name tomorrow'}</span>`;
+    b.disabled = busy || (!done && !canVoiceToday());
+  }
+
+  private async voiceBotName() {
+    this.tap();
+    const b = this.garageEls!.voice;
+    const name = this.player.name;
+    if (isVoiced(name)) {
+      this.game.sfx?.previewName(name);
+      return;
+    }
+    if (!canVoiceToday() || b.classList.contains('busy')) return;
+    if (!confirm(`Have the commentators record "${name}"? You can record one name a day.`)) return;
+    b.classList.add('busy');
+    this.syncVoiceBtn();
+    try {
+      const v = await voiceName(name);
+      const clips: Parameters<NonNullable<Game['sfx']>['addName']>[1] = {};
+      for (const [cut, c] of Object.entries(v.clips)) if (c) clips[cut as keyof typeof clips] = [bytesOf(c[0]), c[1]];
+      this.game.sfx?.addName(v.name, clips);
+      this.game.sfx?.previewName(v.name);
+    } catch (e) {
+      alert((e as Error).message);
+    }
+    b.classList.remove('busy');
+    this.syncVoiceBtn();
+  }
+
+  /** Saved loadouts: switch bots, keep this one, or overwrite a slot. */
+  private savesMenu() {
+    this.tap();
+    const draw = (box: HTMLElement) => {
+      box.replaceChildren();
+      box.classList.add('saves');
+      const backdrop = box.parentElement!;
+      backdrop.onclick = (e) => e.target === backdrop && this.closeModal();
+      const top = el('div', 'set-head', '<h2>Saved bots</h2>', box);
+      button('icon-btn', ICON.close, () => this.closeModal(), top);
+      const saves = loadSaves();
+      const list = el('div', 'save-list scroll', '', box);
+      if (!saves.length) el('p', 'muted', 'No saved bots yet. Save this one to switch back to it any time.', list);
+      saves.forEach((bot, i) => {
+        const row = el('div', 'save-row', '', list);
+        row.style.setProperty('--paint', paintOf(bot));
+        el('div', 'save-name', `<b>${esc(bot.name)}</b><span>${isVoiced(bot.name) ? `${ICON.sound} ` : ''}Power ${Math.round(computeBuild(bot.loadout).rating)}</span>`, row);
+        button('btn small primary', 'Use', () => {
+          this.tap('select');
+          this.player = structuredClone(bot);
+          this.commitPlayer();
+          this.game.garagePulse();
+          this.closeModal();
+        }, row);
+        button('btn small', 'Save here', () => {
+          this.tap();
+          saves[i] = structuredClone(this.player);
+          saveSaves(saves);
+          draw(box);
+        }, row);
+        const del = button('icon-btn small', ICON.close, () => {
+          if (!del.classList.contains('armed')) {
+            del.classList.add('armed');
+            del.title = 'Tap again to delete';
+            return;
+          }
+          saves.splice(i, 1);
+          saveSaves(saves);
+          draw(box);
+        }, row);
+        del.title = 'Delete';
+      });
+      if (saves.length < MAX_SAVES)
+        button('btn', `${ICON.copy}Save ${esc(this.player.name)}`, () => {
+          this.tap('select');
+          saves.push(structuredClone(this.player));
+          saveSaves(saves);
+          draw(box);
+        }, box);
+      else el('p', 'muted', `All ${MAX_SAVES} slots are used: save over one or delete one.`, box);
+    };
+    this.openModal('Saved bots', draw);
   }
 
   private randomizeName() {
@@ -394,6 +495,7 @@ export class App {
     if (!(this.tab === 'emotes' && this.emoteKind === 'finish')) this.game.sparring(false);
     const build = computeBuild(p.loadout);
     g.name.innerHTML = `${esc(p.name)} <span class="muted">✎</span>`;
+    this.syncVoiceBtn();
     g.power.innerHTML = `<span>Power</span><b>${build.rating}</b>`;
     this.game.garageBot(p.name, build.rating, p.paint);
 

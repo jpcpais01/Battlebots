@@ -17,8 +17,10 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-13 20:00',
-    title: 'Steadier tear-offs',
+    title: 'Saved bots and voiced names',
     notes: [
+      'New Saves button in the garage: keep up to 8 bots, each with its own name, parts and paint, and switch between them any time.',
+      'Voice your bot\'s name: tap the mic by its name in the garage and the commentators record it, then shout it in your fights. One new name a day.',
       'When a part gets torn off, the camera now holds steady on it for a moment before switching angles, so you see the piece fly off without a jarring cut.',
     ],
   },
