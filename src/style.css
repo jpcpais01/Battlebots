@@ -277,15 +277,6 @@ button {
 .bcard.r::after {
   background: linear-gradient(270deg, var(--paint), transparent);
 }
-.vs .bcard {
-  width: min(25vw, 15em);
-}
-.vs .bcard.l {
-  animation: slideL 0.6s cubic-bezier(0.2, 1, 0.3, 1) both;
-}
-.vs .bcard.r {
-  animation: slideR 0.6s cubic-bezier(0.2, 1, 0.3, 1) both;
-}
 .bcard .cap {
   display: flex;
   justify-content: space-between;
@@ -1505,29 +1496,113 @@ button {
 .count {
   position: absolute;
   left: 50%;
-  top: 30%;
-  transform: translate(-50%, -50%);
+  top: 36%;
+  width: 0;
+  height: 0;
   font-family: var(--display);
-  font-size: 4.6em;
   color: #fff;
-  text-shadow: 0 0 40px rgba(255, 255, 255, 0.4);
+  opacity: 0;
+  pointer-events: none;
+}
+.count b {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-weight: 400;
+  font-size: 7em;
+  line-height: 1;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+  text-shadow: 0 0 40px rgba(120, 220, 255, 0.55), 0 5px 0 rgba(0, 0, 0, 0.45);
+}
+/* a ring that bursts out from the number */
+.count i {
+  position: absolute;
+  left: -1.9em;
+  top: -1.9em;
+  width: 3.8em;
+  height: 3.8em;
+  font-size: 2.2em;
+  border-radius: 50%;
+  border: 0.14em solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 24px rgba(42, 216, 255, 0.6), inset 0 0 24px rgba(42, 216, 255, 0.4);
   opacity: 0;
 }
-.count.go {
-  animation: count 0.9s ease forwards;
+/* a light streak across the screen behind it */
+.count::before {
+  content: '';
+  position: absolute;
+  left: -50vw;
+  width: 100vw;
+  top: -0.9em;
+  height: 1.8em;
+  font-size: 2em;
+  background: linear-gradient(90deg, transparent, rgba(120, 220, 255, 0.28) 35%, rgba(255, 255, 255, 0.45) 50%, rgba(120, 220, 255, 0.28) 65%, transparent);
+  transform: scaleX(0);
 }
-@keyframes count {
+.count.go {
+  animation: countIn 0.95s ease forwards;
+}
+.count.go b {
+  animation: countNum 0.95s cubic-bezier(0.2, 1.3, 0.4, 1) forwards;
+}
+.count.go i {
+  animation: countRing 0.8s ease-out forwards;
+}
+.count.go::before {
+  animation: countStreak 0.7s cubic-bezier(0.2, 1, 0.3, 1) forwards;
+}
+@keyframes countIn {
   0% {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(1.8);
   }
-  20% {
+  8%,
+  78% {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
   }
   100% {
     opacity: 0;
+  }
+}
+@keyframes countNum {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(2.6);
+    filter: blur(8px);
+  }
+  18% {
+    opacity: 1;
     transform: translate(-50%, -50%) scale(0.9);
+    filter: none;
+  }
+  32% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(0.86);
+  }
+}
+@keyframes countRing {
+  0% {
+    opacity: 0;
+    transform: scale(0.45);
+  }
+  14% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2);
+  }
+}
+@keyframes countStreak {
+  0% {
+    opacity: 1;
+    transform: scaleX(0);
+  }
+  100% {
+    opacity: 0;
+    transform: scaleX(1);
   }
 }
 /* knockdown marks beside a fighter's name: three is a TKO */
@@ -1997,45 +2072,150 @@ button {
   }
 }
 
-/* VS intro: a card on each side, the robots framed between them */
+/* Intro: each fighter presented in turn, its card on its corner's side and its name
+   landing big under the robot, which the camera frames on the other side */
 .vs {
   position: absolute;
   inset: 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: calc(4.9em + 10px) var(--padr) calc(3.4em + max(10px, env(safe-area-inset-bottom))) var(--pad);
   pointer-events: auto;
+  transition: opacity 0.4s;
 }
-/* VS sits low between the robots' feet, clear of both cards */
-.vs .mid {
+.vs.gone {
+  opacity: 0;
+}
+.present {
+  --side: var(--cyan);
   position: absolute;
-  left: 50%;
-  bottom: max(14px, env(safe-area-inset-bottom));
-  transform: translateX(-50%);
+  inset: 0;
   display: flex;
   align-items: center;
-  gap: 0.5em;
-  animation: pop 0.5s 0.2s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+  padding: 10px var(--padr) calc(4.6em + max(10px, env(safe-area-inset-bottom))) var(--pad);
+  visibility: hidden;
 }
-.vs .mid b {
+.present.r {
+  --side: var(--orange);
+  justify-content: flex-end;
+}
+.present.on,
+.present.off {
+  visibility: visible;
+}
+.present .bcard {
+  width: min(27vw, 16em);
+}
+.present.on .bcard.l {
+  animation: slideL 0.6s cubic-bezier(0.2, 1, 0.3, 1) both;
+}
+.present.on .bcard.r {
+  animation: slideR 0.6s cubic-bezier(0.2, 1, 0.3, 1) both;
+}
+.present.off {
+  animation: presentOut 0.3s ease forwards;
+}
+@keyframes presentOut {
+  to {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+.present .banner {
+  position: absolute;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+  max-width: 62vw;
+}
+.present.l .banner {
+  right: var(--padr);
+  align-items: flex-end;
+  text-align: right;
+}
+.present.r .banner {
+  left: var(--pad);
+  align-items: flex-start;
+}
+.banner .corner {
+  font-size: 0.8em;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--side);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--side) 60%, transparent);
+}
+.banner .pname {
+  position: relative;
+  max-width: 100%;
+  padding: 0 0.12em 0.1em;
   font-family: var(--display);
   font-style: italic;
   font-weight: 400;
-  font-size: 2.6em;
+  font-size: min(3.4em, 8.5vw);
   line-height: 1;
-  color: var(--amber);
-  text-shadow: 0 0 26px rgba(255, 140, 40, 0.7), 0 3px 0 rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #fff;
+  text-shadow: 0 0 30px color-mix(in srgb, var(--paint) 70%, transparent), 0 4px 0 rgba(0, 0, 0, 0.5);
 }
-.vs .mid i {
-  width: 3.5em;
-  height: 3px;
-  border-radius: 3px;
-  background: linear-gradient(90deg, transparent, var(--cyan));
-  transform: skewX(-30deg);
+.banner .pname::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0.1em;
+  border-radius: 0.05em;
+  background: linear-gradient(90deg, var(--side), var(--paint));
+  transform-origin: left;
 }
-.vs .mid i:last-child {
-  background: linear-gradient(90deg, var(--orange), transparent);
+.present.l .banner .pname::after {
+  background: linear-gradient(270deg, var(--side), var(--paint));
+  transform-origin: right;
+}
+.banner .style {
+  font-size: 0.85em;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.present.on .banner .corner {
+  animation: bannerIn 0.45s 0.1s cubic-bezier(0.2, 1, 0.3, 1) both;
+}
+.present.on .banner .pname {
+  animation: nameSlam 0.55s 0.22s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+.present.on .banner .pname::after {
+  animation: barIn 0.5s 0.5s cubic-bezier(0.2, 1, 0.3, 1) both;
+}
+.present.on .banner .style {
+  animation: bannerIn 0.45s 0.6s ease both;
+}
+@keyframes bannerIn {
+  from {
+    opacity: 0;
+    transform: translateY(0.6em);
+  }
+}
+@keyframes nameSlam {
+  from {
+    opacity: 0;
+    transform: scale(1.7) skewX(-10deg);
+    filter: blur(6px);
+  }
+}
+@keyframes barIn {
+  from {
+    transform: scaleX(0);
+  }
+}
+/* the bars wait for the countdown */
+.hud .hud-top {
+  transition: opacity 0.4s ease, transform 0.5s cubic-bezier(0.2, 1, 0.3, 1);
+}
+.hud.intro .hud-top {
+  opacity: 0;
+  transform: translateY(-1.5em);
+  pointer-events: none;
 }
 @keyframes slideL {
   from {
@@ -2367,8 +2547,8 @@ button {
   .logo .l2 {
     font-size: 2.8em;
   }
-  .vs .bcard {
-    width: min(24vw, 13.5em);
+  .present .bcard {
+    width: min(26vw, 14em);
   }
   .bcard.home {
     width: min(40vw, 20em);
@@ -2410,10 +2590,23 @@ button {
     opacity: 0;
   }
 }
-.count.fight {
-  color: var(--amber);
+/* FIGHT!: bigger, hotter, and it holds a beat longer */
+.count.fight b {
+  font-size: 8em;
   font-style: italic;
-  text-shadow: 0 0 40px rgba(255, 140, 40, 0.7), 0 4px 0 rgba(0, 0, 0, 0.5);
+  color: var(--amber);
+  text-shadow: 0 0 50px rgba(255, 140, 40, 0.85), 0 5px 0 rgba(0, 0, 0, 0.5);
+}
+.count.fight i {
+  border-color: var(--amber);
+  box-shadow: 0 0 40px rgba(255, 140, 40, 0.75), inset 0 0 30px rgba(255, 140, 40, 0.5);
+}
+.count.fight::before {
+  background: linear-gradient(90deg, transparent, rgba(255, 150, 50, 0.35) 30%, rgba(255, 240, 200, 0.6) 50%, rgba(255, 150, 50, 0.35) 70%, transparent);
+}
+.count.fight.go,
+.count.fight.go b {
+  animation-duration: 1.4s;
 }
 .garage-top .name {
   text-align: left;

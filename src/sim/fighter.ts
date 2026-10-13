@@ -1499,6 +1499,9 @@ export class Fighter {
           pole.lerp(_w, aw);
           roll = lerp(roll, e[o + 6], aw);
         }
+        // a fist sent to a point in the world (touching gloves)
+        const rw = em.w * em.reachW;
+        if (side === em.reachSide && rw > 0.001) hand.lerp(this.toLocal(em.reach, _p), rw);
       }
       this.handRollT[side] = roll;
       const fore = FORE + this.extend[side];

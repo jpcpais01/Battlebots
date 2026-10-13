@@ -61,6 +61,10 @@ export class EmotePose {
   readonly gaze = new Vector3();
   /** Re-plant the feet precisely: on the emote stance, and for a moment after an emote. */
   restep = false;
+  /** A fist sent to a point in the world (the pre-fight fist bump): which hand, how much, where. */
+  reachSide = 1;
+  reachW = 0;
+  readonly reach = new Vector3();
 }
 
 // ------------------------------------------------------------------ authoring
@@ -305,6 +309,8 @@ class Ctx {
   walk = 0;
   /** How firmly the feet stay put (scales the brain's footwork down). */
   plant = 1;
+  /** How far the primary fist goes to the bump point between the fighters (0 = leave it to the pose). */
+  reach = 0;
   onBeat: (k: number, shake: number) => void = () => {};
   /** Defaults before each sample: face and watch the opponent, feet planted. */
   reset() {
@@ -313,6 +319,7 @@ class Ctx {
     this.gaze = 'opp';
     this.walk = 0;
     this.plant = 1;
+    this.reach = 0;
   }
   /** Crossed time t0 this step. */
   at(t0: number) {
@@ -332,6 +339,41 @@ interface Spec {
   line?: (me: string, opp: string) => string;
   sample(o: Shape, c: Ctx): void;
 }
+
+// ---------- the pre-fight fist bump
+/** Seconds into the bump at which the fists meet. */
+export const BUMP_CONTACT = 0.55;
+
+/**
+ * Touching gloves before the first bell: a nod of respect, the power hand out to meet
+ * the other fighter's halfway, a beat on contact, then back into the guard. The fist
+ * is sent to the exact point between the two fighters (Ctx.reach), so it lands on the
+ * other one's whatever their size or spacing; the other hand stays up.
+ */
+const bump: Spec = (() => {
+  const OFFER = arm([0.06, 0.16, 0.38], [0.8, -1, -0.15], 0.9);
+  const walk = S({ crouch: 0.04, pitch: 0.02, a: LOW_GUARD, bw: 0, stance: null });
+  const offer = S({ crouch: 0.07, pitch: 0.1, twist: -0.12, hip: -0.05, head: [0, -0.02, 0.03], a: OFFER, bw: 0, stance: null });
+  const touch = S({ crouch: 0.09, pitch: 0.14, twist: -0.16, hip: -0.06, head: [0, -0.05, 0.05], a: OFFER, bw: 0, stance: null });
+  const back = S({ crouch: 0.07, pitch: 0.04, twist: 0.1, a: GUARD, bw: 0, stance: null });
+  const K: Key[] = [[0, walk], [0.4, offer], [BUMP_CONTACT, touch, snap], [0.85, touch], [1.15, back], [99, back]];
+  return {
+    id: 'bump',
+    len: 1.6,
+    sample(o, c) {
+      const t = c.t;
+      keys(o, t, K);
+      // the knuckles go out to the meeting point and stay on it through the touch
+      c.reach = win(t, 0.12, 0.98, 0.28);
+      // a little give on contact, and a nod
+      const p = pulse(t, BUMP_CONTACT, 0.06, 0.22);
+      o[EC.PITCH] += 0.05 * p;
+      o[EC.HEAD + 1] -= 0.03 * p;
+      // feet stay put for the touch, then free for the step back
+      c.plant = t < 0.85 ? 1 : 0;
+    },
+  };
+})();
 
 // ---------- celebrations
 const C_REST = S({});
@@ -926,7 +968,7 @@ export class Showman {
   /** Radius of the ring walk (laps, struts); small for the garage preview. */
   private ringR = 2.3;
   private spec: Spec | null = null;
-  private kind: 'none' | 'taunt' | 'celebrate' = 'none';
+  private kind: 'none' | 'taunt' | 'celebrate' | 'greet' = 'none';
   private readonly c = new Ctx();
   private mirror = false;
   private readonly auth = new Float32Array(EC.N);
@@ -996,6 +1038,13 @@ export class Showman {
       this.considerTaunt(m);
     }
     this.step(dt);
+  }
+
+  /** Before the first bell: walk-in done, touch gloves (the match's Greeting starts both at once). */
+  bump() {
+    this.play(bump, 'greet', 0);
+    this.inLen = 0.35;
+    this.outLen = 0.45;
   }
 
   /** Garage: perform this emote now, playing to `yaw` (the camera). */
@@ -1082,7 +1131,7 @@ export class Showman {
     if (spec.line) m.emit('brain', { kind: 'taunt', text: spec.line(this.me.name, this.opp.name), f: this.me });
   }
 
-  private play(spec: Spec, kind: 'taunt' | 'celebrate', v: number, flip = false, len = spec.len) {
+  private play(spec: Spec, kind: 'taunt' | 'celebrate' | 'greet', v: number, flip = false, len = spec.len) {
     const me = this.me, opp = this.opp;
     const chain = this.spec !== null && this.pose.w > 0.3;
     if (chain) {
@@ -1124,9 +1173,10 @@ export class Showman {
 
   private finish() {
     this.spec = null;
-    if (this.kind === 'taunt') this.kind = 'none';
+    if (this.kind === 'taunt' || this.kind === 'greet') this.kind = 'none';
     const P = this.pose;
     P.w = 0;
+    P.reachW = 0;
     P.faceOn = false;
     P.gazeOn = false;
     this.me.lift = 0;
@@ -1163,6 +1213,17 @@ export class Showman {
     const outK = 1 - minJerk(clamp01((c.t - (c.T - this.outLen)) / this.outLen));
     const ending = outK < 1;
     P.w = lerp(this.w0, 1, inK) * outK;
+    // the bump: the primary fist to the point halfway between the two chests, knuckles
+    // stopping a fist's width short so the two meet face to face
+    P.reachW = c.reach;
+    if (c.reach > 0) {
+      const ca = me.body.pos[J.Chest], cb = this.opp.body.pos[J.Chest];
+      const dx = cb.x - ca.x, dz = cb.z - ca.z;
+      const d = Math.max(0.3, DM.hypot(dx, dz));
+      const k = 0.5 - 0.075 / d;
+      P.reach.set(ca.x + dx * k, (ca.y + cb.y) * 0.5 + 0.06, ca.z + dz * k);
+      P.reachSide = this.mirror ? 0 : 1;
+    }
 
     // facing
     let yaw: number | null = null;
@@ -1211,7 +1272,7 @@ export class Showman {
 
 /** Every emote by id (debug captures and tools). */
 export const EMOTES: Record<string, Spec> = Object.fromEntries(
-  [champion, flex, chestPound, leap, salute, bow, kneel, shadowbox, standOver, fistPumps, wave, lap, beckon, shrug, pointDown, shuffle, crowdPump, stompRoar, gloveTap, strut].map((s) => [s.id, s]),
+  [champion, flex, chestPound, leap, salute, bow, kneel, shadowbox, standOver, fistPumps, wave, lap, beckon, shrug, pointDown, shuffle, crowdPump, stompRoar, gloveTap, strut, bump].map((s) => [s.id, s]),
 );
 
 /** Equipped emotes (picked in the garage). Empty lists mean the fighter picks for itself. */

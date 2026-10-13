@@ -32,7 +32,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2,mp3}'],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         // commentary clips download as fights need them and stay for good (their names are content hashes)
         globIgnores: ['voice/**'],
