@@ -9,6 +9,7 @@ import { BotModel } from '../render/botModel';
 import { Match, SIM_DT, type DetachInfo, type HitInfo } from '../sim/match';
 import { CUT_JOINTS, P, PART_COUNT } from '../sim/damage';
 import { Debris } from '../render/debris';
+import { Oil } from '../render/oil';
 import { Fighter } from '../sim/fighter';
 import { EMOTE_KIND, Showman } from '../sim/emote';
 import { FinisherRun } from '../sim/finisher';
@@ -40,6 +41,15 @@ const _v = new THREE.Vector3();
 const _u = new THREE.Vector3();
 const _pan = new THREE.Vector3();
 const _dp = new THREE.Vector3();
+const _dq = new THREE.Vector3();
+
+/** Oil starts to leak from the chest or lower torso below this condition. */
+const LEAK_BELOW = 0.35;
+/** How badly a trunk part bleeds oil, 0 (not at all) to 1, from its condition. */
+function oilLeak(part: number, cond: number) {
+  if ((part !== P.Chest && part !== P.Torso) || cond >= LEAK_BELOW) return 0;
+  return 0.15 + 0.85 * ((LEAK_BELOW - cond) / LEAK_BELOW);
+}
 const _up = new THREE.Vector3(0, 1, 0);
 /** Longest the intro waits for the booth's opening, in seconds. */
 const INTRO_MAX = 16;
@@ -130,6 +140,12 @@ export class Game {
   readonly debris = new Debris();
   /** Per fighter: stumps left by torn parts (joint, age in seconds). */
   private stumps: { joint: number; age: number }[][] = [[], []];
+  /** Oil bleeding from wrecked chests and lower torsos, and the puddles it leaves. */
+  readonly oil = new Oil();
+  /** Per fighter: which way round the body each trunk wound faces (radians from the front). */
+  private wounds: number[][] = [[0, 0], [0, 0]];
+  /** Every foot in a fixed order (null once its leg is gone), for oily footprints. */
+  private oilFeet: (THREE.Vector3 | null)[] = [null, null, null, null];
   private feet: THREE.Vector3[] = [];
 
   constructor(canvas: HTMLCanvasElement, quality: Quality) {
@@ -147,10 +163,12 @@ export class Game {
     this.fx = new Fx();
     this.stage.scene.add(this.fx.group);
     this.stage.scene.add(this.debris.group);
+    this.stage.scene.add(this.oil.group);
     this.tagParts();
     this.director = new Director(this.stage.camera);
     this.stage.onResize = (w, h) => {
       this.fx.setPixelScale(h);
+      this.oil.setPixelScale(h);
       this.arena.setPixelScale(h);
       const narrow = w / Math.max(1, h / (window.devicePixelRatio || 1)) < 1.2;
       this.director.setBaseFov(this.stage.baseFov, narrow);
@@ -167,6 +185,7 @@ export class Game {
     p.tag(this.arena.venue.crowd.group, 'crowd');
     p.tag(this.fx.group, 'effects');
     p.tag(this.debris.group, 'bots');
+    p.tag(this.oil.group, 'effects');
     this.arena.group.traverse((o) => {
       if (o.name === 'ropes' || o.name === 'beams') p.tag(o, o.name);
     });
@@ -414,6 +433,8 @@ export class Game {
     });
     this.director.mode = 'match';
     this.director.reset();
+    // wounds open somewhere on the front half of the body
+    this.wounds = [0, 1].map(() => [0, 1].map(() => (Math.random() - 0.5) * 2.4));
     this.acc = 0;
     this.speed = 1;
     this.groundedPrev = [
@@ -461,6 +482,7 @@ export class Game {
     this.models = [];
     this.match = null;
     this.debris.clear();
+    this.oil.clear();
     this.stumps = [[], []];
   }
 
@@ -670,6 +692,12 @@ export class Game {
           this.arena.excite(0.8);
         },
       );
+      for (let i = 0; i < 2; i++) {
+        const f = m.fighters[i];
+        this.oilFeet[i * 2] = f.parts.legOut(0) ? null : this.models[i].joints[J.FootL];
+        this.oilFeet[i * 2 + 1] = f.parts.legOut(1) ? null : this.models[i].joints[J.FootR];
+      }
+      this.oil.update(dt * this.speed * m.slowmo, this.oilFeet);
       perf.lap('bots');
     }
     if (this.showcase) {
@@ -857,6 +885,8 @@ export class Game {
       this.fx.shrapnel(h.point, h.dir, Math.round(3 + wear * 14 + h.damage / 16), 2.5 + wear * 2.5);
       if (wear > 0.35) this.fx.smoke(h.point, 1 + Math.round(wear * 3), wear);
     }
+    const k = oilLeak(h.part, h.partCond);
+    if (k > 0 && !h.blocked) this.oil.splash(h.point, h.dir, k);
   }
 
   /** A part comes off: the piece flies, the stump bursts with sparks, the arena erupts. */
@@ -909,6 +939,17 @@ export class Game {
       if (Math.random() < dt * (0.4 + kk * 6)) this.fx.sparks(_dp, _up, 2 + Math.round(kk * 8), 0xffb050, 2 + kk * 1.5, 1.3);
       if (w > 0.4 && Math.random() < dt * (0.6 + kk * 10)) this.fx.smoke(_dp, 1 + Math.round(kk), 0.2 + kk * 0.8);
       if (w > 0.75 && Math.random() < dt * (0.3 + kk * 1.5)) this.fx.arc(_dp, 0.1 + kk * 0.06);
+    }
+    // a wrecked chest or lower torso bleeds oil from a wound on its plating
+    for (let w = 0; w < 2; w++) {
+      const p = w === 0 ? P.Chest : P.Torso;
+      const k = oilLeak(p, parts.cond[p]);
+      if (k <= 0) continue;
+      const ang = f.yaw + this.wounds[i][w];
+      _dq.set(Math.sin(ang), 0, Math.cos(ang));
+      if (w === 0) _dp.copy(J0[J.Chest]).addScaledVector(_dq, 0.21);
+      else _dp.lerpVectors(J0[J.Pelvis], J0[J.Chest], 0.3).addScaledVector(_dq, 0.17);
+      this.oil.leak(i * 2 + w, _dp, _dq, k, dt);
     }
     for (const s of this.stumps[i]) {
       s.age += dt;
