@@ -117,6 +117,13 @@ export class CrowdMood {
         this.cue('ooh', 0.9, 0);
         this.cue('cheer', 0.85, 0.25, 0.5);
         break;
+      case 'finisher':
+        // everyone knows what's coming
+        this.excite = 1;
+        this.hold = Math.max(this.hold, 3);
+        this.cue('ooh', 0.85, 0);
+        this.cue('cheer', 0.8, 0.35, 0.5);
+        break;
       case 'stagger':
         this.bump(0.2);
         this.cue('ooh', 0.45, 0.05);

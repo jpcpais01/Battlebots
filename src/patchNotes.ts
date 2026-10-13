@@ -16,6 +16,14 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-13 03:00',
+    title: 'Finishers',
+    notes: [
+      'New: Finishers. When your opponent is down to 15% health or less and you still have 40% or more, your next landed attack becomes a Finisher: the fight slows down, the camera swings in, and your bot ends it in style with a special combo. Watch for the "Finisher ready" tag on the health bar.',
+      'Five finishers to choose from in the garage, under Emotes > Finishers: Skyfall (a charged uppercut into the rafters), Meteor Hammer (a leaping two-fist slam), Cyclone (a spinning kick that sends them flying), Piston Overdrive (a jab storm and a rocket punch) and Headhunter (drop them to their knees and kick their head clean off). A sparring dummy shows each one in the garage.',
+    ],
+  },
+  {
     hour: '2026-10-13 02:00',
     title: 'Live commentary',
     notes: [
