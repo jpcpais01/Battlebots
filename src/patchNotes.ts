@@ -17,8 +17,13 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-13 14:00',
-    title: 'Arena shots before the bell',
+    title: 'Five robot makers and 30 new parts',
     notes: [
+      'Every part now comes from one of five robot makers, each with its own look and fighting style: Bastion Heavy Industries (armour), Kestrel Dynamics (speed), Vulkan Forgeworks (raw power), Halcyon Voltaics (energy and self-repair) and Kensei Precision (accuracy and counters).',
+      '30 new parts, six from each maker: riveted blast-door hulls, swept-wing jet frames, furnace-glow forge plating, glowing halo shells and laced samurai armour.',
+      'Set bonuses: fit three parts from the same maker for a bonus, and all six for a bigger one. The garage groups parts by maker and shows how close you are, and Diagnostics lists your live bonuses.',
+      'New perks to find on the new parts, like Furnace (each clean hit in a row hits harder), Iaido (a big first strike after a pause), Nanite Bloom (repairs while untouched) and Durability, which makes parts harder to break off.',
+      'Opponents often show up in matching gear from one maker, and the pre-fight cards show their set.',
       'Finishers get the full commentary treatment: the caller shouts the move as it starts ("Look at that fist crackle! SKYFALL!"), Reg or Unit Seven jumps in on top, the final blow gets a scream, and the knockout call names the finisher. Every finisher has its own lines.',
       'The pre-fight fist bump is one smooth, quick motion now: the bots reach out at full stretch as they arrive, touch fists from further apart and spring back into their guards.',
       'Smoother sound on phones: no more crackles, dropouts or stutter in the commentary and crowd, the commentators no longer dip in volume on every heavy hit, and replies come in right on cue. Every sound is still there.',
