@@ -117,6 +117,7 @@ export class CrowdMood {
         this.cue('ooh', 0.9, 0);
         this.cue('cheer', 0.85, 0.25, 0.5);
         break;
+<<<<<<< HEAD
       case 'debrisCrowd':
         // a torn-off part sailed into the seats: screams, then a roar as someone holds it up
         this.excite = 1;
@@ -124,6 +125,14 @@ export class CrowdMood {
         this.cue('ooh', 0.8, 0, 0.8);
         this.cue('cheer', 1, 0.35, 0.8);
         this.cues.push({ kind: 'whistle', gain: 0.5, delay: 0.9 });
+=======
+      case 'finisher':
+        // everyone knows what's coming
+        this.excite = 1;
+        this.hold = Math.max(this.hold, 3);
+        this.cue('ooh', 0.85, 0);
+        this.cue('cheer', 0.8, 0.35, 0.5);
+>>>>>>> origin/main
         break;
       case 'stagger':
         this.bump(0.2);

@@ -88,9 +88,10 @@ export class Debris {
 
   /**
    * Launch a piece (already placed in world space). `dir` is the blow's direction and
-   * `strength` its damage before blocking.
+   * `strength` its damage before blocking. `canFly` lets a big blow send it out of the ring
+   * (off in the garage, which has no stands to land in).
    */
-  spawn(obj: THREE.Group, dir: THREE.Vector3, strength: number): THREE.Vector3 {
+  spawn(obj: THREE.Group, dir: THREE.Vector3, strength: number, canFly = true): THREE.Vector3 {
     this.group.add(obj);
     // hull points from the geometry's bounds, a little inset so it rests on its plating
     const mesh = obj.children[0] as THREE.Mesh;
@@ -109,7 +110,7 @@ export class Debris {
     }
     const radius = Math.max(0.06, b.getSize(_v).length() * 0.35);
     // most pieces drop in the ring; a big enough blow sends one sailing out over the ropes
-    const big = Math.random() < Math.min(0.6, 0.2 + strength * 0.0035);
+    const big = canFly && Math.random() < Math.min(0.6, 0.2 + strength * 0.0035);
     const speed = big ? 5.5 + Math.random() * 3 + Math.min(2.5, strength * 0.012) : 1.6 + Math.min(3, strength * 0.022);
     const vel = new THREE.Vector3(dir.x, 0, dir.z).normalize().multiplyScalar(speed);
     vel.y = big ? 4 + Math.random() * 1.8 : 2 + Math.random() * 1.4 + strength * 0.008;
