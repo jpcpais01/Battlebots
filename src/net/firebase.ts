@@ -11,8 +11,8 @@
 
 /** Firebase web config, from the Firebase console (Project settings > Your apps > Web app). */
 const CONFIG = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyBYZDi0zPpanwRe91o-clfWQWFBp2e7yp4',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'battlebots-8f6f1',
 };
 
 /** Accounts work once the web config is filled in. */
