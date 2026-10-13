@@ -20,6 +20,7 @@ export const PATCH_NOTES: PatchNote[] = [
     title: 'Live commentary',
     notes: [
       'The commentary booth goes wild now: a brand-new American caller and a gravelly British ex-heavyweight analyst, with every line rewritten to sound like a real boxing or MMA broadcast. They scream on the big shots, argue with each other and do not always keep it polite.',
+      'Knocked-down bots beat the count a bit more often again. A battered bot or one dropped twice can still stay down for ten, but a single knockdown rarely ends the fight.',
       'Fights now have live voiced commentary: a play-by-play caller and an old-school colour analyst call the punches, kicks, knockdowns, counts, comebacks and KOs as they happen, chat during quiet spells, and wrap up the result. Over 1,300 lines, so it stays fresh fight after fight. Turn it down or off in Settings > Commentary.',
     ],
   },

@@ -601,9 +601,9 @@ export class Match {
         // Does it beat the count? A fresh bot usually does; a battered one, one already
         // dropped before, or one flattened by a huge shot often stays down for ten.
         const beat = clamp(
-          0.92 - (1 - def.hpRatio) * 0.65 - (def.knockdowns - 1) * 0.22 - Math.min(0.25, (dmg / def.build.stats.maxHp) * 2) + def.passive('composure') * 0.4,
-          0.05,
-          0.9,
+          0.97 - (1 - def.hpRatio) * 0.45 - (def.knockdowns - 1) * 0.15 - Math.min(0.15, (dmg / def.build.stats.maxHp) * 1.5) + def.passive('composure') * 0.4,
+          0.15,
+          0.95,
         );
         if (def.knockdowns < 3 && !rng.chance(beat)) {
           def.downTime = COUNT_OUT + 1; // ko() lands first
