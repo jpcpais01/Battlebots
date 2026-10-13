@@ -90,7 +90,7 @@ function shotFor(item: ItemDef, rarity: Rarity, lo: Loadout): Shot {
         { pb: buildForearm(look, rarity), m: at(0, 0, 0), rarity },
         { pb: buildFist(look, 1, rarity), m: at(0, FOREARM, 0), rarity },
       ];
-      if (look === 3) parts.push({ pb: buildRocketPiston(), m: at(0, 0.2, 0).multiply(new THREE.Matrix4().makeScale(1, FOREARM - 0.2, 1)), rarity });
+      if (item.ability === 'rocketPunch') parts.push({ pb: buildRocketPiston(), m: at(0, 0.2, 0).multiply(new THREE.Matrix4().makeScale(1, FOREARM - 0.2, 1)), rarity });
       // a jab thrown past the viewer's shoulder: the fist comes forward and fills the frame
       return { parts, yaw: -0.95, pitch: 0.3, roll: -1.25 };
     }

@@ -1,10 +1,10 @@
 import type { Game } from '../game/game';
-import { ITEM_BY_ID, RARITIES, SLOTS, type FighterBuild } from '../game/items';
+import { ITEM_BY_ID, MAX_RARITY, partTint, RARITIES, SLOTS, type FighterBuild } from '../game/items';
 import type { BotSpec } from '../game/loadout';
 import { hexColor } from '../game/paint';
 import { MOVES, type MoveId } from '../sim/moves';
 import { esc } from './dom';
-import { ABILITY_ICON, SLOT_ICON } from './icons';
+import { ABILITY_ICON, COMPANY_ICON, SLOT_ICON } from './icons';
 
 export interface BotCardOpts {
   /** Which screen edge the card hugs: sets the accent colour and mirrors the layout. */
@@ -35,11 +35,16 @@ export function botCardInner(game: Game, spec: BotSpec, build: FighterBuild, o: 
     } catch {
       // no WebGL thumbnail: fall back to the slot icon
     }
-    return `<div class="g" style="--rc:${RARITIES[eq.rarity].color};--d:${(d0 + k * 0.05).toFixed(2)}s" title="${esc(item.name)} (${RARITIES[eq.rarity].name})">${src ? `<img src="${src}" alt="">` : SLOT_ICON[slot]}</div>`;
+    return `<div class="g" style="--rc:${partTint(item, eq.rarity)};--d:${(d0 + k * 0.05).toFixed(2)}s" title="${esc(item.name)}${MAX_RARITY ? ` (${RARITIES[eq.rarity].name})` : ''}">${src ? `<img src="${src}" alt="">` : SLOT_ICON[slot]}</div>`;
   }).join('');
+  // makers whose set bonus is live: logo and piece count
+  const sets = build.sets
+    .filter((st) => st.active)
+    .map((st) => `<span class="mk" style="--mc:${st.company.color}" title="${esc(st.company.name)}">${COMPANY_ICON[st.company.id]}${st.count}</span>`)
+    .join('');
   return `<div class="cap"><span class="tag">${esc(o.tag)}</span><span class="pwr"><small>PWR</small>${build.rating}</span></div>
     <div class="name">${esc(spec.name)}</div>
-    <div class="moves">${move(build.fistAbility)}${move(build.kickAbility)}</div>
+    <div class="moves">${move(build.fistAbility)}${move(build.kickAbility)}${sets}</div>
     <div class="gear">${gear}</div>`;
 }
 

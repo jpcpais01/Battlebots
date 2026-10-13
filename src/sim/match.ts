@@ -541,6 +541,11 @@ export class Match {
     const counter = !!ds && !blocked && ds.phase !== 'recovery' && !ds.feint;
     if (counter) dmg *= 1.2 + att.passive('retaliate');
     dmg *= 1 + att.rage * att.passive('rage');
+    dmg *= 1 + att.heat * att.passive('furnace');
+    if (s.poised) {
+      dmg *= 1 + att.passive('iaido');
+      s.poised = false;
+    }
     dmg *= 1 + att.overdrive;
     if (att.afterimage > 0) {
       dmg *= 1 + att.passive('afterimage');
@@ -551,6 +556,7 @@ export class Match {
     if (att.staminaRatio < 0.15) dmg *= 0.85;
     dmg *= rng.range(0.92, 1.08);
     dmg *= 1 - dst.armor;
+    if (zone === 'body') dmg *= 1 - def.passive('bulwark');
     if (zone === 'head') dmg *= (1 - dst.headGuard) * (1 - def.passive('ironChin'));
     let guardBreak = false;
     /** How hard it landed before the guard soaked it up (what the parts feel). */
@@ -585,15 +591,16 @@ export class Match {
     let partCond = def.parts.cond[part];
     if (!shielded) {
       const strikerPart = this.strikerPart(s);
+      const shred = 1 + att.passive('shatter');
       if (blocked) {
-        partCond = def.parts.damage(part, strength * (m.guardBreak ? 0.6 : 0.38));
+        partCond = def.parts.damage(part, strength * (m.guardBreak ? 0.6 : 0.38) * shred);
         this.wearCheck(def, part);
         if (strikerPart >= 0) {
           att.parts.damage(strikerPart, strength * 0.24);
           this.wearCheck(att, strikerPart);
         }
       } else {
-        partCond = def.parts.damage(part, dmg);
+        partCond = def.parts.damage(part, dmg * shred);
         this.wearCheck(def, part);
       }
       // a strong enough shot on a part hanging on by a thread rips it off
@@ -744,6 +751,12 @@ export class Match {
 
     // passives
     if (!blocked && dmg > 0) {
+      // furnace: clean hits in a row stoke it, taking one cools it
+      if (att.passive('furnace') > 0) {
+        att.heat = Math.min(5, att.heat + 1);
+        att.heatTime = 0;
+      }
+      def.heat = 0;
       const siphon = att.passive('siphon');
       if (siphon > 0) att.hp = Math.min(ast.maxHp, att.hp + dmg * siphon);
       if (def.passive('rage') > 0) {
