@@ -21,7 +21,8 @@ import {
 import { DM } from './dmath';
 import { EC, type EmotePose } from './emote';
 
-export type FState = 'ready' | 'fight' | 'stun' | 'stagger' | 'down' | 'getup' | 'ko' | 'win';
+/** 'held': caught in an opponent's finisher; the finisher moves and poses it. */
+export type FState = 'ready' | 'fight' | 'stun' | 'stagger' | 'down' | 'getup' | 'ko' | 'win' | 'held';
 export type GuardMode = 'normal' | 'high' | 'body' | 'low';
 export type DodgeType = 'slip' | 'duck' | 'sway' | 'backstep' | 'sidestep';
 export type StrikeResult = 'pending' | 'hit' | 'blocked' | 'whiff' | 'dodged' | 'interrupted' | 'feint';
@@ -565,6 +566,28 @@ export class Fighter {
       windupMul = alt ? 0.7 : 0.9;
       speed *= 1 + this.passive('whiplash');
     }
+    this.launchStrike(move, zone, aim, side, speed, windupMul, feint);
+    return true;
+  }
+
+  /**
+   * A scripted strike (finishers): thrown at a set speed whatever the state, cooldowns
+   * or stamina, replacing anything in progress. Contact is up to the script.
+   */
+  forceStrike(id: MoveId, zone: Zone, aim: Vector3, speed: number): StrikeAction {
+    const move = MOVES[id];
+    const prev = this.action;
+    if (prev) {
+      if (prev.kind === 'strike') {
+        if (prev.result === 'pending') prev.result = prev.hasHit ? 'hit' : 'interrupted';
+        this.finishStrike(prev, true);
+      } else this.action = null;
+    }
+    return this.launchStrike(move, zone, aim, this.strikeSide(move), speed, 1, false, true);
+  }
+
+  private launchStrike(move: MoveDef, zone: Zone, aim: Vector3, side: 'L' | 'R', speed: number, windupMul: number, feint: boolean, scripted = false) {
+    const prev = this.strike;
     const s: StrikeAction = {
       kind: 'strike',
       move,
@@ -594,13 +617,13 @@ export class Fighter {
     if (prev) this.finishStrike(prev, true);
     this.action = s;
     this.lastActTime = this.hooksTime;
-    if (!feint) {
+    if (!feint && !scripted) {
       this.stamina -= move.stamina;
-      if (move.cooldown) this.cooldowns[id] = move.cooldown;
+      if (move.cooldown) this.cooldowns[move.id] = move.cooldown;
       this.stats.thrown++;
     }
     this.hooks?.emit('strikeStart', { f: this, s });
-    return true;
+    return s;
   }
 
   tryDodge(type: DodgeType, dir: number): boolean {
@@ -923,6 +946,11 @@ export class Fighter {
       accel = 1.5;
     }
     if (this.state === 'getup' || this.state === 'ready') maxSpd = 0;
+    if (this.state === 'held') {
+      // the finisher steers it; knockback carries it, then it stops where the hits leave it
+      maxSpd = 3;
+      accel = 6;
+    }
     if (this.state === 'win') maxSpd *= 0.4;
     if (this.dodge && (this.dodge.type === 'backstep' || this.dodge.type === 'sidestep')) accel = 3;
 
@@ -969,6 +997,7 @@ export class Fighter {
       if (this.state === 'stun') turn = 2;
       if (this.state === 'stagger') turn = 1;
       if (this.state === 'win') turn = 1.5;
+      if (this.state === 'held') turn = 2;
       if (this.state === 'getup') turn = this.stateTime / this.getupDur < 0.6 ? 0 : 3;
       const em = this.emote;
       if (em && em.faceOn && em.w > 0.2) {

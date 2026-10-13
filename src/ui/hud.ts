@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Game } from '../game/game';
-import type { Match, HitInfo, DetachInfo, FinishKind, WearInfo } from '../sim/match';
+import type { Match, HitInfo, DetachInfo, FinishKind, FinisherInfo, WearInfo } from '../sim/match';
 import { DETACHABLE, LOOSE, P, PART_COUNT, PART_NAME, type LossReason } from '../sim/damage';
 import type { Fighter } from '../sim/fighter';
 import type { BrainEvent } from '../sim/brain';
@@ -25,6 +25,9 @@ interface BarEls {
   num: HTMLElement;
   /** Damage taken in the current flurry, beside the name while the chip is up. */
   chipN: HTMLElement;
+  /** "Finisher ready" tag, lit while this bot's next landed shot would start one. */
+  ready: HTMLElement;
+  readyOn: boolean;
   st: HTMLElement;
   abs: { el: HTMLElement; cd: HTMLElement; move?: MoveId; core?: boolean }[];
   /** Where the chip segment ends (health ratio), and how fast it's draining. */
@@ -119,6 +122,9 @@ export class Hud {
   private calloutEl: HTMLElement;
   private countEl: HTMLElement;
   private finishEl: HTMLElement;
+  private finBan: HTMLElement;
+  /** The finisher that ended it, for the knockout's subtitle. */
+  private finBy: FinisherInfo | null = null;
   private refEl: HTMLElement;
   private refNum: HTMLElement;
   private refTicks: HTMLElement[];
@@ -159,6 +165,7 @@ export class Hud {
     this.calloutEl = el('div', 'callout', '', this.root);
     this.countEl = el('div', 'count', '', this.root);
     this.finishEl = el('div', 'finish', '', this.root);
+    this.finBan = el('div', 'finban', '', this.root);
     this.refEl = el(
       'div',
       'refcount',
@@ -188,6 +195,9 @@ export class Hud {
     this.pendingFinish = null;
     this.finishEl.className = 'finish';
     this.finishEl.innerHTML = '';
+    this.finBan.className = 'finban';
+    this.finBan.innerHTML = '';
+    this.finBy = null;
     this.root.classList.remove('finished');
     this.lowWarned = [false, false];
     this.tenWarned = false;
@@ -241,6 +251,7 @@ export class Hud {
       const stw = el('div', 'st', '', root);
       const st = el('i', '', '', stw);
       const abil = el('div', 'abil', '', root);
+      const ready = el('div', 'finready', `${ICON.bolt}<span>Finisher ready</span>`, root);
       const abs: BarEls['abs'] = [];
       const addAb = (html: string, title: string, move?: MoveId, core = false) => {
         const a = el('div', `ab${core ? ' core' : ''}`, html, abil);
@@ -254,7 +265,7 @@ export class Hud {
       const core = ITEM_BY_ID.get(spec.loadout.core.id)!;
       addAb(SLOT_ICON.core, core.passive.name, undefined, true);
       if (right) abil.style.flexDirection = 'row-reverse';
-      this.bars.push({ root, hp, chip, fill, flash, num, chipN, st, abs, chipV: 1, chipVel: 0, shownHp: 1, lastNum: Math.round(f.hp), lastChipN: 0 });
+      this.bars.push({ root, hp, chip, fill, flash, num, chipN, ready, readyOn: false, st, abs, chipV: 1, chipVel: 0, shownHp: 1, lastNum: Math.round(f.hp), lastChipN: 0 });
       return root;
     };
     top.appendChild(mk(0));
@@ -382,6 +393,13 @@ export class Hud {
           a.cd.style.height = `${frac * 100}%`;
           a.el.classList.toggle('ready', ready);
         }
+      }
+      // one clean shot from a finisher
+      const ready = m.canFinish(f);
+      if (ready !== b.readyOn) {
+        b.readyOn = ready;
+        b.root.classList.toggle('finready-on', ready);
+        if (ready) this.comment(this.pick([`${f.name} can finish it!`, `One clean shot and ${f.name} ends this!`, `${f.opp.name} is out on their feet. Finisher time!`]), 3);
       }
       // healing popups (siphon)
       const dh = f.hp - this.hpPrev[i];
@@ -514,8 +532,13 @@ export class Hud {
       case 'fightStart':
         this.count('FIGHT!', true);
         break;
+      case 'finisher':
+        this.finisher(data as FinisherInfo);
+        break;
       case 'hit': {
         const h = data as HitInfo;
+        // a finisher plays without numbers: just the moves
+        if (h.finisher) break;
         if (h.shielded) {
           this.floatAt(h.point, 'SHIELD', 'blk');
           break;
@@ -579,7 +602,7 @@ export class Hud {
       }
       case 'strikeStart': {
         const d = data as { f: Fighter; s: { feint: boolean; move: { ability?: string; name: string } } };
-        if (d.s.move.ability && !d.s.feint && m.phase === 'fight') this.abilityTag(d.f, d.s.move.name);
+        if (d.s.move.ability && !d.s.feint && m.phase === 'fight' && !m.fin) this.abilityTag(d.f, d.s.move.name);
         break;
       }
       case 'shieldUp':
@@ -753,7 +776,10 @@ export class Hud {
     const dsm = kind === 'Dismantled';
     this.calloutEl.className = 'callout';
     const word = FINISH_WORD[kind].map((p, i) => `<span data-t="${p}" style="--i:${i}">${p}</span>`).join('');
-    const sub = ko
+    const fin = this.finBy && this.finBy.f === winner ? this.finBy.name : null;
+    const sub = fin && kind !== 'TKO'
+      ? `${esc(winner.name)} finishes it · ${esc(fin)}`
+      : ko
       ? `${esc(winner.name)} wins by knockout`
       : dsm
         ? `${reason ? LOSS_TEXT[reason] : 'Torn apart'} · ${esc(winner.name)} wins`
@@ -765,6 +791,20 @@ export class Hud {
     this.finishEl.className = `finish go ${ko ? 'ko' : dsm ? 'ko dsm' : 'tko'} ${winner.index ? 'p2' : 'p1'}`;
     this.root.classList.add('finished');
     this.finishing = true;
+  }
+
+  /** The finisher's name sweeps in low across the screen in the finisher's colours. */
+  private finisher(d: FinisherInfo) {
+    const i = d.f.index;
+    const b = this.finBan;
+    this.finBy = d;
+    b.className = 'finban';
+    b.innerHTML = `<i class="fb-edge"></i><div class="fb-band"><small>${ICON.bolt}Finisher</small><b>${esc(d.name.toUpperCase())}</b><em>${esc(d.f.name)}</em></div>`;
+    void b.offsetWidth;
+    b.className = `finban go ${i ? 'p2' : 'p1'}`;
+    this.calloutEl.className = 'callout';
+    this.comment(this.pick([`${d.f.name} goes for the ${d.name}!`, `Here it comes: ${d.name}!`, `${d.opp.name} is helpless. ${d.name}!`]), 4);
+    this.game.sfx?.ui('start');
   }
 
   /** Little banner under the fighter's bar naming the ability being thrown. */
