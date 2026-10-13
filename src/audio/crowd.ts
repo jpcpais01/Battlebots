@@ -255,6 +255,8 @@ export class Crowd {
   private acc = 0;
   private pending: { at: number; cue: CrowdCue }[] = [];
   private time = 0;
+  /** The last target set on each mixer fader. */
+  private aim = new Map<AudioParam, number>();
 
   constructor(private ctx: AudioContext, out: AudioNode) {
     this.bus = ctx.createGain();
@@ -368,7 +370,14 @@ export class Crowd {
     if (this.acc < 0.1) return;
     this.acc = 0;
     const t = this.ctx.currentTime;
-    const set = (p: AudioParam, v: number, up = 0.15, down = 0.6) => p.setTargetAtTime(v, t, v > p.value ? up : down);
+    // only move a fader when its target really changes: a fresh automation event on four
+    // params ten times a second, all fight long, is needless work for the audio thread
+    const set = (p: AudioParam, v: number, up = 0.15, down = 0.6) => {
+      const was = this.aim.get(p);
+      if (was !== undefined && Math.abs(v - was) <= Math.max(1e-3, was * 0.02)) return;
+      this.aim.set(p, v);
+      p.setTargetAtTime(v, t, v > p.value ? up : down);
+    };
     set(this.gains.murmur.gain, 0.45 * lv.murmur);
     set(this.gains.roar.gain, 0.6 * lv.roar, 0.12, 0.8);
     set(this.gains.applause.gain, 0.5 * lv.applause, 0.1, 0.5);

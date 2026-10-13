@@ -14,7 +14,10 @@ const MASTER = 0.7;
  */
 export class Sfx {
   private ctx: AudioContext | null = null;
+  /** Where effects, the crowd and the chant go (through the glue compressor). */
   private master: GainNode | null = null;
+  /** The final mix: effects and commentary, at master volume (0 when muted). */
+  private out: GainNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
   private crowd: Crowd | null = null;
   private crowdLevel = 0;
@@ -26,12 +29,18 @@ export class Sfx {
   /** The crowd counting down (3, 2, 1, FIGHT), decoded once audio starts. */
   private chant: Partial<Record<string, AudioBuffer>> = {};
   private chantBus: AudioNode | null = null;
+  /** The hall reverb's return: only wired into the mix while the chant rings, so the
+   * convolver isn't running on the audio thread for the rest of the game. */
+  private chantHall: GainNode | null = null;
+  private hallOn = false;
+  private hallOff = 0;
   /** Commentary volume: 1 on, 0.5 quiet, 0 off. */
   commentary = 1;
   /** The commentators. Silent until audio starts and the voice list has loaded. */
   readonly booth = new Booth({
     ready: (f) => !!this.voice?.ready(f),
     want: (f) => this.voice?.want(f),
+    prime: (f) => this.voice?.prime(f),
     speak: (clips, energy, within, voice) => this.voice?.speak(clips, energy, within, voice) ?? { done: true, stop() {}, fade() {}, left: () => 0 },
   });
 
@@ -65,13 +74,31 @@ export class Sfx {
     }
     const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!AC) return;
-    const ctx = new AC();
+    // a slightly deeper buffer than the minimum: on a phone the audio thread shares the
+    // CPU with the renderer, and the smallest buffer is what underruns into clicks and dropouts
+    let ctx: AudioContext;
+    try {
+      ctx = new AC({ latencyHint: 'balanced' });
+    } catch {
+      ctx = new AC();
+    }
     this.ctx = ctx;
-    // compressor to even out the mix, then a soft clipper: stacked hits (a KO is five sounds at once)
-    // used to push the output past full scale, which the speaker plays as a harsh crackle
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -14;
-    comp.ratio.value = 4;
+    // Two buses meet at the output. Effects (hits, crowd, chant) share a glue compressor
+    // that evens them out; the commentary has its own (voice.ts), so a heavy hit no longer
+    // pumps the voices down mid-word. After them a fast limiter catches stacked peaks (a KO
+    // is five sounds at once) and a soft clipper is the last safety: past full scale the
+    // speaker plays a harsh crackle.
+    const glue = ctx.createDynamicsCompressor();
+    glue.threshold.value = -14;
+    glue.ratio.value = 4;
+    this.out = ctx.createGain();
+    this.out.gain.value = this.muted ? 0 : MASTER;
+    const limit = ctx.createDynamicsCompressor();
+    limit.threshold.value = -4;
+    limit.knee.value = 2;
+    limit.ratio.value = 20;
+    limit.attack.value = 0.002;
+    limit.release.value = 0.12;
     // the shaper only sees -1..1, so feed it half level and let its curve cover peaks up to 2:
     // unity below 0.7, then a smooth knee that never quite reaches full scale
     const pre = ctx.createGain();
@@ -84,10 +111,12 @@ export class Sfx {
       curve[i] = Math.sign(u) * (a < 0.7 ? a : 0.7 + 0.29 * Math.tanh((a - 0.7) / 0.29));
     }
     clip.curve = curve;
-    clip.oversample = '2x';
+    // the limiter keeps the signal in the shaper's straight part, so oversampling it
+    // would only cost audio-thread time on every sample of the mix
+    clip.oversample = 'none';
     this.master = ctx.createGain();
-    this.master.gain.value = this.muted ? 0 : MASTER;
-    this.master.connect(comp).connect(pre).connect(clip).connect(ctx.destination);
+    this.master.connect(glue).connect(this.out);
+    this.out.connect(limit).connect(pre).connect(clip).connect(ctx.destination);
     const len = ctx.sampleRate * 2;
     this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = this.noiseBuf.getChannelData(0);
@@ -96,7 +125,7 @@ export class Sfx {
     this.crowd = new Crowd(ctx, this.master);
     this.crowd.ambience(this.crowdLevel);
     const crowd = this.crowd;
-    const voice = new Voice(ctx, this.master, this.commentary, (g) => crowd.duck(g));
+    const voice = new Voice(ctx, this.out, this.commentary, (g) => crowd.duck(g));
     this.voice = voice;
     void voice.manifest().then((m) => m && this.booth.setManifest(m));
     this.loadChant();
@@ -104,6 +133,11 @@ export class Sfx {
 
   private loadChant() {
     const ctx = this.ctx!;
+    // the hall's impulse response is heavy to build, so do it now in a quiet moment
+    // rather than on the first number of the countdown
+    const idle = (fn: () => void) =>
+      'requestIdleCallback' in window ? window.requestIdleCallback(fn, { timeout: 2000 }) : setTimeout(fn, 200);
+    idle(() => (this.chantBus ??= this.makeChantBus()));
     for (const k of ['3', '2', '1', 'fight']) {
       fetch(`/audio/count/${k}.mp3`)
         .then((r) => (r.ok ? r.arrayBuffer() : null))
@@ -125,6 +159,16 @@ export class Sfx {
     const ctx = this.ctx!;
     const t = ctx.currentTime + 0.01;
     const bus = (this.chantBus ??= this.makeChantBus());
+    if (!this.hallOn) {
+      this.chantHall!.connect(this.master!);
+      this.hallOn = true;
+    }
+    clearTimeout(this.hallOff);
+    // unhook the hall once this number and its echo have died away
+    this.hallOff = window.setTimeout(() => {
+      this.chantHall?.disconnect();
+      this.hallOn = false;
+    }, (buf.duration / 0.97 + 0.1 + 3) * 1000);
     const layers: [rate: number, delay: number, pan: number, g: number][] = [
       [1, 0, 0, 1],
       [0.985, 0.035, -0.6, 0.5],
@@ -180,7 +224,8 @@ export class Sfx {
     verb.buffer = ir;
     const wet = ctx.createGain();
     wet.gain.value = 0.85;
-    lp.connect(verb).connect(wet).connect(this.master!);
+    lp.connect(verb).connect(wet);
+    this.chantHall = wet;
     return hp;
   }
 
@@ -266,7 +311,7 @@ export class Sfx {
     } catch {
       /* ignore */
     }
-    if (this.master && this.ctx) this.master.gain.setTargetAtTime(m ? 0 : MASTER, this.ctx.currentTime, 0.05);
+    if (this.out && this.ctx) this.out.gain.setTargetAtTime(m ? 0 : MASTER, this.ctx.currentTime, 0.05);
   }
 
   private get ok() {
