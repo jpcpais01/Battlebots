@@ -342,35 +342,35 @@ interface Spec {
 
 // ---------- the pre-fight fist bump
 /** Seconds into the bump at which the fists meet. */
-export const BUMP_CONTACT = 0.55;
+export const BUMP_CONTACT = 0.42;
 
 /**
- * Touching gloves before the first bell: a nod of respect, the power hand out to meet
- * the other fighter's halfway, a beat on contact, then back into the guard. The fist
- * is sent to the exact point between the two fighters (Ctx.reach), so it lands on the
- * other one's whatever their size or spacing; the other hand stays up.
+ * Touching gloves before the first bell: one smooth swing of the power hand, reaching
+ * out at full stretch with the shoulder and body behind it, a soft give on contact and
+ * straight back to the guard. The fist is sent to the exact point between the two
+ * fighters (Ctx.reach), so it lands on the other one's whatever their size or spacing;
+ * the other hand stays up.
  */
 const bump: Spec = (() => {
-  const OFFER = arm([0.06, 0.16, 0.38], [0.8, -1, -0.15], 0.9);
-  const walk = S({ crouch: 0.04, pitch: 0.02, a: LOW_GUARD, bw: 0, stance: null });
-  const offer = S({ crouch: 0.07, pitch: 0.1, twist: -0.12, hip: -0.05, head: [0, -0.02, 0.03], a: OFFER, bw: 0, stance: null });
-  const touch = S({ crouch: 0.09, pitch: 0.14, twist: -0.16, hip: -0.06, head: [0, -0.05, 0.05], a: OFFER, bw: 0, stance: null });
+  const OFFER = arm([0.08, 0.2, 0.52], [0.8, -1, -0.15], 0.9);
+  const walk = S({ crouch: 0.04, pitch: 0.04, a: LOW_GUARD, bw: 0, stance: null });
+  const touch = S({ crouch: 0.06, pitch: 0.2, twist: -0.32, hip: -0.12, head: [0, -0.03, 0.05], a: OFFER, bw: 0, stance: null });
   const back = S({ crouch: 0.07, pitch: 0.04, twist: 0.1, a: GUARD, bw: 0, stance: null });
-  const K: Key[] = [[0, walk], [0.4, offer], [BUMP_CONTACT, touch, snap], [0.85, touch], [1.15, back], [99, back]];
+  const K: Key[] = [[0, walk], [BUMP_CONTACT, touch], [0.58, touch], [0.95, back], [99, back]];
   return {
     id: 'bump',
-    len: 1.6,
+    len: 1.3,
     sample(o, c) {
       const t = c.t;
       keys(o, t, K);
-      // the knuckles go out to the meeting point and stay on it through the touch
-      c.reach = win(t, 0.12, 0.98, 0.28);
-      // a little give on contact, and a nod
-      const p = pulse(t, BUMP_CONTACT, 0.06, 0.22);
-      o[EC.PITCH] += 0.05 * p;
-      o[EC.HEAD + 1] -= 0.03 * p;
+      // the knuckles sweep out onto the meeting point, touch, and come straight home
+      c.reach = win(t, 0.02, 0.86, 0.36);
+      // a soft give on contact
+      const p = pulse(t, BUMP_CONTACT, 0.08, 0.3);
+      o[EC.PITCH] += 0.03 * p;
+      o[EC.HEAD + 1] -= 0.02 * p;
       // feet stay put for the touch, then free for the step back
-      c.plant = t < 0.85 ? 1 : 0;
+      c.plant = t < 0.58 ? 1 : 0;
     },
   };
 })();
@@ -1043,8 +1043,8 @@ export class Showman {
   /** Before the first bell: walk-in done, touch gloves (the match's Greeting starts both at once). */
   bump() {
     this.play(bump, 'greet', 0);
-    this.inLen = 0.35;
-    this.outLen = 0.45;
+    this.inLen = 0.3;
+    this.outLen = 0.4;
   }
 
   /** Being presented before the fight: bang the gloves together for the camera. */
