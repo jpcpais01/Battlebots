@@ -16,6 +16,14 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-13 05:00',
+    title: 'A more natural booth',
+    notes: [
+      'The caller sounds more like a real person now: relaxed and chatty in quiet moments, talking normally through routine exchanges, and saving the screaming for the big shots.',
+      'Every commentary line is voiced again, and the caller shouts every bot\'s name on big shots and wins.',
+    ],
+  },
+  {
     hour: '2026-10-13 04:00',
     title: 'A three-voice commentary booth',
     notes: [
