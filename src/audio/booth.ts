@@ -67,6 +67,8 @@ export interface BoothOut {
   ready(file: string): boolean;
   /** Download these in the background. */
   want(files: string[]): void;
+  /** Download and decode these ahead, so they start without a beat of silence. */
+  prime?(files: string[]): void;
   /** Plays clips back to back; drops them if they can't start within `within` seconds. */
   speak(clips: { clip: Clip; gap: number }[], energy: number, within: number, voice: BoothVoice): Speech;
 }
@@ -312,7 +314,8 @@ export class Booth {
       const n = this.names(f);
       if (n) for (const c of Object.values(n)) names.push(c[0]);
     }
-    this.out.want(names);
+    if (this.out.prime) this.out.prime(names);
+    else this.out.want(names);
     if (!this.enabled) return;
     this.push(
       {
@@ -838,6 +841,12 @@ export class Booth {
     const dur = clips.reduce((t, c) => t + c.clip[1] + c.gap, 0);
     const within = s.prio >= 40 ? 0.25 : 0.6;
     const speech = this.out.speak(clips, line.e, within, line.v);
+    // the answer gets decoded while this line plays, so it lands right on the hand-off
+    const answers = this.replies.get(line.id);
+    if (answers?.length) this.out.prime?.(answers.flatMap((r) => {
+        const got = r.f.filter((f) => this.out.ready(f[0]));
+        return (got.length ? got : r.f.slice(0, 1)).map((f) => f[0]);
+      }));
     // big calls jump in hard on the end of the last line; chat leaves a natural beat
     const overlap = line.n ? 0.2 : line.e >= 3 ? 0.3 + rnd() * 0.25 : 0.1 + rnd() * 0.3;
     this.cur = { say: s, line, speech, until: this.t + within + dur + 0.25, stopped: false, handed: false, overlap };
