@@ -16,6 +16,15 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-13 05:00',
+    title: 'A proper fight night entrance',
+    notes: [
+      'Every fight now opens with a real introduction: the camera goes in close on each bot for three seconds while its card and name land on screen.',
+      'The whole crowd counts it down with you: three, two, one, FIGHT!',
+      'Before the first punch the two bots walk to the centre, bump fists, step back into their guards and then the fight is on.',
+    ],
+  },
+  {
     hour: '2026-10-13 04:00',
     title: 'A three-voice commentary booth',
     notes: [
