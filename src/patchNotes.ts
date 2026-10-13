@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-13 22:00',
     title: 'Bots move with real weight',
     notes: [
+      'Renaming your bot and recording its name now use proper in-game popups instead of the browser\'s plain boxes.',
       'If voicing your bot\'s name fails, the message now says why, so it\'s easier to fix.',
       'Bots move like they have real weight: torsos wind up and carry a little past each punch before settling, and power shots sit down into the legs first.',
       'Getting hit looks physical: head shots snap the upper body back, body shots fold it over, leg kicks buckle the knees.',
