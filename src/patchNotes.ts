@@ -17,11 +17,12 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-13 13:00',
-    title: 'Commentators who let each other finish',
+    title: 'Fight replays and a better booth',
     notes: [
       'When one commentator asks the other something, the booth waits for the answer before moving on. Only a knockdown or a knockout cuts in.',
       'The opening speech now finishes before the countdown starts.',
       'The crowd countdown sounds like it comes from the stands: a whole arena of voices echoing around the hall, with a roar on every number.',
+      'New Replay button on the results screen: watch your last fight again from the walkout to the celebration, every punch exactly as it happened. Tap the intro to jump to the bell, change the speed, or skip to the result from the menu. Replays don\'t count towards your record.',
     ],
   },
   {

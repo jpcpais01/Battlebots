@@ -129,6 +129,13 @@ export class Match {
   introLength = PRESENT * 2;
   /** Touching gloves after "FIGHT!", before the brains take over. */
   readonly greet = new Greeting(this);
+  /** Step the intro was cut short at by a tap (-1: it played out). */
+  introCut = -1;
+  /**
+   * Replays: cut the intro at this step, as the original fight did. Everything else in a
+   * fight follows from the seed and the two bots, so this is all a replay has to repeat.
+   */
+  replayCut = -1;
 
   constructor(a: BotSpec, b: BotSpec, seed: number) {
     this.rng = new Rng(seed);
@@ -185,12 +192,14 @@ export class Match {
 
   skipIntro() {
     if (this.phase !== 'intro') return;
+    this.introCut = this.frame;
     this.shows[0].stop();
     this.shows[1].stop();
     this.setPhase('countdown');
   }
 
   step(dt = SIM_DT) {
+    if (this.frame === this.replayCut) this.skipIntro();
     this.frame++;
     if (this.hitstop > 0) {
       this.hitstop -= dt;
@@ -207,7 +216,12 @@ export class Match {
         // each fighter shows off for the camera in turn
         if (this.phaseTime - dt < 0.25 && this.phaseTime >= 0.25) this.shows[0].present(PRESENT - 0.35);
         if (this.phaseTime - dt < PRESENT + 0.25 && this.phaseTime >= PRESENT + 0.25) this.shows[1].present(PRESENT - 0.35);
-        if (this.phaseTime >= this.introLength) this.setPhase('countdown');
+        // a replay ends the intro where the original did (replayCut), nowhere else
+        if (this.replayCut < 0 && this.phaseTime >= this.introLength) {
+          // an intro held past its usual length (the booth finishing its opening) replays as a cut here
+          if (this.introLength !== PRESENT * 2) this.introCut = this.frame;
+          this.setPhase('countdown');
+        }
         break;
       case 'countdown':
         if (this.phaseTime >= COUNTDOWN) {

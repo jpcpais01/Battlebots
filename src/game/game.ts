@@ -97,7 +97,8 @@ export class Game {
   private showAcc = 0;
   speed = 1;
   paused = false;
-  private online = false;
+  /** The countdown may wait for the booth's opening (offline, and not in a replay, which repeats the original). */
+  holdIntro = false;
   private last = performance.now();
   private time = 0;
   private showcase: { fighter: Fighter; dummy: Fighter; model: BotModel; show: Showman; spec: BotSpec } | null = null;
@@ -422,7 +423,7 @@ export class Game {
     // online both phones keep one fixed intro, long enough for the booth's opening;
     // offline it waits for the booth instead (see frame)
     if (online) m.introLength += ONLINE_INTRO_EXTRA;
-    this.online = online;
+    this.holdIntro = !online;
     m.on((type, data) => this.onEvent(type, data));
     this.sfx?.booth.begin(m, online);
     return m;
@@ -430,13 +431,14 @@ export class Game {
 
   /**
    * Run the match ahead n steps at once, without sound or effects (an online fight
-   * catching up with the other player after a stall or a trip to the background).
+   * catching up with the other player after a stall or a trip to the background, or a
+   * replay skipping ahead). Stops early once `until` holds (by default, the end).
    */
-  fastForward(n: number) {
+  fastForward(n: number, until: (m: Match) => boolean = (m) => m.phase === 'end') {
     const m = this.match;
     if (!m) return;
     this.quiet = true;
-    for (let i = 0; i < n && m.phase !== 'end'; i++) {
+    for (let i = 0; i < n && !until(m); i++) {
       m.step(SIM_DT);
       this.onStep?.(m);
     }
@@ -751,7 +753,7 @@ export class Game {
     this.sfx?.crowdTick(dt, crowdState);
     this.sfx?.booth.tick(dt, this.crowdMood.excite, !!m && !this.paused);
     // offline the countdown waits for the opening speech to finish
-    if (m && !this.online && m.phase === 'intro' && this.sfx?.booth.busy && m.phaseTime >= m.introLength - 0.1 && m.phaseTime < INTRO_MAX) {
+    if (m && this.holdIntro && m.phase === 'intro' && this.sfx?.booth.busy && m.phaseTime >= m.introLength - 0.1 && m.phaseTime < INTRO_MAX) {
       m.introLength = m.phaseTime + 0.2;
     }
     perf.lap('audio');

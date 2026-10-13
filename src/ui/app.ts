@@ -105,6 +105,13 @@ export class App {
   private netFight: OnlineSession | null = null;
   private resultsNote: HTMLElement | null = null;
   private rematchBtn: HTMLButtonElement | null = null;
+  /**
+   * The last fight against the AI, enough to play it again: the sim is deterministic, so
+   * the same two bots, the same seed and the same intro cut give the same fight.
+   */
+  private lastFight: { a: BotSpec; b: BotSpec; seed: number; cut: number } | null = null;
+  /** The fight on screen is a replay (it doesn't count towards the record). */
+  private replaying = false;
 
   constructor(private game: Game, private quality: Quality) {
     this.ui = document.getElementById('ui')!;
@@ -158,7 +165,10 @@ export class App {
   private go(id: ScreenId) {
     this.current = id;
     for (const [k, s] of Object.entries(this.screens)) s.classList.toggle('show', k === id);
-    if (id !== 'fight') this.leaveNetFight();
+    if (id !== 'fight') {
+      this.leaveNetFight();
+      this.replaying = false;
+    }
     // the home screen is outside any room
     if (id === 'home') this.online.leave();
     if (id === 'online') this.online.show();
@@ -766,15 +776,36 @@ export class App {
     void enterLandscape();
     this.closeResults();
     if (!sameOpponent || !this.opponent) this.opponent = this.makeOpponent();
-    const m = this.game.startMatch(this.player, this.opponent, (Math.random() * 2 ** 32) >>> 0);
+    const seed = (Math.random() * 2 ** 32) >>> 0;
+    // copies, so a later trip to the garage can't change the fight a replay shows
+    this.lastFight = { a: structuredClone(this.player), b: structuredClone(this.opponent), seed, cut: -1 };
+    this.replaying = false;
+    const m = this.game.startMatch(this.player, this.opponent, seed);
     this.hud.resetSpeed();
     this.hud.attach(m);
+    this.go('fight');
+  }
+
+  /** Watch the last fight again, from the walkout to the celebration. */
+  private replay() {
+    const r = this.lastFight;
+    if (!r) return;
+    this.tap('start');
+    void enterLandscape();
+    this.closeResults();
+    this.replaying = true;
+    const m = this.game.startMatch(r.a, r.b, r.seed);
+    m.replayCut = r.cut;
+    this.game.holdIntro = false;
+    this.hud.resetSpeed();
+    this.hud.attach(m, null, true);
     this.go('fight');
   }
 
   private pause() {
     if (this.modal || !this.game.match) return;
     if (this.netFight) return this.netMenu();
+    if (this.replaying) return this.replayMenu();
     this.tap();
     this.game.paused = true;
     this.openModal('Paused', (box) => {
@@ -783,6 +814,28 @@ export class App {
       button('btn small', 'Forfeit', () => {
         this.closeModal();
         if (this.game.match && this.game.match.phase !== 'end') this.tally(false, false);
+        this.go('home');
+      }, box);
+    }, () => {
+      this.game.paused = false;
+    });
+  }
+
+  private replayMenu() {
+    this.tap();
+    this.game.paused = true;
+    this.openModal('Replay', (box) => {
+      button('btn primary', `${ICON.play}Resume`, () => this.closeModal(), box);
+      this.soundRow(box);
+      button('btn small', `${ICON.forward}Skip to the result`, () => {
+        this.closeModal();
+        const m = this.game.match;
+        if (!m) return;
+        if (m.phase === 'end') this.showResults();
+        else this.game.fastForward(Infinity);
+      }, box);
+      button('btn small', `${ICON.exit}Home`, () => {
+        this.closeModal();
         this.go('home');
       }, box);
     }, () => {
@@ -994,8 +1047,11 @@ export class App {
     const out = net ? net.outcome(m) : { winner: m.winner ? m.winner.index : -1, kind: m.result };
     const draw = out.winner < 0;
     const won = out.winner === me;
-    // the win record is for fights against the AI
-    if (!net) this.tally(won, draw);
+    // the win record is for fights against the AI (and a replay was already counted)
+    if (!net && !this.replaying) {
+      this.tally(won, draw);
+      if (this.lastFight) this.lastFight.cut = m.introCut;
+    }
     const verdict = draw ? 'DRAW' : won ? 'VICTORY' : 'DEFEAT';
     const how = out.kind === 'Decision' ? 'on points' : out.kind === 'TKO' ? 'by TKO' : out.kind === 'KO' ? 'by knockout' : out.kind === 'Dismantled' ? 'by tearing it apart' : '';
     const who = draw ? 'Split down the middle' : `<b>${esc(m.fighters[out.winner].name)}</b> wins ${how}`;
@@ -1029,6 +1085,7 @@ export class App {
     }
     button('btn primary', `${ICON.swords}Next fight`, () => this.fight(), actions);
     button('btn', 'Rematch', () => this.fight(true), actions);
+    if (this.lastFight) button('btn', `${ICON.replay}Replay`, () => this.replay(), actions);
     button('btn', `${ICON.wrench}Garage`, () => {
       this.tap('select');
       this.closeResults();
