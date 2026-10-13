@@ -17,10 +17,14 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-13 05:00',
-    title: 'A more natural booth',
+    title: 'A proper fight night entrance',
     notes: [
       'The caller sounds more like a real person now: relaxed and chatty in quiet moments, talking normally through routine exchanges, and saving the screaming for the big shots.',
       'Every commentary line is voiced again, and the caller shouts every bot\'s name on big shots and wins.',
+      'The crowd countdown is now a real arena full of voices shouting three, two, one, FIGHT!',
+      'Every fight now opens with a real introduction: the camera goes in close on each bot for three seconds while its card and name land on screen.',
+      'The whole crowd counts it down with you: three, two, one, FIGHT!',
+      'Before the first punch the two bots walk to the centre, bump fists, step back into their guards and then the fight is on.',
     ],
   },
   {

@@ -3,6 +3,7 @@ import { Brain, type BrainEvent } from './brain';
 import { J, RING_CORNER, ROPE_LINE, ropeSide, SIDE_NX, SIDE_NZ } from './body';
 import { Fighter, resetUids, type StrikeAction } from './fighter';
 import { Showman } from './emote';
+import { Greeting } from './greet';
 import { FINISH_AT, FINISH_SELF, FINISHER_NAME, FinisherRun, pickFinisher } from './finisher';
 import type { MoveDef, Zone } from './moves';
 import { clamp, closestOnSegment, lerp, Rng, smoothstep } from './math';
@@ -17,7 +18,11 @@ export const SIM_DT = 1 / 120;
 export const COUNT_OUT = 9.6;
 export const ROUND_TIME = 99;
 
-export type MatchPhase = 'intro' | 'countdown' | 'fight' | 'ko' | 'end';
+export type MatchPhase = 'intro' | 'countdown' | 'greet' | 'fight' | 'ko' | 'end';
+/** Seconds each fighter is presented for in the intro (fighter 0, then fighter 1). */
+export const PRESENT = 3;
+/** Seconds of the 3, 2, 1 countdown. */
+export const COUNTDOWN = 3;
 export type FinishKind = 'KO' | 'TKO' | 'Dismantled';
 
 export interface HitInfo {
@@ -121,7 +126,9 @@ export class Match {
   fin: FinisherRun | null = null;
   /** A knocked-down bot that will not beat the count, and who put it there. */
   private countOut: { att: Fighter; def: Fighter; at: number } | null = null;
-  introLength = 2.6;
+  introLength = PRESENT * 2;
+  /** Touching gloves after "FIGHT!", before the brains take over. */
+  readonly greet = new Greeting(this);
 
   constructor(a: BotSpec, b: BotSpec, seed: number) {
     this.rng = new Rng(seed);
@@ -149,6 +156,11 @@ export class Match {
     fb.place(new Vector3(1.7, 0, 0), -Math.PI / 2);
   }
 
+  /** The fighter being presented in the intro (-1 once it is over). */
+  get presenting(): number {
+    return this.phase !== 'intro' ? -1 : this.phaseTime < PRESENT ? 0 : 1;
+  }
+
   /** Seconds of fighting so far. */
   get fightTime() {
     return ROUND_TIME - this.clock;
@@ -172,7 +184,10 @@ export class Match {
   }
 
   skipIntro() {
-    if (this.phase === 'intro') this.setPhase('countdown');
+    if (this.phase !== 'intro') return;
+    this.shows[0].stop();
+    this.shows[1].stop();
+    this.setPhase('countdown');
   }
 
   step(dt = SIM_DT) {
@@ -189,13 +204,24 @@ export class Match {
 
     switch (this.phase) {
       case 'intro':
+        // each fighter shows off for the camera in turn
+        if (this.phaseTime - dt < 0.25 && this.phaseTime >= 0.25) this.shows[0].present(PRESENT - 0.35);
+        if (this.phaseTime - dt < PRESENT + 0.25 && this.phaseTime >= PRESENT + 0.25) this.shows[1].present(PRESENT - 0.35);
         if (this.phaseTime >= this.introLength) this.setPhase('countdown');
         break;
       case 'countdown':
-        if (this.phaseTime >= 3) {
-          this.setPhase('fight');
+        if (this.phaseTime >= COUNTDOWN) {
+          // FIGHT! Then they touch gloves before the first exchange
+          this.setPhase('greet');
           for (const f of this.fighters) f.setState('fight');
+          this.greet.start();
           this.emit('fightStart');
+        }
+        break;
+      case 'greet':
+        if (this.greet.done) {
+          this.setPhase('fight');
+          this.emit('engage');
         }
         break;
       case 'fight': {
@@ -227,7 +253,8 @@ export class Match {
         break;
     }
 
-    if (this.phase !== 'intro' && this.phase !== 'countdown' && !this.fin) {
+    if (this.phase === 'greet') this.greet.update(dt);
+    else if (this.phase !== 'intro' && this.phase !== 'countdown' && !this.fin) {
       const t0 = perf.now();
       this.brains[0].update(dt, this.time);
       this.brains[1].update(dt, this.time);

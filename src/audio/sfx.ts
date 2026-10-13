@@ -23,6 +23,8 @@ export class Sfx {
   private bank: Partial<Record<ImpactKind, AudioBuffer[]>> = {};
   private lastPick: Partial<Record<ImpactKind, AudioBuffer>> = {};
   private voice: Voice | null = null;
+  /** The crowd counting down (3, 2, 1, FIGHT), decoded once audio starts. */
+  private chant: Partial<Record<string, AudioBuffer>> = {};
   /** Commentary volume: 1 on, 0.5 quiet, 0 off. */
   commentary = 1;
   /** The commentators. Silent until audio starts and the voice list has loaded. */
@@ -96,6 +98,57 @@ export class Sfx {
     const voice = new Voice(ctx, this.master, this.commentary, (g) => crowd.duck(g));
     this.voice = voice;
     void voice.manifest().then((m) => m && this.booth.setManifest(m));
+    this.loadChant();
+  }
+
+  private loadChant() {
+    const ctx = this.ctx!;
+    for (const k of ['3', '2', '1', 'fight']) {
+      fetch(`/audio/count/${k}.mp3`)
+        .then((r) => (r.ok ? r.arrayBuffer() : null))
+        .then((b) => b && new Promise<AudioBuffer>((ok, no) => ctx.decodeAudioData(b, ok, no)))
+        .then((buf) => {
+          if (buf) this.chant[k] = buf;
+        })
+        .catch(() => {});
+    }
+  }
+
+  private playChant(k: string, gain: number) {
+    const buf = this.chant[k];
+    if (!buf) return false;
+    const ctx = this.ctx!;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.value = gain;
+    src.connect(g).connect(this.master!);
+    src.start(ctx.currentTime + 0.01);
+    return true;
+  }
+
+  /**
+   * The countdown: the whole house shouts the number with the screen, over a deep
+   * drum hit that climbs a step each time. 0 is FIGHT!
+   */
+  countdown(n: number) {
+    if (!this.ok) return;
+    this.crowd?.event('count', n);
+    const k = n > 0 ? String(n) : 'fight';
+    const sung = this.playChant(k, n > 0 ? 0.95 : 1.05);
+    const f = n > 0 ? 62 + (3 - n) * 9 : 92;
+    this.tone('sine', f * 1.6, f * 0.55, 0.55, 0.55);
+    this.tone('triangle', f * 3.2, f * 1.1, 0.18, 0.12);
+    this.noise(0.22, 'lowpass', 900, 0.7, 0.3, 0, 120);
+    // no chant clips: at least a tick on the beat
+    if (!sung && n > 0) this.tone('square', 660, 660, 0.06, 0.04, 0.02);
+  }
+
+  /** Two robots touching gloves: a bright, ringing clink of metal knuckles. */
+  fistBump() {
+    if (!this.ok) return;
+    this.impact('block', 0.4, 1.35);
+    for (const r of [1, 2.76, 5.4]) this.tone('sine', 1250 * r, 1240 * r, 0.5 / r, 0.05 / r, 0.004);
   }
 
   /**

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { J } from '../sim/body';
 import type { Fighter } from '../sim/fighter';
-import type { HitInfo, Match } from '../sim/match';
+import { COUNTDOWN, PRESENT, type HitInfo, type Match } from '../sim/match';
 import { clamp, damp, Noise1, Rng, smoothstep } from '../sim/math';
 
 export type CamMode = 'menu' | 'garage' | 'match';
@@ -38,7 +38,7 @@ function reach(mx: number, mz: number, dx: number, dz: number, r: number) {
   return disc < 0 ? 0 : Math.max(0, -md + Math.sqrt(disc));
 }
 
-type ShotKind = 'wide' | 'medium' | 'low' | 'ots' | 'orbit' | 'high' | 'down' | 'ko' | 'win' | 'intro' | 'fin';
+type ShotKind = 'wide' | 'medium' | 'low' | 'ots' | 'orbit' | 'high' | 'down' | 'ko' | 'win' | 'intro' | 'greet' | 'fin';
 
 /** A camera setup, described relative to the line between the fighters so it follows them around the ring. */
 interface Shot {
@@ -104,6 +104,10 @@ function makeShot(kind: ShotKind, r: () => number): Shot {
       break;
     case 'win':
       Object.assign(s, { dur: 99, el: 0.12, fill: 0.6, wobble: 0.01 });
+      break;
+    case 'greet':
+      // touching gloves: square side-on, at chest height, so both arms read in profile
+      Object.assign(s, { dur: 99, az: 0, orbit: sgn * 0.035, el: 0.07, fovK: 1, fill: 0.78, wobble: 0.012 });
       break;
     default:
       break;
@@ -173,6 +177,8 @@ export class Director {
   private crampedFor = 0;
   private wasDown = [false, false];
   private downIndex = 0;
+  /** The intro beat being filmed (a presentation, the countdown): a change is a hard cut. */
+  private beat = '';
   private pts = Array.from({ length: 18 }, () => new THREE.Vector3());
   private room = new Float32Array(18);
   private npts = 0;
@@ -232,6 +238,7 @@ export class Director {
     this.cutIn = -1;
     this.nextShot = null;
     this.wasDown = [false, false];
+    this.beat = '';
   }
 
   /** Match events the camera reacts to. */
@@ -359,8 +366,14 @@ export class Director {
     const ph = match.phase;
     const sh = this.shot;
     sh.t += dt;
-    if (ph === 'intro') this.introShot(dt, match);
-    else if (ph === 'ko') {
+    const beat = ph === 'intro' ? `p${match.presenting}` : ph === 'countdown' ? 'count' : '';
+    const cut = beat !== this.beat;
+    this.beat = beat;
+    if (ph === 'intro') this.presentShot(match, cut);
+    else if (ph === 'countdown') this.introShot(dt, match, cut);
+    else if (ph === 'greet') {
+      if (sh.kind !== 'greet') this.shot = makeShot('greet', Math.random);
+    } else if (ph === 'ko') {
       if (sh.kind !== 'ko' && this.koFocus !== null) this.cut(match, 'ko');
     } else if (ph === 'end' && match.winner) {
       if (sh.kind !== 'win') {
@@ -378,10 +391,14 @@ export class Director {
         // the intro crane settles into a wide establishing shot without a cut
         this.shot = makeShot('wide', Math.random);
         this.shot.dur = 3 + Math.random() * 2;
+      } else if (sh.kind === 'greet') {
+        // the touch-gloves shot holds into the first exchange, then the director takes over
+        sh.kind = 'medium';
+        sh.dur = sh.t + 1.2;
       }
       this.direct(dt, match);
     }
-    if (this.shot.kind !== 'intro') this.frame(dt, match);
+    if (ph !== 'intro' && ph !== 'countdown') this.frame(dt, match);
   }
 
   /** Decide when to cut, and to what. */
@@ -578,19 +595,51 @@ export class Director {
     this.alignedFor = aligned ? this.alignedFor + dt : 0;
   }
 
-  /** The intro crane: a high sweep down to ring level as the fighters are announced. */
-  private introShot(dt: number, match: Match) {
-    const k = smoothstep(0, match.introLength, match.phaseTime);
+  /**
+   * Presenting a fighter: a low hero angle in front of it, pushing in and swinging slowly
+   * round to face it, with the fighter set to one side of the frame so its card has the
+   * other. Each presentation opens on a hard cut.
+   */
+  private presentShot(match: Match, cut: boolean) {
+    const who = match.presenting;
+    const f = match.fighters[who];
+    const u = smoothstep(0, PRESENT, match.phaseTime - who * PRESENT);
+    const p = f.body.pos[J.Pelvis];
+    this.center.set(p.x, 1.12, p.z);
+    // in front of it (fighters face each other, so the other one is behind the lens), swinging
+    // round from the side its card is on
+    const fy = f.faceYaw;
+    const sw = who === 0 ? -1 : 1;
+    this.yaw = Math.atan2(Math.cos(fy), Math.sin(fy)) + sw * (0.8 - u * 0.45);
+    this.el = -0.05 + u * 0.1;
+    this.dist = (3.1 - u * 0.75) * ZOOM[this.zoom].dist;
+    this.fov = this.baseFov * ZOOM[this.zoom].fov * 0.9;
+    this.roll = sw * 0.03 * (1 - u);
+    const ce = Math.cos(this.el);
+    const dx = Math.cos(this.yaw) * ce, dz = Math.sin(this.yaw) * ce;
+    this.pos.set(this.center.x + dx * this.dist, this.center.y + Math.sin(this.el) * this.dist, this.center.z + dz * this.dist);
+    // aim off to the card's side, which puts the fighter on the other side of the frame
+    const off = 0.34 * this.dist * Math.tan((this.fov * Math.PI) / 360) * this.camera.aspect;
+    this.look.set(this.center.x + dz * off * sw, this.center.y, this.center.z - dx * off * sw);
+    if (cut) this.cuts++;
+  }
+
+  /** The countdown: a high crane that sweeps down to ring level over both fighters. */
+  private introShot(dt: number, match: Match, cut: boolean) {
+    const k = smoothstep(0, COUNTDOWN, match.phaseTime);
     const [a, b] = match.fighters;
     this.center.set((a.body.pos[J.Pelvis].x + b.body.pos[J.Pelvis].x) / 2, 1.05, (a.body.pos[J.Pelvis].z + b.body.pos[J.Pelvis].z) / 2);
     const r = (11 - k * 4) * ZOOM[this.zoom].dist;
     const h = 5.5 - k * 3.2;
     const wantYaw = this.axisAng + this.side * (Math.PI / 2 + 1.6 - k * 1.5);
-    this.yaw = wrap(this.yaw + wrap(wantYaw - this.yaw) * (1 - Math.exp(-6 * dt)));
-    this.el = damp(this.el, Math.atan2(h - 1.05, r), 6, dt);
-    this.dist = damp(this.dist, Math.hypot(r, h - 1.05), 6, dt);
-    this.fov = damp(this.fov, this.baseFov * ZOOM[this.zoom].fov, 3, dt);
-    this.roll = damp(this.roll, 0, 3, dt);
+    // the countdown opens on a cut from the presentations, then sweeps
+    const e = cut ? 1 : 1 - Math.exp(-6 * dt);
+    this.yaw = wrap(this.yaw + wrap(wantYaw - this.yaw) * e);
+    this.el += (Math.atan2(h - 1.05, r) - this.el) * e;
+    this.dist += (Math.hypot(r, h - 1.05) - this.dist) * e;
+    this.fov = cut ? this.baseFov * ZOOM[this.zoom].fov : damp(this.fov, this.baseFov * ZOOM[this.zoom].fov, 3, dt);
+    this.roll = cut ? 0 : damp(this.roll, 0, 3, dt);
+    if (cut) this.cuts++;
     const ce = Math.cos(this.el);
     this.pos.set(this.center.x + Math.cos(this.yaw) * ce * this.dist, this.center.y + Math.sin(this.el) * this.dist, this.center.z + Math.sin(this.yaw) * ce * this.dist);
     this.look.copy(this.center);

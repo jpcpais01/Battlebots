@@ -1011,7 +1011,7 @@ export class App {
     res.innerHTML = `
       <div class="head"><div class="verdict${won || draw ? '' : ' lose'}">${verdict}</div><div class="who">${who}</div></div>
       <div class="stats-table">
-        <span class="h a">${esc(a.name)}</span><span class="h l">${Math.round(m.time - m.introLength - 3)}s</span><span class="h b">${esc(b.name)}</span>
+        <span class="h a">${esc(a.name)}</span><span class="h l">${Math.round(m.fightTime)}s</span><span class="h b">${esc(b.name)}</span>
         ${row('Damage', Math.round(a.stats.dealt), Math.round(b.stats.dealt))}
         ${row('Landed', `${a.stats.landed}/${a.stats.thrown}`, `${b.stats.landed}/${b.stats.thrown}`)}
         ${row('Accuracy', acc(a), acc(b))}

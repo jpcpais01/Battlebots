@@ -2,7 +2,7 @@ import { applause, CROWD_RATE, murmur, reaction, roar, type CrowdRender, type Re
 
 /** What the crowd needs to know about the fight each frame. */
 export interface CrowdState {
-  phase: 'intro' | 'countdown' | 'fight' | 'ko' | 'end';
+  phase: 'intro' | 'countdown' | 'greet' | 'fight' | 'ko' | 'end';
   clock: number;
   hp: [number, number];
 }
@@ -73,9 +73,20 @@ export class CrowdMood {
 
   event(type: string, data?: unknown) {
     switch (type) {
+      case 'count':
+        // the house counts down with the screen, louder each number
+        this.bump(0.12 + (3 - (data as number)) * 0.08);
+        this.hold = Math.max(this.hold, 0.9);
+        break;
       case 'fightStart':
         this.bump(0.5);
-        this.cue('cheer', 0.5);
+        this.cue('cheer', 0.7);
+        this.clap(0.6, 2);
+        break;
+      case 'fistBump':
+        this.bump(0.2);
+        this.cue('cheer', 0.5, 0.05, 0);
+        this.clap(0.8, 1.5);
         break;
       case 'hit': {
         const h = data as HitLike;
@@ -176,6 +187,7 @@ export class CrowdMood {
     if (state) {
       const p = state.phase;
       if (p === 'intro' || p === 'countdown') floor = 0.45;
+      else if (p === 'greet') floor = 0.55;
       else if (p === 'fight') {
         floor = 0.22;
         // the last seconds and a close, bloody fight lift everyone
