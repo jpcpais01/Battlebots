@@ -5,3 +5,5 @@ dev-dist
 *.log
 .DS_Store
 voice-raw
+.env
+.env.local

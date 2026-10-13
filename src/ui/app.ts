@@ -37,7 +37,8 @@ import { ABILITY_ICON, COMPANY_ICON, ICON, SLOT_ICON } from './icons';
 import { forceUpdate } from '../update';
 import { OnlineScreen } from './online';
 import type { OnlineSession } from '../net/session';
-import { loadPlayer, loadQuality, loadRecord, loadZoom, savePlayer, saveQuality, saveRecord, saveZoom, type Record_, type Zoom } from './store';
+import { loadPlayer, loadQuality, loadRecord, loadZoom, savePlayer, saveQuality, saveRecord, saveZoom, setOnSaved, type Record_, type Zoom } from './store';
+import { Account, PASSWORD_MIN, USERNAME_MAX, type SyncState } from '../net/account';
 
 type PaintPage = 'schemes' | 'primary' | 'secondary' | 'accent' | 'finish';
 const PAINT_PAGES: [PaintPage, string][] = [
@@ -116,12 +117,25 @@ export class App {
   private lastFight: { a: BotSpec; b: BotSpec; seed: number; cut: number } | null = null;
   /** The fight on screen is a replay (it doesn't count towards the record). */
   private replaying = false;
+  private account: Account;
+  private accountBtn: HTMLButtonElement | null = null;
+  /** Redraws the account popup while it's open. */
+  private accountView: (() => void) | null = null;
 
   constructor(private game: Game, private quality: Quality) {
     this.ui = document.getElementById('ui')!;
     this.player = loadPlayer();
     this.record = loadRecord();
     game.director.zoom = loadZoom();
+    this.account = new Account({
+      local: () => ({ bot: this.player, record: this.record }),
+      load: (bot, record) => this.adoptCloud(bot, record),
+      changed: () => {
+        this.refreshAccount();
+        this.accountView?.();
+      },
+    });
+    setOnSaved(() => this.account.saved());
     this.hud = new Hud(game, this.ui);
     this.perf = new PerfOverlay(game);
     this.hud.onPause = () => this.pause();
@@ -163,6 +177,7 @@ export class App {
       if (document.hidden && this.current === 'fight' && !this.netFight && this.game.match && this.game.match.phase !== 'end' && !this.modal) this.pause();
     });
     this.go('home');
+    this.account.start();
   }
 
   // ------------------------------------------------------------ navigation
@@ -253,6 +268,10 @@ export class App {
     this.syncSound();
 
     const right = el('div', 'home-right', '', s);
+    if (this.account.available) {
+      this.accountBtn = button('account-btn', '', () => this.accountPopup(), right);
+      this.refreshAccount();
+    }
     this.homeRecord = el('div', 'record', '', right);
     button('btn small cyan', `${ICON.globe}Online`, () => {
       this.tap('select');
@@ -998,6 +1017,112 @@ export class App {
     sync();
   }
 
+  // ------------------------------------------------------------ account
+  /** The account's saved bot and record arrived from the cloud: they replace this device's. */
+  private adoptCloud(bot: BotSpec, record: Record_) {
+    this.player = bot;
+    this.record = record;
+    savePlayer(bot);
+    saveRecord(record);
+    this.online.session?.setBot(bot);
+    // a fight on screen keeps its bots; the new one shows on the way back
+    if (this.current !== 'fight') this.game.showBot(bot);
+    this.refreshHome();
+    if (this.current === 'garage') this.refreshGarage();
+  }
+
+  private refreshAccount() {
+    const b = this.accountBtn;
+    if (!b) return;
+    const name = this.account.username;
+    b.classList.toggle('in', !!name);
+    b.classList.toggle('offline', !!name && this.account.sync === 'offline');
+    b.innerHTML = name ? `${ICON.user}<span>${esc(name)}</span>` : `${ICON.user}<span>Log in</span>`;
+  }
+
+  private accountPopup() {
+    this.tap();
+    let mode: 'login' | 'signup' = 'login';
+    let error = '';
+    let busy = false;
+    const typed = { user: '', pass: '' };
+    this.openModal('Account', (box) => {
+      box.classList.add('account');
+      const draw = () => {
+        box.replaceChildren();
+        const name = this.account.username;
+        if (name) {
+          el('h2', '', 'Account', box);
+          el('div', 'acct-who', `${ICON.user}<b>${esc(name)}</b>`, box);
+          el('p', `acct-sync ${this.account.sync}`, `${ICON.cloud}${esc(syncText(this.account.sync, this.account.syncedAt))}`, box);
+          el('p', 'muted', 'Your bot, paint, emotes and win record are saved to your account. Log in on any device to pick up where you left off.', box);
+          const row = el('div', 'acct-actions', '', box);
+          button('btn small', `${ICON.exit}Log out`, () => {
+            this.tap('back');
+            this.account.logout();
+          }, row);
+          button('btn small cyan', 'Close', () => this.closeModal(), row);
+          return;
+        }
+        el('h2', '', mode === 'login' ? 'Log in' : 'Create account', box);
+        const seg = el('div', 'seg acct-tabs', '', box);
+        for (const [m, text] of [['login', 'Log in'], ['signup', 'Sign up']] as const) {
+          button(m === mode ? 'on' : '', text, () => {
+            if (m === mode || busy) return;
+            this.tap();
+            mode = m;
+            error = '';
+            draw();
+          }, seg);
+        }
+        const form = el('form', 'acct-form', '', box);
+        const user = el('input', 'acct-in', '', form);
+        user.placeholder = 'Username';
+        user.maxLength = USERNAME_MAX;
+        user.autocomplete = 'username';
+        user.spellcheck = false;
+        user.setAttribute('autocapitalize', 'none');
+        user.setAttribute('aria-label', 'Username');
+        user.value = typed.user;
+        const pass = el('input', 'acct-in', '', form);
+        pass.type = 'password';
+        pass.placeholder = mode === 'signup' ? `Password (${PASSWORD_MIN}+ characters)` : 'Password';
+        pass.autocomplete = mode === 'signup' ? 'new-password' : 'current-password';
+        pass.setAttribute('aria-label', 'Password');
+        pass.value = typed.pass;
+        user.addEventListener('input', () => (typed.user = user.value));
+        pass.addEventListener('input', () => (typed.pass = pass.value));
+        if (error) el('p', 'acct-error', esc(error), form);
+        const go = el('button', 'btn primary', busy ? 'Wait…' : mode === 'login' ? 'Log in' : 'Create account', form);
+        go.type = 'submit';
+        go.disabled = busy;
+        el('p', 'muted', mode === 'login'
+          ? 'Logging in loads your account\'s bot on this device.'
+          : 'Your account starts with the bot you have now, and saves it so it follows you to any device.', box);
+        button('btn small cyan', 'Close', () => this.closeModal(), box);
+        form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          if (busy) return;
+          this.tap('select');
+          busy = true;
+          error = '';
+          draw();
+          const job = mode === 'login' ? this.account.login(typed.user, typed.pass) : this.account.register(typed.user.trim(), typed.pass);
+          void job.then((err) => {
+            busy = false;
+            error = err ?? '';
+            if (!err) typed.pass = '';
+            if (this.accountView === draw) draw();
+          });
+        });
+      };
+      this.accountView = draw;
+      draw();
+    }, () => {
+      this.accountView = null;
+    });
+  }
+
   // ------------------------------------------------------------ patch notes
   private patchBtn(parent: HTMLElement) {
     const latest = PATCH_NOTES[0] ? `${PATCH_NOTES[0].hour}|${PATCH_NOTES[0].title}|${PATCH_NOTES[0].notes.length}` : '';
@@ -1239,5 +1364,18 @@ export class App {
     this.randomizeName();
     savePlayer(this.player);
     this.refreshHome();
+  }
+}
+
+function syncText(s: SyncState, at: number) {
+  switch (s) {
+    case 'syncing':
+      return 'Saving…';
+    case 'offline':
+      return 'Offline: your changes go up when you\'re back online.';
+    case 'saved':
+      return at ? `Saved to your account at ${new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.` : 'Saved to your account.';
+    default:
+      return 'Saved to your account.';
   }
 }

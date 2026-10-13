@@ -1,0 +1,29 @@
+rules_version = '2';
+
+// Battlebots: each player can read and write only their own save, users/{uid}.
+// Deploy with `firebase deploy --only firestore:rules`, or paste into
+// Firebase console > Firestore Database > Rules.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null
+        && request.auth.uid == uid
+        && validSave(request.resource.data);
+    }
+
+    // everything else is closed
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
+function validSave(d) {
+  return d.keys().hasOnly(['username', 'bot', 'record', 'updated'])
+    && d.username is string
+    && d.username.matches('^[A-Za-z0-9_]{3,16}$')
+    && d.bot is map
+    && d.record is map
+    && d.updated is timestamp;
+}

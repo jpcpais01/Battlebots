@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-13 15:00',
+    title: 'Player accounts',
+    notes: [
+      'Player accounts: tap Log in on the home screen to make an account with just a username and password. Your bot, paint, emotes and win record are saved to it, so you can log in on any phone or PC and carry on where you left off.',
+    ],
+  },
+  {
     hour: '2026-10-13 14:00',
     title: 'Five robot makers and 30 new parts',
     notes: [

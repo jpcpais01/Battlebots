@@ -56,10 +56,27 @@ export function sanitizeBot(raw: unknown): BotSpec {
 /** Load the player's bot, repairing anything stale (removed items, bad palette). */
 export const loadPlayer = (): BotSpec => sanitizeBot(read<unknown>('bb.player', null));
 
-export const savePlayer = (p: BotSpec) => write('bb.player', p);
+/** Told after the bot or the record is saved (the account sends them to the cloud). */
+let onSaved: (() => void) | null = null;
+export const setOnSaved = (fn: () => void) => (onSaved = fn);
 
-export const loadRecord = (): Record_ => ({ wins: 0, losses: 0, draws: 0, streak: 0, best: 0, ...read<Partial<Record_>>('bb.record', {}) });
-export const saveRecord = (r: Record_) => write('bb.record', r);
+export function savePlayer(p: BotSpec) {
+  write('bb.player', p);
+  onSaved?.();
+}
+
+/** A win record from anywhere (saved, or the cloud copy) made safe: counts are whole and not negative. */
+export function sanitizeRecord(raw: unknown): Record_ {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<Record<keyof Record_, unknown>>;
+  const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0);
+  return { wins: n(r.wins), losses: n(r.losses), draws: n(r.draws), streak: n(r.streak), best: n(r.best) };
+}
+
+export const loadRecord = (): Record_ => sanitizeRecord(read<unknown>('bb.record', null));
+export function saveRecord(r: Record_) {
+  write('bb.record', r);
+  onSaved?.();
+}
 
 export function loadQuality(): string | null {
   try {
