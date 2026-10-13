@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-13 13:00',
+    title: 'Fight replays',
+    notes: [
+      'New Replay button on the results screen: watch your last fight again from the walkout to the celebration, every punch exactly as it happened. Tap the intro to jump to the bell, change the speed, or skip to the result from the menu. Replays don\'t count towards your record.',
+    ],
+  },
+  {
     hour: '2026-10-13 05:00',
     title: 'A proper fight night entrance',
     notes: [
