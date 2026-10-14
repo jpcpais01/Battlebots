@@ -93,6 +93,7 @@ export class Stage {
   constructor(canvas: HTMLCanvasElement, quality: Quality) {
     this.quality = quality;
     RenderSettings.bloom = quality === 'high';
+    RenderSettings.quality = quality;
     contactAO.setQuality(quality);
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -273,6 +274,7 @@ export class Stage {
   render() {
     const size = this.renderer.getDrawingBufferSize(_size);
     const box = this.ripples.prepare(this.camera, size.x / Math.max(1, size.y));
+    contactAO.renderMap(this.renderer);
     if (this.post) this.post.render(this.scene, this.camera);
     else {
       this.renderer.setRenderTarget(null);

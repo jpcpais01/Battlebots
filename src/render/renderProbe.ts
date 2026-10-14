@@ -168,7 +168,8 @@ export class RenderProbe {
     const scene = this.stage.scene;
     // the shadow map draws with no scene, post-processing passes draw their own full-screen quads
     r.renderBufferDirect = (camera, sc, geometry, material, object, group) => {
-      if (this.counting) this.onDraw(sc === null ? INDEX.shadows : sc === scene ? this.resolve(object) : INDEX.post, geometry, object, group);
+      // (helper passes drawn outside the scene count as post-processing unless their mesh is tagged)
+      if (this.counting) this.onDraw(sc === null ? INDEX.shadows : sc === scene || this.tags.has(object) ? this.resolve(object) : INDEX.post, geometry, object, group);
       draw(camera, sc, geometry, material, object, group);
     };
   }
@@ -196,7 +197,8 @@ export class RenderProbe {
     this.draws[part]++;
     if ((object as THREE.Mesh).isMesh) {
       const n = group ? group.count : geometry.index ? geometry.index.count : (geometry.attributes.position?.count ?? 0);
-      const inst = (object as THREE.InstancedMesh).isInstancedMesh ? (object as THREE.InstancedMesh).count : 1;
+      const ig = geometry as THREE.InstancedBufferGeometry;
+      const inst = (object as THREE.InstancedMesh).isInstancedMesh ? (object as THREE.InstancedMesh).count : ig.isInstancedBufferGeometry && Number.isFinite(ig.instanceCount) ? ig.instanceCount : 1;
       this.tris[part] += (Math.min(n, geometry.drawRange.count) / 3) * inst;
     }
     if (this.cur >= 0 && part !== this.cur) {

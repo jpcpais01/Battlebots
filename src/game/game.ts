@@ -288,6 +288,8 @@ export class Game {
     p.tag(this.oil.group, 'effects');
     p.tag(this.steam.group, 'effects');
     p.tag(this.drones.group, 'effects');
+    // the floor's contact-shadow map is drawn for the ring canvas
+    p.tag(contactAO.mapMesh, 'ring');
     this.arena.group.traverse((o) => {
       if (o.name === 'ropes' || o.name === 'beams') p.tag(o, o.name);
     });
