@@ -16,6 +16,17 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-14 22:00",
+    title: "Walk-on music, remastered",
+    notes: [
+      "All six entrance songs are new, full productions: real chord progressions, melodies and a proper build into the drop, with layered drums, bass that carries on phone speakers, reverb and a mastered mix.",
+      "Steel Anthem brings double-tracked guitars and a screaming lead, Neon Drive a gated pad and a singing synth over a racing arpeggio, and Iron Forge anvils, a klaxon and a gated bass riff.",
+      "Bass Drop is now a trap tune with a tightening snare roll, a breath, then sliding 808s and rattling hats. Champion's Call is a full brass fanfare with timpani, strings and chimes, and Arcade Boss a fast chiptune boss theme.",
+      "Each theme is about twelve seconds long now, so a bot that waits longer to come out still has music, and the garage previews play the whole tune.",
+      "The music starts in time with the entrance even when it has to be prepared at the last moment, instead of staying silent.",
+    ],
+  },
+  {
     hour: "2026-10-14 21:00",
     title: "A proper exit for the loser",
     notes: [
