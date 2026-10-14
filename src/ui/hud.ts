@@ -12,6 +12,7 @@ import { button, el, esc } from './dom';
 import { ABILITY_ICON, ICON, SLOT_ICON } from './icons';
 import { saveZoom, type Zoom } from './store';
 import { botCardHtml, paintOf } from './botCard';
+import { ReplayBar } from './replayBar';
 
 const _p = new THREE.Vector3();
 
@@ -177,6 +178,10 @@ export class Hud {
   private coachTapped: CoachKind | null = null;
   /** Watching a replay. */
   private replay = false;
+  /** The replay's media controls (kept across the seeks that swap the match underneath). */
+  private rbar: ReplayBar | null = null;
+  /** The replay's controls asked for the results screen. */
+  onReplayResults: () => void = () => {};
 
   constructor(private game: Game, parent: HTMLElement) {
     this.root = el('div', 'screen hud', '', parent);
@@ -204,7 +209,8 @@ export class Hud {
 
   // ----------------------------------------------------------------- setup
   attach(match: Match, online: { me: number } | null = null, replay = false) {
-    this.detach();
+    // (a replay's controls stay up from one seek to the next; dropped below if not wanted)
+    this.detach(true);
     this.match = match;
     this.online = online;
     this.replay = replay;
@@ -226,11 +232,31 @@ export class Hud {
     this.hpPrev = match.fighters.map((f) => f.hp);
     this.healAcc = [0, 0];
     this.build(match);
-    this.showVs(match);
+    // a replay may be attached mid-fight, after a seek
+    if (match.phase === 'intro') this.showVs(match);
+    for (const f of match.fighters) {
+      this.kdSeen[f.index] = f.knockdowns;
+      if (f.knockdowns) this.markKnockdowns(f);
+    }
+    const tape = this.game.tape;
+    if (!replay || !tape) this.closeReplayBar();
+    else if (this.rbar?.tape !== tape) {
+      this.closeReplayBar();
+      this.rbar = new ReplayBar(this.game, tape, this.root);
+      this.rbar.onResults = () => this.onReplayResults();
+    }
     this.unsub = match.on((t, d) => this.onEvent(t, d));
   }
 
-  detach() {
+  /** Take the replay's controls away (its results are up, or it's over). */
+  closeReplayBar() {
+    this.rbar?.dispose();
+    this.rbar = null;
+  }
+
+  /** Stop following the match. `keepBar`: a replay seek, which re-attaches when it lands. */
+  detach(keepBar = false) {
+    if (!keepBar) this.closeReplayBar();
     this.unsub?.();
     this.unsub = null;
     this.match = null;
@@ -288,7 +314,8 @@ export class Hud {
       const core = ITEM_BY_ID.get(spec.loadout.core.id)!;
       addAb(SLOT_ICON.core, core.passive.name, undefined, true);
       if (right) abil.style.flexDirection = 'row-reverse';
-      this.bars.push({ root, hp, chip, fill, flash, num, chipN, ready, readyOn: false, st, abs, chipV: 1, chipVel: 0, shownHp: 1, lastNum: Math.round(f.hp), lastChipN: 0 });
+      const hp0 = Math.max(0, f.hpRatio);
+      this.bars.push({ root, hp, chip, fill, flash, num, chipN, ready, readyOn: false, st, abs, chipV: hp0, chipVel: 0, shownHp: hp0, lastNum: Math.round(f.hp), lastChipN: 0 });
       return root;
     };
     top.appendChild(mk(0));
@@ -305,8 +332,13 @@ export class Hud {
       );
       root.title = `${m.fighters[i].name}: condition of each part`;
       const shapes = [...root.querySelectorAll<SVGElement>('.xp')];
-      shapes.forEach((sh) => sh.style.setProperty('--pc', condColor(1)));
-      return { root, shapes, shown: new Float32Array(PART_COUNT).fill(1) };
+      // (a replay seek attaches with the damage already done)
+      const cond = m.fighters[i].parts.cond;
+      shapes.forEach((sh, p) => {
+        sh.style.setProperty('--pc', condColor(cond[p]));
+        if (cond[p] < 1) sh.classList.toggle('loose', DETACHABLE[p] ? cond[p] < LOOSE : cond[p] <= 0);
+      });
+      return { root, shapes, shown: Float32Array.from(cond) };
     });
 
     const bl = el('div', 'hud-bl', '', this.root);
@@ -319,7 +351,8 @@ export class Hud {
     this.syncZoom();
     // both phones play an online fight at the same pace, so it has no speed control
     this.speedBtn = button('icon-btn speed', '1×', () => this.cycleSpeed(), br);
-    this.speedBtn.hidden = !!this.online;
+    // (a replay has its own, in its controls)
+    this.speedBtn.hidden = !!this.online || this.replay;
 
     // the corner: four calls, one shared cooldown. A replay plays its calls back instead
     this.coachBar = null;
@@ -442,6 +475,7 @@ export class Hud {
 
   // ----------------------------------------------------------------- per frame
   update(dt: number) {
+    this.rbar?.update(dt);
     const m = this.match;
     if (!m) return;
     // the intro: each fighter in turn, then the bars come in for the countdown

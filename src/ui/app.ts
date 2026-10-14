@@ -1,4 +1,4 @@
-import type { Game, Place } from '../game/game';
+import type { Game, Place, Tape } from '../game/game';
 import { resScaleChoices, type Quality, type ResScale } from '../render/stage';
 import type { FpsCap } from '../render/pacer';
 import { enterLandscape } from '../fullscreen';
@@ -38,7 +38,6 @@ import { botCardInner, paintOf } from './botCard';
 import { PerfOverlay } from './perfOverlay';
 import { ABILITY_ICON, COMPANY_ICON, ICON, SLOT_ICON } from './icons';
 import { forceUpdate } from '../update';
-import type { CoachCall } from '../sim/coach';
 import { OnlineScreen } from './online';
 import type { OnlineSession } from '../net/session';
 import { loadPlayer, loadQuality, loadRecord, loadSaves, loadZoom, MAX_SAVES, savePlayer, saveSaves, saveQuality, saveRecord, saveZoom, setOnSaved, type Record_, type Zoom } from './store';
@@ -123,7 +122,9 @@ export class App {
    * The last fight against the AI, enough to play it again: the sim is deterministic, so
    * the same two bots, the same seed and the same intro cut give the same fight.
    */
-  private lastFight: { a: BotSpec; b: BotSpec; seed: number; cut: number; coach: CoachCall[] } | null = null;
+  private lastFight: Tape | null = null;
+  /** A replay is seeking to its end to show the results. */
+  private resultsAfterSeek = false;
   /** The fight on screen is a replay (it doesn't count towards the record). */
   private replaying = false;
   private account: Account;
@@ -191,9 +192,22 @@ export class App {
       else if (this.current === 'garage') this.garageTick(dt);
       else this.homeTick(dt);
     };
-    game.cb.onMatchEvent = (type) => {
+    game.cb.onMatchEvent = (type, data) => {
+      // a replay stops on its own last step, with its controls up
+      if (this.replaying) return;
       if (type === 'end') setTimeout(() => this.showResults(), 700);
+      this.markMoment(type, data);
     };
+    game.cb.onSeek = (done, m) => {
+      // the HUD lets go while the sim runs ahead (or starts over), and picks the fight up where it lands
+      if (!done) return this.hud.detach(true);
+      this.hud.attach(m, null, true);
+      if (this.resultsAfterSeek) {
+        this.resultsAfterSeek = false;
+        this.showResults();
+      }
+    };
+    this.hud.onReplayResults = () => this.replayResults();
     this.setupGarageDrag();
     document.addEventListener('visibilitychange', () => {
       // (an online fight can't pause: it plays on, and this phone catches up when it's back)
@@ -1097,7 +1111,7 @@ export class App {
     if (!sameOpponent || !this.opponent) this.opponent = this.makeOpponent();
     const seed = (Math.random() * 2 ** 32) >>> 0;
     // copies, so a later trip to the garage can't change the fight a replay shows
-    this.lastFight = { a: structuredClone(this.player), b: structuredClone(this.opponent), seed, cut: -1, coach: [] };
+    this.lastFight = { a: structuredClone(this.player), b: structuredClone(this.opponent), seed, cut: -1, coach: [], end: -1, marks: [] };
     this.replaying = false;
     const m = this.game.startMatch(this.player, this.opponent, seed);
     this.hud.resetSpeed();
@@ -1113,14 +1127,32 @@ export class App {
     void enterLandscape();
     this.closeResults();
     this.replaying = true;
-    const m = this.game.startMatch(r.a, r.b, r.seed);
-    m.replayCut = r.cut;
-    // the corner's calls, on the steps they were made
-    for (const c of r.coach) m.queueCoach(c.side, c.kind, c.frame);
-    this.game.holdIntro = false;
+    this.resultsAfterSeek = false;
+    const m = this.game.startReplay(r);
     this.hud.resetSpeed();
     this.hud.attach(m, null, true);
     this.go('fight');
+  }
+
+  /** The replay's results: run it to the end first (it's quick), then show them. */
+  private replayResults() {
+    const g = this.game;
+    const t = g.tape;
+    if (!t || !g.match) return;
+    if (!g.seeking && g.match.frame >= t.end) return this.showResults();
+    this.resultsAfterSeek = true;
+    g.seek(t.end);
+  }
+
+  /** The big moments of a fight, for the replay's scrubber. */
+  private markMoment(type: string, data: unknown) {
+    const m = this.game.match;
+    const t = this.lastFight;
+    if (!m || !t || this.netFight || m.phase === 'end') return;
+    const kind = type === 'ko' ? 'ko' : type === 'detach' ? 'tear' : type === 'knockdown' && m.phase === 'fight' ? 'kd' : null;
+    if (!kind) return;
+    if (kind === 'kd' && (data as { defender: Fighter }).defender.state === 'ko') return;
+    t.marks.push({ frame: m.frame, kind });
   }
 
   private pause() {
@@ -1144,23 +1176,22 @@ export class App {
 
   private replayMenu() {
     this.tap();
+    // the menu holds the replay, and leaves it playing or paused as it was
+    const was = this.game.paused;
     this.game.paused = true;
     this.openModal('Replay', (box) => {
       button('btn primary', `${ICON.play}Resume`, () => this.closeModal(), box);
       this.soundRow(box);
       button('btn small', `${ICON.forward}Skip to the result`, () => {
         this.closeModal();
-        const m = this.game.match;
-        if (!m) return;
-        if (m.phase === 'end') this.showResults();
-        else this.game.fastForward(Infinity);
+        this.replayResults();
       }, box);
       button('btn small', `${ICON.exit}Home`, () => {
         this.closeModal();
         this.go('home');
       }, box);
     }, () => {
-      this.game.paused = false;
+      this.game.paused = was;
     });
   }
 
@@ -1467,6 +1498,7 @@ export class App {
   private showResults() {
     const m = this.game.match;
     if (!m || this.current !== 'fight' || this.results) return;
+    this.hud.closeReplayBar();
     const [a, b] = m.fighters;
     const net = this.netFight;
     // online, this player may be in either corner; offline it's always the left one
@@ -1480,6 +1512,8 @@ export class App {
       if (this.lastFight) {
         this.lastFight.cut = m.introCut;
         this.lastFight.coach = m.coachLog.slice();
+        // the replay runs to here
+        this.lastFight.end = m.frame;
       }
     }
     const verdict = draw ? 'DRAW' : won ? 'VICTORY' : 'DEFEAT';

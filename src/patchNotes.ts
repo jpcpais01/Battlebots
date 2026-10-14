@@ -16,6 +16,14 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-14 19:00',
+    title: 'Replay controls',
+    notes: [
+      'Replays now have media-player controls: play and pause, jump back or ahead 5 seconds, step frame by frame while paused, and drag the timeline to any moment. Knockdowns, torn-off parts and the KO are marked on it.',
+      'Watch replays at any speed from 0.25x slow motion up to 4x. On a keyboard: space pauses, the arrow keys jump, [ and ] change speed.',
+    ],
+  },
+  {
     hour: '2026-10-14 17:00',
     title: 'Cleaner fights, whole-bot finishers',
     notes: [
