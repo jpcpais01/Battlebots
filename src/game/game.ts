@@ -12,6 +12,7 @@ import type { CoachCall } from '../sim/coach';
 import { CUT_JOINTS, P, PART_COUNT } from '../sim/damage';
 import { Debris } from '../render/debris';
 import { Oil } from '../render/oil';
+import { Steam } from '../render/steam';
 import { Fighter } from '../sim/fighter';
 import { EMOTE_KIND, Showman } from '../sim/emote';
 import { FinisherRun } from '../sim/finisher';
@@ -67,6 +68,9 @@ const _u = new THREE.Vector3();
 const _pan = new THREE.Vector3();
 const _dp = new THREE.Vector3();
 const _dq = new THREE.Vector3();
+const _fwd = new THREE.Vector3();
+const _side = new THREE.Vector3();
+const _sideP = new THREE.Vector3();
 
 /** Oil starts to leak from the chest or lower torso below this condition. */
 const LEAK_BELOW = 0.35;
@@ -103,6 +107,32 @@ function oilLeak(part: number, cond: number) {
   if ((part !== P.Chest && part !== P.Torso) || cond >= LEAK_BELOW) return 0;
   return 0.15 + 0.85 * ((LEAK_BELOW - cond) / LEAK_BELOW);
 }
+
+/** A part grows a pressure valve that vents vapour below this condition. */
+const VENT_BELOW = 0.3;
+type Radius = 'upper' | 'fore' | 'thigh' | 'shin';
+/**
+ * Where each part's valve sits: on the segment from joint a to b, t of the way along, out
+ * at the plating (a limb radius from the model, or a fixed one), and which side a limb's
+ * valve faces (-1 left, 1 right, 0 anywhere). Hands and feet have none.
+ */
+const VENT_AT: ([a: number, b: number, t: number, r: Radius | number, side: number] | null)[] = [
+  [J.Neck, J.Head, 1, 0.12, 0],
+  [J.Pelvis, J.Chest, 0.95, 0.2, 0],
+  [J.Pelvis, J.Chest, 0.3, 0.16, 0],
+  [J.ShL, J.ElL, 0.5, 'upper', -1],
+  [J.ElL, J.HandL, 0.45, 'fore', -1],
+  null,
+  [J.ShR, J.ElR, 0.5, 'upper', 1],
+  [J.ElR, J.HandR, 0.45, 'fore', 1],
+  null,
+  [J.HipL, J.KneeL, 0.45, 'thigh', -1],
+  [J.KneeL, J.FootL, 0.4, 'shin', -1],
+  null,
+  [J.HipR, J.KneeR, 0.45, 'thigh', 1],
+  [J.KneeR, J.FootR, 0.4, 'shin', 1],
+  null,
+];
 const _up = new THREE.Vector3(0, 1, 0);
 /** Longest the intro waits for the booth's opening, in seconds. */
 const INTRO_MAX = 16;
@@ -201,6 +231,8 @@ export class Game {
   private stumps: { joint: number; age: number }[][] = [[], []];
   /** Oil bleeding from wrecked chests and lower torsos, and the puddles it leaves. */
   readonly oil = new Oil();
+  /** Pressure valves venting vapour from badly damaged parts. */
+  readonly steam = new Steam();
   /** Broadcast camera drones flying the shots (render only). */
   private drones = new Drones();
   private focus = new THREE.Vector3(0, 1.1, 0);
@@ -226,6 +258,7 @@ export class Game {
     this.stage.scene.add(this.fx.group);
     this.stage.scene.add(this.debris.group);
     this.stage.scene.add(this.oil.group);
+    this.stage.scene.add(this.steam.group);
     this.stage.scene.add(this.drones.group);
     this.clearView.apply(this.drones.group);
     this.tagParts();
@@ -233,6 +266,7 @@ export class Game {
     this.stage.onResize = (w, h) => {
       this.fx.setPixelScale(h);
       this.oil.setPixelScale(h);
+      this.steam.setPixelScale(h);
       this.arena.setPixelScale(h);
       const narrow = w / Math.max(1, h / (window.devicePixelRatio || 1)) < 1.2;
       this.director.setBaseFov(this.stage.baseFov, narrow);
@@ -250,6 +284,7 @@ export class Game {
     p.tag(this.fx.group, 'effects');
     p.tag(this.debris.group, 'bots');
     p.tag(this.oil.group, 'effects');
+    p.tag(this.steam.group, 'effects');
     p.tag(this.drones.group, 'effects');
     this.arena.group.traverse((o) => {
       if (o.name === 'ropes' || o.name === 'beams') p.tag(o, o.name);
@@ -636,6 +671,7 @@ export class Game {
     this.match = null;
     this.debris.clear();
     this.oil.clear();
+    this.steam.clear();
     this.stumps = [[], []];
   }
 
@@ -878,6 +914,7 @@ export class Game {
         if (Math.random() < 0.5) md.oilSplash(left ? J.KneeL : J.KneeR, 0.09, 0.8);
         md.grime += 0.03;
       }
+      this.steam.update(flow);
       perf.lap('bots');
     }
     if (this.showcase) {
@@ -1072,6 +1109,8 @@ export class Game {
       this.fx.shrapnel(h.point, h.dir, Math.round(3 + wear * 14 + h.damage / 16), 2.5 + wear * 2.5);
       if (wear > 0.35) this.fx.smoke(h.point, 1 + Math.round(wear * 3), wear);
     }
+    // a blow to a venting part blows its valve
+    if (h.partCond < VENT_BELOW) this.steam.kick(h.defender.index * 16 + h.part);
     const k = oilLeak(h.part, h.partCond);
     if (k > 0 && !h.blocked) {
       this.oil.splash(h.point, h.dir, k);
@@ -1151,6 +1190,22 @@ export class Game {
       if (Math.random() < dt * (0.4 + kk * 6)) this.fx.sparks(_dp, _up, 2 + Math.round(kk * 8), 0xffb050, 2 + kk * 1.5, 1.3);
       if (w > 0.4 && Math.random() < dt * (0.6 + kk * 10)) this.fx.smoke(_dp, 1 + Math.round(kk), 0.2 + kk * 0.8);
       if (w > 0.75 && Math.random() < dt * (0.3 + kk * 1.5)) this.fx.arc(_dp, 0.1 + kk * 0.06);
+    }
+    // badly damaged parts grow a pressure valve that blows off vapour (it goes with the part)
+    const md = this.models[i];
+    _fwd.set(Math.sin(f.yaw), 0, Math.cos(f.yaw));
+    _side.subVectors(J0[J.ShR], J0[J.ShL]).setY(0);
+    if (_side.lengthSq() < 1e-6) _side.set(Math.cos(f.yaw), 0, -Math.sin(f.yaw));
+    _side.normalize();
+    for (let p = 0; p < PART_COUNT; p++) {
+      const at = VENT_AT[p];
+      if (!at || parts.off[p] || parts.cond[p] >= VENT_BELOW) continue;
+      const [a, b, t, r, side] = at;
+      const radius = typeof r === 'number' ? r * md.size : md.radii[r];
+      if (side) _sideP.copy(_side).multiplyScalar(side);
+      const k = (VENT_BELOW - parts.cond[p]) / VENT_BELOW;
+      const burst = this.steam.vent(i * 16 + p, J0[a], J0[b], t, radius, _fwd, side ? _sideP : null, k, md.size, dt);
+      if (burst > 0) this.sfx?.hiss(0.4 + k * 0.6, burst, this.pan(J0[b]));
     }
     // a wrecked chest or lower torso bleeds oil from a wound on its plating
     let bleed = 0;

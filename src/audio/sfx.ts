@@ -23,6 +23,8 @@ export class Sfx {
   private crowdLevel = 0;
   muted = false;
   private lastStep = [0, 0];
+  /** Until when a valve hiss is still blowing (audio clock). */
+  private hissUntil = 0;
   private bank: Partial<Record<ImpactKind, AudioBuffer[]>> = {};
   private lastPick: Partial<Record<ImpactKind, AudioBuffer>> = {};
   private voice: Voice | null = null;
@@ -443,6 +445,48 @@ export class Sfx {
     if (!this.ok) return;
     this.impact('thud', 0.35 + 0.55 * k, 1.05 - k * 0.15, pan);
     this.tone('sine', 70, 30, 0.3, 0.2 + 0.3 * k);
+  }
+
+  /**
+   * A pressure valve blowing: a clack as it lifts, then a hard, bright hiss of vapour that
+   * sputters out over `dur` seconds. k (0..1) is how wrecked the part is.
+   */
+  hiss(k: number, dur: number, pan = 0) {
+    if (!this.ok) return;
+    const ctx = this.ctx!;
+    const t = ctx.currentTime;
+    // valves blowing together read as one: don't stack them
+    if (t < this.hissUntil) return;
+    this.hissUntil = t + 0.18;
+    this.tone('square', 1800, 900, 0.03, 0.04 * (0.5 + k), 0, 3000);
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    src.loop = true;
+    src.playbackRate.value = 0.9 + Math.random() * 0.25;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 2400;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'peaking';
+    bp.frequency.setValueAtTime(6500 + Math.random() * 1500, t);
+    bp.frequency.linearRampToValueAtTime(4200, t + dur);
+    bp.gain.value = 6;
+    const g = ctx.createGain();
+    const peak = 0.05 + 0.08 * k;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + 0.015);
+    g.gain.setValueAtTime(peak, t + dur * 0.45);
+    g.gain.exponentialRampToValueAtTime(peak * 0.3, t + dur * 0.8);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.12);
+    let node: AudioNode = src.connect(hp).connect(bp).connect(g);
+    if (ctx.createStereoPanner && pan) {
+      const p = ctx.createStereoPanner();
+      p.pan.value = Math.max(-1, Math.min(1, pan));
+      node = node.connect(p);
+    }
+    node.connect(this.master!);
+    src.start(t, Math.random() * 1.5);
+    src.stop(t + dur + 0.2);
   }
 
   ropes() {
