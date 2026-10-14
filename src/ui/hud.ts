@@ -1,9 +1,8 @@
 import * as THREE from 'three';
 import type { Game } from '../game/game';
-import { COUNTDOWN, type Match, type HitInfo, type DetachInfo, type FinishKind, type FinisherInfo, type WearInfo } from '../sim/match';
-import { DETACHABLE, LOOSE, P, PART_COUNT, PART_NAME, type LossReason } from '../sim/damage';
+import { COUNTDOWN, type Match, type HitInfo, type DetachInfo, type FinishKind, type FinisherInfo } from '../sim/match';
+import { DETACHABLE, LOOSE, P, PART_COUNT, type LossReason } from '../sim/damage';
 import type { Fighter } from '../sim/fighter';
-import type { BrainEvent } from '../sim/brain';
 import { COACH_COOLDOWN, COACH_KINDS, COACH_LABEL, COACH_TIME, type CoachKind } from '../sim/coach';
 import { MOVES, type MoveId } from '../sim/moves';
 import { J } from '../sim/body';
@@ -113,8 +112,7 @@ interface XrayEls {
 
 /**
  * Fight overlay: health/stamina bars, clock, ability cooldowns, VS card, countdown,
- * callouts, referee count, KO/TKO finisher, floating damage numbers and a running
- * commentary line.
+ * callouts, referee count, KO/TKO finisher and floating damage numbers.
  */
 /** Button text for each coach call. */
 const COACH_BUTTON: Record<CoachKind, string> = {
@@ -151,7 +149,6 @@ export class Hud {
   private visor: HTMLElement;
   private visorTag: HTMLElement;
   private visorBy = -1;
-  private commentary: HTMLElement;
   /** The intro: a presentation panel per fighter (card and name banner). */
   private vs: HTMLElement | null = null;
   private presents: HTMLElement[] = [];
@@ -164,11 +161,7 @@ export class Hud {
   private netEl!: HTMLElement;
   private unsub: (() => void) | null = null;
   private lastCount = -1;
-  private commentT = 0;
-  private commentPri = 0;
   private lastCalloutAt = 0;
-  private lowWarned = [false, false];
-  private tenWarned = false;
   private hpPrev = [0, 0];
   private healAcc = [0, 0];
   private dmgCount = 0;
@@ -207,7 +200,6 @@ export class Hud {
     this.refName = this.refEl.querySelector('.rc-name')!;
     this.refState = this.refEl.querySelector('.rc-state')!;
     this.refKd = [...this.refEl.querySelectorAll<HTMLElement>('.rc-kd em')];
-    this.commentary = el('div', 'commentary', '', this.root);
   }
 
   // ----------------------------------------------------------------- setup
@@ -230,10 +222,6 @@ export class Hud {
     this.finBan.innerHTML = '';
     this.finBy = null;
     this.root.classList.remove('finished');
-    this.lowWarned = [false, false];
-    this.tenWarned = false;
-    this.commentPri = 0;
-    this.commentary.classList.remove('on');
     this.dmgLayer.innerHTML = '';
     this.hpPrev = match.fighters.map((f) => f.hp);
     this.healAcc = [0, 0];
@@ -491,10 +479,6 @@ export class Hud {
     this.updateCoach(m);
     this.timer.textContent = String(Math.ceil(m.clock));
     this.timer.classList.toggle('hurry', m.clock <= 10 && m.phase === 'fight');
-    if (!this.tenWarned && m.clock <= 10 && m.phase === 'fight') {
-      this.tenWarned = true;
-      this.comment('Ten seconds left on the clock!', 2);
-    }
 
     for (let i = 0; i < 2; i++) {
       const f = m.fighters[i];
@@ -526,7 +510,6 @@ export class Hud {
       if (ready !== b.readyOn) {
         b.readyOn = ready;
         b.root.classList.toggle('finready-on', ready);
-        if (ready) this.comment(this.pick([`${f.name} can finish it!`, `One clean shot and ${f.name} ends this!`, `${f.opp.name} is out on their feet. Finisher time!`]), 3);
       }
       // healing popups (siphon)
       const dh = f.hp - this.hpPrev[i];
@@ -537,10 +520,6 @@ export class Hud {
       if (this.healAcc[i] >= 12) {
         this.floatAt(f.body.pos[J.Chest], `+${Math.round(this.healAcc[i])}`, 'heal');
         this.healAcc[i] = 0;
-      }
-      if (!this.lowWarned[i] && hp < 0.25 && m.phase === 'fight') {
-        this.lowWarned[i] = true;
-        this.comment(`${f.name} is running on fumes!`, 2);
       }
     }
 
@@ -556,12 +535,6 @@ export class Hud {
       this.finishing = false;
       this.finishEl.classList.add('out');
       this.root.classList.remove('finished');
-    }
-
-    this.commentT -= dt;
-    if (this.commentT <= 0 && this.commentary.classList.contains('on')) {
-      this.commentary.classList.remove('on');
-      this.commentPri = 0;
     }
   }
 
@@ -675,21 +648,14 @@ export class Hud {
         if (h.blocked) {
           if (dmg >= 4) this.floatAt(h.point, String(dmg), 'blk');
           if (h.guardBreak) this.callout('GUARD BREAK', 'small cyan');
-          else if (h.move.ability) this.comment(`${h.defender.name} eats the ${h.move.name} on the guard.`, 0);
           break;
         }
         this.floatAt(h.point, h.crit ? `${dmg}!` : String(dmg), h.crit ? 'crit' : '');
         if (h.knockdown) break; // handled below
         if (h.counter && dmg >= 30) {
           this.callout('COUNTER!', 'small');
-          this.comment(this.pick([`Beautiful counter ${h.move.name.toLowerCase()} from ${h.attacker.name}!`, `${h.attacker.name} times it perfectly!`, `${h.attacker.name} makes them pay!`]), 1);
         } else if (h.crit) {
           this.callout('CRITICAL', 'small');
-          this.comment(this.pick([`Massive ${h.move.name.toLowerCase()} lands clean!`, `${h.attacker.name} finds the gap!`]), 1);
-        } else if (h.move.ability) {
-          this.comment(this.pick([`${h.move.name} connects!`, `${h.attacker.name} lands the ${h.move.name}!`]), 1);
-        } else if (dmg >= 55) {
-          this.comment(this.pick([`Huge ${h.move.name.toLowerCase()}!`, `${h.defender.name} felt that one.`, `What a shot from ${h.attacker.name}!`]), 1);
         }
         break;
       }
@@ -701,33 +667,20 @@ export class Hud {
         if (d.knockdowns <= this.kdSeen[d.index]) {
           // a leg sweep puts them down but doesn't count toward the TKO
           this.callout('SWEPT!', 'small cyan', 900);
-          this.comment(this.pick([`${h.attacker.name} sweeps the legs!`, `${d.name} gets tripped up!`]), 2);
           break;
         }
         this.kdSeen[d.index] = d.knockdowns;
         this.markKnockdowns(d);
         this.callout('KNOCKDOWN!', 'red');
-        this.comment(this.pick([`Down goes ${d.name}!`, `${h.attacker.name} drops them with a ${h.move.name.toLowerCase()}!`, `${d.name} hits the canvas!`]), 3);
         this.startCount(d, m.time);
         break;
       }
-      case 'stagger': {
-        const h = data as HitInfo;
+      case 'stagger':
         this.callout('STAGGERED', 'small');
-        this.comment(this.pick([`${h.defender.name} is wobbled!`, `${h.defender.name}'s legs are gone!`, `${h.attacker.name} has them hurt!`]), 2);
         break;
-      }
-      case 'dodge': {
-        const d = data as { f: Fighter; from: Fighter; s: { move: { name: string; ability?: string } } };
+      case 'dodge':
         if (m.time - this.lastCalloutAt > 1.2) this.callout('DODGE', 'small cyan', 700);
-        this.comment(this.pick([`${d.f.name} slips the ${d.s.move.name.toLowerCase()}!`, `${d.f.name} makes ${d.from.name} miss!`, `Slick defense from ${d.f.name}.`]), d.s.move.ability ? 1 : 0);
         break;
-      }
-      case 'whiff': {
-        const d = data as { f: Fighter; s: { move: { name: string; ability?: string } } };
-        if (d.s.move.ability) this.comment(`${d.f.name} swings the ${d.s.move.name} at air.`, 0);
-        break;
-      }
       case 'strikeStart': {
         const d = data as { f: Fighter; s: { feint: boolean; move: { ability?: string; name: string } } };
         if (d.s.move.ability && !d.s.feint && m.phase === 'fight' && !m.fin) this.abilityTag(d.f, d.s.move.name);
@@ -739,61 +692,13 @@ export class Hud {
         const d = data as DetachInfo;
         const what = d.part === P.Head ? 'HEAD' : d.part === P.UpL || d.part === P.UpR ? 'ARM' : d.part === P.ForeL || d.part === P.ForeR ? 'FOREARM' : 'LEG';
         this.callout(`${what} RIPPED OFF!`, 'red', 1500);
-        this.comment(
-          d.fatal
-            ? d.fatal === 'head'
-              ? `${d.by.name} takes ${d.f.name}'s head clean off!`
-              : d.fatal === 'leg'
-                ? `${d.f.name}'s ${PART_NAME[d.part].split(' ')[0]} leg is gone! It can't stand!`
-                : `${d.f.name} has no arms left to fight with!`
-            : this.pick([`${d.by.name} tears off ${d.f.name}'s ${PART_NAME[d.part]}!`, `The ${PART_NAME[d.part]} goes flying! ${d.f.name} fights on one-armed!`]),
-          4,
-        );
-        break;
-      }
-      case 'wear': {
-        const w = data as WearInfo;
-        if (m.phase !== 'fight') break;
-        const name = w.f.name;
-        const part = PART_NAME[w.part];
-        const side = part.split(' ')[0];
-        let text = '';
-        if (w.level === 1) {
-          if (w.part === P.Head) text = `${name}'s head is hanging by a thread!`;
-          else if (w.part === P.Chest) text = `${name}'s chest plate is caving in. The core is leaking!`;
-          else if (w.part === P.Torso) text = `${name}'s waist is buckling!`;
-          else if (DETACHABLE[w.part] && w.part >= P.ThighL) text = `${name}'s ${side} leg is barely holding on!`;
-          else if (DETACHABLE[w.part]) text = `${name}'s ${side} arm is coming apart!`;
-          else text = `${name}'s ${part} is cracked!`;
-        } else if (w.level === 2) {
-          if (w.part === P.FistL || w.part === P.FistR) text = `${name}'s ${part} is shattered!`;
-          else if (w.part === P.FootL || w.part === P.FootR) text = `${name}'s ${part} is crushed!`;
-          else if (!DETACHABLE[w.part]) text = `${name}'s ${part} is wrecked!`;
-        }
-        if (text) this.comment(text, w.part === P.Head ? 3 : 1);
-        break;
-      }
-      case 'getupFail': {
-        const f = (data as { f: Fighter }).f;
-        this.comment(this.pick([`${f.name} tries to rise... and goes back down!`, `${f.name}'s legs won't hold!`, `Not yet! ${f.name} slumps back to the canvas.`]), 2);
-        break;
-      }
-      case 'getUp': {
-        const f = (data as { f: Fighter }).f;
-        if (f.state !== 'ko') this.comment(this.pick([`${f.name} beats the count!`, `${f.name} is back up!`, `${f.name} wants more!`]), 2);
         break;
       }
       case 'ropes':
         break;
-      case 'brain': {
-        const e = data as BrainEvent;
-        this.comment(e.text, 0);
-        break;
-      }
       case 'coach': {
         const d = data as { f: Fighter; kind: CoachKind };
         this.floatAt(d.f.body.pos[J.Head], COACH_LABEL[d.kind], `coach ${d.kind}`);
-        this.comment(`${d.f.name}'s corner: "${COACH_LABEL[d.kind]}"`, 1);
         break;
       }
       case 'ko': {
@@ -802,32 +707,17 @@ export class Hud {
         if (d.kind === 'TKO') this.markKnockdowns(d.loser);
         if (d.kind !== 'Dismantled') this.calloutEl.className = 'callout';
         this.pendingFinish = { kind: d.kind, winner: d.winner, reason: d.reason };
-        if (d.kind !== 'Dismantled') this.comment(d.kind === 'TKO' ? `Three knockdowns. ${d.winner.name} wins by TKO!` : `${d.loser.name} is out cold!`, 5);
         break;
       }
       case 'decision': {
-        const d = data as { winner: Fighter | null };
         this.endCount();
         this.callout('TIME!', '', 1800);
-        this.comment(d.winner ? `${d.winner.name} takes it on the cards.` : 'Dead even. It is a draw!', 5);
         break;
       }
     }
   }
 
   // ----------------------------------------------------------------- bits
-  private pick<T>(a: T[]): T {
-    return a[Math.floor(Math.random() * a.length)];
-  }
-
-  private comment(text: string, priority: number) {
-    if (this.commentary.classList.contains('on') && priority < this.commentPri && this.commentT > 0.6) return;
-    this.commentary.textContent = text;
-    this.commentary.classList.add('on');
-    this.commentT = 2.4 + priority * 0.4;
-    this.commentPri = priority;
-  }
-
   private callout(text: string, cls = '', ms = 1100) {
     const c = this.calloutEl;
     c.className = 'callout';
@@ -944,7 +834,6 @@ export class Hud {
     void b.offsetWidth;
     b.className = `finban go ${i ? 'p2' : 'p1'}`;
     this.calloutEl.className = 'callout';
-    this.comment(this.pick([`${d.f.name} goes for the ${d.name}!`, `Here it comes: ${d.name}!`, `${d.opp.name} is helpless. ${d.name}!`]), 4);
     this.game.sfx?.ui('start');
   }
 

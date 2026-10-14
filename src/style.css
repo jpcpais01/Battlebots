@@ -1707,28 +1707,6 @@ button {
   width: 1.15em;
   height: 1.15em;
 }
-.commentary {
-  position: absolute;
-  left: 50%;
-  bottom: max(14px, env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  max-width: 56vw;
-  text-align: center;
-  font-size: 0.95em;
-  font-weight: 700;
-  padding: 0.35em 0.9em;
-  border-radius: 999px;
-  background: rgba(8, 10, 18, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.commentary.on {
-  opacity: 1;
-}
 .callout {
   position: absolute;
   left: 50%;
@@ -4159,10 +4137,6 @@ button {
   to {
     background: color-mix(in srgb, var(--kc) 35%, rgba(18, 23, 37, 0.9));
   }
-}
-/* the commentary line moves up over the buttons */
-.hud:has(.coach-bar:not(.off)) .commentary {
-  bottom: calc(max(10px, env(safe-area-inset-bottom)) + 3.1em);
 }
 /* the call shouted over the bot's head */
 .dmg.coach {
