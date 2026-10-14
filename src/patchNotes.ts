@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: "2026-10-14 21:00",
     title: "No more floor fighting, tidier performance stats",
     notes: [
+      "The loser's stretcher ride no longer crashes the winner's celebration. The victory plays out first, then the show cuts to the loser already aboard, waving and grinning as it glides off to the tunnel.",
       "No more fighting on the floor: after a takedown or a slam the bot stays on its feet, steps back and lets the other one get up, instead of kneeling over it to punch.",
       "Performance stats now start as just the FPS counter. Tap it to open the full panel.",
     ],
