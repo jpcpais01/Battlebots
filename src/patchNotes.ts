@@ -16,6 +16,14 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-14 03:00',
+    title: 'Beat the count',
+    notes: [
+      'Knocked-down bots now get a chance to rise on every second of the count, and the more health they have left the better their odds. A badly hurt bot can stay down for ten.',
+      'Composure and Reboot now make a bot more likely to beat the count.',
+    ],
+  },
+  {
     hour: '2026-10-14 01:00',
     title: 'The whole ring is open, and your paint online',
     notes: [
