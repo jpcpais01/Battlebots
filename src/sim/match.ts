@@ -357,6 +357,8 @@ export class Match {
     this.fighters[0].update(dt);
     this.fighters[1].update(dt);
     this.separate();
+    // nothing of the finisher's passes through the one it is finishing
+    if (fin) fin.settle();
     if (fin && fin.over) {
       fin.end();
       this.fin = null;
