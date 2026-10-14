@@ -24,6 +24,7 @@ import { computeBuild, RARITIES } from './items';
 import { DEFAULT_PLAYER, type BotSpec } from './loadout';
 import { DEFAULT_PAINT, type Paint } from './paint';
 import type { Sfx } from '../audio/sfx';
+import type { BoothCue } from '../audio/booth';
 import { perf } from '../perf';
 import { RenderProbe } from '../render/renderProbe';
 import { FramePacer } from '../render/pacer';
@@ -64,6 +65,8 @@ export interface Tape {
   coach: CoachCall[];
   end: number;
   marks: { frame: number; kind: 'kd' | 'tear' | 'ko' }[];
+  /** What the commentators said, and when (older tapes have none: the booth calls it afresh). */
+  talk?: BoothCue[];
 }
 
 /** Longest a replay seek may run the sim in one animation frame, in ms (the rest waits a frame). */
@@ -642,7 +645,7 @@ export class Game {
     });
     this.director.mode = 'match';
     this.director.player = me;
-    this.director.reset();
+    this.director.begin(m);
     // wounds open somewhere on the front half of the body
     this.wounds = [0, 1].map(() => [0, 1].map(() => (Math.random() - 0.5) * 2.4));
     this.acc = 0;
@@ -673,10 +676,7 @@ export class Game {
     const m = this.match;
     if (!m) return;
     this.quiet = true;
-    for (let i = 0; i < n && !until(m); i++) {
-      m.step(SIM_DT);
-      this.onStep?.(m);
-    }
+    for (let i = 0; i < n && !until(m); i++) this.simStep(m);
     this.quiet = false;
   }
 
@@ -717,6 +717,8 @@ export class Game {
     // the intro repeats the original's length, whatever the booth is doing
     this.holdIntro = false;
     this.tape = t;
+    // the booth says what it said the first time
+    if (t.talk?.length) this.sfx?.booth.begin(m, false, true, t.talk);
     return m;
   }
 
@@ -751,9 +753,16 @@ export class Game {
     }
     this.sfx?.booth.end();
     this.sfx?.walkOnStop(0.2);
-    this.director.reset();
+    // (the camera runs along with the sim, so it lands on the shot the fight had there)
     this.seekTo = frame;
     this.acc = 0;
+  }
+
+  /** One sim step, with the fight camera directing along on the match clock. */
+  private simStep(m: Match) {
+    m.step(SIM_DT);
+    this.director.step(m, SIM_DT / m.slowmo);
+    this.onStep?.(m);
   }
 
   /** Run a slice of a seek; land it once the sim reaches the step. */
@@ -762,8 +771,7 @@ export class Game {
     this.quiet = true;
     let n = 0;
     while (m.frame < this.seekTo) {
-      m.step(SIM_DT);
-      this.onStep?.(m);
+      this.simStep(m);
       if ((++n & 31) === 0 && performance.now() - t0 > SEEK_BUDGET) break;
     }
     this.quiet = false;
@@ -781,7 +789,7 @@ export class Game {
       this.groundedPrev[i] = [J.Pelvis, J.Chest, J.Head].map((j) => body.grounded[j]);
     }
     // the booth picks the fight up from here (the welcome only from the very start)
-    this.sfx?.booth.begin(m, false, m.phase === 'intro' && m.phaseTime < 0.5);
+    this.sfx?.booth.begin(m, false, m.phase === 'intro' && m.phaseTime < 0.5, this.tape?.talk?.length ? this.tape.talk : null);
     this.cb.onSeek?.(true, m);
   }
 
@@ -1016,8 +1024,7 @@ export class Game {
             this.acc = 0;
             break;
           }
-          m.step(SIM_DT);
-          this.onStep?.(m);
+          this.simStep(m);
           this.acc -= SIM_DT;
           steps++;
         }
@@ -1193,7 +1200,7 @@ export class Game {
     perf.lap('arena');
     const shot = m && this.stretcher.on ? this.stretcher.shot : null;
     if (shot) this.director.film(shot.pos, shot.look, shot.fovK, shot.cut);
-    this.director.update(still && m ? 0 : dt, m);
+    this.director.update(still && m ? 0 : dt, m, alpha);
     // a bot's-eye shot: the lens is inside that bot's head
     const pov = m && this.models.length === 2 ? this.director.pov : -1;
     if (pov >= 0) this.models[pov].hideHead();

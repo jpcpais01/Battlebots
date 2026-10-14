@@ -176,3 +176,20 @@ export async function setDoc(t: Tokens, path: string, data: Record<string, unkno
     keepalive,
   });
 }
+
+/** Every document directly under a collection (up to `max`), with their ids. */
+export async function listDocs(t: Tokens, path: string, max = 100): Promise<{ id: string; data: Record<string, unknown> }[]> {
+  try {
+    const res = await call(`${docsUrl()}/${docPath(path)}?pageSize=${max}`, { headers: bearer(t) });
+    const r = (await res.json()) as { documents?: { name: string; fields?: Record<string, Value> }[] };
+    return (r.documents ?? []).map((d) => ({ id: decodeURIComponent(d.name.slice(d.name.lastIndexOf('/') + 1)), data: fromFields(d.fields ?? {}) }));
+  } catch (e) {
+    if (e instanceof FirebaseError && e.code === 'NOT_FOUND') return [];
+    throw e;
+  }
+}
+
+/** Delete one document (deleting one that isn't there is fine). */
+export async function deleteDoc(t: Tokens, path: string): Promise<void> {
+  await call(`${docsUrl()}/${docPath(path)}`, { method: 'DELETE', headers: bearer(t) });
+}
