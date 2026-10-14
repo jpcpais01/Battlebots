@@ -3988,3 +3988,77 @@ button {
 .dialog-btns .btn {
   flex: 1;
 }
+
+/* bot's-eye camera: a visor over the picture while the lens looks out of one bot's head */
+.pov-visor {
+  --pv: var(--cyan);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+  background:
+    radial-gradient(ellipse 78% 72% at 50% 50%, transparent 58%, rgba(4, 8, 14, 0.38) 82%, rgba(2, 4, 8, 0.78) 100%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 3px);
+}
+.pov-visor.on {
+  opacity: 1;
+}
+.pov-visor::before {
+  /* a faint tint of the bot's colour round the rim of the glass */
+  content: '';
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 6vmin color-mix(in srgb, var(--pv) 30%, transparent);
+}
+.pov-visor .pv-c,
+.pov-visor::after {
+  /* corner brackets */
+  content: '';
+  position: absolute;
+  inset: max(4.5vmin, 18px) max(4vmin, 14px);
+  --b: color-mix(in srgb, var(--pv) 70%, white 10%);
+  background:
+    linear-gradient(var(--b), var(--b)) top left / 22px 2px,
+    linear-gradient(var(--b), var(--b)) top left / 2px 22px,
+    linear-gradient(var(--b), var(--b)) bottom right / 22px 2px,
+    linear-gradient(var(--b), var(--b)) bottom right / 2px 22px;
+  background-repeat: no-repeat;
+  opacity: 0.75;
+}
+.pov-visor::after {
+  transform: scaleX(-1);
+}
+.pov-visor .pv-tag {
+  position: absolute;
+  left: 50%;
+  bottom: max(17vmin, 92px);
+  transform: translateX(-50%);
+  font-family: var(--display);
+  font-size: 0.78em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.82);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+  white-space: nowrap;
+}
+.pov-visor .pv-tag small {
+  color: var(--pv);
+  font-size: 0.85em;
+}
+.pov-visor .pv-tag b {
+  display: inline-block;
+  width: 0.55em;
+  height: 0.55em;
+  margin-right: 0.5em;
+  border-radius: 50%;
+  background: #ff3a2e;
+  box-shadow: 0 0 8px #ff3a2e;
+  vertical-align: 0.08em;
+  animation: pvRec 1s steps(2, jump-none) infinite;
+}
+@keyframes pvRec {
+  50% {
+    opacity: 0.25;
+  }
+}

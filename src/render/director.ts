@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { J } from '../sim/body';
 import type { Fighter } from '../sim/fighter';
+import { P } from '../sim/damage';
 import { COUNTDOWN, PRESENT, type HitInfo, type Match } from '../sim/match';
 import { clamp, damp, Noise1, Rng, smoothstep } from '../sim/math';
 import { AX, AZ, SUITE_D, UPPER_Y } from './bowl';
@@ -32,6 +33,13 @@ const FRAME_JOINTS = [J.Head, J.Chest, J.Pelvis, J.HandL, J.HandR, J.KneeL, J.Kn
 /** How much of the half-frame each joint may use (heads keep headroom, swinging limbs may graze the edge). */
 const JOINT_ROOM = [0.94, 1, 1, 1.08, 1.08, 1, 1, 1.1, 1.1];
 
+/** Least time between two bot's-eye shots, so they stay a treat. */
+const POV_GAP = 16;
+/** Chance a cut that may go to a bot's eye does. */
+const POV_CHANCE = 0.3;
+/** How far apart the fighters may be for a bot's-eye shot (m): too close fills the lens with chest, too far loses them. */
+const POV_SEP = [0.8, 4] as const;
+
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
 /** Longest distance along (dx,dz) from (mx,mz) that stays within radius r. */
@@ -41,7 +49,7 @@ function reach(mx: number, mz: number, dx: number, dz: number, r: number) {
   return disc < 0 ? 0 : Math.max(0, -md + Math.sqrt(disc));
 }
 
-type ShotKind = 'wide' | 'medium' | 'low' | 'ots' | 'orbit' | 'high' | 'down' | 'ko' | 'win' | 'intro' | 'greet' | 'fin';
+type ShotKind = 'wide' | 'medium' | 'low' | 'ots' | 'orbit' | 'high' | 'down' | 'ko' | 'win' | 'intro' | 'greet' | 'fin' | 'pov';
 
 /** A camera setup, described relative to the line between the fighters so it follows them around the ring. */
 interface Shot {
@@ -183,6 +191,14 @@ export class Director {
   cuts = 0;
   private alignedFor = 0;
   private rawAxis = 0;
+  /** Fighter whose eyes the lens is behind in a 'pov' shot (-1: none). */
+  private povBy = -1;
+  /** Seconds since the last bot's-eye shot ended. */
+  private povGap = 0;
+  /** Smoothed eye and gaze for the bot's-eye shot, so the head's bob and snap don't shake the lens. */
+  private povEye = new THREE.Vector3();
+  private povLook = new THREE.Vector3();
+  private povRoll = 0;
   /** Fighter performing a finisher (its shot favours them). */
   private finBy = 0;
   /** Direction from the KO'd fighter away from the winner. */
@@ -214,6 +230,13 @@ export class Director {
   /** Current fight shot (for debugging and the headless camera check). */
   get shotKind(): string {
     return this.shot.kind;
+  }
+  /**
+   * Fighter the lens is looking out of in a bot's-eye shot, or -1. Its head is collapsed while
+   * this holds (the lens sits inside it), and the HUD lays a visor over the picture.
+   */
+  get pov(): number {
+    return this.mode === 'match' && this.shot.kind === 'pov' ? this.povBy : -1;
   }
   /** Fighter the current shot is about (-1: both). */
   get shotSubject(): number {
@@ -257,6 +280,9 @@ export class Director {
     this.nextShot = null;
     this.wasDown = [false, false];
     this.beat = '';
+    this.povBy = -1;
+    this.povGap = 0;
+    if (this.shot.kind === 'pov') this.shot = makeShot('wide', Math.random);
   }
 
   /** Match events the camera reacts to. */
@@ -278,7 +304,7 @@ export class Director {
     this.kick.subVectors(h.point, this.center).multiplyScalar(big ? 0.35 : h.blocked ? 0.08 : 0.15);
     if (this.kick.length() > 0.4) this.kick.setLength(0.4);
     // big shots often get a cut to a fresh angle once the impact has landed
-    if (big && !h.knockdown && this.shot.t > 1.2 && this.cutIn < 0 && Math.random() < 0.4) this.cutIn = 0.35 + Math.random() * 0.2;
+    if (big && !h.knockdown && this.shot.t > (this.shot.kind === 'pov' ? 2 : 1.2) && this.cutIn < 0 && Math.random() < 0.4) this.cutIn = 0.35 + Math.random() * 0.2;
   }
 
   update(dt: number, match: Match | null) {
@@ -340,8 +366,11 @@ export class Director {
     } else if (this.camera.view?.enabled) this.camera.clearViewOffset();
     this.fovKick = damp(this.fovKick, 0, 5, dt);
     const fov = this.fov - this.fovKick;
-    if (Math.abs(this.camera.fov - fov) > 0.01) {
+    // behind a bot's eyes, its own guard comes right up to the lens: clip what is nearer than a visor
+    const near = this.pov >= 0 ? 0.2 : 0.1;
+    if (Math.abs(this.camera.fov - fov) > 0.01 || this.camera.near !== near) {
       this.camera.fov = fov;
+      this.camera.near = near;
       this.camera.updateProjectionMatrix();
     }
   }
@@ -406,15 +435,16 @@ export class Director {
     else if (ph === 'greet') {
       if (sh.kind !== 'greet') this.shot = makeShot('greet', Math.random);
     } else if (ph === 'ko') {
-      if (sh.kind !== 'ko' && this.koFocus !== null && !held) this.cut(match, 'ko');
+      if (sh.kind !== 'ko' && this.koFocus !== null && (!held || sh.kind === 'pov')) this.cut(match, 'ko');
     } else if (ph === 'end' && match.winner) {
       if (sh.kind !== 'win') {
+        this.endPov();
         this.shot = makeShot('win', Math.random);
         this.shot.subject = match.winner.index;
       }
     } else if (match.fin) {
       // a finisher: one low, slow-turning hero shot from in front of the finisher, no cuts
-      if (sh.kind !== 'fin' && !held) {
+      if (sh.kind !== 'fin' && (!held || sh.kind === 'pov')) {
         this.finBy = match.fin.att.index;
         this.cut(match, 'fin');
       }
@@ -430,7 +460,11 @@ export class Director {
       }
       this.direct(dt, match);
     }
-    if (ph !== 'intro' && ph !== 'countdown') this.frame(dt, match);
+    if (sh.kind !== 'pov') this.povGap += dt;
+    if (ph !== 'intro' && ph !== 'countdown') {
+      if (this.shot.kind === 'pov') this.povFrame(dt, match);
+      else this.frame(dt, match);
+    }
   }
 
   /** Decide when to cut, and to what. */
@@ -461,6 +495,12 @@ export class Director {
         return;
       }
     }
+    if (sh.kind === 'pov') {
+      // a bot's-eye shot is short, and cuts the moment it stops working
+      // (a knockdown's own shot already waiting on the cutIn above goes first)
+      if (this.cutIn < 0 && (sh.t > sh.dur || !this.povOk(match, this.povBy))) this.cut(match);
+      return;
+    }
     const busy = (f: Fighter) => !!f.strike && f.strike.phase !== 'recovery';
     const lull = !busy(a) && !busy(b);
     const over = sh.t > sh.dur;
@@ -478,6 +518,9 @@ export class Director {
 
   /** Hard cut to a new setup, picking the best of a few candidates. */
   private cut(match: Match, kind?: ShotKind) {
+    const wasPov = this.shot.kind === 'pov';
+    this.endPov();
+    if (!kind && !wasPov && this.povGap > POV_GAP && Math.random() < POV_CHANCE && this.startPov(match)) return;
     const prevYaw = this.yaw, prevDist = this.dist, prevKind = this.shot.kind, prevSide = this.side;
     const home = this.homeSide;
     const r = Math.random;
@@ -572,6 +615,92 @@ export class Director {
       Object.assign(s, { dur: 99, az: sgn * (0.45 + r() * 0.3), orbit: sgn * 0.06, el: 0.02, fovK: 1.1, fill: 0.62, roll: 0.05, wobble: 0.01, subject: i, bias: 0.65 });
     }
     return s;
+  }
+
+  /** Whether fighter i can look at the other for a bot's-eye shot right now. */
+  private povOk(match: Match, i: number) {
+    if (i < 0 || match.phase !== 'fight' || match.fin) return false;
+    const me = match.fighters[i], opp = match.fighters[1 - i];
+    if (me.isDown || opp.isDown || me.parts.off[P.Head]) return false;
+    return this.sep > POV_SEP[0] * me.size && this.sep < POV_SEP[1];
+  }
+
+  /**
+   * Hard cut into one fighter's head: the lens looks out of its eyes at the opponent. Favours the
+   * player's own bot. Returns false when neither fighter can carry the shot.
+   */
+  private startPov(match: Match) {
+    const first = Math.random() < 0.6 ? this.player : 1 - this.player;
+    const by = this.povOk(match, first) ? first : this.povOk(match, 1 - first) ? 1 - first : -1;
+    if (by < 0) return false;
+    const r = Math.random;
+    const s = makeShot('pov', r);
+    Object.assign(s, { dur: 2.2 + r() * 1.6, subject: 1 - by, wobble: 0 });
+    this.shot = s;
+    this.povBy = by;
+    this.cuts++;
+    this.cutIn = -1;
+    this.nextShot = null;
+    this.kick.set(0, 0, 0);
+    this.crampedFor = 0;
+    this.alignedFor = 0;
+    this.povEye.copy(this.eyeTarget(match, by));
+    this.povLook.copy(this.gazeTarget(match, by));
+    this.povRoll = 0;
+    this.fov = this.povFov;
+    this.povFrame(0, match);
+    return true;
+  }
+
+  private endPov() {
+    if (this.shot.kind !== 'pov') return;
+    this.povBy = -1;
+    this.povGap = 0;
+  }
+
+  private get povFov() {
+    return Math.min(78, this.baseFov * 1.45);
+  }
+
+  /** Just in front of the fighter's face, at eye height. */
+  private eyeTarget(match: Match, i: number) {
+    const f = match.fighters[i];
+    const h = f.body.pos[J.Head];
+    const opp = match.fighters[1 - i].body.pos[J.Head];
+    const dx = opp.x - h.x, dz = opp.z - h.z;
+    const l = Math.hypot(dx, dz) || 1;
+    const k = 0.07 * f.size;
+    return this.rel.set(h.x + (dx / l) * k, h.y + 0.04 * f.size, h.z + (dz / l) * k);
+  }
+
+  /** The opponent's upper body, a little below the eyes, so the fists and shoulders read. */
+  private gazeTarget(match: Match, i: number) {
+    const o = match.fighters[1 - i].body.pos;
+    return this.rel.copy(o[J.Chest]).lerp(o[J.Head], 0.45);
+  }
+
+  /** The bot's-eye lens: rides the head with the bob smoothed out, eyes locked on the opponent. */
+  private povFrame(dt: number, match: Match) {
+    const i = this.povBy;
+    // smoothed so a stride or a flinch drifts the view instead of jolting it (height most of all)
+    const e = this.eyeTarget(match, i);
+    const ox = this.povEye.x, oz = this.povEye.z;
+    this.povEye.set(damp(this.povEye.x, e.x, 14, dt), damp(this.povEye.y, e.y, 6, dt), damp(this.povEye.z, e.z, 14, dt));
+    const g = this.gazeTarget(match, i);
+    this.povLook.set(damp(this.povLook.x, g.x, 6, dt), damp(this.povLook.y, g.y, 3.5, dt), damp(this.povLook.z, g.z, 6, dt));
+    // a little bank into sideways footwork, like a head keeping its balance
+    const dx = this.povLook.x - this.povEye.x, dz = this.povLook.z - this.povEye.z;
+    const l = Math.hypot(dx, dz) || 1;
+    const lat = dt > 0 ? ((this.povEye.x - ox) * dz - (this.povEye.z - oz) * dx) / (l * dt) : 0;
+    this.povRoll = damp(this.povRoll, clamp(-lat * 0.03, -0.05, 0.05), 3, dt);
+    this.pos.copy(this.povEye);
+    this.look.copy(this.povLook).addScaledVector(this.kick, 0.5);
+    this.roll = this.povRoll;
+    this.fov = damp(this.fov, this.povFov, 4, dt);
+    // keep the polar state on this side of the fighters, so the next cut judges its jump from here
+    const c = this.center.set((match.fighters[0].body.pos[J.Pelvis].x + match.fighters[1].body.pos[J.Pelvis].x) / 2, 1, (match.fighters[0].body.pos[J.Pelvis].z + match.fighters[1].body.pos[J.Pelvis].z) / 2);
+    this.yaw = Math.atan2(this.pos.z - c.z, this.pos.x - c.x);
+    this.dist = Math.max(0.5, Math.hypot(this.pos.x - c.x, this.pos.z - c.z));
   }
 
   private shotYaw(s: Shot) {

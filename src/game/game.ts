@@ -810,10 +810,14 @@ export class Game {
     }
     perf.lap('arena');
     this.director.update(dt, m);
+    // a bot's-eye shot: the lens is inside that bot's head
+    const pov = m && this.models.length === 2 ? this.director.pov : -1;
+    if (pov >= 0) this.models[pov].hideHead();
     if (m && this.director.mode === 'match') {
       for (let i = 0; i < 2; i++) this.chests[i].copy(m.fighters[i].body.pos[J.Chest]);
       // ropes, posts and barriers between the lens and the robots dissolve, however far away
-      this.clearView.update(this.stage.camera, this.chests);
+      // (from a bot's eyes, only what stands between it and the other one)
+      this.clearView.update(this.stage.camera, pov >= 0 ? [this.chests[1 - pov]] : this.chests);
       // expose for the ring: the closer the shot on the fighters, the darker the house
       _v.addVectors(this.chests[0], this.chests[1]).multiplyScalar(0.5);
       house.update(dt, this.stage.camera.position.distanceTo(_v));
@@ -827,7 +831,7 @@ export class Game {
     }
     if (m && this.director.mode === 'match') this.focus.addVectors(this.chests[0], this.chests[1]).multiplyScalar(0.5);
     else this.focus.set(0, 1.1, 0);
-    this.drones.update(dt, this.stage.camera, this.director.cuts, this.director.mode, this.focus);
+    this.drones.update(dt, this.stage.camera, this.director.cuts, this.director.mode, this.focus, pov >= 0);
     perf.lap('camera');
     this.sfx?.crowdTick(dt, crowdState);
     this.sfx?.booth.tick(dt, this.crowdMood.excite, !!m && !this.paused);

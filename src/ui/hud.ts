@@ -138,6 +138,10 @@ export class Hud {
   private finishing = false;
   private pendingFinish: { kind: FinishKind; winner: Fighter; reason: LossReason | null } | null = null;
   private dmgLayer: HTMLElement;
+  /** Visor laid over a bot's-eye shot: vignette, scanlines, corner brackets and whose eyes these are. */
+  private visor: HTMLElement;
+  private visorTag: HTMLElement;
+  private visorBy = -1;
   private commentary: HTMLElement;
   /** The intro: a presentation panel per fighter (card and name banner). */
   private vs: HTMLElement | null = null;
@@ -166,6 +170,8 @@ export class Hud {
 
   constructor(private game: Game, parent: HTMLElement) {
     this.root = el('div', 'screen hud', '', parent);
+    this.visor = el('div', 'pov-visor', '<i class="pv-c"></i><span class="pv-tag"></span>', this.root);
+    this.visorTag = this.visor.querySelector('.pv-tag')!;
     this.dmgLayer = el('div', 'dmg-layer', '', this.root);
     this.calloutEl = el('div', 'callout', '', this.root);
     this.countEl = el('div', 'count', '', this.root);
@@ -194,6 +200,8 @@ export class Hud {
     this.online = online;
     this.replay = replay;
     this.lastCount = -1;
+    this.visorBy = -1;
+    this.visor.classList.remove('on');
     this.ref = null;
     this.refEl.className = 'refcount';
     this.kdSeen = [0, 0];
@@ -387,6 +395,15 @@ export class Hud {
       this.shownPresent = who;
     }
     this.root.classList.toggle('intro', m.phase === 'intro');
+    const pov = this.game.director.pov;
+    if (pov !== this.visorBy) {
+      this.visorBy = pov;
+      this.visor.classList.toggle('on', pov >= 0);
+      if (pov >= 0) {
+        this.visor.style.setProperty('--pv', `var(--bot${pov})`);
+        this.visorTag.innerHTML = `<b></b>${esc(m.specs[pov].name)} <small>CAM</small>`;
+      }
+    }
     if (this.vs && m.phase !== 'intro') {
       const v = this.vs;
       this.vs = null;
