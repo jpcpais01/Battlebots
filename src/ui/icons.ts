@@ -136,4 +136,6 @@ export const PASSIVE_ICON: Record<PassiveId, string> = {
   shatter: svg(`<path d="M4 4h16v16H4z" ${T}/><path d="M12 4l-1 5 4 2-3 4 1 5M4 11l7-2M15 11l5 3"/>`),
   nanoRepair: svg(`<circle cx="12" cy="12" r="9" ${T}/><path d="M12 7.5v9M7.5 12h9" stroke-width="2.4"/><circle cx="5" cy="5" r="1" ${F}/><circle cx="19.5" cy="6" r=".9" ${F}/><circle cx="18" cy="19" r="1" ${F}/>`),
   iaido: svg(`<path d="M4 20L18 6c1.5-1.5 3-2 3.5-2.5-.5.5-1 2-2.5 3.5L5 21z" ${T}/><path d="M6.5 15.5l2 2M4 17.5l2.5 2.5"/><path d="M12 2.5v3M16.5 13.5h3" stroke-dasharray="1.5 1.5"/>`),
+  // an engine block warming up: heat rising off it
+  torque: svg(`<path d="M4 12h3l1.5-2h7l1.5 2h3v8H4z" ${T}/><path d="M8 15.5h8"/><path d="M8.5 7c-1-1.2 1-2.3 0-3.5M12 7c-1-1.2 1-2.3 0-3.5M15.5 7c-1-1.2 1-2.3 0-3.5"/>`),
 };
