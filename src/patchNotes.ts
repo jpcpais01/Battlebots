@@ -19,6 +19,9 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-14 20:00',
     title: 'A new ring, heavier hits, arena light show',
     notes: [
+      'The whole game has a fresh, cleaner look: one simple console-style design across every menu, with glass panels, rounded buttons, and a bright white button for the next thing to do.',
+      'New home screen: your bot\'s name, moves and six fitted parts sit bottom left (tap a part to jump straight to it in the garage), and Fight, Garage and Online sit together bottom right.',
+      'The results screen is one tidy card with a bar under each stat showing who came out ahead. Settings, pause, saved bots, account and online rooms all share the new style, and patch notes are now under What\'s new.',
       'The arena puts on a proper show: 20 moving-head lights on the roof sweep beams through the stands, wheel round as the bots walk out, lock onto the ring for the countdown and strobe in the winner\'s colour on a KO.',
       'Pyro round the stage: spark fountains as each bot is introduced, flame cannons on FIGHT!, finishers and knockouts, and confetti in the winner\'s colour rains down from the roof at the end.',
       'The big screen now shows each bot\'s name in its corner colour as it is introduced, and a new ring of ad boards crowns the top of the stands.',

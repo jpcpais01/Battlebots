@@ -1,4 +1,5 @@
 import '@fontsource/russo-one/latin-400.css';
+// (the menus use the device's own UI font; Rajdhani is for the arena's printed signs)
 import '@fontsource/rajdhani/latin-600.css';
 import '@fontsource/rajdhani/latin-700.css';
 import './style.css';
@@ -16,7 +17,7 @@ const quality: Quality = q === 'low' || q === 'med' || q === 'high' ? q : detect
 
 const loading = document.createElement('div');
 loading.className = 'loading';
-loading.textContent = 'LOADING';
+loading.innerHTML = '<div class="logo"><span class="l1">BATTLE</span><span class="l2">BOTS</span></div><i></i>';
 document.body.appendChild(loading);
 
 const game = new Game(canvas, quality);
