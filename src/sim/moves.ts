@@ -15,7 +15,11 @@ export type MoveId =
   | 'sweep'
   | 'spinKick'
   | 'flyingKnee'
-  | 'lowKick';
+  | 'lowKick'
+  | 'shove'
+  | 'clinchKnee'
+  | 'tieUp'
+  | 'shoot';
 
 export type Zone = 'head' | 'body' | 'legs';
 export type Path =
@@ -28,12 +32,16 @@ export type Path =
   | 'roundKick'
   | 'sweepKick'
   | 'backKick'
-  | 'knee';
+  | 'knee'
+  | 'push'
+  | 'tie'
+  | 'shoot';
 
 export interface MoveDef {
   id: MoveId;
   name: string;
-  kind: 'punch' | 'kick';
+  /** grab: reaches for the opponent's body (a clinch, a takedown); contact starts a Grapple. */
+  kind: 'punch' | 'kick' | 'grab';
   limb: 'lead' | 'rear';
   path: Path;
   striker: 'hand' | 'foot' | 'knee';
@@ -65,6 +73,8 @@ export interface MoveDef {
   spin?: boolean;
   jump?: number;
   vfx?: 'shock' | 'rocket' | 'jet' | 'fire' | 'spin';
+  /** Only thrown from inside a clinch. */
+  clinch?: boolean;
 }
 
 /**
@@ -184,6 +194,37 @@ export const MOVES: Record<MoveId, MoveDef> = {
     windup: 0.21, active: 0.14, recovery: 0.3, damage: 30, poise: 14, knockback: 0.5, stamina: 9, hitstun: 0.22,
     range: [0.65, 1.25], zones: ['legs'], twist: 1.0, lean: -0.08, crouch: 0.04, lunge: 0.06, power: false,
     cooldown: 1.8,
+  }),
+
+  // ---- MMA: everyone can push, tie up and shoot ----
+  // both hands to the chest: little damage, but it moves them, and a body already off
+  // balance goes over
+  shove: M({
+    id: 'shove', name: 'Shove', kind: 'punch', limb: 'rear', path: 'push', striker: 'hand',
+    windup: 0.14, active: 0.12, recovery: 0.24, damage: 10, poise: 38, knockback: 3.3, stamina: 8, hitstun: 0.3,
+    range: [0.45, 1.08], zones: ['body'], twist: 0.2, lean: 0.24, crouch: 0.07, lunge: 0.16, power: false,
+    cooldown: 2.6,
+  }),
+  // a short knee driven up from the clinch, pulling them down onto it
+  clinchKnee: M({
+    id: 'clinchKnee', name: 'Clinch Knee', kind: 'kick', limb: 'rear', path: 'knee', striker: 'knee',
+    windup: 0.2, active: 0.14, recovery: 0.26, damage: 34, poise: 22, knockback: 0.45, stamina: 9, hitstun: 0.26,
+    range: [0.25, 0.95], zones: ['body', 'head'], twist: 0.2, lean: 0.04, crouch: 0.05, lunge: 0, power: true,
+    clinch: true,
+  }),
+  // both hands reach for the neck and shoulders: contact ties them up in a clinch
+  tieUp: M({
+    id: 'tieUp', name: 'Clinch', kind: 'grab', limb: 'lead', path: 'tie', striker: 'hand',
+    windup: 0.15, active: 0.15, recovery: 0.28, damage: 0, poise: 0, knockback: 0, stamina: 6, hitstun: 0,
+    range: [0.3, 1.02], zones: ['head'], twist: 0, lean: 0.22, crouch: 0.05, lunge: 0.2, power: false,
+    cooldown: 4,
+  }),
+  // drop the level, then drive through the hips: a double-leg takedown, or a pin on the ropes
+  shoot: M({
+    id: 'shoot', name: 'Takedown', kind: 'grab', limb: 'lead', path: 'shoot', striker: 'hand',
+    windup: 0.2, active: 0.3, recovery: 0.5, damage: 0, poise: 0, knockback: 0, stamina: 15, hitstun: 0,
+    range: [0.75, 2.05], zones: ['legs'], twist: 0, lean: 0, crouch: 0.36, lunge: 1.2, power: true,
+    cooldown: 11,
   }),
 };
 
