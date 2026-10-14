@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-14 20:00',
     title: 'A new ring, heavier hits, arena light show',
     notes: [
+      'Better pyro: flame cannons now fire a roaring jet that blooms into a churning fireball, throws off embers and leaves a cloud of smoke, and the spark fountains spray streaking white-hot sparks that crackle out as they fall. The cannons and fountains now sit on the arena floor where you can see them.',
       'Smoother fights on phones: the robots, the ring floor, the crowd and the stands all cost the graphics chip much less to draw, with no change to how they look. Tiny details too small to see are skipped (and left out of shadows), and the parts of the arena behind the camera are no longer drawn.',
       'The whole game has a fresh, cleaner look: one simple console-style design across every menu, with glass panels, rounded buttons, and a bright white button for the next thing to do.',
       'New home screen: your bot\'s name, moves and six fitted parts sit bottom left (tap a part to jump straight to it in the garage), and Fight, Garage and Online sit together bottom right.',
