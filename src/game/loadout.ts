@@ -44,6 +44,8 @@ export interface BotSpec {
   emotes?: EmotePicks;
   /** Frame size, SIZE_MIN..SIZE_MAX on 5% steps; missing = 1 (standard). */
   size?: number;
+  /** Walk-on music (audio/walkOn.ts); missing = the one that goes with its name. */
+  walkOn?: string;
 }
 
 /** A random frame size: mostly near standard, now and then a giant or a tiddler. */

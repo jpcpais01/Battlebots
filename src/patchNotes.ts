@@ -19,6 +19,10 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-14 20:00',
     title: 'A new ring, heavier hits, arena light show',
     notes: [
+      'Bots now make a real entrance: each one rides a lift up through a glowing hatch in its corner, with fog pouring out, a spotlight, sparks and CO2 cannons firing as it locks into place. They wait in their corners for the countdown, then walk out to touch gloves.',
+      'Six entrances to pick from in the garage (Emotes > Entrances): Power Up, Hero Landing, Cold Stare, Crowd Pleaser, Shadow Boxer and Earthquake. Equip none and your bot picks one to suit its style.',
+      'Every bot has its own walk-on music, with the drop landing the moment it arrives: Steel Anthem, Neon Drive, Iron Forge, Bass Drop, Champion\'s Call or Arcade Boss. Pick yours in the Entrances tab and tap to hear it.',
+      'The two corners are now properly blue and orange, with coloured corner pads and a lift hatch that stays as the corner\'s floor plate during the fight.',
       'Better pyro: flame cannons now fire a roaring jet that blooms into a churning fireball, throws off embers and leaves a cloud of smoke, and the spark fountains spray streaking white-hot sparks that crackle out as they fall. The cannons and fountains now sit on the arena floor where you can see them.',
       'Smoother fights on phones: the robots, the ring floor, the crowd and the stands all cost the graphics chip much less to draw, with no change to how they look. Tiny details too small to see are skipped (and left out of shadows), and the parts of the arena behind the camera are no longer drawn.',
       'The whole game has a fresh, cleaner look: one simple console-style design across every menu, with glass panels, rounded buttons, and a bright white button for the next thing to do.',

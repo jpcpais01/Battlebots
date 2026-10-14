@@ -7,6 +7,7 @@ import { splitWedges } from './wedges';
 import { contactAO } from './ao';
 import { FLOOR } from './bowl';
 import { beam, canvasTexture, cornerAngle, octBand, octDisc, skirtTexture } from './ring';
+import { Corners, cutHatches } from './corners';
 
 export const RING_RADIUS = RING_CORNER; // corner radius of the octagon
 const SIDES = 8;
@@ -49,6 +50,8 @@ const TRUSS_Y = 8.75;
 export class Arena {
   readonly group = new THREE.Group();
   readonly venue: Venue;
+  /** The fighters' corners: lift hatches, corner pads, CO2 cannons. */
+  readonly corners = new Corners();
   private ropeMat: THREE.MeshBasicMaterial;
   private ropeBase = new THREE.Color(0x52e6ff).multiplyScalar(RenderSettings.glow(1.15));
   private ropeFlash = 0;
@@ -104,7 +107,10 @@ export class Arena {
       }),
     );
     canvas.receiveShadow = true;
+    // the corner lifts come up through it
+    cutHatches(canvas.material);
     g.add(canvas);
+    g.add(this.corners.group);
     // the canvas wraps over a padded bumper at its edge
     const bumper = new THREE.Mesh(
       octBand([

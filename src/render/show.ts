@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { FLOOR, ROOF_Y, outline } from './bowl';
+import { ENTRY } from '../sim/entrance';
 import { RenderSettings } from './settings';
 
 /**
@@ -594,7 +595,7 @@ export class ArenaShow {
         const m = this.confettiMat.uniforms;
         if (this.time - m.uStart.value < 4) break;
         m.uStart.value = this.time + 0.3;
-        (m.uCol.value as THREE.Color).copy(this.winner === 1 ? CYAN : this.winner === 0 ? ORANGE : WHITE);
+        (m.uCol.value as THREE.Color).copy(this.winner === 0 ? CYAN : this.winner === 1 ? ORANGE : WHITE);
         this.confetti.visible = true;
         this.fire(ArenaShow.gerb, 5, 0.3);
         break;
@@ -605,13 +606,13 @@ export class ArenaShow {
   /** What the night is at: a match phase, or 'menu' when no fight is on. */
   setPhase(phase: string, presenting = -1) {
     if (phase !== this.phase) {
-      // the first bot walks out to a wall of sparks
-      if (phase === 'intro') this.fire(ArenaShow.gerb, 2.5, 0.2);
+      // the first bot's lift locks at the top to a wall of sparks
+      if (phase === 'intro') this.fire(ArenaShow.gerb, 2.5, ENTRY.arrive);
       if (phase === 'menu' || phase === 'intro') this.winner = -1;
       this.phase = phase;
     }
     // each bot gets its own sparks as it is presented
-    if (presenting !== this.presenting && presenting === 1) this.fire(ArenaShow.gerb, 2.5, 0.1);
+    if (presenting !== this.presenting && presenting === 1) this.fire(ArenaShow.gerb, 2.5, ENTRY.arrive);
     this.presenting = presenting;
   }
 
@@ -640,7 +641,8 @@ export class ArenaShow {
     this.kick = Math.max(0, this.kick - dt * 1.6);
     // the colour everything turns to: the presented bot's corner, then the winner's
     const side = this.phase === 'intro' ? this.presenting : this.winner;
-    this.mono.lerp(side === 0 ? ORANGE : side === 1 ? CYAN : WHITE, ease);
+    // (fighter 0 has the blue corner, fighter 1 the orange)
+    this.mono.lerp(side === 0 ? CYAN : side === 1 ? ORANGE : WHITE, ease);
     const u = b.uniforms;
     u.uLevel.value = Math.min(1.4, L.level + this.kick * 0.5);
     u.uFan.value = L.fan;

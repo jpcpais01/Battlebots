@@ -5,6 +5,7 @@ import { J, RING_CORNER, ROPE_LINE, ropeSide, SIDE_NX, SIDE_NZ } from './body';
 import { Fighter, rangeScale, resetUids, type StrikeAction } from './fighter';
 import { Showman } from './emote';
 import { Greeting } from './greet';
+import { ENTRY, hatchXZ, PRESENT } from './entrance';
 import { FINISH_AT, FINISH_SELF, FINISHER_NAME, FinisherRun, pickFinisher } from './finisher';
 import type { MoveDef, Zone } from './moves';
 import { clamp, closestOnSegment, lerp, Rng, smoothstep } from './math';
@@ -24,8 +25,7 @@ const TRY_GAP = 2;
 export const ROUND_TIME = 99;
 
 export type MatchPhase = 'intro' | 'countdown' | 'greet' | 'fight' | 'ko' | 'end';
-/** Seconds each fighter is presented for in the intro (fighter 0, then fighter 1). */
-export const PRESENT = 3;
+export { PRESENT } from './entrance';
 /** Seconds of the 3, 2, 1 countdown. */
 export const COUNTDOWN = 3;
 export type FinishKind = 'KO' | 'TKO' | 'Dismantled';
@@ -170,8 +170,10 @@ export class Match {
       };
     }
     for (const br of this.brains) br.onEvent = (e: BrainEvent) => this.emit('brain', e);
-    fa.place(new Vector3(-1.7, 0, 0), Math.PI / 2);
-    fb.place(new Vector3(1.7, 0, 0), -Math.PI / 2);
+    // each in its own corner, on the lift it rides up in the intro, facing the other
+    const [ax, az] = hatchXZ(0), [bx, bz] = hatchXZ(1);
+    fa.place(new Vector3(ax, 0, az), DM.atan2(bx - ax, bz - az));
+    fb.place(new Vector3(bx, 0, bz), DM.atan2(ax - bx, az - bz));
   }
 
   /** The fighter being presented in the intro (-1 once it is over). */
@@ -258,9 +260,14 @@ export class Match {
 
     switch (this.phase) {
       case 'intro':
-        // each fighter shows off for the camera in turn
-        if (this.phaseTime - dt < 0.25 && this.phaseTime >= 0.25) this.shows[0].present(PRESENT - 0.35);
-        if (this.phaseTime - dt < PRESENT + 0.25 && this.phaseTime >= PRESENT + 0.25) this.shows[1].present(PRESENT - 0.35);
+        // each fighter in turn rides up out of its corner and makes its entrance
+        for (let i = 0; i < 2; i++) {
+          const t0 = i * PRESENT + ENTRY.start;
+          if (this.phaseTime - dt < t0 && this.phaseTime >= t0) {
+            const id = this.shows[i].enter(this, PRESENT - ENTRY.start - 0.12);
+            this.emit('entrance', { f: this.fighters[i], id });
+          }
+        }
         // a replay ends the intro where the original did (replayCut), nowhere else
         if (this.replayCut < 0 && this.phaseTime >= this.introLength) {
           // an intro held past its usual length (the booth finishing its opening) replays as a cut here

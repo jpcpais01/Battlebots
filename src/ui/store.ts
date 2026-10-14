@@ -2,6 +2,7 @@ import { ITEM_BY_ID, SLOTS, capRarity, sanitizeSize } from '../game/items';
 import { DEFAULT_PLAYER, type BotSpec } from '../game/loadout';
 import { sanitizePaint } from '../game/paint';
 import { EMOTE_KIND, MAX_PICKS, type EmoteKind } from '../sim/emote';
+import { WALK_ON_NAME } from '../audio/walkOn';
 
 export interface Record_ {
   wins: number;
@@ -50,8 +51,9 @@ export function sanitizeBot(raw: unknown): BotSpec {
     const ok = ids.filter((id): id is string => typeof id === 'string' && EMOTE_KIND[id] === kind);
     return [...new Set(ok)].slice(0, MAX_PICKS);
   };
-  const win = picks('win'), taunt = picks('taunt'), finish = picks('finish');
-  if (win.length || taunt.length || finish.length) out.emotes = { win, taunt, finish };
+  const win = picks('win'), taunt = picks('taunt'), finish = picks('finish'), entrance = picks('entrance');
+  if (win.length || taunt.length || finish.length || entrance.length) out.emotes = { win, taunt, finish, entrance };
+  if (typeof p.walkOn === 'string' && WALK_ON_NAME[p.walkOn]) out.walkOn = p.walkOn;
   return out;
 }
 

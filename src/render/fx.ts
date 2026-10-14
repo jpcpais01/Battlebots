@@ -188,6 +188,12 @@ export class Fx {
     }
   }
 
+  /** A puff of cold white vapour (fog spilling from a lift shaft, a CO2 cannon) moving at (vx, vy, vz). */
+  vapor(p: THREE.Vector3, vx: number, vy: number, vz: number, size = 0.15) {
+    _v.set(p.x + (Math.random() - 0.5) * 0.05, p.y, p.z + (Math.random() - 0.5) * 0.05);
+    this.emitSmoke(_v, vx, vy, vz, 0.62 + Math.random() * 0.22, 0.9 + Math.random() * 0.8, size, 0.75, 0.38, 0.4, 2.2);
+  }
+
   /** Bits of plating knocked loose: small dark flakes that tumble to the canvas. */
   shrapnel(p: THREE.Vector3, dir: THREE.Vector3, count: number, speed = 3) {
     for (let i = 0; i < count; i++) {
