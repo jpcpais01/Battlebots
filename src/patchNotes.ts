@@ -17,9 +17,10 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-14 21:00",
-    title: "No more floor fighting",
+    title: "No more floor fighting, tidier performance stats",
     notes: [
       "No more fighting on the floor: after a takedown or a slam the bot stays on its feet, steps back and lets the other one get up, instead of kneeling over it to punch.",
+      "Performance stats now start as just the FPS counter. Tap it to open the full panel.",
     ],
   },
   {

@@ -24,7 +24,7 @@ export class PerfOverlay {
   private foot!: HTMLElement;
   private hist: number[] = [];
   private size = new THREE.Vector2();
-  private compact = false;
+  private compact = true;
 
   constructor(private game: Game) {
     let saved = false;
@@ -57,7 +57,7 @@ export class PerfOverlay {
   }
 
   private build() {
-    const root = el('div', 'perf');
+    const root = el('div', 'perf compact');
     root.addEventListener('click', () => {
       this.compact = !this.compact;
       root.classList.toggle('compact', this.compact);
