@@ -114,7 +114,8 @@ export class Brain {
 
   // defense
   private lastSeenUid = 0;
-  private pending: { at: number; resp: Response; uid: number; cls: AttackClass; zone: Zone; dir: number } | null = null;
+  /** mine: the strike I was already throwing when I chose this (0 if none). */
+  private pending: { at: number; resp: Response; uid: number; cls: AttackClass; zone: Zone; dir: number; mine: number } | null = null;
   private activeResp: { resp: Response; uid: number; cls: AttackClass } | null = null;
   private guardHoldUntil = 0;
   private holdGuard: GuardMode = 'normal';
@@ -574,7 +575,7 @@ export class Brain {
     if (this.headTimer <= 0) {
       this.headTimer = this.rng.range(0.45, 1.1);
       const inRange = d < Math.max(this.oppAttackRange.v, 1.1) + 0.15;
-      if (inRange && me.staminaRatio > 0.3 && this.rng.chance(t.headMovement * 0.28)) {
+      if (inRange && !me.strike && me.staminaRatio > 0.3 && this.rng.chance(t.headMovement * 0.28)) {
         const k = this.rng.next();
         const kind: DodgeType = k < 0.45 ? 'slip' : k < 0.75 ? 'duck' : 'sway';
         me.tryDodge(kind, this.rng.sign());
@@ -655,7 +656,7 @@ export class Brain {
     this.stayUntil = 0;
     this.circleDir = this.rng.chance(0.7) ? this.circleDir : -this.circleDir;
     // slip in behind the lead hand
-    if (!this.entryFake && this.rng.chance(t.headMovement * 0.25)) this.me.tryDodge('slip', this.rng.sign());
+    if (!this.entryFake && !this.me.strike && this.rng.chance(t.headMovement * 0.25)) this.me.tryDodge('slip', this.rng.sign());
   }
 
   private sampleTrigger() {
@@ -1308,12 +1309,27 @@ export class Brain {
     };
     const utils: number[] = [];
     const agg = this.effAggression();
+    // I'm already winding up my own shot. Bailing out to dodge throws the whole shot away, so
+    // only do it when theirs gets there well before mine; if mine lands first or they arrive
+    // together, keep throwing ('absorb' lets it ride). Slow bots used to bail out of most of
+    // their punches this way against quick ones, and looked like they never attacked.
+    let trade = 0;
+    if (busy && busy.phase === 'windup' && !busy.feint) {
+      const mine = busy.windup - busy.t + busy.active * 0.5;
+      const lead = timeLeft - mine;
+      // a slower bot has to commit to its shots: it will never beat a quick one to the punch
+      trade = clamp(0.7 + lead * 3 + agg * 0.3 + this.anger * 0.2 + Math.max(0, 1 - me.speedMult()) * 1.5, 0.15, 1.2);
+    }
     for (const r of RESPONSES) {
       let v = this.responseValue(cls, r);
       const slack = timeLeft - motor - need[r];
       if (r !== 'absorb') v *= slack > 0 ? 1 : slack > -0.05 ? 0.4 : 0.05;
       if (busy && busy.phase !== 'windup' && r !== 'absorb' && r !== 'block') v *= 0.05;
       if (busy && r === 'block') v *= 0.5;
+      if (trade > 0) {
+        if (r === 'absorb') v = Math.max(v, trade);
+        else if (r !== 'block') v *= 1.15 - trade * 0.75;
+      }
       if (r === 'counter') v *= 0.5 + agg + this.anger * 0.4;
       if (r === 'counter' && d > MOVES.jab.range[1] + me.build.stats.reach) v *= 0.2;
       if (r === 'block' && move.guardBreak) v *= 0.4;
@@ -1337,7 +1353,7 @@ export class Brain {
     const ri = softmaxPick(utils, temp, this.rng);
     const resp = RESPONSES[ri];
     const dir = this.slipDir(move);
-    this.pending = { at: this.time + motor, resp, uid, cls, zone, dir };
+    this.pending = { at: this.time + motor, resp, uid, cls, zone, dir, mine: busy?.uid ?? 0 };
   }
 
   private slipDir(move: MoveDef) {
@@ -1360,6 +1376,9 @@ export class Brain {
     const me = this.me;
     const pr = this.pending!;
     this.pending = null;
+    // I let a shot go between seeing theirs and reacting: I've committed, it rides
+    const ms = me.strike;
+    if (ms && !ms.feint && ms.uid !== pr.mine && pr.resp !== 'block' && pr.resp !== 'counter') pr.resp = 'absorb';
     this.activeResp = { resp: pr.resp, uid: pr.uid, cls: pr.cls };
     if (pr.resp !== 'absorb') this.rival?.notifyOppDefense();
     const guardFor = (zone: Zone): GuardMode => (zone === 'body' ? 'body' : 'high');
