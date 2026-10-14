@@ -17,6 +17,13 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-14 22:00",
+    title: "A rainy night in",
+    notes: [
+      "New home scene, the Lounge: your bot slumps on a velvet sofa with its feet up and a steaming coffee, watching a fireplace on TV while rain runs down a big window over the city at night. Lightning flickers, a record turns, candles and fairy lights glow and a robot vacuum does its rounds. Hit Fight and the TV cuts to the news: you're up. Cue the spit-take.",
+    ],
+  },
+  {
+    hour: "2026-10-14 22:00",
     title: "Walk-on music, remastered",
     notes: [
       "All six entrance songs are new, full productions: real chord progressions, melodies and a proper build into the drop, with layered drums, bass that carries on phone speakers, reverb and a mastered mix.",

@@ -764,6 +764,41 @@ export class Sfx {
     }
   }
 
+  /** The TV cutting to the fight-night alert: a thunderclap and a three-beep news sting. */
+  homeAlert() {
+    if (!this.ok) return;
+    this.noise(0.25, 'highpass', 2000, 0.7, 0.12);
+    this.noise(2.6, 'lowpass', 900, 0.8, 0.35, 0.02, 60);
+    for (let i = 0; i < 3; i++) {
+      this.tone('square', 880, 880, 0.12, 0.05, 0.12 + i * 0.2, 2600);
+      this.tone('square', 1320, 1320, 0.12, 0.03, 0.12 + i * 0.2, 2600);
+    }
+    this.tone('sawtooth', 220, 330, 0.6, 0.05, 0.75, 1800, 900);
+  }
+
+  /** A mouthful of coffee sprayed everywhere. */
+  spit() {
+    if (!this.ok) return;
+    this.noise(0.38, 'bandpass', 1400, 0.9, 0.3, 0, 3800);
+    this.noise(0.18, 'lowpass', 600, 0.7, 0.18, 0.02, 200);
+    for (let i = 0; i < 6; i++) this.noise(0.04, 'highpass', 3000 + Math.random() * 3000, 0.7, 0.05, 0.3 + Math.random() * 0.35);
+  }
+
+  /** A gulp. */
+  gulp() {
+    if (!this.ok) return;
+    this.tone('sine', 300, 120, 0.14, 0.12, 0, 900);
+    this.noise(0.1, 'bandpass', 700, 2, 0.05, 0.02, 300);
+  }
+
+  /** A mug set down on a wooden table. */
+  mugDown() {
+    if (!this.ok) return;
+    this.impact('tink', 0.14, 1.3);
+    this.tone('sine', 1900, 1850, 0.12, 0.025);
+    this.tone('triangle', 240, 160, 0.08, 0.06);
+  }
+
   /** The heavy arena door: the latch, a groan, and a rush of air and light. */
   doorOpen() {
     if (!this.ok) return;

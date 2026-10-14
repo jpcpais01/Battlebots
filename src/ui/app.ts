@@ -59,12 +59,12 @@ const PAINT_HINT: Record<'primary' | 'secondary' | 'accent', string> = {
 type ScreenId = 'home' | 'garage' | 'fight' | 'online';
 
 /** Where the home screen happens: an animated place, or the arena as before. */
-type HomePlace = 'beach' | 'gym' | 'arena';
-const HOME_PLACE_NAME: Record<HomePlace, string> = { beach: 'Beach', gym: 'Gym', arena: 'Arena' };
+type HomePlace = 'beach' | 'gym' | 'lounge' | 'arena';
+const HOME_PLACE_NAME: Record<HomePlace, string> = { beach: 'Beach', gym: 'Gym', lounge: 'Lounge', arena: 'Arena' };
 function loadHomePlace(): HomePlace {
   try {
     const v = localStorage.getItem('bb.homeScene');
-    if (v === 'beach' || v === 'gym' || v === 'arena') return v;
+    if (v === 'beach' || v === 'gym' || v === 'lounge' || v === 'arena') return v;
   } catch {
     /* ignore */
   }
@@ -424,11 +424,11 @@ export class App {
     b.innerHTML = `${ICON.scene}<span>${HOME_PLACE_NAME[this.homePlace]}</span>`;
   }
 
-  /** The scene button: beach, gym, arena, round again. */
+  /** The scene button: beach, gym, lounge, arena, round again. */
   private cycleHomePlace() {
     if (this.leaving) return;
     this.tap('select');
-    const order: HomePlace[] = ['beach', 'gym', 'arena'];
+    const order: HomePlace[] = ['beach', 'gym', 'lounge', 'arena'];
     this.homePlace = order[(order.indexOf(this.homePlace) + 1) % order.length];
     try {
       localStorage.setItem('bb.homeScene', this.homePlace);
