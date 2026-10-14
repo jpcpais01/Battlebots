@@ -17,6 +17,13 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-14 21:00",
+    title: "Steadier entrances",
+    notes: [
+      "The camera holds still while each bot rides up and does its entrance, instead of swinging round whenever the bot spins or turns.",
+    ],
+  },
+  {
+    hour: "2026-10-14 21:00",
     title: "Living home screens, MMA fighting, maker makeovers (part 3)",
     notes: [
       "The home screen comes alive: your robot now kicks back on a sun lounger at a tropical beach, sipping from a coconut, or trains on the heavy bag in a boxing gym. Pick the place (or the arena, as before) with the new scene button at the top.",
