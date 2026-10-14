@@ -19,6 +19,9 @@ import {
   scaledStat,
   SLOT_LABEL,
   SLOTS,
+  SIZE_MAX,
+  SIZE_MIN,
+  sanitizeSize,
   type Equipped,
   type ItemDef,
   type Rarity,
@@ -68,6 +71,9 @@ const FOCUS: Record<Slot, [number, number, number, number]> = {
   kick: [0, 0.38, 0.05, 2.5],
 };
 
+/** A word for a frame size. */
+const sizeName = (size: number) => (size <= 0.85 ? 'Compact' : size < 1 ? 'Light' : size === 1 ? 'Standard' : size < 1.15 ? 'Heavy' : 'Giant');
+
 /** Screens, navigation and persistence around the 3D game. */
 export class App {
   private ui: HTMLElement;
@@ -82,8 +88,8 @@ export class App {
   private results: HTMLElement | null = null;
   private rng = new Rng((Math.random() * 2 ** 32) >>> 0);
   private slot: Slot = 'fist';
-  /** Which garage tab is open: a part slot, Emotes or Paint. */
-  private tab: 'part' | 'emotes' | 'paint' = 'part';
+  /** Which garage tab is open: a part slot, Emotes, Paint or Size. */
+  private tab: 'part' | 'emotes' | 'paint' | 'size' = 'part';
   private emoteKind: EmoteKind = 'win';
   /** Which page of the Paint tab is showing. */
   private paintPage: PaintPage = 'schemes';
@@ -295,7 +301,7 @@ export class App {
 
   private refreshHome() {
     const p = this.player;
-    const b = computeBuild(p.loadout);
+    const b = computeBuild(p.loadout, p.size);
     const card = this.homeCard!;
     card.style.setProperty('--paint', paintOf(p));
     card.innerHTML = botCardInner(this.game, p, b, { side: 'l', tag: 'Your bot', delay: 0.15 });
@@ -513,8 +519,10 @@ export class App {
     this.focus = slot;
     const f = slot ? FOCUS[slot] : OVERVIEW;
     const d = this.game.director;
-    d.garageTarget.set(f[0], f[1], f[2]);
-    d.garageDist = f[3];
+    // a bigger frame puts every part higher and needs the camera further back
+    const z = this.player.size ?? 1;
+    d.garageTarget.set(f[0] * z, f[1] * z, f[2] * z);
+    d.garageDist = f[3] * z;
     if (this.tab === 'emotes' && this.emoteKind === 'finish') this.game.sparring(true);
     this.garageEls!.view.innerHTML = slot ? `${ICON.expand}<span>Whole bot</span>` : `${ICON.zoom}<span>Inspect ${SLOT_LABEL[this.slot]}</span>`;
   }
@@ -561,7 +569,7 @@ export class App {
       if (this.tab !== 'part') t.classList.remove('on');
     }
     const picked = (p.emotes?.win.length ?? 0) + (p.emotes?.taunt.length ?? 0) + (p.emotes?.finish?.length ?? 0);
-    const tabBtn = (tab: 'emotes' | 'paint', icon: string, label: string, rc: string) => {
+    const tabBtn = (tab: 'emotes' | 'paint' | 'size', icon: string, label: string, rc: string) => {
       const b = button(`slot ${tab}${this.tab === tab ? ' on' : ''}`, `${icon}<span>${label}</span>`, () => {
         if (this.tab === tab) return;
         this.tap();
@@ -573,6 +581,7 @@ export class App {
     };
     tabBtn('emotes', ICON.star, 'Emotes', picked ? '#ffc23d' : '#5d6880');
     tabBtn('paint', ICON.paint, 'Paint', hexColor(p.paint.accent));
+    tabBtn('size', ICON.size, 'Size', (p.size ?? 1) === 1 ? '#5d6880' : '#2ad8ff');
     g.view.style.display = this.tab === 'part' ? '' : 'none';
     if (this.tab === 'emotes') {
       this.renderEmotes();
@@ -581,6 +590,11 @@ export class App {
     }
     if (this.tab === 'paint') {
       this.renderPaint();
+      this.prewarmThumbs();
+      return;
+    }
+    if (this.tab === 'size') {
+      this.renderSize();
       this.prewarmThumbs();
       return;
     }
@@ -737,6 +751,73 @@ export class App {
     g.items.scrollTop = scroll;
   }
 
+  /** The Size tab: build the frame up to 120% or down to 80%, with what it trades shown live. */
+  private renderSize() {
+    const g = this.garageEls!;
+    this.setFocus(null);
+    g.rar.className = 'rarities none';
+    g.rar.innerHTML = '';
+    const scroll = g.items.scrollTop;
+    g.items.innerHTML = '';
+    el('div', 'emote-hint', 'A bigger frame reaches further, takes more punishment and hits harder, but it is slower and an easier target. A smaller one is quick, sharp and hard to hit, but has less to give.', g.items);
+    const box = el('div', 'sizer', '', g.items);
+    const read = el('div', 'sz-read', '', box);
+    const inp = el('input', 'sz-range', '', box) as HTMLInputElement;
+    inp.type = 'range';
+    inp.min = String(Math.round(SIZE_MIN * 100));
+    inp.max = String(Math.round(SIZE_MAX * 100));
+    inp.step = '5';
+    el('div', 'sz-ticks', '<span>Compact</span><span>Standard</span><span>Giant</span>', box);
+    const rows = el('div', 'sz-rows', '', g.items);
+    const draw = () => {
+      const size = this.player.size ?? 1;
+      const pct = Math.round(size * 100);
+      inp.value = String(pct);
+      inp.style.setProperty('--k', String((size - SIZE_MIN) / (SIZE_MAX - SIZE_MIN)));
+      read.innerHTML = `<b>${pct}%</b><span>${sizeName(size)}</span>`;
+      g.title.innerHTML = `<b>Size</b><span>${pct}% · ${sizeName(size)} frame</span>`;
+      const a = computeBuild(this.player.loadout, size).stats;
+      const o = computeBuild(this.player.loadout, 1).stats;
+      const reach = Math.round((size - 1) * 100);
+      // [label, change in %, more is better for the bot]
+      const lines: [string, number, boolean][] = [
+        ['Reach and height', reach, true],
+        ['Target size', reach, false],
+        ['Health', Math.round((a.maxHp / o.maxHp - 1) * 100), true],
+        ['Strike power', Math.round((a.punchPower / o.punchPower - 1) * 100), true],
+        ['Knockdown resistance', Math.round((a.stability / o.stability - 1) * 100), true],
+        ['Hand speed', Math.round((a.punchSpeed / o.punchSpeed - 1) * 100), true],
+        ['Footwork', Math.round(((a.moveSpeed * a.agility) / (o.moveSpeed * o.agility) - 1) * 100), true],
+        ['Reflexes', Math.round((o.reaction / a.reaction - 1) * 100), true],
+        ['Accuracy', Math.round((a.accuracy - o.accuracy) * 100), true],
+      ];
+      rows.innerHTML = lines
+        .map(([l, v, good]) => {
+          const cls = v === 0 ? '' : (v > 0) === good ? ' up' : ' down';
+          return `<div class="sz-row${cls}"><span>${l}</span><b>${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)}%</b></div>`;
+        })
+        .join('');
+      this.renderStats();
+    };
+    draw();
+    let t = 0;
+    inp.addEventListener('input', () => {
+      this.player.size = sanitizeSize(Number(inp.value) / 100);
+      draw();
+      // reframe and rebuild the bot as the slider moves (lightly throttled)
+      this.setFocus(null);
+      clearTimeout(t);
+      t = window.setTimeout(() => this.game.showBot(this.player), 60);
+    });
+    inp.addEventListener('change', () => {
+      clearTimeout(t);
+      this.tap('select');
+      this.commitPlayer();
+      this.game.garagePulse();
+    });
+    g.items.scrollTop = scroll;
+  }
+
   private setPaint(p: Paint) {
     if (samePaint(p, this.player.paint)) return;
     this.tap('select');
@@ -868,7 +949,7 @@ export class App {
   }
 
   private renderStats() {
-    const b = computeBuild(this.player.loadout);
+    const b = computeBuild(this.player.loadout, this.player.size);
     const s = b.stats;
     const rows: [string, number, string][] = [
       ['Health', (s.maxHp - 1100) / 800, String(Math.round(s.maxHp))],

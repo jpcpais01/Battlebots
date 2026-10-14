@@ -248,7 +248,7 @@ export class Game {
     }
     if (!spec) return;
     const rng = new Rng(42);
-    const fighter = new Fighter(0, spec.name, computeBuild(spec.loadout), rng);
+    const fighter = new Fighter(0, spec.name, computeBuild(spec.loadout, spec.size), rng);
     const dummy = new Fighter(1, 'dummy', computeBuild(spec.loadout), rng);
     fighter.opp = dummy;
     dummy.opp = fighter;
@@ -265,7 +265,7 @@ export class Game {
         if (ev === 'step') this.sfx?.step(0);
       },
     };
-    const model = new BotModel(spec.loadout, spec.paint);
+    const model = new BotModel(spec.loadout, spec.paint, spec.size);
     this.probe.tag(model.root, 'bots');
     this.stage.scene.add(model.root);
     this.showcase = { fighter, dummy, model, show: new Showman(fighter, dummy, null), spec };
@@ -302,14 +302,16 @@ export class Game {
     if (!this.spar) {
       // side on to the camera, a step from the showcase bot
       const yaw = this.director.garageYaw;
-      const mark = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw)).multiplyScalar(1.02);
+      // stands off a bigger (or smaller) showcase bot in proportion
+      const mark = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw)).multiplyScalar(1.02 * (1 + (sc.spec.size ?? 1)) * 0.5);
       this.spar = { model: this.dummyModel(), mark, yaw };
       this.resetDummy();
     }
     // frame the pair
     const d = this.director;
-    d.garageTarget.set(this.spar.mark.x * 0.5, 0.98, this.spar.mark.z * 0.5);
-    d.garageDist = 5.3;
+    const z = Math.max(1, sc.spec.size ?? 1);
+    d.garageTarget.set(this.spar.mark.x * 0.5, 0.98 * z, this.spar.mark.z * 0.5);
+    d.garageDist = 5.3 * z;
   }
 
   /** A fresh sparring dummy: bare metal with hazard-yellow trim. */
@@ -430,7 +432,7 @@ export class Game {
     this.showBot(null);
     const m = new Match(a, b, seed);
     this.match = m;
-    this.models = [new BotModel(a.loadout, a.paint), new BotModel(b.loadout, b.paint)];
+    this.models = [new BotModel(a.loadout, a.paint, a.size), new BotModel(b.loadout, b.paint, b.size)];
     for (const md of this.models) {
       this.probe.tag(md.root, 'bots');
       this.stage.scene.add(md.root);
@@ -753,11 +755,11 @@ export class Game {
     }
     // contact occlusion follows whichever robots are on screen
     const shown = m && this.models.length === 2 ? this.models : this.showcase ? (this.spar ? [this.showcase.model, this.spar.model] : [this.showcase.model]) : [];
-    for (let i = 0; i < 2; i++) contactAO.set(i, shown[i]?.joints ?? null);
+    for (let i = 0; i < 2; i++) contactAO.set(i, shown[i]?.joints ?? null, shown[i]?.size);
     this.fx.update(dt, this.stage.camera);
     this.stage.ripples.update(dt);
     perf.lap('fx');
-    this.arena.pressRopes(m && this.models.length === 2 ? [this.models[0].joints, this.models[1].joints] : []);
+    this.arena.pressRopes(m && this.models.length === 2 ? [this.models[0].joints, this.models[1].joints] : [], this.models.map((x) => x.size));
     const f = m?.fighters;
     const crowdState = m && f && !this.paused ? { phase: m.phase, clock: m.clock, hp: [f[0].hpRatio, f[1].hpRatio] as [number, number] } : null;
     this.crowdMood.tick(dt, crowdState);

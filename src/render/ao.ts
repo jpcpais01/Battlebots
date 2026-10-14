@@ -67,7 +67,7 @@ class ContactAO {
   }
 
   /** Place robot `i`'s spheres from its world-space joints, or remove it with null. */
-  set(i: number, joints: readonly THREE.Vector3[] | null) {
+  set(i: number, joints: readonly THREE.Vector3[] | null, size = 1) {
     const b = this.uniforms.uAOB.value;
     if (!joints) {
       b[i * 4 + 3] = 0;
@@ -81,7 +81,7 @@ class ContactAO {
       s[o++] = p.x;
       s[o++] = p.y;
       s[o++] = p.z;
-      s[o++] = RADII[j];
+      s[o++] = RADII[j] * size;
       cx += p.x;
       cy += p.y;
       cz += p.z;
@@ -92,7 +92,7 @@ class ContactAO {
         s[o++] = (p.x + q.x) * 0.5;
         s[o++] = (p.y + q.y) * 0.5;
         s[o++] = (p.z + q.z) * 0.5;
-        s[o++] = r;
+        s[o++] = r * size;
       }
     }
     cx /= 16;

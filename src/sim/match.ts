@@ -1,7 +1,7 @@
 import { Vector3 } from 'three';
 import { Brain, type BrainEvent } from './brain';
 import { J, RING_CORNER, ROPE_LINE, ropeSide, SIDE_NX, SIDE_NZ } from './body';
-import { Fighter, resetUids, type StrikeAction } from './fighter';
+import { Fighter, rangeScale, resetUids, type StrikeAction } from './fighter';
 import { Showman } from './emote';
 import { Greeting } from './greet';
 import { FINISH_AT, FINISH_SELF, FINISHER_NAME, FinisherRun, pickFinisher } from './finisher';
@@ -141,8 +141,8 @@ export class Match {
     this.rng = new Rng(seed);
     this.specs = [a, b];
     resetUids();
-    const fa = new Fighter(0, a.name, computeBuild(a.loadout), new Rng(this.rng.next() * 4294967296));
-    const fb = new Fighter(1, b.name, computeBuild(b.loadout), new Rng(this.rng.next() * 4294967296));
+    const fa = new Fighter(0, a.name, computeBuild(a.loadout, a.size), new Rng(this.rng.next() * 4294967296));
+    const fb = new Fighter(1, b.name, computeBuild(b.loadout, b.size), new Rng(this.rng.next() * 4294967296));
     fa.opp = fb;
     fb.opp = fa;
     this.fighters = [fa, fb];
@@ -297,13 +297,15 @@ export class Match {
   // ------------------------------------------------------------------ physics
   private separate() {
     const [a, b] = this.fighters;
+    // the two frames side by side: bigger bots stand further apart
+    const pair = (a.size + b.size) * 0.5;
     // the ropes: once a standing fighter's armour reaches them they stretch up to
     // ROPE_STRETCH, pushing back harder the deeper the fighter sinks in
     for (const f of this.fighters) {
       if (f.isDown) continue;
       const side = ropeSide(f.root.x, f.root.z);
       const nx = SIDE_NX[side], nz = SIDE_NZ[side];
-      const pen = f.root.x * nx + f.root.z * nz - (ROPE_LINE - ROPE_REACH);
+      const pen = f.root.x * nx + f.root.z * nz - (ROPE_LINE - ROPE_REACH * f.size);
       if (pen > 0) {
         let out = f.rootVel.x * nx + f.rootVel.z * nz;
         if (out > 1.2 && this.ropeCooldown[f.index] <= 0) {
@@ -330,9 +332,10 @@ export class Match {
       const c = Math.round((DM.atan2(f.root.z, f.root.x) - Math.PI / 8) / (Math.PI / 4)) * (Math.PI / 4) + Math.PI / 8;
       const cx = f.root.x - DM.cos(c) * RING_CORNER, cz = f.root.z - DM.sin(c) * RING_CORNER;
       const dc = DM.hypot(cx, cz);
-      if (dc < POST_CLEAR && dc > 1e-5) {
-        f.root.x += (cx / dc) * (POST_CLEAR - dc);
-        f.root.z += (cz / dc) * (POST_CLEAR - dc);
+      const clear = POST_CLEAR * f.size;
+      if (dc < clear && dc > 1e-5) {
+        f.root.x += (cx / dc) * (clear - dc);
+        f.root.z += (cz / dc) * (clear - dc);
       }
     }
     if (a.isDown || b.isDown) {
@@ -343,15 +346,16 @@ export class Match {
       const p = down.body.pos[J.Pelvis];
       const dx = standing.root.x - p.x, dz = standing.root.z - p.z;
       const d = DM.hypot(dx, dz);
-      if (d < 0.9 && d > 1e-4) {
-        standing.root.x += (dx / d) * (0.9 - d) * 0.2;
-        standing.root.z += (dz / d) * (0.9 - d) * 0.2;
+      const clear = 0.9 * pair;
+      if (d < clear && d > 1e-4) {
+        standing.root.x += (dx / d) * (clear - d) * 0.2;
+        standing.root.z += (dz / d) * (clear - d) * 0.2;
       }
       return;
     }
     const dx = b.root.x - a.root.x, dz = b.root.z - a.root.z;
     const d = DM.hypot(dx, dz);
-    const min = 0.64;
+    const min = 0.64 * pair;
     if (d < min && d > 1e-5) {
       const push = (min - d) * 0.5;
       const nx = dx / d, nz = dz / d;
@@ -366,8 +370,8 @@ export class Match {
       if (vb < 0) b.rootVel.set(b.rootVel.x - nx * vb, 0, b.rootVel.z - nz * vb);
     }
     // leaning in can still bring the armour together: keep chests and heads apart too
-    this.separateParts(a, b, J.Chest, 0.5);
-    this.separateParts(a, b, J.Head, 0.4);
+    this.separateParts(a, b, J.Chest, 0.5 * pair);
+    this.separateParts(a, b, J.Head, 0.4 * pair);
   }
 
   /** Push the roots apart (softly) when two body parts get closer than min horizontally. */
@@ -401,7 +405,9 @@ export class Match {
     if (s.move.path === 'hammer' && to.y >= from.y) return;
     // a jumping knee connects once it has driven up, not on the way out of the chamber
     if (s.move.path === 'knee' && s.activeProgress < 0.3) return;
-    const r = s.move.striker === 'hand' ? 0.13 : 0.12;
+    const r = (s.move.striker === 'hand' ? 0.13 : 0.12) * att.size;
+    // the defender's armour and limbs stand out from its particles in proportion to its frame
+    const z = def.size;
     const db = def.body.pos;
     const legsMove = s.zone === 'legs';
     const canGuard = (def.state === 'fight' || def.state === 'stun') && !legsMove;
@@ -425,7 +431,7 @@ export class Match {
           closestOnSegment(_p, el, hd, _c);
           // forearms now stand clear of the chest plate (further out than they used
           // to sit), so the block window is a little tighter to keep the same balance
-          if (_c.distanceTo(_p) < r * 0.85 + 0.048) {
+          if (_c.distanceTo(_p) < r * 0.85 + 0.048 * z) {
             hit = 'block';
             blockHand = side;
             part = armPart(side, 1);
@@ -433,7 +439,7 @@ export class Match {
           }
           if (s.zone === 'body') {
             closestOnSegment(_p, sh, el, _c);
-            if (_c.distanceTo(_p) < r * 0.85 + 0.048) {
+            if (_c.distanceTo(_p) < r * 0.85 + 0.048 * z) {
               hit = 'block';
               blockHand = side;
               part = armPart(side, 0);
@@ -442,19 +448,19 @@ export class Match {
           }
         }
       }
-      if (!hit && _p.distanceTo(db[J.Head]) < r + 0.17) {
+      if (!hit && _p.distanceTo(db[J.Head]) < r + 0.17 * z) {
         hit = 'head';
         part = P.Head;
       }
       if (!hit) {
         const pv = db[J.Pelvis], ch = db[J.Chest];
         closestOnSegment(_p, pv, ch, _c);
-        if (_c.distanceTo(_p) < r + 0.25) {
+        if (_c.distanceTo(_p) < r + 0.25 * z) {
           hit = 'body';
           // upper half of the trunk is the chest plate, lower half the waist and hips
           const len = pv.distanceTo(ch);
           part = len > 1e-4 && _c.distanceTo(pv) / len > 0.6 ? P.Chest : P.Torso;
-        } else if (_p.distanceTo(db[J.Neck]) < r + 0.1) {
+        } else if (_p.distanceTo(db[J.Neck]) < r + 0.1 * z) {
           hit = 'head';
           part = P.Head;
         }
@@ -467,7 +473,7 @@ export class Match {
           const shinT = _c.distanceTo(db[kn]) / Math.max(1e-4, db[kn].distanceTo(db[ft]));
           closestOnSegment(_p, db[h], db[kn], _c);
           const d2 = _c.distanceTo(_p);
-          if (Math.min(d1, d2) < r + 0.09) {
+          if (Math.min(d1, d2) < r + 0.09 * z) {
             hit = 'legs';
             part = d2 < d1 ? legPart(side, 0) : shinT > 0.78 ? legPart(side, 2) : legPart(side, 1);
             break;
@@ -631,6 +637,8 @@ export class Match {
     // knockback
     let kb = m.knockback * (blocked ? 0.55 : 1) * (1 - def.passive('rooted'));
     if (m.id === 'pushKick') kb *= 1 + att.passive('trip');
+    // a big frame shoves a small one about, and barely moves for it
+    kb *= Math.sqrt(att.size / def.size);
     if (shielded) kb *= 0.4;
     def.rootVel.addScaledVector(_a, kb);
     if (blocked) att.rootVel.addScaledVector(_a, -0.5);
@@ -904,7 +912,7 @@ export class Match {
       if (s.result === 'whiff') {
         const dodging = def.dodge;
         const d = f.distTo(def);
-        const inRange = d < s.move.range[1] + 0.2;
+        const inRange = d < (s.move.range[1] + 0.2) * rangeScale(f, def);
         if (dodging && inRange) {
           s.result = 'dodged';
           def.stats.dodged++;

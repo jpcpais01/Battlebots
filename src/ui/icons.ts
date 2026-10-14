@@ -56,6 +56,7 @@ export const ICON = {
   replay: svg('<path d="M4 12a8 8 0 1 0 2.3-5.7"/><path d="M4 4v4h4"/><path d="M10 9l5 3-5 3z" fill="currentColor"/>'),
   forward: svg('<path d="M4 6l7 6-7 6z" fill="currentColor"/><path d="M12 6l7 6-7 6z" fill="currentColor"/>'),
   paint: svg('<path d="M18.4 2.6a2 2 0 0 1 2.8 2.8L12.4 14.2 9.8 11.6z"/><path d="M9.2 12.4c-2.2 0-3.9 1.6-3.9 3.7 0 1.5-.9 2.5-2.7 3.2 1.3 1.2 3 1.8 4.6 1.8 2.9 0 5.2-2.2 5.2-5.1z"/>'),
+  size: svg('<path d="M4 20L20 4"/><path d="M14 4h6v6"/><path d="M10 20H4v-6"/>'),
   star: svg('<path d="M12 2.5l2.9 6 6.6.8-4.9 4.5 1.3 6.5L12 17l-5.9 3.3 1.3-6.5L2.5 9.3l6.6-.8z"/>'),
   mic: svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/>'),
   user: svg('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'),

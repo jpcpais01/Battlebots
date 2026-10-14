@@ -386,14 +386,15 @@ export class Arena {
    * the size of the armour around it; where it crosses a rope's line, that rope is
    * pushed out to meet it. Cheap: 32 balls against the 3 ropes of their nearest side.
    */
-  pressRopes(bodies: readonly (readonly THREE.Vector3[])[]) {
+  pressRopes(bodies: readonly (readonly THREE.Vector3[])[], sizes: readonly number[] = []) {
     const press = this.ropePress.fill(0);
     const at = this.ropeAt;
     const nH = ROPE_HEIGHTS.length;
-    for (const joints of bodies) {
+    bodies.forEach((joints, b) => {
+      const z = sizes[b] ?? 1;
       for (let j = 0; j < joints.length; j++) {
         const p = joints[j];
-        const rad = PRESS_RADII[j] ?? 0.15;
+        const rad = (PRESS_RADII[j] ?? 0.15) * z;
         const side = sideOf(p.x, p.z);
         const nx = SIDE_NX[side], nz = SIDE_NZ[side];
         const reach = p.x * nx + p.z * nz - ROPE_LINE;
@@ -411,7 +412,7 @@ export class Arena {
           }
         }
       }
-    }
+    });
     // the ropes are tied together at the posts and sag together: neighbours follow a little
     for (let side = 0; side < SIDES; side++) {
       const k = side * nH;

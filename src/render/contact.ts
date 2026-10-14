@@ -128,7 +128,7 @@ export function partRadius(pts: number[], q: number, cx = 0, cy = NaN, cz = 0) {
   return d.length ? d[Math.min(d.length - 1, Math.floor(d.length * q))] : 0;
 }
 
-/** A hull placed in the world by a bone's transform (rigid: no scale). */
+/** A hull placed in the world by a bone's transform (rigid, with the bot's uniform frame scale). */
 export interface PlacedHull {
   hull: Hull;
   bone: THREE.Object3D;
@@ -141,12 +141,15 @@ const _q = new THREE.Quaternion();
 
 /** Push world point p out of a placed hull with a margin. Writes the world push into out; returns depth. */
 export function pushOut(h: PlacedHull, p: THREE.Vector3, margin: number, out: THREE.Vector3) {
+  // a torn-off part's bone is collapsed to nothing: there is no hull to push out of
+  const s = h.bone.scale.x;
+  if (s < 1e-4) return 0;
   _q.copy(h.bone.quaternion).invert();
-  _l.subVectors(p, h.bone.position).applyQuaternion(_q);
-  const d = h.hull.penetration(_l, margin, _o);
+  _l.subVectors(p, h.bone.position).applyQuaternion(_q).multiplyScalar(1 / s);
+  const d = h.hull.penetration(_l, margin / s, _o);
   if (d <= 0) return 0;
-  out.copy(_o).applyQuaternion(h.bone.quaternion);
-  return d;
+  out.copy(_o).multiplyScalar(s).applyQuaternion(h.bone.quaternion);
+  return d * s;
 }
 
 /** Debug counters for the contact solver (read from the console or capture scripts). */

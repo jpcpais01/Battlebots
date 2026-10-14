@@ -1,5 +1,5 @@
 import { Rng } from '../sim/math';
-import { COMPANIES, MAX_RARITY, SLOTS, capRarity, itemsForSlot, type Loadout, type Rarity } from './items';
+import { COMPANIES, MAX_RARITY, SIZE_MAX, SIZE_MIN, SLOTS, capRarity, sanitizeSize, itemsForSlot, type Loadout, type Rarity } from './items';
 import type { EmotePicks } from '../sim/emote';
 import { DEFAULT_PAINT, SCHEMES, samePaint, type Paint } from './paint';
 
@@ -42,18 +42,27 @@ export interface BotSpec {
   paint: Paint;
   /** Celebrations and taunts equipped in the garage; missing = the bot picks its own. */
   emotes?: EmotePicks;
+  /** Frame size, SIZE_MIN..SIZE_MAX on 5% steps; missing = 1 (standard). */
+  size?: number;
+}
+
+/** A random frame size: mostly near standard, now and then a giant or a tiddler. */
+export function randomSize(rng: Rng): number {
+  const r = (rng.next() + rng.next()) * 0.5;
+  return sanitizeSize(SIZE_MIN + (SIZE_MAX - SIZE_MIN) * r);
 }
 
 /** A random bot in one of the ready-made paint schemes (never exactly `avoid`). */
 export function randomBot(rng: Rng, tier = 0.35, avoid?: Paint): BotSpec {
   let i = rng.int(0, SCHEMES.length - 1);
   if (avoid && samePaint(SCHEMES[i].paint, avoid)) i = (i + 1 + rng.int(0, SCHEMES.length - 2)) % SCHEMES.length;
-  return { name: randomName(rng), loadout: randomLoadout(rng, tier), paint: { ...SCHEMES[i].paint } };
+  return { name: randomName(rng), loadout: randomLoadout(rng, tier), paint: { ...SCHEMES[i].paint }, size: randomSize(rng) };
 }
 
 export const DEFAULT_PLAYER: BotSpec = {
   name: 'Atom Jack',
   paint: { ...DEFAULT_PAINT },
+  size: 1,
   loadout: {
     head: { id: 'sentinel', rarity: capRarity(1) },
     fist: { id: 'brawler', rarity: capRarity(1) },

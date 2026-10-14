@@ -121,6 +121,12 @@ export function makeObservation(): Observation {
   };
 }
 
+/**
+ * How a pair's sizes stretch the root-to-root distances a strike works at (MoveDef.range):
+ * mostly the attacker's arm or leg, partly how far the target's armour stands out.
+ */
+export const rangeScale = (att: Fighter, def: Fighter) => att.size * 0.75 + def.size * 0.25;
+
 export interface FighterStats {
   dealt: number;
   landed: number;
@@ -296,6 +302,12 @@ export class Fighter {
   readonly name: string;
   readonly build: FighterBuild;
   readonly rng: Rng;
+  /**
+   * Frame size (1 = standard). The rig poses a standard-size body in its local frame and
+   * toWorld/toLocal scale it, so reach, stride and every joint grow or shrink together;
+   * world-space lengths in here (foot height, step error, lunges) are multiplied by it.
+   */
+  readonly size: number;
   body: Body;
   opp!: Fighter;
 
@@ -456,6 +468,7 @@ export class Fighter {
     this.name = name;
     this.build = build;
     this.rng = rng;
+    this.size = build.size ?? 1;
     this.noise = new Noise1(rng);
     this.parts = new Parts(build.loadout, build.tough);
     this.hp = build.stats.maxHp;
@@ -469,8 +482,8 @@ export class Fighter {
       this.shieldTimer = shieldCd;
     }
     this.computeLocalPose(0);
-    const rest = this.L.map((v) => v.clone());
-    this.body = new Body(rest);
+    const rest = this.L.map((v) => v.clone().multiplyScalar(this.size));
+    this.body = new Body(rest, this.size);
   }
 
   get stats0() {
@@ -526,12 +539,14 @@ export class Fighter {
   }
   toWorld(local: Vector3, out: Vector3, yaw = this.faceYaw) {
     const s = DM.sin(yaw), c = DM.cos(yaw);
-    const x = local.x, y = local.y, z = local.z;
+    const k = this.size;
+    const x = local.x * k, y = local.y * k, z = local.z * k;
     return out.set(this.root.x - c * x + s * z, this.root.y + y, this.root.z + s * x + c * z);
   }
   toLocal(world: Vector3, out: Vector3, yaw = this.faceYaw) {
     const s = DM.sin(yaw), c = DM.cos(yaw);
-    const dx = world.x - this.root.x, dy = world.y - this.root.y, dz = world.z - this.root.z;
+    const k = 1 / this.size;
+    const dx = (world.x - this.root.x) * k, dy = (world.y - this.root.y) * k, dz = (world.z - this.root.z) * k;
     return out.set(-c * dx + s * dz, dy, s * dx + c * dz);
   }
 
@@ -654,7 +669,7 @@ export class Fighter {
       active: move.active / speed,
       recovery: move.recovery / speed,
       chained: !!prev,
-      lungeLeft: move.lunge * (1 + this.passive('pistonDrive')),
+      lungeLeft: move.lunge * (1 + this.passive('pistonDrive')) * this.size,
       activeProgress: 0,
       counter: false,
     };
@@ -745,7 +760,7 @@ export class Fighter {
         if (f.locked) {
           f.locked = false;
           f.stepping = false;
-          f.pos.y = Math.max(FOOT_Y, f.pos.y);
+          f.pos.y = Math.max(FOOT_Y * this.size, f.pos.y);
         }
       }
     }
@@ -906,8 +921,8 @@ export class Fighter {
     if (buckle && power < 5) {
       this.buckleDur = BUCKLE * clamp(1.6 - power * 0.25, 0.45, 1);
       this.buckle = this.buckleDur;
-      this.buckleFeet[0].copy(this.feet[0].pos).setY(FOOT_Y);
-      this.buckleFeet[1].copy(this.feet[1].pos).setY(FOOT_Y);
+      this.buckleFeet[0].copy(this.feet[0].pos).setY(FOOT_Y * this.size);
+      this.buckleFeet[1].copy(this.feet[1].pos).setY(FOOT_Y * this.size);
       this.forward(this.buckleFwd);
     }
   }
@@ -927,11 +942,12 @@ export class Fighter {
     T[J.FootR].copy(F[1]);
     const mx = (F[0].x + F[1].x) * 0.5, mz = (F[0].z + F[1].z) * 0.5;
     const sink = minJerk(k);
-    T[J.Pelvis].set(mx - fwd.x * 0.06 * sink, lerp(0.9, 0.36, sink), mz - fwd.z * 0.06 * sink);
+    const z = this.size;
+    T[J.Pelvis].set(mx - fwd.x * 0.06 * sink * z, lerp(0.9, 0.36, sink) * z, mz - fwd.z * 0.06 * sink * z);
     for (let i = 0; i < 2; i++) {
       const knee = T[i === 0 ? J.KneeL : J.KneeR];
-      knee.copy(F[i]).addScaledVector(fwd, lerp(0.1, 0.34, sink));
-      knee.y = lerp(0.52, 0.24, sink);
+      knee.copy(F[i]).addScaledVector(fwd, lerp(0.1, 0.34, sink) * z);
+      knee.y = lerp(0.52, 0.24, sink) * z;
     }
   }
 
@@ -953,14 +969,15 @@ export class Fighter {
     if (!faceDown) _u.negate();
     this.yaw = DM.atan2(_u.x, _u.z);
     // the first key's pelvis sits where the lying pelvis is
-    const pz = this.getupKeys[0].pz;
+    const pz = this.getupKeys[0].pz * this.size;
     this.root.set(P[J.Pelvis].x - _u.x * pz, 0, P[J.Pelvis].z - _u.z * pz);
     // getting up under the ropes: stand up just inside them, not out past them
     const gap = ropeGap(this.root.x, this.root.z);
-    if (gap < 0.35) {
+    const clear = 0.35 * this.size;
+    if (gap < clear) {
       const s = ropeSide(this.root.x, this.root.z);
-      this.root.x -= SIDE_NX[s] * (0.35 - gap);
-      this.root.z -= SIDE_NZ[s] * (0.35 - gap);
+      this.root.x -= SIDE_NX[s] * (clear - gap);
+      this.root.z -= SIDE_NZ[s] * (clear - gap);
     }
     this.rootVel.set(0, 0, 0);
     for (let i = 0; i < JOINT_COUNT; i++) this.toLocal(P[i], this.getupSnap[i]);
@@ -1031,7 +1048,7 @@ export class Fighter {
     const originIdx = m.kind === 'punch' ? (s.side === 'L' ? J.ShL : J.ShR) : s.side === 'L' ? J.HipL : J.HipR;
     _v.subVectors(s.aim, this.body.pos[originIdx]).normalize();
     const through = m.path === 'straight' ? 0.14 : m.path === 'frontKick' || m.path === 'backKick' ? 0.18 : 0.1;
-    s.endWorld.copy(s.aim).addScaledVector(_v, through);
+    s.endWorld.copy(s.aim).addScaledVector(_v, through * this.size);
     if (m.extend) this.extend[s.side === 'L' ? 0 : 1] = 0.001;
   }
 
@@ -1081,12 +1098,12 @@ export class Fighter {
     // strike lunges
     if (s && s.lungeLeft > 0 && s.phase !== 'recovery') {
       const total = s.windup + s.active;
-      const rate = (s.move.lunge * (1 + this.passive('pistonDrive'))) / Math.max(0.05, total);
+      const rate = (s.move.lunge * (1 + this.passive('pistonDrive')) * this.size) / Math.max(0.05, total);
       const step = Math.min(s.lungeLeft, rate * dt);
       s.lungeLeft -= step;
       const fwd = this.forward(_u, this.yaw);
       // do not lunge through the opponent (a flying knee stops short so the thigh doesn't sink in)
-      const gap = this.distTo(this.opp) - (s.move.striker === 'knee' ? 0.8 : 0.66);
+      const gap = this.distTo(this.opp) - (s.move.striker === 'knee' ? 0.8 : 0.66) * (this.size + this.opp.size) * 0.5;
       this.root.addScaledVector(fwd, Math.min(step, Math.max(0, gap)));
     }
 
@@ -1210,11 +1227,11 @@ export class Fighter {
       this.stanceFoot(i, _p);
       this.toWorld(_p, _q, this.yaw);
       _q.addScaledVector(this.rootVel, 0.12);
-      let err = DM.hypot(_q.x - f.pos.x, _q.z - f.pos.z);
+      let err = DM.hypot(_q.x - f.pos.x, _q.z - f.pos.z) / this.size;
       // planted feet that end up twisted against the body get re-placed (pivot steps)
       err += Math.max(0, Math.abs(wrapAngle(this.yaw + this.stanceFootYaw(i) - f.yaw)) - 0.45) * 0.3;
       // step with the foot that leads the movement: lead foot first going forward, rear going back
-      if (moving > 0.3) err += 0.035 * Math.max(0, ((_q.x - this.root.x) * vx + (_q.z - this.root.z) * vz) / 0.25);
+      if (moving > 0.3) err += 0.035 * Math.max(0, ((_q.x - this.root.x) * vx + (_q.z - this.root.z) * vz) / (0.25 * this.size));
       if (err > bestErr) {
         bestErr = err;
         best = i;
@@ -1236,9 +1253,9 @@ export class Fighter {
     _q.addScaledVector(this.rootVel, f.dur * 0.8);
     f.from.copy(f.pos);
     f.to.copy(_q);
-    f.to.y = FOOT_Y;
+    f.to.y = FOOT_Y * this.size;
     f.t = 0;
-    f.arc = 0.05 + Math.min(0.12, bestErr * 0.18);
+    f.arc = (0.05 + Math.min(0.12, bestErr * 0.18)) * this.size;
     f.fromYaw = f.yaw;
     f.toYaw = this.yaw + this.stanceFootYaw(best);
     f.stepping = true;
@@ -1326,7 +1343,7 @@ export class Fighter {
         // reaching for a far target leans the body in
         if (s.phase === 'active') {
           const shIdx = s.side === 'L' ? J.ShL : J.ShR;
-          const deficit = this.body.pos[shIdx].distanceTo(s.endWorld) - (UPPER + FORE + this.extend[s.side === 'L' ? 0 : 1]);
+          const deficit = this.body.pos[shIdx].distanceTo(s.endWorld) / this.size - (UPPER + FORE + this.extend[s.side === 'L' ? 0 : 1]);
           // swung shots already travel through a wide arc, so they lean in less
           const reach = m.path === 'overhand' || m.path === 'hammer' ? 0.3 : 0.7;
           pitch += clamp(deficit, 0, 0.3) * reach * prog.ext;
@@ -1429,8 +1446,9 @@ export class Fighter {
     }
     // locomotion: the upper body leans into the (lagged) travel direction
     const cy = DM.cos(this.yaw), sy = DM.sin(this.yaw);
-    const lvx = -cy * this.rootVel.x + sy * this.rootVel.z;
-    const lvz = sy * this.rootVel.x + cy * this.rootVel.z;
+    // in body lengths per second: a big frame covering the same ground leans less
+    const lvx = (-cy * this.rootVel.x + sy * this.rootVel.z) / this.size;
+    const lvz = (sy * this.rootVel.x + cy * this.rootVel.z) / this.size;
     if (dt > 0) {
       this.leanV.x = damp(this.leanV.x, lvx, 6, dt);
       this.leanV.z = damp(this.leanV.z, lvz, 6, dt);
@@ -1451,7 +1469,7 @@ export class Fighter {
       const f = this.feet[i];
       if (!f.stepping || this.feet[1 - i].stepping) continue;
       const sw = DM.sin(Math.PI * clamp01(f.t));
-      const dx = f.to.x - f.from.x, dz = f.to.z - f.from.z;
+      const dx = (f.to.x - f.from.x) / this.size, dz = (f.to.z - f.from.z) / this.size;
       const fwd = clamp(sy * dx + cy * dz, -0.4, 0.4);
       const size = Math.min(1, DM.hypot(dx, dz) / 0.3);
       const sxF = i === 0 ? -1 : 1;
@@ -1715,7 +1733,7 @@ export class Fighter {
         if (f.locked) {
           // landing: plant where it is
           f.locked = false;
-          f.pos.y = FOOT_Y;
+          f.pos.y = FOOT_Y * this.size;
           f.yaw = this.yaw + this.stanceFootYaw(side);
         }
         this.toLocal(f.pos, foot);
@@ -2480,8 +2498,8 @@ export class Fighter {
     // forearm telescoping changes the bone rest length
     const cs = this.body.constraints;
     for (const c of cs) {
-      if (c.a === J.ElL && c.b === J.HandL) c.rest = FORE + this.extend[0];
-      if (c.a === J.ElR && c.b === J.HandR) c.rest = FORE + this.extend[1];
+      if (c.a === J.ElL && c.b === J.HandL) c.rest = (FORE + this.extend[0]) * this.size;
+      if (c.a === J.ElR && c.b === J.HandR) c.rest = (FORE + this.extend[1]) * this.size;
     }
     // render-facing extras (no effect on the simulation)
     const k = dt > 0 ? 1 - DM.exp(-30 * dt) : 1;

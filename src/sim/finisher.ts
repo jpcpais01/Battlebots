@@ -1,6 +1,6 @@
 import { Vector3 } from 'three';
 import { J } from './body';
-import type { Fighter, StrikeAction } from './fighter';
+import { rangeScale, type Fighter, type StrikeAction } from './fighter';
 import { MOVES, type MoveId, type Zone } from './moves';
 import { CUT_JOINTS, legPart, P } from './damage';
 import { clamp, clamp01, closestOnSegment, lerp, minJerk, Rng, smoothstep } from './math';
@@ -616,7 +616,7 @@ export class FinisherRun {
       _d.set(def.root.x - att.root.x, 0, def.root.z - att.root.z);
       const d = _d.length();
       if (d > 1e-4) _d.multiplyScalar(1 / d);
-      att.intentVel.copy(_d).multiplyScalar(clamp((d - c.range) * 5, -2.4, 3));
+      att.intentVel.copy(_d).multiplyScalar(clamp((d - c.range * rangeScale(att, def)) * 5, -2.4, 3));
     } else att.intentVel.set(0, 0, 0);
 
     this.slowmo += (c.slow - this.slowmo) * (1 - DM.exp(-12 * dt));
@@ -655,16 +655,17 @@ export class FinisherRun {
   /** Has the striking fist or foot reached the zone? */
   private contact(zone: Zone, p: Vector3) {
     const b = this.def.body.pos;
-    if (zone === 'head') return p.distanceTo(b[J.Head]) < 0.32;
+    const z = (this.att.size + this.def.size) * 0.5;
+    if (zone === 'head') return p.distanceTo(b[J.Head]) < 0.32 * z;
     if (zone === 'body') {
       closestOnSegment(p, b[J.Pelvis], b[J.Chest], _c);
-      return _c.distanceTo(p) < 0.38;
+      return _c.distanceTo(p) < 0.38 * z;
     }
     for (const [h, k, f] of [[J.HipL, J.KneeL, J.FootL], [J.HipR, J.KneeR, J.FootR]]) {
       closestOnSegment(p, b[h], b[k], _c);
-      if (_c.distanceTo(p) < 0.22) return true;
+      if (_c.distanceTo(p) < 0.22 * z) return true;
       closestOnSegment(p, b[k], b[f], _c);
-      if (_c.distanceTo(p) < 0.22) return true;
+      if (_c.distanceTo(p) < 0.22 * z) return true;
     }
     return false;
   }

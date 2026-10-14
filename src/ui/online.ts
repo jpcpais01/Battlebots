@@ -188,7 +188,7 @@ export class OnlineScreen {
     c.className = `bcard ${i ? 'r' : 'l'}${spec ? '' : ' ghost'}`;
     if (spec) {
       c.style.setProperty('--paint', paintOf(spec));
-      c.innerHTML = botCardInner(this.host.game, spec, computeBuild(spec.loadout), { side: i ? 'r' : 'l', tag, delay: 0.05 });
+      c.innerHTML = botCardInner(this.host.game, spec, computeBuild(spec.loadout, spec.size), { side: i ? 'r' : 'l', tag, delay: 0.05 });
     } else {
       c.style.removeProperty('--paint');
       c.innerHTML = this.session

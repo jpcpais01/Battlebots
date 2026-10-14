@@ -4,7 +4,7 @@ import type { BotSpec } from '../game/loadout';
 import { hexColor } from '../game/paint';
 import { MOVES, type MoveId } from '../sim/moves';
 import { esc } from './dom';
-import { ABILITY_ICON, COMPANY_ICON, SLOT_ICON } from './icons';
+import { ABILITY_ICON, COMPANY_ICON, ICON, SLOT_ICON } from './icons';
 
 export interface BotCardOpts {
   /** Which screen edge the card hugs: sets the accent colour and mirrors the layout. */
@@ -42,9 +42,12 @@ export function botCardInner(game: Game, spec: BotSpec, build: FighterBuild, o: 
     .filter((st) => st.active)
     .map((st) => `<span class="mk" style="--mc:${st.company.color}" title="${esc(st.company.name)}">${COMPANY_ICON[st.company.id]}${st.count}</span>`)
     .join('');
+  // a frame built up or down shows its size
+  const z = spec.size ?? 1;
+  const size = z === 1 ? '' : `<span class="sz" title="Frame size">${ICON.size}${Math.round(z * 100)}%</span>`;
   return `<div class="cap"><span class="tag">${esc(o.tag)}</span><span class="pwr"><small>PWR</small>${build.rating}</span></div>
     <div class="name">${esc(spec.name)}</div>
-    <div class="moves">${move(build.fistAbility)}${move(build.kickAbility)}${sets}</div>
+    <div class="moves">${move(build.fistAbility)}${move(build.kickAbility)}${sets}${size}</div>
     <div class="gear">${gear}</div>`;
 }
 

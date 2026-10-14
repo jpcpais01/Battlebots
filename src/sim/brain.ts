@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { Fighter, makeObservation, type DodgeType, type GuardMode, type Observation, type StrikeAction } from './fighter';
+import { Fighter, makeObservation, rangeScale, type DodgeType, type GuardMode, type Observation, type StrikeAction } from './fighter';
 import { BASIC_PUNCHES, MOVES, type MoveDef, type MoveId, type Zone } from './moves';
 import { clamp, clamp01, lerp, Rng, smoothstep, sigmoid, softmaxPick } from './math';
 import { J, ropeGap } from './body';
@@ -313,8 +313,22 @@ export class Brain {
     return this.buf[(this.head - 1 + PERCEPTION_BUFFER) % PERCEPTION_BUFFER];
   }
 
+  /**
+   * Distances the brain reasons about are in my own scale (see rangeScale): divided by how
+   * much our sizes stretch my strikes' ranges, so MoveDef.range and every spacing habit
+   * below work the same for a giant, a standard frame and a tiddler.
+   */
+  private get k() {
+    return rangeScale(this.me, this.opp);
+  }
+  /** The same for the opponent's strikes (what I see them reach me from). */
+  private get ok() {
+    return rangeScale(this.opp, this.me);
+  }
+
+  /** Distance to where I think they are, in my scale. */
   private perceivedDist() {
-    return DM.hypot(this.predPos.x - this.me.root.x, this.predPos.z - this.me.root.z);
+    return DM.hypot(this.predPos.x - this.me.root.x, this.predPos.z - this.me.root.z) / this.k;
   }
 
   // ------------------------------------------------------------------- update
@@ -534,7 +548,8 @@ export class Brain {
     if (!oppUp || me.action) return;
     // they're stepping in on me
     if (this.reactCooldown <= 0 && this.time > this.entryUntil && !this.inBurst) {
-      const closing = -(p.vel.x * (this.predPos.x - me.root.x) + p.vel.z * (this.predPos.z - me.root.z)) / Math.max(0.1, d);
+      const dw = d * this.k;
+      const closing = -(p.vel.x * (this.predPos.x - me.root.x) + p.vel.z * (this.predPos.z - me.root.z)) / Math.max(0.1, dw) / this.k;
       const threat = Math.max(this.oppAttackRange.v, 1.1);
       if (closing > 0.7 && d < threat + 0.45 && d > this.myPunchRange() * 0.7) this.onOppEntry();
     }
@@ -718,8 +733,9 @@ export class Brain {
     this.rhythm += dt * (2.4 + t.aggression);
     const dx = this.predPos.x - me.root.x;
     const dz = this.predPos.z - me.root.z;
-    const d = Math.max(0.01, DM.hypot(dx, dz));
-    const tx = dx / d, tz = dz / d;
+    const dw = Math.max(0.01, DM.hypot(dx, dz));
+    const tx = dx / dw, tz = dz / dw;
+    const d = dw / this.k;
     const myReach = this.myPunchRange();
     const threat = Math.max(this.oppAttackRange.v, 1.1);
     // just outside both of our ranges: where a fight is felt out
@@ -938,15 +954,16 @@ export class Brain {
   // ------------------------------------------------------------------- attack
   private zoneAim(zone: Zone, obs: Observation, out: Vector3, move?: MoveDef) {
     const lead = this.reactionNow * (0.3 + this.traits.skill * 0.5);
+    const os = this.opp.size;
     if (zone === 'head') out.copy(obs.head);
-    else if (zone === 'body') out.copy(obs.chest).setY(obs.chest.y - 0.16);
+    else if (zone === 'body') out.copy(obs.chest).setY(obs.chest.y - 0.16 * os);
     else {
       // shin of whichever leg is nearer (a low kick chops in at the knee)
-      out.set(obs.pos.x, move?.path === 'roundKick' ? 0.6 : 0.26, obs.pos.z);
+      out.set(obs.pos.x, (move?.path === 'roundKick' ? 0.6 : 0.26) * os, obs.pos.z);
       const dx = this.me.root.x - obs.pos.x, dz = this.me.root.z - obs.pos.z;
       const l = DM.hypot(dx, dz) || 1;
-      out.x += (dx / l) * 0.15;
-      out.z += (dz / l) * 0.15;
+      out.x += (dx / l) * 0.15 * os;
+      out.z += (dz / l) * 0.15 * os;
     }
     out.x += obs.vel.x * lead;
     out.z += obs.vel.z * lead;
@@ -973,9 +990,10 @@ export class Brain {
     const oppCommitted = p.actKind === 'strike' && (p.phase === 'recovery' || p.phase === 'active');
     const oppRocked = p.state === 'stagger' ? 1 : p.state === 'stun' ? 0.6 : 0;
     // closing speed: theirs plus my own step (a step-in jab reaches further)
-    const tx = (this.predPos.x - me.root.x) / Math.max(0.1, d);
-    const tz = (this.predPos.z - me.root.z) / Math.max(0.1, d);
-    const closing = -(p.vel.x * tx + p.vel.z * tz) + Math.max(0, me.rootVel.x * tx + me.rootVel.z * tz) * 0.5;
+    const dw = Math.max(0.1, d * this.k);
+    const tx = (this.predPos.x - me.root.x) / dw;
+    const tz = (this.predPos.z - me.root.z) / dw;
+    const closing = (-(p.vel.x * tx + p.vel.z * tz) + Math.max(0, me.rootVel.x * tx + me.rootVel.z * tz) * 0.5) / this.k;
     const last = me.lastAction && chain ? me.lastAction : null;
     const punish = this.time < this.punishUntil;
 
@@ -1228,7 +1246,7 @@ export class Brain {
     if (p.phase === 'recovery') return;
     this.lastSeenUid = p.uid;
     const move = MOVES[p.moveId];
-    this.recordOppAttack(move, DM.hypot(p.pos.x - me.root.x, p.pos.z - me.root.z));
+    this.recordOppAttack(move, DM.hypot(p.pos.x - me.root.x, p.pos.z - me.root.z) / this.k);
 
     // did we notice?
     const notice = clamp(0.5 + this.traits.skill * 0.45 - this.tired * 0.25 + (this.plan === 'counter' ? 0.1 : 0) - me.parts.wear(P.Head) * 0.18, 0.25, 0.97);
@@ -1236,9 +1254,11 @@ export class Brain {
 
     const elapsed = this.time - p.t;
     const timeLeft = p.timeToImpact - elapsed;
-    const d = DM.hypot(this.opp.root.x - me.root.x, this.opp.root.z - me.root.z);
+    const dw = DM.hypot(this.opp.root.x - me.root.x, this.opp.root.z - me.root.z);
+    const d = dw / this.k;
     const lunge = move.lunge * 1.1;
-    const inRange = d < move.range[1] + lunge * 0.8 + 0.2 + (move.kind === 'punch' ? this.opp.build.stats.reach : 0);
+    // their move's range is in their scale
+    const inRange = dw < (move.range[1] + lunge * 0.8 + 0.2 + (move.kind === 'punch' ? this.opp.build.stats.reach : 0)) * this.ok;
     if (!inRange) {
       // it will fall short: get ready to make them pay
       this.punishUntil = this.time + Math.max(0, timeLeft) + move.recovery * 0.9;
@@ -1388,7 +1408,7 @@ export class Brain {
     const key = s.move.id + s.zone;
     let e = this.moveVal.get(key);
     if (!e) this.moveVal.set(key, (e = ema(0.45)));
-    const d = this.me.distTo(this.opp);
+    const d = this.me.distTo(this.opp) / this.k;
     const inRange = d < s.move.range[1] + 0.15;
     let score = 0;
     if (s.result === 'hit') score = 0.7 + Math.min(0.3, damage / 200);
@@ -1409,7 +1429,7 @@ export class Brain {
 
   /** I landed a hit. */
   onDealt(dmg: number) {
-    const b = this.band(this.me.distTo(this.opp));
+    const b = this.band(this.me.distTo(this.opp) / this.k);
     this.bandDealt[b] += dmg;
     this.confidence = clamp01(this.confidence + dmg / 600);
     this.anger = Math.max(0, this.anger - dmg / 400);
@@ -1420,7 +1440,7 @@ export class Brain {
   /** I got hit (or blocked). counterAttempt: they hit me while I was exposed after my own strike. */
   onTaken(dmg: number, blocked: boolean, wasCounter: boolean, move: MoveDef) {
     const me = this.me;
-    const b = this.band(me.distTo(this.opp));
+    const b = this.band(me.distTo(this.opp) / this.k);
     if (!blocked) {
       this.bandTaken[b] += dmg;
       learn(this.oppAvgHit, dmg, 0.15);

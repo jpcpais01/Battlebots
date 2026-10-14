@@ -1,7 +1,7 @@
 import { Match } from '../sim/match';
 import { matchHash } from '../sim/hash';
 import { MOVES } from '../sim/moves';
-import { BASE_STATS, COMPANIES, ITEMS, MAX_RARITY, RARITIES } from '../game/items';
+import { BASE_STATS, COMPANIES, ITEMS, MAX_RARITY, RARITIES, SIZE_EFFECT, SIZE_MAX, SIZE_MIN } from '../game/items';
 import { randomBot } from '../game/loadout';
 import { FINISHES, FRAMES } from '../game/paint';
 import { Rng } from '../sim/math';
@@ -22,7 +22,7 @@ export function simFingerprint(): number {
   const mix = (v: number) => {
     h = Math.imul(h ^ (v | 0), 0x01000193);
   };
-  const data = JSON.stringify([ITEMS, COMPANIES, MOVES, BASE_STATS, RARITIES, MAX_RARITY, FINISHES.length, FRAMES.length, EMOTE_INFO.map((e) => e.id), FINISH_AT, FINISH_SELF, Object.values(FINISHERS).map((f) => [f.id, f.tail, f.steps])]);
+  const data = JSON.stringify([ITEMS, COMPANIES, MOVES, BASE_STATS, RARITIES, MAX_RARITY, SIZE_EFFECT, SIZE_MIN, SIZE_MAX, FINISHES.length, FRAMES.length, EMOTE_INFO.map((e) => e.id), FINISH_AT, FINISH_SELF, Object.values(FINISHERS).map((f) => [f.id, f.tail, f.steps])]);
   for (let i = 0; i < data.length; i++) mix(data.charCodeAt(i));
   const rng = new Rng(0xb07b07);
   const m = new Match(randomBot(rng, 0.9), randomBot(rng, 0.9), 0x5eed);
