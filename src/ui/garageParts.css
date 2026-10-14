@@ -65,7 +65,7 @@
   display: grid;
   place-items: center;
   font-style: normal;
-  font-family: var(--display);
+  font-weight: 700;
   font-size: 0.62em;
   color: #071018;
   background: var(--mc);
@@ -73,8 +73,7 @@
 }
 .pm-mk b {
   display: none;
-  font-family: var(--display);
-  font-weight: 400;
+  font-weight: 750;
   font-size: 0.78em;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -130,8 +129,7 @@
   height: 1.7em;
 }
 .mono {
-  font-family: var(--display);
-  font-weight: 400;
+  font-weight: 750;
   font-size: 1.1em;
 }
 .pm-brand .nm {
@@ -140,8 +138,7 @@
   min-width: 0;
 }
 .pm-brand .nm b {
-  font-family: var(--display);
-  font-weight: 400;
+  font-weight: 750;
   font-size: 0.95em;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -219,8 +216,7 @@
   height: 1.45em;
   margin-right: 0.4em;
   border-radius: 50%;
-  font-family: var(--display);
-  font-weight: 400;
+  font-weight: 750;
   font-size: 0.88em;
   border: 1px solid rgba(255, 255, 255, 0.16);
 }
@@ -359,7 +355,7 @@
 }
 .pm-tile .dl {
   padding: 0.05em 0.45em;
-  font-family: var(--display);
+  font-weight: 700;
   font-size: 0.68em;
   background: rgba(6, 9, 15, 0.8);
 }
@@ -388,8 +384,7 @@
   min-width: 0;
 }
 .dt-head > b {
-  font-family: var(--display);
-  font-weight: 400;
+  font-weight: 750;
   font-size: 1.25em;
   line-height: 1.1;
   min-width: 0;
@@ -444,8 +439,7 @@
   color: #aeb8cc;
 }
 .dt-stats b {
-  font-family: var(--display);
-  font-weight: 400;
+  font-weight: 750;
   text-align: right;
 }
 .dt-stats i {
@@ -514,8 +508,7 @@
   flex-basis: 100%;
 }
 .dt-move b {
-  font-family: var(--display);
-  font-weight: 400;
+  font-weight: 750;
   color: var(--amber);
 }
 .dt-move span {

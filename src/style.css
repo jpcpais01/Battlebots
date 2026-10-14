@@ -913,11 +913,9 @@ button:focus-visible {
   min-width: 0;
 }
 .gtitle b {
-  font-family: var(--display);
-  font-weight: 400;
-  font-size: 1.15em;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-weight: 800;
+  font-size: 1.25em;
+  letter-spacing: -0.01em;
 }
 .gtitle span {
   font-size: 0.8em;
@@ -991,8 +989,7 @@ button:focus-visible {
   gap: 0.5em;
 }
 .sz-read b {
-  font-family: var(--display);
-  font-weight: 400;
+  font-weight: 750;
   font-size: 1.6em;
   color: var(--cyan);
 }
@@ -1066,8 +1063,7 @@ button:focus-visible {
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 .sz-row b {
-  font-family: var(--display);
-  font-weight: 400;
+  font-weight: 750;
   color: var(--muted);
 }
 .sz-row.up b {
@@ -1315,7 +1311,7 @@ button:focus-visible {
   display: grid;
   place-items: center;
   font-style: normal;
-  font-family: var(--display);
+  font-weight: 700;
   font-size: 0.75em;
   color: #0b0f1a;
   background: var(--rc);
@@ -1327,8 +1323,7 @@ button:focus-visible {
   min-width: 0;
 }
 .emote-play .t b {
-  font-family: var(--display);
-  font-weight: 400;
+  font-weight: 750;
   font-size: 1em;
   white-space: nowrap;
   overflow: hidden;
@@ -1431,8 +1426,7 @@ button:focus-visible {
   color: var(--mc);
 }
 .statbox .set b {
-  font-family: var(--display);
-  font-weight: 400;
+  font-weight: 750;
   color: var(--mc);
 }
 .statbox .set span {
@@ -2022,7 +2016,7 @@ button:focus-visible {
   display: flex;
   gap: 0.4em;
   align-items: baseline;
-  font-family: var(--display);
+  font-weight: 700;
   font-size: 0.85em;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -3282,7 +3276,7 @@ button:focus-visible {
   display: flex;
   align-items: center;
   gap: 0.35em;
-  font-family: var(--display);
+  font-weight: 700;
   font-size: 0.5em;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -3756,7 +3750,7 @@ button:focus-visible {
   border-radius: 6px;
   background: rgba(8, 11, 19, 0.95);
   border: 1px solid var(--line);
-  font-family: var(--display);
+  font-weight: 700;
   font-size: 0.8em;
   white-space: nowrap;
   opacity: 0;
@@ -3814,7 +3808,7 @@ button:focus-visible {
 }
 .rb-time {
   margin-left: 0.4em;
-  font-family: var(--display);
+  font-weight: 700;
   font-size: 0.9em;
   letter-spacing: 0.03em;
   font-variant-numeric: tabular-nums;
@@ -3832,7 +3826,7 @@ button:focus-visible {
   gap: 0.35em;
   display: inline-flex;
   padding: 0 0.6em;
-  font-family: var(--display);
+  font-weight: 700;
   font-size: 0.8em;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -3860,7 +3854,7 @@ button:focus-visible {
   min-width: 3.2em;
   padding: 0 0.55em;
   border: 1px solid var(--line);
-  font-family: var(--display);
+  font-weight: 700;
   font-size: 0.85em;
 }
 .rbar.menu .rb-chip {
@@ -3887,7 +3881,7 @@ button:focus-visible {
   min-width: 4.2em;
   padding: 0.4em 0.7em;
   border-radius: 8px;
-  font-family: var(--display);
+  font-weight: 700;
   font-size: 0.85em;
   text-align: center;
 }

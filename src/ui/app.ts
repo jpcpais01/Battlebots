@@ -30,7 +30,7 @@ import { button, el, esc } from './dom';
 import { barColors, Hud } from './hud';
 import { paintOf } from './botCard';
 import { PerfOverlay } from './perfOverlay';
-import { ICON, SLOT_ICON } from './icons';
+import { ABILITY_ICON, ICON, SLOT_ICON } from './icons';
 import { makerLogo, PartsMenu } from './garageParts';
 import { forceUpdate } from '../update';
 import { OnlineScreen } from './online';
@@ -367,7 +367,7 @@ export class App {
     const move = (id: MoveId) => `<span class="pill">${ABILITY_ICON[id] ?? ''}${esc(MOVES[id].name)}</span>`;
     const sets = b.sets
       .filter((st) => st.active)
-      .map((st) => `<span class="pill mk" style="--mc:${st.company.color}">${COMPANY_ICON[st.company.id]}${esc(st.company.name)} ×${st.count}</span>`)
+      .map((st) => `<span class="pill mk" style="--mc:${st.company.color}">${makerLogo(st.company)}${esc(st.company.name)} ×${st.count}</span>`)
       .join('');
     const z = p.size ?? 1;
     const size = z === 1 ? '' : `<span class="pill sz">${ICON.size}${Math.round(z * 100)}% ${sizeName(z)}</span>`;
