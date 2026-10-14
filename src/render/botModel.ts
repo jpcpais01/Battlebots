@@ -407,7 +407,7 @@ export class BotModel {
   private hullPts = { torso: [] as number[], head: [] as number[], pelvis: [] as number[] };
   /** Armour hulls placed by their bones; read by the opponent's contact pass. */
   readonly hulls: { torso: PlacedHull; head: PlacedHull; pelvis: PlacedHull };
-  private radii = { upper: 0.06, fore: 0.06, fist: 0.07, thigh: 0.08, shin: 0.07 };
+  readonly radii = { upper: 0.06, fore: 0.06, fist: 0.07, thigh: 0.08, shin: 0.07 };
   private torsoX = new THREE.Vector3();
   private torsoZ = new THREE.Vector3();
   private torsoUp = new THREE.Vector3();
