@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { RenderSettings } from './settings';
 import { RING_CORNER, ROPE_LINE, ropeSide as sideOf, SIDE_NX, SIDE_NZ } from '../sim/body';
 import { Venue } from './venue';
+import { splitWedges } from './wedges';
 import { contactAO } from './ao';
 import { FLOOR } from './bowl';
 import { beam, canvasTexture, cornerAngle, octBand, octDisc, skirtTexture } from './ring';
@@ -70,6 +71,8 @@ export class Arena {
     const g = this.group;
     // the arena around the ring: stands, crowd, boards, roof (added to the scene beside `group`)
     this.venue = new Venue(quality, this.uniforms);
+    // the bowl wraps all the way round the camera: cut its big meshes into wedges that can be culled
+    splitWedges(this.venue.group, { skip: [this.venue.crowd.group] });
     this.buildStage(quality);
     this.glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
     const glow: THREE.BufferGeometry[] = [];

@@ -18,6 +18,8 @@ const EMPTY = COLS - 1;
 const SPR_W = 0.9;
 /** How many spots in the stands can be going wild over flying debris at once. */
 const HOT = 4;
+/** Wedges of the bowl the crowd is drawn in, so the ones out of shot can be skipped. */
+const WEDGES = 12;
 const SPR_H = 2.1;
 /** Below this fraction of the sprite's height, "other" pixels are trousers; above it, hair and hats. */
 const HAIR_LINE = 0.6;
@@ -1345,16 +1347,6 @@ export class Crowd {
     }
     this.count = n;
 
-    const geo = new THREE.InstancedBufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, 0, 0, 0.5, 0, 0, 0.5, 1, 0, -0.5, 1, 0], 3));
-    geo.setIndex([0, 1, 2, 0, 2, 3]);
-    geo.setAttribute('iPos', new THREE.InstancedBufferAttribute(pos, 3));
-    geo.setAttribute('iData', new THREE.InstancedBufferAttribute(data, 4));
-    geo.setAttribute('iShirt', new THREE.InstancedBufferAttribute(shirt, 4, true));
-    geo.setAttribute('iHair', new THREE.InstancedBufferAttribute(hair, 4, true));
-    geo.setAttribute('iAccent', new THREE.InstancedBufferAttribute(accent, 3, true));
-    geo.instanceCount = n;
-
     this.mat = new THREE.ShaderMaterial({
       uniforms: THREE.UniformsUtils.merge([
         THREE.UniformsLib.fog,
@@ -1385,9 +1377,58 @@ export class Crowd {
     u.uHype = uniforms.uHype;
     u.uFlash = uniforms.uFlash;
     u.uHouse = house.uniforms.uHouse;
-    const mesh = new THREE.Mesh(geo, this.mat);
-    mesh.frustumCulled = false;
-    this.group.add(mesh);
+
+    /*
+     * The bowl surrounds the camera, so most of it is behind or beside the shot at any moment.
+     * One draw for every fan ran the (heavy) sprite vertex shader for all of them; slicing the bowl
+     * into wedges lets the frustum test skip the ones out of view. Within a wedge the front rows
+     * draw first, so the fans in front fill the depth buffer and the rows behind them, mostly
+     * hidden below the shoulders, are rejected before their pixels are shaded.
+     */
+    const quad = new THREE.Float32BufferAttribute([-0.5, 0, 0, 0.5, 0, 0, 0.5, 1, 0, -0.5, 1, 0], 3);
+    const quadIndex = new THREE.Uint16BufferAttribute([0, 1, 2, 0, 2, 3], 1);
+    const wedges: number[][] = Array.from({ length: WEDGES }, () => []);
+    for (let i = 0; i < n; i++) {
+      const a = Math.atan2(pos[i * 3 + 2], pos[i * 3]) / (Math.PI * 2) + 1;
+      wedges[Math.floor((a % 1) * WEDGES) % WEDGES].push(i);
+    }
+    const reach = (i: number) => Math.hypot(pos[i * 3], pos[i * 3 + 2]) + pos[i * 3 + 1] * 0.25;
+    const gather = (src: ArrayLike<number>, out: { [k: number]: number }, w: number, ids: number[]) => {
+      ids.forEach((id, k) => {
+        for (let c = 0; c < w; c++) out[k * w + c] = src[id * w + c];
+      });
+    };
+    const pickF = (src: Float32Array, w: number, ids: number[]) => {
+      const out = new Float32Array(ids.length * w);
+      gather(src, out, w, ids);
+      return out;
+    };
+    const pickU = (src: Uint8Array, w: number, ids: number[]) => {
+      const out = new Uint8Array(ids.length * w);
+      gather(src, out, w, ids);
+      return out;
+    };
+    for (const ids of wedges) {
+      if (!ids.length) continue;
+      ids.sort((a, b) => reach(a) - reach(b));
+      const geo = new THREE.InstancedBufferGeometry();
+      geo.setAttribute('position', quad);
+      geo.setIndex(quadIndex);
+      const wp = pickF(pos, 3, ids);
+      geo.setAttribute('iPos', new THREE.InstancedBufferAttribute(wp, 3));
+      geo.setAttribute('iData', new THREE.InstancedBufferAttribute(pickF(data, 4, ids), 4));
+      geo.setAttribute('iShirt', new THREE.InstancedBufferAttribute(pickU(shirt, 4, ids), 4, true));
+      geo.setAttribute('iHair', new THREE.InstancedBufferAttribute(pickU(hair, 4, ids), 4, true));
+      geo.setAttribute('iAccent', new THREE.InstancedBufferAttribute(pickU(accent, 3, ids), 3, true));
+      geo.instanceCount = ids.length;
+      // bounds of the seats, grown by a standing fan's height and how far walkers, hops and
+      // fans crowding round a fallen part can carry a sprite
+      const box = new THREE.Box3().setFromArray(wp);
+      geo.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
+      geo.boundingSphere.radius += SPR_H * 1.1 + 1.8;
+      const mesh = new THREE.Mesh(geo, this.mat);
+      this.group.add(mesh);
+    }
 
     // phone screens and light sticks, plus the odd camera flash
     const lg = new THREE.BufferGeometry();

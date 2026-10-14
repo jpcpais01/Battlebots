@@ -21,12 +21,11 @@ import {
   buildToe,
   buildTorso,
   buildUpperArm,
-  EMISSIVE_KEYS,
   type MatKey,
-  type PB,
 } from './parts';
 import { RenderSettings } from './settings';
-import { FLIP, surf, vertexPBR, type GlowKey, type Surfaces } from './bake';
+import { surf, vertexPBR, type GlowKey, type Surfaces } from './bake';
+import { CH_CORE, CH_GLOW, CH_RARITY, rigid, rigidDepth, SkinBuilder, type DetailLod } from './skin';
 import { contactAO } from './ao';
 import { contactStats, Hull, partRadius, pushOut, samplePB, tally, type PlacedHull } from './contact';
 import { damageUniforms, patchDamage, patchDamageGlow, MARKS, MARK_OIL, MARK_SOCKET, type DamageUniforms } from './damageLook';
@@ -99,10 +98,18 @@ const SOCKET_AT: Partial<Record<number, [B, number]>> = {
 /** Mark slots kept for wrenched sockets; the rest cycle through oil splashes. */
 const SOCKET_SLOTS = 4;
 
-/** Emissive channels: glow, core, then one per slot's rarity colour. */
-const CH_GLOW = 0;
-const CH_CORE = 1;
-const CH_RARITY = 2;
+/**
+ * Level of detail, as the bounding radius of the smallest piece still drawn. The shadow map
+ * (about half a centimetre a texel on high, softened over a few) can't show a bolt or a slat, and
+ * on screen nothing under about a pixel across is worth its triangles.
+ */
+const SHADOW_DETAIL = { high: 0.016, med: 0.024, low: 0.03 };
+/** Radius on screen, in pixels, below which a piece is dropped. */
+const DETAIL_PX = 0.7;
+/** Bones whose pieces are stretched to fit at run time, so their rest size says nothing. */
+const STRETCHED = new Set<number>([B.Spine, B.Neck, B.RocketL, B.RocketR]);
+const _cam = new THREE.Vector3();
+const _buf = new THREE.Vector2();
 
 // piston anchors, in their parent bone's frame
 const ARM_A = new THREE.Vector3(0, 0.1, -0.075);
@@ -194,88 +201,11 @@ export function botGlows(paint: Paint, coreLook: number, rarity: number): Record
   };
 }
 
-/** Accumulates parts into one rigidly skinned geometry per material family. */
-class SkinBuilder {
-  private o = { pos: [] as number[], nor: [] as number[], col: [] as number[], mr: [] as number[], bone: [] as number[], part: [] as number[] };
-  private e = { pos: [] as number[], ch: [] as number[], bone: [] as number[], part: [] as number[] };
-  private nm = new THREE.Matrix3();
-  private v = new THREE.Vector3();
-
-  constructor(private surfaces: Surfaces) {}
-
-  /** Add a part's pieces to `bone`; `part` is the body part (locational damage) they belong to. */
-  add(pb: PB, bone: number, raritySlot: Slot, part: number) {
-    const rarityCh = CH_RARITY + SLOTS.indexOf(raritySlot);
-    for (const ent of pb.entries) {
-      const pos = ent.geo.attributes.position as THREE.BufferAttribute;
-      const nor = ent.geo.attributes.normal as THREE.BufferAttribute;
-      const n = pos.count;
-      const emissive = EMISSIVE_KEYS.has(ent.key);
-      if (emissive) {
-        const ch = ent.key === 'glow' ? CH_GLOW : ent.key === 'core' ? CH_CORE : rarityCh;
-        const flip = ent.m.determinant() < 0;
-        for (let k = 0; k < n; k++) {
-          const i = flip ? k + FLIP[k % 3] : k;
-          this.v.fromBufferAttribute(pos, i).applyMatrix4(ent.m);
-          this.e.pos.push(this.v.x, this.v.y, this.v.z);
-          this.e.ch.push(ch);
-          this.e.bone.push(bone);
-          this.e.part.push(part);
-        }
-        continue;
-      }
-      const s = this.surfaces[ent.key as keyof typeof this.surfaces];
-      this.nm.getNormalMatrix(ent.m);
-      // mirrored entries would turn inside out: swap two corners of every triangle
-      const flip = ent.m.determinant() < 0;
-      for (let k = 0; k < n; k++) {
-        const i = flip ? k + FLIP[k % 3] : k;
-        this.v.fromBufferAttribute(pos, i).applyMatrix4(ent.m);
-        this.o.pos.push(this.v.x, this.v.y, this.v.z);
-        this.v.fromBufferAttribute(nor, i).applyMatrix3(this.nm).normalize();
-        this.o.nor.push(this.v.x, this.v.y, this.v.z);
-        this.o.col.push(s.color.r, s.color.g, s.color.b);
-        this.o.mr.push(s.metal, s.rough);
-        this.o.bone.push(bone);
-        this.o.part.push(part);
-      }
-    }
-  }
-
-  private static skin(g: THREE.BufferGeometry, bones: number[]) {
-    const n = bones.length;
-    const idx = new Uint16Array(n * 4);
-    const w = new Float32Array(n * 4);
-    for (let i = 0; i < n; i++) {
-      idx[i * 4] = bones[i];
-      w[i * 4] = 1;
-    }
-    g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(idx, 4));
-    g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(w, 4));
-  }
-
-  build() {
-    const opaque = new THREE.BufferGeometry();
-    opaque.setAttribute('position', new THREE.Float32BufferAttribute(this.o.pos, 3));
-    opaque.setAttribute('normal', new THREE.Float32BufferAttribute(this.o.nor, 3));
-    opaque.setAttribute('color', new THREE.Float32BufferAttribute(this.o.col, 3));
-    opaque.setAttribute('mr', new THREE.Float32BufferAttribute(this.o.mr, 2));
-    opaque.setAttribute('part', new THREE.Float32BufferAttribute(this.o.part, 1));
-    SkinBuilder.skin(opaque, this.o.bone);
-    const emissive = new THREE.BufferGeometry();
-    emissive.setAttribute('position', new THREE.Float32BufferAttribute(this.e.pos, 3));
-    emissive.setAttribute('ech', new THREE.Float32BufferAttribute(this.e.ch, 1));
-    emissive.setAttribute('part', new THREE.Float32BufferAttribute(this.e.part, 1));
-    SkinBuilder.skin(emissive, this.e.bone);
-    return { opaque, emissive };
-  }
-}
-
 /** Standard PBR material reading colour, metalness and roughness per vertex. */
 function makeOpaqueMaterial(dmg: DamageUniforms) {
   const m = patchDamage(vertexPBR(new THREE.MeshStandardMaterial(), 'bot-opaque'), dmg);
   // limbs, torsos and the opponent shade each other; legs and feet darken towards the canvas
-  return contactAO.patch(m, { spheres: true, strength: 1.8, ground: { y: 0, height: 0.5, k: 0.5 }, direct: 0.6 });
+  return rigid(contactAO.patch(m, { spheres: true, strength: 1.8, ground: { y: 0, height: 0.5, k: 0.5 }, direct: 0.6 }));
 }
 
 /** Unlit material whose colour comes from a small per-bot palette (animated glow channels). */
@@ -292,7 +222,7 @@ function makeEmissiveMaterial(cols: THREE.Color[]) {
       .replace('vec4 diffuseColor = vec4( diffuse, opacity );', 'vec4 diffuseColor = vec4( uCols[ int( vEch + 0.5 ) ], opacity );');
   };
   m.customProgramCacheKey = () => `bot-emissive-${cols.length}`;
-  return m;
+  return rigid(m);
 }
 
 const _push = new THREE.Vector3();
@@ -429,7 +359,7 @@ export class BotModel {
     this.size = size;
     const look = (slot: Slot) => ITEM_BY_ID.get(loadout[slot].id)!.look;
     const rar = (slot: Slot) => loadout[slot].rarity;
-    const sb = new SkinBuilder(botSurfaces(paint));
+    const sb = new SkinBuilder(botSurfaces(paint), STRETCHED);
 
     const torsoPB = buildTorso(look('chest'), rar('chest'));
     const corePB = buildCore(look('core'), look('chest'), rar('core'));
@@ -498,7 +428,7 @@ export class BotModel {
     };
     this.hullPts = { torso: [], head: [], pelvis: [] };
     const skeleton = new THREE.Skeleton(this.bones, this.bones.map(() => new THREE.Matrix4()));
-    const { opaque, emissive } = sb.build();
+    const { opaque, emissive, opaqueLod, emissiveLod } = sb.build();
 
     const coreItem = ITEM_BY_ID.get(loadout.core.id)!;
     this.baseGlow = new THREE.Color(paint.accent).multiplyScalar(RenderSettings.glow(3.4));
@@ -514,6 +444,7 @@ export class BotModel {
       this.root.add(mesh);
     }
     this.opaque.castShadow = true;
+    this.detailLevels(opaqueLod, emissiveLod);
 
     // Aegis bubble
     const shieldMat = new THREE.ShaderMaterial({
@@ -532,6 +463,38 @@ export class BotModel {
     this.shieldMesh.scale.set(0.75, 1.15, 0.75).multiplyScalar(size);
     this.shieldMesh.visible = false;
     this.root.add(this.shieldMesh);
+  }
+
+  /**
+   * Draw only the detail that can be seen: the shadow map skips the small pieces it can't resolve,
+   * and the camera pass skips pieces smaller than about a pixel (the buffers are size-ordered, so
+   * both are just a shorter draw range).
+   */
+  private detailLevels(opaqueLod: DetailLod, emissiveLod: DetailLod) {
+    const og = this.opaque.geometry;
+    const eg = this.emissive.geometry;
+    const shadowCount = opaqueLod.count(SHADOW_DETAIL[RenderSettings.quality] / this.size);
+    this.opaque.onBeforeShadow = (_r, _o, _c, _sc, _g, depthMaterial) => {
+      rigidDepth(depthMaterial);
+      og.drawRange.count = shadowCount;
+    };
+    this.opaque.onBeforeRender = (renderer, _s, camera) => {
+      og.drawRange.count = opaqueLod.count(this.detailCut(renderer, camera));
+    };
+    this.emissive.onBeforeRender = (renderer, _s, camera) => {
+      eg.drawRange.count = emissiveLod.count(this.detailCut(renderer, camera));
+    };
+  }
+
+  /** Rest-space radius of the smallest piece worth drawing from this camera. */
+  private detailCut(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
+    const focal = camera.projectionMatrix.elements[5];
+    renderer.getDrawingBufferSize(_buf);
+    _cam.setFromMatrixPosition(camera.matrixWorld);
+    // distance to the robot's nearest armour, roughly
+    const d = Math.max(0.25, _cam.distanceTo(this.joints[J.Chest]) - 0.9 * this.size);
+    const pxPerMetre = (focal * _buf.y * 0.5) / d;
+    return DETAIL_PX / (pxPerMetre * this.size);
   }
 
   /** Pose from a fighter's physical body with interpolation alpha (no opponent contact). */
@@ -836,9 +799,13 @@ export class BotModel {
   private extract(src: THREE.BufferGeometry, bones: Set<number>, opaque: boolean) {
     const si = src.attributes.skinIndex as THREE.BufferAttribute;
     const pos = src.attributes.position as THREE.BufferAttribute;
-    const n = pos.count;
+    // the corners of every triangle on those bones (a piece never straddles two bones)
+    const tri = src.index!;
     const idx: number[] = [];
-    for (let i = 0; i < n; i++) if (bones.has(si.getX(i))) idx.push(i);
+    for (let k = 0; k < tri.count; k += 3) {
+      const a = tri.getX(k);
+      if (bones.has(si.getX(a))) idx.push(a, tri.getX(k + 1), tri.getX(k + 2));
+    }
     if (!idx.length) return null;
     const out = new Float32Array(idx.length * 3);
     const nor = opaque ? new Float32Array(idx.length * 3) : null;

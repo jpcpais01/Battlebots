@@ -12,6 +12,11 @@ import * as THREE from 'three';
  * It costs one extra uniform upload per frame and, per pixel, a bounding test per robot; only
  * pixels near a robot loop over its spheres. Robots cover a small part of the screen, so this is
  * far cheaper than SSAO, which would re-render the whole arena (and its 7,500 sprites) for depth.
+ *
+ * The floor is different: the canvas fills much of the screen and every pixel of it near a robot
+ * used to loop over all 48 spheres. The floor is flat, so its occlusion is now worked out once a
+ * frame into a small top-down map (a few hundred thousand texels at most, most of them skipped by
+ * the bounding test), and the floor just reads it: one texture tap a pixel instead of the loop.
  */
 
 /** Spheres per robot. Low quality drops the limb midpoints. */
@@ -37,6 +42,12 @@ const MIDS: [number, number, number][] = [
  * test cut off the r²/d² tail mid-fade and drew a hard circle on the canvas around each robot.
  */
 const RANGE = 4.5;
+
+/** The floor map covers this square around the centre (metres either side), on the plane y = 0. */
+const MAP_HALF = 7.5;
+/** Strength the floor map is worked out at; floors asking for another strength keep the loop. */
+const MAP_STRENGTH = 2;
+const MAP_SIZE = { high: 512, med: 384, low: 256 };
 export interface AOOptions {
   /** Darken near the robots' spheres. */
   spheres?: boolean;
@@ -58,12 +69,63 @@ class ContactAO {
     uAOS: { value: new Float32Array(2 * PER_FULL * 4) },
     /** Per robot: bounding sphere (xyz, radius); radius 0 = absent. */
     uAOB: { value: new Float32Array(8) },
+    /** Top-down occlusion of the floor (y = 0) around the centre. */
+    uAOMap: { value: null as THREE.Texture | null },
   };
+  private map: THREE.WebGLRenderTarget | null = null;
+  /** The full-screen triangle that draws the map (tagged as ring work in the performance overlay). */
+  readonly mapMesh = new THREE.Mesh(fullScreenTriangle());
+  private mapCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  /** The map holds no robots (all white): nothing to redraw until one turns up. */
+  private mapClear = false;
 
   /** Call before any material is patched: the sphere count is compiled into the shaders. */
   setQuality(q: 'low' | 'med' | 'high') {
     this.per = q === 'low' ? PER_LOW : PER_FULL;
     this.uniforms.uAOS.value = new Float32Array(2 * this.per * 4);
+    this.map?.dispose();
+    (this.mapMesh.material as THREE.Material).dispose();
+    const n = MAP_SIZE[q];
+    this.map = new THREE.WebGLRenderTarget(n, n, {
+      format: THREE.RedFormat,
+      type: THREE.UnsignedByteType,
+      depthBuffer: false,
+      stencilBuffer: false,
+      generateMipmaps: false,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+    });
+    this.uniforms.uAOMap.value = this.map.texture;
+    this.mapMesh.frustumCulled = false;
+    this.mapMesh.material = new THREE.ShaderMaterial({
+        uniforms: { uAOS: this.uniforms.uAOS, uAOB: this.uniforms.uAOB },
+        vertexShader: /* glsl */ `
+          varying vec2 vUv;
+          void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+        fragmentShader: /* glsl */ `
+          ${sphereGLSL(this.per)}
+          varying vec2 vUv;
+          void main() {
+            vec3 p = vec3((vUv.x * 2.0 - 1.0) * ${MAP_HALF.toFixed(2)}, 0.0, (vUv.y * 2.0 - 1.0) * ${MAP_HALF.toFixed(2)});
+            gl_FragColor = vec4(aoSpheres(p, vec3(0.0, 1.0, 0.0), ${MAP_STRENGTH.toFixed(2)}), 0.0, 0.0, 1.0);
+          }`,
+        depthTest: false,
+        depthWrite: false,
+      });
+    this.mapClear = false;
+  }
+
+  /** Work out the floor's occlusion for this frame. Call once before the scene renders. */
+  renderMap(renderer: THREE.WebGLRenderer) {
+    if (!this.map) return;
+    const b = this.uniforms.uAOB.value;
+    const empty = b[3] <= 0 && b[7] <= 0;
+    if (empty && this.mapClear) return;
+    const prev = renderer.getRenderTarget();
+    renderer.setRenderTarget(this.map);
+    renderer.render(this.mapMesh, this.mapCam);
+    renderer.setRenderTarget(prev);
+    this.mapClear = empty;
   }
 
   /** Place robot `i`'s spheres from its world-space joints, or remove it with null. */
@@ -117,10 +179,13 @@ class ContactAO {
     const per = this.per;
     const prev = mat.onBeforeCompile;
     const prevKey = mat.customProgramCacheKey.bind(mat);
-    const key = `ao${o.spheres ? 's' + per : ''}${o.ground ? 'g' : ''}${o.stage ? 'r' : ''}${o.floor ? 'f' : ''}`;
+    // a flat floor at y = 0 reads its sphere occlusion from the map instead of looping
+    const fromMap = !!(o.spheres && o.floor && (o.strength ?? 1) === MAP_STRENGTH);
+    const key = `ao${o.spheres ? (fromMap ? 'm' : 's' + per) : ''}${o.ground ? 'g' : ''}${o.stage ? 'r' : ''}${o.floor ? 'f' : ''}`;
     mat.onBeforeCompile = (sh, renderer) => {
       prev.call(mat, sh, renderer);
-      if (o.spheres) {
+      if (fromMap) sh.uniforms.uAOMap = u.uAOMap;
+      else if (o.spheres) {
         sh.uniforms.uAOS = u.uAOS;
         sh.uniforms.uAOB = u.uAOB;
       }
@@ -137,7 +202,8 @@ class ContactAO {
         );
       const f = (n: number) => n.toFixed(4);
       const terms: string[] = [];
-      if (o.spheres) terms.push(`ao *= aoSpheres(vAOW, nW, ${f(o.strength ?? 1)});`);
+      if (fromMap) terms.push('ao *= aoFloorMap(vAOW.xz);');
+      else if (o.spheres) terms.push(`ao *= aoSpheres(vAOW, nW, ${f(o.strength ?? 1)});`);
       if (o.ground) {
         const g = o.ground;
         // surfaces facing up are the ground itself; walls and undersides darken where they meet it
@@ -154,7 +220,7 @@ class ContactAO {
           '#include <common>',
           `#include <common>
            varying vec3 vAOW;
-           ${o.spheres ? sphereGLSL(per) : ''}`,
+           ${fromMap ? MAP_GLSL : o.spheres ? sphereGLSL(per) : ''}`,
         )
         .replace(
           '#include <aomap_fragment>',
@@ -176,6 +242,24 @@ class ContactAO {
     return mat;
   }
 }
+
+/** One triangle covering clip space, uv 0..1 over the screen. */
+function fullScreenTriangle() {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute([-1, 3, 0, -1, -1, 0, 3, -1, 0], 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 2, 0, 0, 2, 0], 2));
+  return g;
+}
+
+const MAP_GLSL = /* glsl */ `
+uniform sampler2D uAOMap;
+float aoFloorMap(vec2 xz) {
+  vec2 uv = xz * ${(0.5 / MAP_HALF).toFixed(6)} + 0.5;
+  // past the map's edge the robots are too far away to darken anything
+  if (uv.x <= 0.0 || uv.y <= 0.0 || uv.x >= 1.0 || uv.y >= 1.0) return 1.0;
+  return texture2D(uAOMap, uv).r;
+}
+`;
 
 /**
  * Sphere occlusion (cosine-weighted solid angle, r²/d² · n·l), multiplied over the spheres of each
