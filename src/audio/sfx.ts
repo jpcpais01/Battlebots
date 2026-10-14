@@ -25,6 +25,9 @@ export class Sfx {
   private lastStep = [0, 0];
   /** Until when a valve hiss is still blowing (audio clock). */
   private hissUntil = 0;
+  /** Where impacts go: straight into the mix, and into a short arena slap so they have a room. */
+  private hits: GainNode | null = null;
+  private lastTink = 0;
   private bank: Partial<Record<ImpactKind, AudioBuffer[]>> = {};
   private lastPick: Partial<Record<ImpactKind, AudioBuffer>> = {};
   private voice: Voice | null = null;
@@ -141,6 +144,7 @@ export class Sfx {
     clip.oversample = 'none';
     this.master = ctx.createGain();
     this.master.connect(glue).connect(this.out);
+    this.hits = this.makeHitBus(ctx, this.master);
     this.out.connect(limit).connect(pre).connect(clip).connect(ctx.destination);
     const len = ctx.sampleRate * 2;
     this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -155,6 +159,41 @@ export class Sfx {
     for (const [f, b] of this.userClips) voice.add(f, b);
     void voice.manifest().then((m) => m && this.booth.setManifest(m));
     this.loadChant();
+  }
+
+  /**
+   * The impact bus. Besides the dry path, two short, darkened slap-back delays (one each
+   * side) give a hit the hard walls of an arena to ring off, so it lands in a big room instead
+   * of in the listener's ear. Built once: every hit shares it, so it adds no per-hit nodes.
+   */
+  private makeHitBus(ctx: AudioContext, dest: AudioNode) {
+    const bus = ctx.createGain();
+    bus.connect(dest);
+    const send = ctx.createGain();
+    send.gain.value = 0.22;
+    bus.connect(send);
+    for (const [time, pan, fb] of [[0.083, -0.55, 0.32], [0.131, 0.55, 0.26]] as const) {
+      const d = ctx.createDelay(0.3);
+      d.delayTime.value = time;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 2400;
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 160;
+      const back = ctx.createGain();
+      back.gain.value = fb;
+      send.connect(d).connect(lp).connect(hp);
+      hp.connect(back).connect(d);
+      let wet: AudioNode = hp;
+      if (ctx.createStereoPanner) {
+        const p = ctx.createStereoPanner();
+        p.pan.value = pan;
+        wet = hp.connect(p);
+      }
+      wet.connect(dest);
+    }
+    return bus;
   }
 
   private loadChant() {
@@ -326,7 +365,7 @@ export class Sfx {
       p.pan.value = Math.max(-1, Math.min(1, pan));
       out = out.connect(p);
     }
-    out.connect(this.master!);
+    out.connect(this.hits ?? this.master!);
     src.start(t);
   }
 
@@ -390,31 +429,48 @@ export class Sfx {
   }
 
   /**
-   * A landed strike. kind is the move type ('punch' or 'kick'); pan places it
-   * left/right in the stereo field (-1..1).
+   * A landed strike. kind is the move type ('punch' or 'kick'); pan places it left/right in
+   * the stereo field (-1..1); wear (0..1) is how battered the part that took it is: a worn part
+   * crumples and rattles instead of ringing clean.
    */
-  hit(damage: number, zone: string, crit: boolean, kind = 'punch', pan = 0) {
+  hit(damage: number, zone: string, crit: boolean, kind = 'punch', pan = 0, wear = 0) {
     if (!this.ok) return;
     const k = Math.min(1, damage / 100);
     const big = crit || k > 0.5;
     // bigger hits land lower and fatter
     const rate = 1.1 - k * 0.25;
     this.impact(zone === 'head' ? 'head' : kind === 'kick' ? 'kick' : 'punch', 0.5 + k * 0.5, rate, pan);
+    // the layers land a hair apart, the way a blow travels through a frame
+    const flam = () => 0.004 + Math.random() * 0.012;
     if (big) {
-      this.impact('heavy', 0.35 + k * 0.45, 0.85 + Math.random() * 0.2, pan * 0.6);
+      this.impact('heavy', 0.35 + k * 0.45, 0.85 + Math.random() * 0.2, pan * 0.6, flam());
+      // the panel left ringing after a big one
+      this.impact('clang', (crit ? 0.32 : 0.2) + k * 0.15, 0.9 + Math.random() * 0.2 - k * 0.1, pan * 0.8, flam());
       this.tone('sine', 62, 34, 0.3, 0.25 + k * 0.25);
-    } else if (Math.random() < 0.35) {
+    } else if (Math.random() < 0.45) {
       // a second, brighter plate somewhere on the frame
-      this.impact('block', 0.12 + k * 0.12, 1.15 + Math.random() * 0.25, pan, 0.008 + Math.random() * 0.02);
+      this.impact('block', 0.12 + k * 0.12, 1.15 + Math.random() * 0.25, pan, flam());
     }
+    if (wear > 0.3) this.impact('crunch', Math.min(0.75, (wear - 0.2) * (0.5 + k * 0.7)), 1.1 - wear * 0.25, pan, flam());
   }
 
   block(damage: number, pan = 0, guardBreak = false) {
     if (!this.ok) return;
     const k = Math.min(1, damage / 120);
     this.impact('block', 0.45 + k * 0.35, 1.05 + Math.random() * 0.1 - k * 0.15, pan);
-    if (guardBreak) this.impact('heavy', 0.45, 0.95, pan);
-    else if (k > 0.35) this.impact('punch', 0.2 + k * 0.2, 1.2, pan);
+    if (guardBreak) {
+      this.impact('heavy', 0.45, 0.95, pan);
+      this.impact('clang', 0.25, 1.05, pan, 0.006);
+    } else if (k > 0.35) this.impact('punch', 0.2 + k * 0.2, 1.2, pan);
+  }
+
+  /** A nut or a chip of plating bouncing on the canvas (k: 0..1 how hard). */
+  tink(k: number, pan = 0) {
+    if (!this.ok) return;
+    const now = this.ctx!.currentTime;
+    if (now - this.lastTink < 0.05) return;
+    this.lastTink = now;
+    this.impact('tink', 0.05 + 0.13 * Math.min(1, k), 0.8 + Math.random() * 0.5, pan);
   }
 
   whoosh(power: boolean, kick: boolean, vol = 1) {
@@ -526,6 +582,7 @@ export class Sfx {
     if (!this.ok) return;
     this.impact('heavy', 1, 0.72);
     this.impact('kick', 0.6, 0.8, 0, 0.01);
+    this.impact('clang', 0.45, 0.78, 0, 0.018);
     this.impact('thud', 0.5, 0.85, 0, 0.12);
     this.tone('sine', 110, 28, 1.0, 0.7);
     this.noise(0.6, 'lowpass', 1200, 0.5, 0.35, 0, 200);

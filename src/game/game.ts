@@ -255,6 +255,7 @@ export class Game {
     house.apply(this.arena.venue.group);
     if (import.meta.env.DEV) warnNonFinite(this.stage.scene);
     this.fx = new Fx();
+    this.fx.bits.onClink = (p, k) => this.sfx?.tink(k, this.pan(p));
     this.stage.scene.add(this.fx.group);
     this.stage.scene.add(this.debris.group);
     this.stage.scene.add(this.oil.group);
@@ -464,10 +465,11 @@ export class Game {
       emit: (type, data) => {
         if (type === 'hit') {
           const h = data as HitInfo;
-          this.fx.sparks(h.point, h.dir, h.damage >= 55 ? 30 : 14, h.damage >= 55 ? 0xffb347 : pal.accent, h.damage >= 55 ? 8 : 6, 1);
+          this.fx.impact(h.point, h.dir, Math.min(1, h.damage / 90), h.damage >= 55 ? 0xffb347 : pal.accent);
           this.fx.flash(h.point, 0xffd28a, h.damage >= 55 ? 1.3 : 0.7, 0.14);
           this.sfx?.hit(Math.min(140, h.damage), h.zone, h.knockdown, h.move.kind, 0);
           this.director.shake(Math.min(0.5, 0.12 + h.damage / 300));
+          this.director.jolt(h.dir, 0.4 + Math.min(140, h.damage) / 90);
         } else if (type === 'finisherBlow') {
           const d = data as { point: THREE.Vector3; dir: THREE.Vector3; kind: string };
           this.fx.flash(d.point, 0xfff0d0, 2.2, 0.28);
@@ -672,6 +674,7 @@ export class Game {
     this.debris.clear();
     this.oil.clear();
     this.steam.clear();
+    this.fx.bits.clear();
     this.stumps = [[], []];
   }
 
@@ -700,17 +703,20 @@ export class Game {
           fx.burst(h.point, 0x3cffd8, 40, 3);
           sfx?.shield();
         } else if (h.blocked) {
-          fx.sparks(h.point, h.dir, 10, 0x8fd8ff, 4, 1.2);
+          fx.impact(h.point, h.dir, Math.min(0.6, h.damage / 160) + (h.guardBreak ? 0.3 : 0), 0x8fd8ff);
           fx.flash(h.point, 0x8fd8ff, 0.5, 0.1);
           sfx?.block(h.damage, this.pan(h.point), h.guardBreak);
           this.director.shake(0.12 + (h.guardBreak ? 0.3 : 0));
+          this.director.jolt(h.dir, 0.25 + h.damage / 200 + (h.guardBreak ? 0.4 : 0));
         } else {
           const big = h.damage >= 55 || h.crit;
-          fx.sparks(h.point, h.dir, big ? 34 : 16, big ? 0xffb347 : pal.accent, big ? 8 : 6, 1);
+          fx.impact(h.point, h.dir, Math.min(1, h.damage / 90 + (h.crit ? 0.3 : 0)), big ? 0xffb347 : pal.accent);
           fx.flash(h.point, big ? 0xffd28a : 0xffffff, big ? 1.4 : 0.8, big ? 0.2 : 0.12);
           if (big) this.stage.ripples.add(h.point, h.crit ? 2.0 : 1.6, h.crit ? 1.4 : 1, 0xffc070);
-          sfx?.hit(h.damage, h.zone, h.crit, h.move.kind, this.pan(h.point));
+          sfx?.hit(h.damage, h.zone, h.crit, h.move.kind, this.pan(h.point), 1 - h.partCond);
           this.director.shake(Math.min(0.75, 0.18 + h.damage / 160));
+          // the picture rocks the way the blow went
+          this.director.jolt(h.dir, 0.5 + h.damage / 70 + (h.crit ? 0.6 : 0));
           if (big) this.director.punch(2.5);
           this.arena.excite(h.damage / 120);
           if (h.attacker.passive('siphon') > 0) fx.siphon(h.defender.body.pos[J.Chest], h.attacker.body.pos[J.Chest], 0x52ff6a);
@@ -1105,6 +1111,11 @@ export class Game {
   private partHit(h: HitInfo) {
     if (h.shielded) return;
     const wear = 1 - h.partCond;
+    // nuts, bolts and flecks of plating: a few from a hard blow, more the worse the part gets
+    const n = h.blocked
+      ? Math.random() < 0.15 + wear * 0.6 ? 1 : 0
+      : Math.min(8, Math.floor(wear * 6 + h.damage / 32 + (h.crit ? 1.5 : 0) + Math.random()));
+    if (n > 0) this.fx.bits.spawn(h.point, h.dir, n, this.match?.specs[h.defender.index].paint.primary ?? 0x888888, 2.5 + wear * 2 + h.damage / 40);
     if (wear > 0.12 && h.damage >= 6) {
       this.fx.shrapnel(h.point, h.dir, Math.round(3 + wear * 14 + h.damage / 16), 2.5 + wear * 2.5);
       if (wear > 0.35) this.fx.smoke(h.point, 1 + Math.round(wear * 3), wear);
@@ -1158,6 +1169,7 @@ export class Game {
     this.fx.flash(at, 0xffe0b0, 2.2, 0.28);
     this.fx.arc(at, 1.2);
     this.fx.shrapnel(at, d.dir, 26, 5);
+    this.fx.bits.spawn(at, d.dir, 10, this.match?.specs[i].paint.primary ?? 0x888888, 4.5);
     this.fx.smoke(at, 6, 1);
     this.stage.ripples.add(at, 2.2, 1.5, 0xffb070);
     this.director.shake(0.85);
