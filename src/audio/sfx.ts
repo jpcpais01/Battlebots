@@ -23,7 +23,7 @@ export class Sfx {
   private crowdLevel = 0;
   muted = false;
   private lastStep = [0, 0];
-  /** Until when a valve hiss is still blowing (audio clock). */
+  /** Until when a vapour hiss is still blowing (audio clock). */
   private hissUntil = 0;
   /** Where impacts go: straight into the mix, and into a short arena slap so they have a room. */
   private hits: GainNode | null = null;
@@ -504,14 +504,14 @@ export class Sfx {
   }
 
   /**
-   * A pressure valve blowing: a clack as it lifts, then a hard, bright hiss of vapour that
+   * A hinge seal blowing: a crack as it gives, then a hard, bright hiss of vapour that
    * sputters out over `dur` seconds. k (0..1) is how wrecked the part is.
    */
   hiss(k: number, dur: number, pan = 0) {
     if (!this.ok) return;
     const ctx = this.ctx!;
     const t = ctx.currentTime;
-    // valves blowing together read as one: don't stack them
+    // hinges blowing together read as one: don't stack them
     if (t < this.hissUntil) return;
     this.hissUntil = t + 0.18;
     this.tone('square', 1800, 900, 0.03, 0.04 * (0.5 + k), 0, 3000);
@@ -528,7 +528,7 @@ export class Sfx {
     bp.frequency.linearRampToValueAtTime(4200, t + dur);
     bp.gain.value = 6;
     const g = ctx.createGain();
-    const peak = 0.05 + 0.08 * k;
+    const peak = 0.07 + 0.1 * k;
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(peak, t + 0.015);
     g.gain.setValueAtTime(peak, t + dur * 0.45);
