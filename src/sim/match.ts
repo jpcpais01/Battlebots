@@ -1,4 +1,5 @@
 import { Vector3 } from 'three';
+import { COACH_COOLDOWN, COACH_TIME, type CoachCall, type CoachKind } from './coach';
 import { Brain, type BrainEvent } from './brain';
 import { J, RING_CORNER, ROPE_LINE, ropeSide, SIDE_NX, SIDE_NZ } from './body';
 import { Fighter, rangeScale, resetUids, type StrikeAction } from './fighter';
@@ -140,6 +141,12 @@ export class Match {
    * fight follows from the seed and the two bots, so this is all a replay has to repeat.
    */
   replayCut = -1;
+  /** Coach calls waiting for their step (see queueCoach). */
+  private coachQueue: CoachCall[] = [];
+  /** Every coach call that took effect, in order: replays queue these again. */
+  readonly coachLog: CoachCall[] = [];
+  /** Match time each side's corner can make its next call. */
+  readonly coachReadyAt = [0, 0];
 
   constructor(a: BotSpec, b: BotSpec, seed: number) {
     this.rng = new Rng(seed);
@@ -202,8 +209,42 @@ export class Match {
     this.setPhase('countdown');
   }
 
+  /**
+   * A coach call for fighter `side`, applied at the start of step `frame` (the current
+   * frame for "next step"). Online both phones queue the same call for the same step a
+   * little ahead; whether it takes (fight on, corner off cooldown) is decided then, by the
+   * sim, so both sides agree. A call queued for a step already gone is applied at once.
+   */
+  queueCoach(side: number, kind: CoachKind, frame = this.frame) {
+    this.coachQueue.push({ side, kind, frame: Math.max(frame, this.frame) });
+    // deterministic order whatever order the messages arrived in
+    this.coachQueue.sort((a, b) => a.frame - b.frame || a.side - b.side);
+  }
+
+  /** A call waiting to take effect for this side. */
+  coachPending(side: number) {
+    return this.coachQueue.some((c) => c.side === side);
+  }
+
+  /** Can this side's corner make a call right now? */
+  coachReady(side: number) {
+    return this.phase === 'fight' && !this.fin && !this.winner && this.time >= this.coachReadyAt[side] && !this.coachPending(side);
+  }
+
+  private applyCoach() {
+    while (this.coachQueue.length && this.coachQueue[0].frame <= this.frame) {
+      const c = this.coachQueue.shift()!;
+      if (this.phase !== 'fight' || this.winner || this.time < this.coachReadyAt[c.side]) continue;
+      this.coachReadyAt[c.side] = this.time + COACH_COOLDOWN;
+      this.brains[c.side].setCoach(c.kind, this.time + COACH_TIME);
+      this.coachLog.push({ ...c, frame: this.frame });
+      this.emit('coach', { f: this.fighters[c.side], kind: c.kind });
+    }
+  }
+
   step(dt = SIM_DT) {
     if (this.frame === this.replayCut) this.skipIntro();
+    if (this.coachQueue.length) this.applyCoach();
     this.frame++;
     if (this.hitstop > 0) {
       this.hitstop -= dt;

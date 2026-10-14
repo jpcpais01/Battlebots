@@ -38,6 +38,7 @@ import { botCardInner, paintOf } from './botCard';
 import { PerfOverlay } from './perfOverlay';
 import { ABILITY_ICON, COMPANY_ICON, ICON, SLOT_ICON } from './icons';
 import { forceUpdate } from '../update';
+import type { CoachCall } from '../sim/coach';
 import { OnlineScreen } from './online';
 import type { OnlineSession } from '../net/session';
 import { loadPlayer, loadQuality, loadRecord, loadSaves, loadZoom, MAX_SAVES, savePlayer, saveSaves, saveQuality, saveRecord, saveZoom, setOnSaved, type Record_, type Zoom } from './store';
@@ -122,7 +123,7 @@ export class App {
    * The last fight against the AI, enough to play it again: the sim is deterministic, so
    * the same two bots, the same seed and the same intro cut give the same fight.
    */
-  private lastFight: { a: BotSpec; b: BotSpec; seed: number; cut: number } | null = null;
+  private lastFight: { a: BotSpec; b: BotSpec; seed: number; cut: number; coach: CoachCall[] } | null = null;
   /** The fight on screen is a replay (it doesn't count towards the record). */
   private replaying = false;
   private account: Account;
@@ -153,6 +154,13 @@ export class App {
     this.hud = new Hud(game, this.ui);
     this.perf = new PerfOverlay(game);
     this.hud.onPause = () => this.pause();
+    this.hud.onCoach = (kind) => {
+      const m = this.game.match;
+      if (!m) return;
+      // online it goes to both phones for one shared step; offline it's the next step
+      if (this.netFight) this.netFight.coach(kind);
+      else m.queueCoach(0, kind);
+    };
     this.online = new OnlineScreen({
       game,
       player: () => this.player,
@@ -1089,7 +1097,7 @@ export class App {
     if (!sameOpponent || !this.opponent) this.opponent = this.makeOpponent();
     const seed = (Math.random() * 2 ** 32) >>> 0;
     // copies, so a later trip to the garage can't change the fight a replay shows
-    this.lastFight = { a: structuredClone(this.player), b: structuredClone(this.opponent), seed, cut: -1 };
+    this.lastFight = { a: structuredClone(this.player), b: structuredClone(this.opponent), seed, cut: -1, coach: [] };
     this.replaying = false;
     const m = this.game.startMatch(this.player, this.opponent, seed);
     this.hud.resetSpeed();
@@ -1107,6 +1115,8 @@ export class App {
     this.replaying = true;
     const m = this.game.startMatch(r.a, r.b, r.seed);
     m.replayCut = r.cut;
+    // the corner's calls, on the steps they were made
+    for (const c of r.coach) m.queueCoach(c.side, c.kind, c.frame);
     this.game.holdIntro = false;
     this.hud.resetSpeed();
     this.hud.attach(m, null, true);
@@ -1467,7 +1477,10 @@ export class App {
     // the win record is for fights against the AI (and a replay was already counted)
     if (!net && !this.replaying) {
       this.tally(won, draw);
-      if (this.lastFight) this.lastFight.cut = m.introCut;
+      if (this.lastFight) {
+        this.lastFight.cut = m.introCut;
+        this.lastFight.coach = m.coachLog.slice();
+      }
     }
     const verdict = draw ? 'DRAW' : won ? 'VICTORY' : 'DEFEAT';
     const how = out.kind === 'Decision' ? 'on points' : out.kind === 'TKO' ? 'by TKO' : out.kind === 'KO' ? 'by knockout' : out.kind === 'Dismantled' ? 'by tearing it apart' : '';

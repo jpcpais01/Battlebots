@@ -2,18 +2,21 @@ import type { Game } from '../game/game';
 import type { Match } from '../sim/match';
 import { SIM_DT } from '../sim/match';
 import { matchHash } from '../sim/hash';
+import { COACH_KINDS, type CoachKind } from '../sim/coach';
 import type { BotSpec } from '../game/loadout';
 import { sanitizeBot } from '../ui/store';
 import { simFingerprint } from './fingerprint';
 import { joinRoom, Link, Room, type NetMsg } from './link';
 
 /** Bump when the messages change shape. */
-const PROTOCOL = 1;
+const PROTOCOL = 2;
 /** Steps between state hashes (half a second of fight). */
 const HASH_EVERY = 60;
 /** Seconds between step-count updates during a fight. */
 const TICK_EVERY = 0.1;
 const STEPS_PER_S = 1 / SIM_DT;
+/** Steps of headroom a coach call is scheduled ahead of both phones, on top of the network trip. */
+const COACH_LEAD = 30;
 
 export type Role = 'host' | 'guest';
 export type Outcome = { winner: number; kind: Match['result'] };
@@ -178,6 +181,13 @@ export class OnlineSession {
         else this.compare(n, mine, h);
         break;
       }
+      case 'coach': {
+        // the other corner's call, for the step they scheduled it at
+        const kind = m.k as CoachKind;
+        const n = Number(m.n);
+        if (this.match && COACH_KINDS.includes(kind) && Number.isFinite(n)) this.match.queueCoach(1 - this.me, kind, n);
+        break;
+      }
       case 'result':
         this.hostOutcome = { winner: Number(m.w), kind: (m.r as Match['result']) ?? null };
         break;
@@ -250,6 +260,27 @@ export class OnlineSession {
     this.game = null;
   }
 
+  /**
+   * This player's corner makes a call. Both phones must apply it on the same step, so it's
+   * scheduled a little past where either of them is now (plus the time the message takes
+   * to get there), and sent to the other side with that step.
+   */
+  coach(kind: CoachKind) {
+    const m = this.match;
+    if (!m || !m.coachReady(this.me)) return;
+    const peer = this.peerN < 0 ? m.frame : this.peerEstimate(m);
+    const trip = Math.ceil((this.rtt / 1000) * STEPS_PER_S);
+    const at = Math.round(Math.max(m.frame, peer)) + COACH_LEAD + Math.min(trip, 120);
+    m.queueCoach(this.me, kind, at);
+    this.link?.send({ t: 'coach', k: kind, n: at });
+  }
+
+  /** Where the other phone's fight is now, by its last word and how long ago that was. */
+  private peerEstimate(m: Match) {
+    const silent = (performance.now() - this.peerAt) / 1000;
+    return this.peerN + (silent + this.rtt / 2000) * STEPS_PER_S * m.slowmo;
+  }
+
   private stepped(m: Match) {
     if (m !== this.match || m.frame % HASH_EVERY !== 0) return;
     const h = matchHash(m);
@@ -309,7 +340,7 @@ export class OnlineSession {
       g.speed = 1;
       return;
     }
-    const est = this.peerN + (silent + this.rtt / 2000) * STEPS_PER_S * m.slowmo;
+    const est = this.peerEstimate(m);
     const diff = est - m.frame;
     if (diff > 90) {
       // way behind (this phone stalled or was in the background): jump, silently

@@ -4,6 +4,7 @@ import { COUNTDOWN, type Match, type HitInfo, type DetachInfo, type FinishKind, 
 import { DETACHABLE, LOOSE, P, PART_COUNT, PART_NAME, type LossReason } from '../sim/damage';
 import type { Fighter } from '../sim/fighter';
 import type { BrainEvent } from '../sim/brain';
+import { COACH_COOLDOWN, COACH_KINDS, COACH_LABEL, COACH_TIME, type CoachKind } from '../sim/coach';
 import { MOVES, type MoveId } from '../sim/moves';
 import { J } from '../sim/body';
 import { ITEM_BY_ID } from '../game/items';
@@ -115,6 +116,14 @@ interface XrayEls {
  * callouts, referee count, KO/TKO finisher, floating damage numbers and a running
  * commentary line.
  */
+/** Button text for each coach call. */
+const COACH_BUTTON: Record<CoachKind, string> = {
+  go: 'Go in!',
+  allIn: 'All in!!!',
+  defend: 'Defend',
+  head: 'For the head!',
+};
+
 export class Hud {
   readonly root: HTMLElement;
   private bars: BarEls[] = [];
@@ -165,6 +174,14 @@ export class Hud {
   private dmgCount = 0;
   private xrays: XrayEls[] = [];
   onPause: () => void = () => {};
+  /** The player tapped a coach call. */
+  onCoach: (kind: CoachKind) => void = () => {};
+  /** The coach's buttons (none in a replay), and the state they last showed. */
+  private coachBar: HTMLElement | null = null;
+  private coachBtns: { kind: CoachKind; el: HTMLButtonElement }[] = [];
+  private coachShown = '';
+  /** The call tapped and still waiting for its step (online it's scheduled a little ahead). */
+  private coachTapped: CoachKind | null = null;
   /** Watching a replay. */
   private replay = false;
 
@@ -240,6 +257,7 @@ export class Hud {
     this.root.querySelector('.hud-top')?.remove();
     this.root.querySelector('.hud-bl')?.remove();
     this.root.querySelector('.hud-br')?.remove();
+    this.root.querySelector('.coach-bar')?.remove();
     for (const x of this.root.querySelectorAll('.xray')) x.remove();
     const top = el('div', 'hud-top', '', this.root);
     this.bars = [];
@@ -314,6 +332,57 @@ export class Hud {
     // both phones play an online fight at the same pace, so it has no speed control
     this.speedBtn = button('icon-btn speed', '1×', () => this.cycleSpeed(), br);
     this.speedBtn.hidden = !!this.online;
+
+    // the corner: four calls, one shared cooldown. A replay plays its calls back instead
+    this.coachBar = null;
+    this.coachBtns = [];
+    this.coachShown = '';
+    this.coachTapped = null;
+    if (!this.replay) {
+      const bar = el('div', 'coach-bar off', '', this.root);
+      this.coachBar = bar;
+      for (const kind of COACH_KINDS) {
+        const b = button('coach-btn', `<span>${COACH_BUTTON[kind]}</span><i class="cb-left"></i>`, () => this.coach(kind), bar);
+        b.dataset.k = kind;
+        this.coachBtns.push({ kind, el: b });
+      }
+    }
+  }
+
+  private coach(kind: CoachKind) {
+    const m = this.match;
+    if (!m || !m.coachReady(this.online?.me ?? 0)) return;
+    this.coachTapped = kind;
+    this.game.sfx?.ui('tap');
+    this.onCoach(kind);
+  }
+
+  /** Cooldown sweep, the call that's on and how long it has left. */
+  private updateCoach(m: Match) {
+    const bar = this.coachBar;
+    if (!bar) return;
+    const side = this.online?.me ?? 0;
+    const br = m.brains[side];
+    const live = m.phase === 'fight' && !m.winner;
+    const active = br.coach && m.time < br.coachUntil ? br.coach : null;
+    const pending = m.coachPending(side);
+    if (!pending) this.coachTapped = null;
+    const ready = m.coachReady(side);
+    const cd = ready || pending ? 0 : Math.max(0, m.coachReadyAt[side] - m.time) / COACH_COOLDOWN;
+    const left = active ? (br.coachUntil - m.time) / COACH_TIME : 0;
+    const key = `${live}${active}${this.coachTapped}${ready}${cd.toFixed(3)}${left.toFixed(3)}`;
+    if (key === this.coachShown) return;
+    this.coachShown = key;
+    bar.classList.toggle('off', !live);
+    bar.classList.toggle('ready', ready);
+    bar.style.setProperty('--cd', cd.toFixed(3));
+    for (const b of this.coachBtns) {
+      const on = b.kind === active;
+      b.el.classList.toggle('on', on);
+      b.el.classList.toggle('pending', b.kind === this.coachTapped);
+      b.el.disabled = !ready;
+      if (on) b.el.style.setProperty('--left', left.toFixed(3));
+    }
   }
 
   /** Connection status in an online fight (text, and ok / warn / bad). */
@@ -419,6 +488,7 @@ export class Hud {
         this.game.sfx?.countdown(n);
       }
     }
+    this.updateCoach(m);
     this.timer.textContent = String(Math.ceil(m.clock));
     this.timer.classList.toggle('hurry', m.clock <= 10 && m.phase === 'fight');
     if (!this.tenWarned && m.clock <= 10 && m.phase === 'fight') {
@@ -718,6 +788,12 @@ export class Hud {
       case 'brain': {
         const e = data as BrainEvent;
         this.comment(e.text, 0);
+        break;
+      }
+      case 'coach': {
+        const d = data as { f: Fighter; kind: CoachKind };
+        this.floatAt(d.f.body.pos[J.Head], COACH_LABEL[d.kind], `coach ${d.kind}`);
+        this.comment(`${d.f.name}'s corner: "${COACH_LABEL[d.kind]}"`, 1);
         break;
       }
       case 'ko': {
