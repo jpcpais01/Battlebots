@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { AX, AZ, FLOOR, RC, TUNNEL_W } from './bowl';
+import { AX, AZ, FLOOR, RC, TUNNEL_GATE, TUNNEL_W } from './bowl';
 import type { Role } from './crowd';
 import { RenderSettings } from './settings';
 
@@ -178,8 +178,8 @@ export class FloorShow {
       const team = sx < 0 ? 0 : 1;
       const hex = team === 0 ? 0xff7a1f : 0x22c8f0;
       const css = team === 0 ? '#ff7a1f' : '#22c8f0';
-      // carpet from the tunnel to the ring with glowing team edges
-      const x0 = sx * 6.3, x1 = sx * (AX - 0.05);
+      // carpet from the tunnel (in as far as its gate) to the ring with glowing team edges
+      const x0 = sx * 6.3, x1 = sx * (AX + TUNNEL_GATE);
       props.push(box(Math.abs(x1 - x0), 0.012, TUNNEL_W - 1.2, (x0 + x1) / 2, F + 0.006, 0, 0, 0x14161d));
       const edge = new THREE.MeshBasicMaterial({ color: new THREE.Color(hex).multiplyScalar(RenderSettings.glow(1.2)), toneMapped: false });
       for (const ez of [-1, 1]) {
@@ -248,7 +248,9 @@ export class FloorShow {
       person(sx * 10.0, -2.5, 'crew', team);
       person(sx * 10.6, -3.7, 'crew', team);
       person(sx * 9.6, 1.95, 'camera');
-      person(sx * 12.1, 0, 'security', undefined, true);
+      // (security either side of the tunnel mouth, keeping the way out clear)
+      person(sx * 12.0, 1.95, 'security');
+      person(sx * 12.0, -1.95, 'security');
     }
 
     // ------------------------------------------------------------ ringside VIP seats in the south corners
