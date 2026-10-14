@@ -1125,6 +1125,7 @@ export class Game {
         }
         fighter.update(SIM_DT);
         if (this.spar) dummy.update(SIM_DT);
+        if (run && this.sparRun === run) run.settle();
       }
       const alpha = this.showAcc / SIM_DT;
       const gaze = fighter.emote?.gazeOn ? fighter.emote.gaze : undefined;

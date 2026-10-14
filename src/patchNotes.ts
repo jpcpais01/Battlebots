@@ -17,11 +17,14 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-14 21:00",
-    title: "Saved replays, steadier entrances",
+    title: "Saved replays, steadier entrances, finishers that connect",
     notes: [
       "Save your favourite fights: tap Save replay on the results, then watch them again any time from Replays on the home screen. You can keep 30, and they follow your account to other devices.",
       "Replays now show the fight exactly as you saw it: the same camera shots and cuts, and the same commentary lines at the same moments, even when you skip around with the replay controls.",
       "Replays saved before a game update still play, marked as an older version, since the bots may not fight it out exactly the same way.",
+      "Finishers connect for real: every punch, kick and smash lands on the robot instead of passing through it or hitting thin air, whatever size either bot is.",
+      "Finisher blows follow the opponent as it reels, folds over or drops to its knees, and your bot steps to the right range before each shot, so nothing whiffs or gets cut short. Overdrive's crosses all land now.",
+      "Meteor's double-fisted smash comes down on the opponent's back, fists and feet shove the opponent instead of sinking into it, and finisher impact sparks fly from where the blow actually lands.",
       "The camera holds still while each bot rides up and does its entrance, instead of swinging round whenever the bot spins or turns.",
     ],
   },
