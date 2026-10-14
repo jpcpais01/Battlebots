@@ -686,6 +686,11 @@ export class Hud {
         if (text) this.comment(text, w.part === P.Head ? 3 : 1);
         break;
       }
+      case 'getupFail': {
+        const f = (data as { f: Fighter }).f;
+        this.comment(this.pick([`${f.name} tries to rise... and goes back down!`, `${f.name}'s legs won't hold!`, `Not yet! ${f.name} slumps back to the canvas.`]), 2);
+        break;
+      }
       case 'getUp': {
         const f = (data as { f: Fighter }).f;
         if (f.state !== 'ko') this.comment(this.pick([`${f.name} beats the count!`, `${f.name} is back up!`, `${f.name} wants more!`]), 2);
@@ -777,7 +782,8 @@ export class Hud {
       if (m.time - r.upAt > 1) this.endCount();
       return;
     }
-    if (r.f.state === 'down') {
+    // a try that gives out is still on the canvas: the count goes on
+    if (r.f.state === 'down' || (r.f.state === 'getup' && r.f.getupFail)) {
       const t = m.time - r.at;
       const n = t < 0.35 ? 0 : Math.min(10, 1 + Math.floor(t - 0.35));
       if (n > r.n) {

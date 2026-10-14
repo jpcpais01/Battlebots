@@ -274,7 +274,7 @@ export const ITEMS: ItemDef[] = [
     maker: 'kensei',
     tagline: 'Balanced sensor suite with a calm mind.',
     stats: { reaction: 0.1, accuracy: 0.05, hp: 40 },
-    passive: { id: 'composure', name: 'Composure', value: 0.25, text: 'Gets up {v} faster after knockdowns.' },
+    passive: { id: 'composure', name: 'Composure', value: 0.25, text: '{v} more likely to beat the count.' },
     look: 0,
   },
   {
@@ -787,7 +787,7 @@ export const ITEMS: ItemDef[] = [
     maker: 'halcyon',
     tagline: 'A calm mind under a ring of light.',
     stats: { reaction: 0.14, stamina: 10, accuracy: 0.03 },
-    passive: { id: 'composure', name: 'Reboot', value: 0.3, text: 'Gets up {v} faster after knockdowns.' },
+    passive: { id: 'composure', name: 'Reboot', value: 0.3, text: '{v} more likely to beat the count.' },
     look: 8,
   },
   {

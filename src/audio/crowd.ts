@@ -158,6 +158,11 @@ export class CrowdMood {
       case 'ropes':
         this.bump(0.06);
         break;
+      case 'getupFail':
+        // they were nearly up
+        this.bump(0.15);
+        this.cue('ooh', 0.55, 0.05);
+        break;
       case 'getUp':
         this.bump(0.3);
         this.clap(0.6, 1.5);
