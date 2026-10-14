@@ -1786,6 +1786,7 @@ export class App {
       if (this.lastFight) {
         this.lastFight.cut = m.introCut;
         this.lastFight.coach = m.coachLog.slice();
+        this.lastFight.talk = this.game.sfx?.booth.said ?? [];
         // the replay runs to here
         this.lastFight.end = m.frame;
       }

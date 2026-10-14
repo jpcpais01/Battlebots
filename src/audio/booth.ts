@@ -73,6 +73,16 @@ export interface BoothOut {
   speak(clips: { clip: Clip; gap: number }[], energy: number, within: number, voice: BoothVoice): Speech;
 }
 
+/**
+ * What the booth said in a fight, on the match's steps, so a replay plays the same
+ * commentary at the same moments: a line (its clips as [file, length, gap after], energy,
+ * voice, and how long it may wait to start), or a line being cut short (`x`: which line,
+ * by its place in the script; `fade`: seconds to trail off, 0 to stop dead).
+ */
+export type BoothCue =
+  | { f: number; c: [file: string, dur: number, gap: number][]; e: number; v: BoothVoice; w: number }
+  | { f: number; x: number; fade: number };
+
 interface Say {
   /** Triggers to try in order, most specific first. */
   chain: string[];
@@ -114,6 +124,8 @@ interface Talking {
   handed: boolean;
   /** How early the next speaker may come in, in seconds. */
   overlap: number;
+  /** Its place in the fight's script. */
+  cue: number;
 }
 
 const HISTORY_KEY = 'bb.booth.heard';
@@ -224,6 +236,12 @@ export class Booth {
   private fatalCalled = false;
   /** The finisher being performed, if any (its id). */
   private fin: string | null = null;
+  /** What's been said this fight (see BoothCue). */
+  private script: BoothCue[] = [];
+  /** Playing a recorded script back (a replay) instead of directing: the next cue to play. */
+  private playback: BoothCue[] | null = null;
+  private playAt = 0;
+  private played = new Map<number, Speech>();
   enabled = true;
 
   constructor(out: BoothOut) {
@@ -302,9 +320,30 @@ export class Booth {
 
   // ------------------------------------------------------------------ match
   /** A fight starts (or a replay jumps somewhere: `welcome` false, they pick it up from there). */
-  begin(m: Match, online: boolean, welcome = true) {
+  /** The booth's script of the fight so far (a copy). */
+  get said(): BoothCue[] {
+    return this.script.map((c) => ('c' in c ? { ...c, c: c.c.map((x) => [...x] as [string, number, number]) } : { ...c }));
+  }
+
+  /**
+   * A fight starts (or a replay jumps somewhere: `welcome` false, they pick it up from there).
+   * With a `script`, the booth says exactly that, from this step on, instead of directing.
+   */
+  begin(m: Match, online: boolean, welcome = true, script: BoothCue[] | null = null) {
     this.end();
     this.m = m;
+    this.script = [];
+    this.playback = script;
+    this.played.clear();
+    if (script) {
+      this.playAt = script.findIndex((c) => c.f >= m.frame);
+      if (this.playAt < 0) this.playAt = script.length;
+      // everything still to come, downloaded ahead
+      const files = script.slice(this.playAt).flatMap((c) => ('c' in c ? c.c.map((x) => x[0]) : []));
+      if (this.out.prime) this.out.prime(files.slice(0, 12));
+      this.out.want(files);
+      return;
+    }
     this.online = online;
     this.used.clear();
     this.once.clear();
@@ -350,6 +389,8 @@ export class Booth {
   /** The fight is over and its screen is gone: stop talking. */
   end() {
     if (this.cur) this.cut();
+    for (const sp of this.played.values()) if (!sp.done) sp.fade(0.4);
+    this.played.clear();
     this.queue.length = 0;
     if (this.m) this.restock();
     this.m = null;
@@ -358,6 +399,7 @@ export class Booth {
 
   // ------------------------------------------------------------------ events
   event(type: string, data: unknown) {
+    if (this.playback) return;
     const m = this.m;
     if (!m || !this.man || !this.enabled) return;
     switch (type) {
@@ -649,6 +691,10 @@ export class Booth {
     this.t += dt;
     this.excite = excite;
     const m = this.m;
+    if (this.playback) {
+      if (m && this.enabled) this.replay(m, this.playback);
+      return;
+    }
     if (this.koPending && m) this.finish(this.lastHit);
     const c = this.cur;
     if (c) {
@@ -665,6 +711,24 @@ export class Booth {
       this.watch(m);
     }
     this.drain();
+  }
+
+  /** Say what the script says up to this step. */
+  private replay(m: Match, script: BoothCue[]) {
+    while (this.playAt < script.length && script[this.playAt].f <= m.frame) {
+      const i = this.playAt++;
+      const c = script[i];
+      if ('c' in c) {
+        // a cue that's well behind (a fast replay) is skipped rather than piled up
+        if (m.frame - c.f > 30) continue;
+        this.played.set(i, this.out.speak(c.c.map(([file, dur, gap]) => ({ clip: [file, dur] as Clip, gap })), c.e, c.w + 0.35, c.v));
+      } else {
+        const sp = this.played.get(c.x);
+        if (!sp) continue;
+        if (c.fade > 0) sp.fade(c.fade);
+        else sp.stop();
+      }
+    }
   }
 
   private finished() {
@@ -856,8 +920,10 @@ export class Booth {
   private cut(next?: BoothVoice) {
     const c = this.cur!;
     c.stopped = true;
-    if (next && next === c.line.v && !c.line.n) c.speech.stop();
-    else c.speech.fade(c.line.n ? 1.4 : 0.8);
+    const fade = next && next === c.line.v && !c.line.n ? 0 : c.line.n ? 1.4 : 0.8;
+    if (fade > 0) c.speech.fade(fade);
+    else c.speech.stop();
+    if (this.m && c.cue >= 0) this.script.push({ f: this.m.frame, x: c.cue, fade });
     this.cur = null;
     this.lastEnd = this.t;
   }
@@ -885,6 +951,7 @@ export class Booth {
     const dur = clips.reduce((t, c) => t + c.clip[1] + c.gap, 0);
     const within = s.prio >= 40 ? 0.25 : 0.6;
     const speech = this.out.speak(clips, line.e, within, line.v);
+    const cue = this.m ? this.script.push({ f: this.m.frame, c: clips.map((x) => [x.clip[0], x.clip[1], x.gap]), e: line.e, v: line.v, w: within }) - 1 : -1;
     // the answer gets decoded while this line plays, so it lands right on the hand-off
     const answers = this.replies.get(line.id);
     if (answers?.length) this.out.prime?.(answers.flatMap((r) => {
@@ -893,7 +960,7 @@ export class Booth {
       }));
     // big calls jump in hard on the end of the last line; chat leaves a natural beat
     const overlap = line.n ? 0.2 : line.e >= 3 ? 0.3 + rnd() * 0.25 : 0.1 + rnd() * 0.3;
-    this.cur = { say: s, line, speech, until: this.t + within + dur + 0.25, stopped: false, handed: false, overlap };
+    this.cur = { say: s, line, speech, until: this.t + within + dur + 0.25, stopped: false, handed: false, overlap, cue };
     // a line someone answers keeps the floor until the answer is over
     if (!s.quick && this.t < this.hold) this.queue = this.queue.filter((q) => !q.say.quick);
     this.hold = this.replies.get(line.id)?.length || s.reply ? this.t + within + dur + 2.5 : s.quick ? this.t + within + dur : 0;

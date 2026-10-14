@@ -1,5 +1,6 @@
 import type { Tape } from '../game/game';
 import { COACH_KINDS, type CoachKind } from '../sim/coach';
+import type { BoothCue } from '../audio/booth';
 import { simFingerprint } from '../net/fingerprint';
 import { deleteDoc, listDocs, setDoc } from '../net/firebase';
 import type { Account } from '../net/account';
@@ -20,7 +21,7 @@ const KEY = 'bb.replays';
 /** Ids deleted here that the cloud may still hold. */
 const GONE_KEY = 'bb.replaysGone';
 /** Longest a replay document may be (the Firestore rules allow up to this). */
-const MAX_DATA = 40000;
+const MAX_DATA = 100000;
 
 export interface SavedReplay {
   id: string;
@@ -55,7 +56,16 @@ function sanitizeTape(raw: unknown): Tape | null {
   const marks = (Array.isArray(t.marks) ? t.marks : [])
     .filter((k): k is { frame: number; kind: 'kd' | 'tear' | 'ko' } => !!k && typeof k === 'object' && ['kd', 'tear', 'ko'].includes((k as { kind: string }).kind))
     .map((k) => ({ frame: int(k.frame), kind: k.kind }));
-  return { a: sanitizeBot(t.a), b: sanitizeBot(t.b), seed: t.seed >>> 0, cut: int(t.cut, -1), coach, end: int(t.end), marks };
+  const talk: BoothCue[] = [];
+  for (const c of (Array.isArray(t.talk) ? t.talk : []).slice(0, 600)) {
+    if (!c || typeof c !== 'object') continue;
+    const q = c as Record<string, unknown>;
+    if (Array.isArray(q.c)) {
+      const clips = q.c.filter((x): x is [string, number, number] => Array.isArray(x) && typeof x[0] === 'string' && typeof x[1] === 'number' && typeof x[2] === 'number');
+      if (clips.length && (q.v === 'p' || q.v === 'c' || q.v === 'r')) talk.push({ f: int(q.f), c: clips.map(([a, b, g]) => [a.slice(0, 80), b, g]), e: int(q.e), v: q.v, w: typeof q.w === 'number' ? q.w : 0.6 });
+    } else if (typeof q.x === 'number') talk.push({ f: int(q.f), x: int(q.x), fade: typeof q.fade === 'number' ? Math.max(0, q.fade) : 0 });
+  }
+  return { a: sanitizeBot(t.a), b: sanitizeBot(t.b), seed: t.seed >>> 0, cut: int(t.cut, -1), coach, end: int(t.end), marks, talk };
 }
 
 function sanitize(raw: unknown): SavedReplay | null {

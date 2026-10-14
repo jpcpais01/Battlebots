@@ -18,7 +18,7 @@ service cloud.firestore {
           && request.auth.uid == uid
           && request.resource.data.keys().hasOnly(['data', 'saved'])
           && request.resource.data.data is string
-          && request.resource.data.data.size() <= 40000
+          && request.resource.data.data.size() <= 100000
           && request.resource.data.saved is timestamp;
       }
     }

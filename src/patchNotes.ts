@@ -20,6 +20,7 @@ export const PATCH_NOTES: PatchNote[] = [
     title: "Saved replays, steadier entrances",
     notes: [
       "Save your favourite fights: tap Save replay on the results, then watch them again any time from Replays on the home screen. You can keep 30, and they follow your account to other devices.",
+      "Replays now show the fight exactly as you saw it: the same camera shots and cuts, and the same commentary lines at the same moments, even when you skip around with the replay controls.",
       "Replays saved before a game update still play, marked as an older version, since the bots may not fight it out exactly the same way.",
       "The camera holds still while each bot rides up and does its entrance, instead of swinging round whenever the bot spins or turns.",
     ],

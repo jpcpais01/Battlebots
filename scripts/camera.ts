@@ -44,7 +44,7 @@ function run(aspect: number, fov: number, label: string) {
     const d = new Director(cam);
     d.setBaseFov(fov, aspect < 1.2);
     d.mode = 'match';
-    d.reset();
+    d.begin(m);
     m.on((type, data) => {
       if (type === 'ko') d.focusKO(data.loser.index);
       d.cue(type, data);
@@ -59,9 +59,10 @@ function run(aspect: number, fov: number, label: string) {
       let n = 0;
       while (acc >= SIM_DT && n++ < 16) {
         m.step(SIM_DT);
+        d.step(m, SIM_DT / m.slowmo);
         acc -= SIM_DT;
       }
-      d.update(dt, m);
+      d.update(dt, m, acc / SIM_DT);
       cam.updateMatrixWorld();
       if (m.phase === 'end') t += dt;
       if (m.time > 140) break;
