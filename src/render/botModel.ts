@@ -560,6 +560,15 @@ export class BotModel {
     this.effects(f, time);
   }
 
+  /**
+   * Collapse the head and neck for this frame (the camera is looking out of them). Call after
+   * both bots' end(): the opponent's contact pass reads this head's hull. begin() restores it.
+   */
+  hideHead() {
+    this.bones[B.Head].scale.setScalar(0);
+    this.bones[B.Neck].scale.setScalar(0);
+  }
+
   private poseCore(f: Fighter, lookAt?: THREE.Vector3) {
     const P = this.joints;
     const bn = this.bones;

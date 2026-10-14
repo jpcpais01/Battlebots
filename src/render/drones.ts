@@ -138,6 +138,8 @@ export class Drones {
   private lights: THREE.InstancedMesh;
   private drones: Drone[] = [];
   private live = -1;
+  /** The feed is a bot's eyes: the live drone is just hovering, and drawn. */
+  private pov = false;
   private lastCuts = -1;
   private lastMode = '';
   private t = 0;
@@ -176,15 +178,21 @@ export class Drones {
 
   /**
    * Move the crew. `cuts` and `mode` come from the Director: a change in either is a hard cut,
-   * and the drone nearest the new lens takes over the feed. `focus` is what they film.
+   * and the drone nearest the new lens takes over the feed. `focus` is what they film. While
+   * `pov` holds the feed comes from a bot's eyes, not a drone: the drone that was live stays
+   * where it was, hovering in view, and the next cut hands over as usual.
    */
-  update(dt: number, camera: THREE.PerspectiveCamera, cuts: number, mode: string, focus: THREE.Vector3) {
+  update(dt: number, camera: THREE.PerspectiveCamera, cuts: number, mode: string, focus: THREE.Vector3, pov = false) {
     if (!this.group.visible) return;
     dt = Math.min(dt, 0.05);
     this.t += dt;
     const cam = camera.position;
     const fresh = this.live < 0;
-    if (fresh || cuts !== this.lastCuts || mode !== this.lastMode) {
+    this.pov = pov && !fresh;
+    if (this.pov) {
+      this.lastCuts = cuts;
+      this.lastMode = mode;
+    } else if (fresh || cuts !== this.lastCuts || mode !== this.lastMode) {
       // hand the feed to the drone closest to the new angle; the old one stays where it was
       let best = 0, bestD = Infinity;
       for (let i = 0; i < N; i++) {
@@ -206,10 +214,14 @@ export class Drones {
       if (fresh) for (let i = 0; i < N; i++) if (i !== best) this.slot(i, camera, focus, this.drones[i].pos);
     }
 
-    // the live drone is the lens
+    // the live drone is the lens (off duty in a bot's-eye shot: it holds its spot)
     const ld = this.drones[this.live];
-    if (dt > 0) ld.vel.subVectors(cam, this.lastCam).divideScalar(dt);
-    ld.pos.copy(cam);
+    if (this.pov) ld.vel.multiplyScalar(Math.exp(-4 * dt));
+    else {
+      if (dt > 0) ld.vel.subVectors(cam, this.lastCam).divideScalar(dt);
+      ld.pos.copy(cam);
+    }
+    if (this.pov) ld.pos.addScaledVector(ld.vel, dt);
     this.lastCam.copy(cam);
 
     for (let i = 0; i < N; i++) {
@@ -255,7 +267,7 @@ export class Drones {
     const t = this.t;
     for (let i = 0; i < N; i++) {
       const d = this.drones[i];
-      if (i === this.live) {
+      if (i === this.live && !this.pov) {
         // inside the lens: not drawn
         this.bodies.setMatrixAt(i, this.zero);
         for (let j = 0; j < MOTORS.length; j++) this.rotors.setMatrixAt(i * MOTORS.length + j, this.zero);

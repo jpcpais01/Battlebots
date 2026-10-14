@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-14 14:00',
+    title: "Bot's-eye camera",
+    notes: [
+      "Every so often the fight camera cuts inside one of the bots' heads for a few seconds, so you see the opponent the way your bot does, through its visor. It never happens during knockdowns, KOs or finishers.",
+    ],
+  },
+  {
     hour: '2026-10-14 04:00',
     title: 'Slow bots fight back',
     notes: [
