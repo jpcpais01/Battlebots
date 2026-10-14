@@ -147,6 +147,11 @@ export class Director {
   shiftX = 0;
   /** Fight-shot zoom level (Settings and the fight HUD set it). */
   zoom: CamZoom = 'normal';
+  /**
+   * The fighter this screen belongs to (0 offline and for the host, 1 for an online guest).
+   * Fight shots stay on the side of the fight line that puts this fighter on the left.
+   */
+  player = 0;
   private shift = 0;
   private wantPos = new THREE.Vector3();
   private wantLook = new THREE.Vector3();
@@ -154,6 +159,7 @@ export class Director {
   // ---- fight camera state (polar around a framing centre)
   private fresh = true;
   private shot: Shot = makeShot('wide', Math.random);
+  /** Side of the fight line the lens is on: +1 puts fighter 0 screen-left, -1 fighter 1. */
   private side = 1;
   private axisAng = 0;
   private yaw = Math.PI / 2;
@@ -344,13 +350,13 @@ export class Director {
     const sx = pb.x - pa.x, sz = pb.z - pa.z;
     const sep = Math.hypot(sx, sz);
     if (this.fresh) {
-      // pick up from wherever the camera is (menu orbit, last match) and keep its side
+      // pick up from wherever the camera is (menu orbit, last match), on the player's side
       this.fresh = false;
       this.axisAng = sep > 0.05 ? Math.atan2(sz, sx) : 0;
       this.center.set((pa.x + pb.x) / 2, 1, (pa.z + pb.z) / 2);
       this.rel.subVectors(this.pos, this.center);
       this.yaw = Math.atan2(this.rel.z, this.rel.x);
-      this.side = wrap(this.yaw - this.axisAng) >= 0 ? 1 : -1;
+      this.side = this.homeSide;
       this.dist = Math.max(2, this.rel.length());
       this.el = Math.asin(clamp(this.rel.y / this.dist, -0.5, 0.95));
       this.fov = this.camera.fov;
@@ -457,9 +463,18 @@ export class Director {
     if ((over && lull) || sh.t > sh.dur + 2 || (sh.t > 0.8 && stuck)) this.cut(match);
   }
 
+  /**
+   * The side of the fight line that puts the player's fighter on the left of the screen.
+   * Every shot built on the fight line keeps |az| < 90°, so this side holds for the whole shot.
+   */
+  private get homeSide() {
+    return this.player === 1 ? -1 : 1;
+  }
+
   /** Hard cut to a new setup, picking the best of a few candidates. */
   private cut(match: Match, kind?: ShotKind) {
     const prevYaw = this.yaw, prevDist = this.dist, prevKind = this.shot.kind, prevSide = this.side;
+    const home = this.homeSide;
     const r = Math.random;
     let best: Shot | null = null;
     let bestSide = prevSide;
@@ -485,8 +500,9 @@ export class Director {
         }
       }
       const s = this.special(makeShot(k, r));
-      // mostly stay on our side of the line; a reverse angle now and then
-      const side = i > 0 && r() < 0.2 ? -prevSide : prevSide;
+      // stay on the player's side of the line (player on the left); every third candidate
+      // tries the reverse angle, which only wins when the home side is badly cramped
+      const side = i % 3 === 2 ? -home : home;
       this.side = side;
       if (this.narrow && (k === 'medium' || k === 'low' || k === 'orbit')) s.az += (r() < 0.5 ? -1 : 1) * 0.45;
       this.yaw = this.shotYaw(s);
@@ -504,7 +520,7 @@ export class Director {
         if (Math.hypot(w.x - l.x, w.z - l.z) > 0.3 && off < 0.6) score += (0.6 - off) * 6;
       } else if (this.sep > 0.6) score += Math.max(0, along - (k === 'ots' ? 0.85 : 0.7)) * 8;
       score += Math.max(0, f.norm / Math.max(0.1, f.cap) - 1) * 3; // would have to crush the lens
-      if (side !== prevSide) score += 0.6;
+      if (side !== home) score += 2.5;
       // avoid jump cuts: the new angle should look clearly different
       const turn = Math.abs(wrap(this.yaw - prevYaw));
       if (turn < 0.45 && Math.abs(Math.min(f.dist, f.cap) / prevDist - 1) < 0.3) score += 1.5;
@@ -545,7 +561,10 @@ export class Director {
       Object.assign(s, { dur: 99, az: (i === 0 ? -1 : 1) * (0.42 + r() * 0.2), orbit: (i === 0 ? -1 : 1) * 0.06, el: 0.02 + r() * 0.05, fovK: 1.18, fill: 0.8, roll: (r() < 0.5 ? -1 : 1) * 0.045, wobble: 0.012, subject: i, bias: 0.18 });
     } else if (s.kind === 'ko') {
       const i = this.koFocus ?? 0;
-      Object.assign(s, { dur: 99, az: (r() < 0.5 ? -1 : 1) * (0.45 + r() * 0.3), orbit: 0.06, el: 0.02, fovK: 1.1, fill: 0.62, roll: 0.05, wobble: 0.01, subject: i, bias: 0.65 });
+      // swing to the side that leaves the player on the left: past the winner when they won,
+      // with the fallen player on the left when they lost
+      const sgn = 1 - i === this.player ? 1 : -1;
+      Object.assign(s, { dur: 99, az: sgn * (0.45 + r() * 0.3), orbit: sgn * 0.06, el: 0.02, fovK: 1.1, fill: 0.62, roll: 0.05, wobble: 0.01, subject: i, bias: 0.65 });
     }
     return s;
   }

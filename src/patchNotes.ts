@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-14 03:00',
     title: 'Camera drones',
     notes: [
+      'The fight camera now keeps your bot on the left of the screen, online too. It only swaps sides when it really has to, like a KO shot or being squeezed against the stands, and comes back on the next cut.',
       'Three little camera drones now fly the arena. Each camera angle is one of them filming: when the shot cuts, the drone that just filmed hangs where the camera was and climbs away, and you can spot the others hovering past the ring with their red tally lights on.',
     ],
   },

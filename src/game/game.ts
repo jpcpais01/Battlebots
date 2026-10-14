@@ -425,7 +425,7 @@ export class Game {
   }
 
   // ------------------------------------------------------------------ match
-  startMatch(a: BotSpec, b: BotSpec, seed: number, online = false) {
+  startMatch(a: BotSpec, b: BotSpec, seed: number, online = false, me = 0) {
     this.endMatch();
     this.showBot(null);
     const m = new Match(a, b, seed);
@@ -440,6 +440,7 @@ export class Game {
       return [0, 1, 2, 3].map(() => this.fx.makeTrail(spec.paint.accent, 0.13));
     });
     this.director.mode = 'match';
+    this.director.player = me;
     this.director.reset();
     // wounds open somewhere on the front half of the body
     this.wounds = [0, 1].map(() => [0, 1].map(() => (Math.random() - 0.5) * 2.4));
