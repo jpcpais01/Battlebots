@@ -7,7 +7,7 @@ import type { LightLook, Quality } from '../stage';
 import { J } from '../../sim/body';
 import { PoseCh, sample } from './puppet';
 import * as BP from './beachPoses';
-import { box, canvas, glowAt, hash, put, putS, ramp, seg, smooth, texture, type HomeScene, type SceneKit } from './scene';
+import { box, canvas, fbm, glowAt, hash, noiseTexture, normalTexture, put, putS, ramp, seg, smooth, texture, type HomeScene, type SceneKit } from './scene';
 
 /** Water level, and the sun (direction towards it): low over the sea, late in the afternoon. */
 const SEA = -0.12;
@@ -133,70 +133,6 @@ function sandTexture() {
   return texture(c, true);
 }
 
-/** Tileable value-noise fbm in 0..1: `size` pixels square, `base` cells across, each octave twice as fine. */
-function fbm(size: number, base: number, octaves: number, seed: number) {
-  const out = new Float32Array(size * size);
-  let amp = 1;
-  for (let o = 0; o < octaves; o++) {
-    const cells = base << o;
-    const lat = new Float32Array(cells * cells);
-    for (let i = 0; i < lat.length; i++) lat[i] = hash(seed * 97.3 + o * 13.1 + i * 0.731);
-    const k = cells / size;
-    for (let y = 0; y < size; y++) {
-      const fy = y * k, y0 = Math.floor(fy), ty = smooth(fy - y0), y1 = (y0 + 1) % cells;
-      for (let x = 0; x < size; x++) {
-        const fx = x * k, x0 = Math.floor(fx), tx = smooth(fx - x0), x1 = (x0 + 1) % cells;
-        const p = lat[y0 * cells + x0], q = lat[y0 * cells + x1], r = lat[y1 * cells + x0], t = lat[y1 * cells + x1];
-        out[y * size + x] += amp * (p + (q - p) * tx + (r - p) * ty + (p - q - r + t) * tx * ty);
-      }
-    }
-    amp *= 0.5;
-  }
-  let lo = Infinity, hi = -Infinity;
-  for (let i = 0; i < out.length; i++) {
-    lo = Math.min(lo, out[i]);
-    hi = Math.max(hi, out[i]);
-  }
-  for (let i = 0; i < out.length; i++) out[i] = (out[i] - lo) / (hi - lo);
-  return out;
-}
-
-/** Pixels into a repeating, linear (not colour) texture. */
-function dataTexture(n: number, fill: (i: number, px: Uint8ClampedArray) => void) {
-  const { c, g } = canvas(n, n);
-  const img = g.createImageData(n, n);
-  for (let i = 0; i < n * n; i++) {
-    fill(i, img.data);
-    img.data[i * 4 + 3] = 255;
-  }
-  g.putImageData(img, 0, 0);
-  return texture(c, true, false);
-}
-
-/** Three channels of cloudy noise: clouds, cirrus, caustics and foam are all made from it. */
-function noiseTexture() {
-  const n = 256;
-  const r = fbm(n, 4, 6, 1), gr = fbm(n, 8, 5, 2), b = fbm(n, 4, 6, 3);
-  return dataTexture(n, (i, px) => {
-    px[i * 4] = r[i] * 255;
-    px[i * 4 + 1] = gr[i] * 255;
-    px[i * 4 + 2] = b[i] * 255;
-  });
-}
-
-/** A normal map from a tileable height field, slopes scaled by `k`. */
-function normalTexture(h: Float32Array, n: number, k: number) {
-  return dataTexture(n, (i, px) => {
-    const x = i % n, y = (i - x) / n;
-    const dx = (h[y * n + ((x + 1) % n)] - h[y * n + ((x + n - 1) % n)]) * k;
-    const dy = (h[((y + 1) % n) * n + x] - h[((y + n - 1) % n) * n + x]) * k;
-    const l = Math.hypot(dx, dy, 1);
-    px[i * 4] = (-dx / l) * 127.5 + 127.5;
-    px[i * 4 + 1] = (-dy / l) * 127.5 + 127.5;
-    px[i * 4 + 2] = (1 / l) * 127.5 + 127.5;
-  });
-}
-
 /** Wind ripples in the sand, wavering. */
 function rippleTexture() {
   const n = 256;
@@ -206,7 +142,7 @@ function rippleTexture() {
     const y = Math.floor(i / n);
     h[i] = 0.5 + 0.5 * Math.sin(Math.PI * 2 * ((y / n) * 12 + warp[i] * 1.4)) + grain[i] * 0.25;
   }
-  return normalTexture(h, n, 1.6);
+  return normalTexture(h, n, n, 1.6);
 }
 
 function leafTexture() {
@@ -695,7 +631,7 @@ export class Beach implements HomeScene {
     g.add(sand);
 
     // ------------------------------------------------------------ sea
-    const waterNormals = normalTexture(fbm(256, 8, 5, 4), 256, 12);
+    const waterNormals = normalTexture(fbm(256, 8, 5, 4), 256, 256, 12);
     const seaMat = new THREE.ShaderMaterial({
       uniforms: {
         ...sky,
