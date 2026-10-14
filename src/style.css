@@ -3513,6 +3513,257 @@ button {
   box-shadow: 0 0 8px var(--red);
   animation: ghostDot 1.4s ease-in-out infinite;
 }
+/* replay media controls: scrubber on top, transport underneath */
+.rbar {
+  --rb-accent: var(--orange);
+  position: absolute;
+  left: 50%;
+  bottom: max(10px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 5;
+  width: min(44em, 60vw);
+  padding: 0.35em 0.6em 0.4em;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(22, 28, 44, 0.9), rgba(10, 13, 22, 0.92));
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  transition: background 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.rb-track {
+  position: relative;
+  height: 1.5em;
+  cursor: pointer;
+}
+.rb-rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.14);
+  transition: height 0.15s ease, margin 0.15s ease;
+}
+.rbar.scrub .rb-rail,
+.rb-track:hover .rb-rail {
+  height: 8px;
+  margin-top: -4px;
+}
+.rb-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--amber), var(--rb-accent));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--rb-accent) 55%, transparent);
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+.rbar.seeking .rb-fill {
+  background: repeating-linear-gradient(-45deg, var(--amber) 0 6px, var(--rb-accent) 6px 12px);
+  background-size: 17px 100%;
+  animation: rbSeek 0.5s linear infinite;
+}
+@keyframes rbSeek {
+  to {
+    background-position: 17px 0;
+  }
+}
+.rb-mark {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--text);
+  opacity: 0.85;
+}
+.rb-mark.tear {
+  background: var(--amber);
+}
+.rb-mark.ko {
+  background: var(--red);
+  box-shadow: 0 0 6px var(--red);
+}
+.rb-thumb {
+  position: absolute;
+  top: 50%;
+  width: 0.95em;
+  height: 0.95em;
+  margin: -0.475em 0 0 -0.475em;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--rb-accent);
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.6);
+  transition: transform 0.15s ease;
+}
+.rbar.scrub .rb-thumb {
+  transform: scale(1.35);
+}
+.rb-tip {
+  position: absolute;
+  bottom: 125%;
+  transform: translateX(-50%);
+  padding: 0.15em 0.5em;
+  border-radius: 6px;
+  background: rgba(8, 11, 19, 0.95);
+  border: 1px solid var(--line);
+  font-family: var(--display);
+  font-size: 0.8em;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+.rbar.scrub .rb-tip {
+  opacity: 1;
+}
+.rb-row {
+  display: flex;
+  align-items: center;
+  gap: 0.15em;
+  transition: opacity 0.35s ease;
+}
+.rb-btn {
+  width: 2.3em;
+  height: 2.3em;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border-radius: 10px;
+  color: var(--text);
+}
+.rb-btn svg {
+  width: 1.25em;
+  height: 1.25em;
+}
+.rb-btn:active {
+  transform: scale(0.9);
+  background: rgba(255, 255, 255, 0.08);
+}
+@media (hover: hover) {
+  .rb-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
+.rb-btn.play {
+  width: 2.6em;
+  height: 2.6em;
+  margin: 0 0.15em;
+  border-radius: 50%;
+  background: linear-gradient(180deg, var(--amber), var(--rb-accent));
+  color: #120c05;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--rb-accent) 45%, transparent);
+}
+.rb-btn.play svg {
+  width: 1.15em;
+  height: 1.15em;
+}
+.rbar.seeking .rb-btn.play {
+  opacity: 0.6;
+}
+.rbar:not(.paused) .rb-btn.step {
+  display: none;
+}
+.rb-time {
+  margin-left: 0.4em;
+  font-family: var(--display);
+  font-size: 0.9em;
+  letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rb-time small {
+  color: var(--muted);
+  font-size: 1em;
+}
+.rb-gap {
+  flex: 1;
+}
+.rb-btn.rb-res {
+  width: auto;
+  gap: 0.35em;
+  display: inline-flex;
+  padding: 0 0.6em;
+  font-family: var(--display);
+  font-size: 0.8em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.rb-btn.rb-res svg {
+  width: 1.1em;
+  height: 1.1em;
+}
+.rbar.ended .rb-btn.rb-res {
+  color: #120c05;
+  background: linear-gradient(180deg, var(--amber), var(--rb-accent));
+  animation: rbPulse 1.6s ease-in-out infinite;
+}
+@keyframes rbPulse {
+  50% {
+    box-shadow: 0 0 16px color-mix(in srgb, var(--rb-accent) 70%, transparent);
+  }
+}
+.rb-speed {
+  position: relative;
+}
+.rb-btn.rb-chip {
+  width: auto;
+  min-width: 3.2em;
+  padding: 0 0.55em;
+  border: 1px solid var(--line);
+  font-family: var(--display);
+  font-size: 0.85em;
+}
+.rbar.menu .rb-chip {
+  border-color: var(--rb-accent);
+  color: var(--amber);
+}
+.rb-speeds {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.7em);
+  display: none;
+  flex-direction: column-reverse;
+  gap: 0.1em;
+  padding: 0.3em;
+  border-radius: 12px;
+  background: rgba(10, 13, 22, 0.96);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.rbar.menu .rb-speeds {
+  display: flex;
+}
+.rb-speeds button {
+  min-width: 4.2em;
+  padding: 0.4em 0.7em;
+  border-radius: 8px;
+  font-family: var(--display);
+  font-size: 0.85em;
+  text-align: center;
+}
+.rb-speeds button.on {
+  background: linear-gradient(180deg, var(--amber), var(--rb-accent));
+  color: #120c05;
+}
+/* playing and left alone: just the scrubber */
+.rbar.dim {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.rbar.dim .rb-row {
+  opacity: 0;
+  pointer-events: none;
+}
+.rbar.dim .rb-thumb {
+  transform: scale(0.6);
+}
 .net-pill[hidden],
 .icon-btn[hidden] {
   display: none;

@@ -301,7 +301,8 @@ export class Booth {
   }
 
   // ------------------------------------------------------------------ match
-  begin(m: Match, online: boolean) {
+  /** A fight starts (or a replay jumps somewhere: `welcome` false, they pick it up from there). */
+  begin(m: Match, online: boolean, welcome = true) {
     this.end();
     this.m = m;
     this.online = online;
@@ -333,7 +334,7 @@ export class Booth {
     }
     if (this.out.prime) this.out.prime(names);
     else this.out.want(names);
-    if (!this.enabled) return;
+    if (!this.enabled || !welcome) return;
     this.push(
       {
         chain: ['intro.welcome'],

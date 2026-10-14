@@ -8,6 +8,7 @@ import { Drones } from '../render/drones';
 import { CrowdMood } from '../audio/crowd';
 import { BotModel } from '../render/botModel';
 import { Match, SIM_DT, type DetachInfo, type HitInfo } from '../sim/match';
+import type { CoachCall } from '../sim/coach';
 import { CUT_JOINTS, P, PART_COUNT } from '../sim/damage';
 import { Debris } from '../render/debris';
 import { Oil } from '../render/oil';
@@ -36,7 +37,30 @@ export type Place = 'arena' | 'garage';
 export interface GameCallbacks {
   onMatchEvent?: (type: string, data: unknown) => void;
   onFrame?: (dt: number) => void;
+  /**
+   * A replay seek started (`done` false: the match may be replaced by a fresh one) or
+   * landed (`done` true, on the match now showing).
+   */
+  onSeek?: (done: boolean, m: Match) => void;
 }
+
+/**
+ * Everything a fight replay needs: the two bots, the seed, the step the intro was cut at,
+ * the coach's calls, and how many steps the fight ran until its results showed. Marks are
+ * the big moments (for the scrubber), by step.
+ */
+export interface Tape {
+  a: BotSpec;
+  b: BotSpec;
+  seed: number;
+  cut: number;
+  coach: CoachCall[];
+  end: number;
+  marks: { frame: number; kind: 'kd' | 'tear' | 'ko' }[];
+}
+
+/** Longest a replay seek may run the sim in one animation frame, in ms (the rest waits a frame). */
+const SEEK_BUDGET = 14;
 
 const _v = new THREE.Vector3();
 const _u = new THREE.Vector3();
@@ -161,6 +185,12 @@ export class Game {
   onStep: ((m: Match) => void) | null = null;
   /** True while catching up silently: no sounds or effects for steps nobody sees. */
   private quiet = false;
+  /** The replay being watched (null in a live fight). */
+  tape: Tape | null = null;
+  /** A replay seek in progress: the step it's running the sim to (-1: none). */
+  private seekTo = -1;
+  /** Parts torn off during a seek, put on the models once it lands. */
+  private seekTears: DetachInfo[] = [];
   private garage: Garage | null = null;
   private _thumbs: PartThumbs | null = null;
   place: Place = 'arena';
@@ -476,6 +506,10 @@ export class Game {
     this.wounds = [0, 1].map(() => [0, 1].map(() => (Math.random() - 0.5) * 2.4));
     this.acc = 0;
     this.speed = 1;
+    this.paused = false;
+    this.tape = null;
+    this.seekTo = -1;
+    this.seekTears = [];
     this.groundedPrev = [
       [1, 1, 1],
       [1, 1, 1],
@@ -505,8 +539,88 @@ export class Game {
     this.quiet = false;
   }
 
+  // ---------------------------------------------------------------- replays
+  /** Play a fight back from its tape: the same seed, intro cut and coach calls. */
+  startReplay(t: Tape) {
+    const m = this.startMatch(t.a, t.b, t.seed);
+    m.replayCut = t.cut;
+    // the corner's calls, on the steps they were made
+    for (const c of t.coach) m.queueCoach(c.side, c.kind, c.frame);
+    // the intro repeats the original's length, whatever the booth is doing
+    this.holdIntro = false;
+    this.tape = t;
+    return m;
+  }
+
+  /** The replay's position and length, in sim steps. */
+  get replayFrame() {
+    return this.seekTo >= 0 ? this.seekTo : (this.match?.frame ?? 0);
+  }
+
+  get seeking() {
+    return this.seekTo >= 0;
+  }
+
+  /**
+   * Jump a replay to step `frame`. The sim only runs forward, so going back starts the
+   * fight over from its tape and runs it up to there. Either way it runs silently, a
+   * slice per animation frame, so a long seek on a slow phone never locks up the page.
+   */
+  seek(frame: number) {
+    const t = this.tape;
+    let m = this.match;
+    if (!t || !m) return;
+    frame = Math.max(0, Math.min(t.end, Math.round(frame)));
+    const from = this.replayFrame;
+    if (frame === from && !this.seeking) return;
+    if (!this.seeking) this.cb.onSeek?.(false, m);
+    if (frame < m.frame) {
+      // back to the walkout, keeping the player's speed and pause
+      const { speed, paused } = this;
+      m = this.startReplay(t);
+      this.speed = speed;
+      this.paused = paused;
+    }
+    this.sfx?.booth.end();
+    this.director.reset();
+    this.seekTo = frame;
+    this.acc = 0;
+  }
+
+  /** Run a slice of a seek; land it once the sim reaches the step. */
+  private seekSlice(m: Match) {
+    const t0 = performance.now();
+    this.quiet = true;
+    let n = 0;
+    while (m.frame < this.seekTo) {
+      m.step(SIM_DT);
+      this.onStep?.(m);
+      if ((++n & 31) === 0 && performance.now() - t0 > SEEK_BUDGET) break;
+    }
+    this.quiet = false;
+    if (m.frame < this.seekTo) return;
+    this.seekTo = -1;
+    // pose the robots where the fight is now, then tear off what came off on the way
+    for (let i = 0; i < 2; i++) this.models[i].begin(m.fighters[i], 1, m.fighters[1 - i].body.pos[J.Head]);
+    for (let i = 0; i < 2; i++) this.models[i].end(m.fighters[i], this.time, this.models[1 - i]);
+    for (const d of this.seekTears) this.tearOff(d, true);
+    this.seekTears = [];
+    // and let the pieces come to rest on the canvas
+    for (let k = 0; k < 120; k++) this.debris.update(1 / 30, this.fx, [], () => {});
+    for (let i = 0; i < 2; i++) {
+      const body = m.fighters[i].body;
+      this.groundedPrev[i] = [J.Pelvis, J.Chest, J.Head].map((j) => body.grounded[j]);
+    }
+    // the booth picks the fight up from here (the welcome only from the very start)
+    this.sfx?.booth.begin(m, false, m.phase === 'intro' && m.phaseTime < 0.5);
+    this.cb.onSeek?.(true, m);
+  }
+
   endMatch() {
     this.onStep = null;
+    this.tape = null;
+    this.seekTo = -1;
+    this.seekTears = [];
     if (!this.match) return;
     this.sfx?.booth.end();
     for (const md of this.models) {
@@ -529,6 +643,7 @@ export class Game {
     if (this.quiet) {
       // skipped steps: only what changes the picture from here on
       if (type === 'ko') this.director.focusKO(data.loser.index);
+      if (type === 'detach' && this.seeking) this.seekTears.push(data as DetachInfo);
       this.director.cue(type, data);
       this.cb.onMatchEvent?.(type, data);
       return;
@@ -679,18 +794,34 @@ export class Game {
     const m = this.match;
     let alpha = 1;
     this.fx.beginFrame();
-    if (m && !this.paused) {
-      this.acc += dt * this.speed * m.slowmo;
-      let steps = 0;
-      while (this.acc >= SIM_DT && steps < 16) {
-        m.step(SIM_DT);
-        this.onStep?.(m);
-        this.acc -= SIM_DT;
-        steps++;
+    const seeking = this.seeking;
+    // a paused picture holds still: camera, sparks and smoke too
+    const still = this.paused && !seeking;
+    if (m && !still) {
+      // match time this frame (none while a seek runs the sim)
+      let flow = dt * this.speed * m.slowmo;
+      if (seeking) {
+        this.seekSlice(m);
+        flow = 0;
+      } else {
+        this.acc += flow;
+        let steps = 0;
+        while (this.acc >= SIM_DT && steps < 16) {
+          // a replay stops on the step the fight's results came up
+          if (this.tape && m.frame >= this.tape.end) {
+            this.paused = true;
+            this.acc = 0;
+            break;
+          }
+          m.step(SIM_DT);
+          this.onStep?.(m);
+          this.acc -= SIM_DT;
+          steps++;
+        }
+        if (steps >= 16) this.acc = 0;
       }
-      if (steps >= 16) this.acc = 0;
       perf.lap('sim');
-      alpha = m.hitstop > 0 ? 1 : this.acc / SIM_DT;
+      alpha = seeking || m.hitstop > 0 ? 1 : this.acc / SIM_DT;
       // both bodies first: each bot's limbs then slide out of either bot's armour
       for (let i = 0; i < 2; i++) {
         // the head follows the opponent, or wherever a celebration or taunt looks
@@ -706,10 +837,11 @@ export class Game {
           const k = Math.min(1, m.hitstop * 20) * 0.012;
           model.root.position.set((Math.random() - 0.5) * k, 0, (Math.random() - 0.5) * k);
         } else model.root.position.set(0, 0, 0);
+        if (seeking) continue;
         this.updateTrailsAndFlames(i);
         if (m.fin && m.fin.att === f) this.finisherGlow(m, i, dt);
         this.groundImpacts(i);
-        this.damageEffects(i, dt * this.speed * m.slowmo);
+        this.damageEffects(i, flow);
       }
       this.feet.length = 0;
       for (let i = 0; i < 2; i++) {
@@ -718,7 +850,7 @@ export class Game {
         if (!f.parts.legOut(1)) this.feet.push(this.models[i].joints[J.FootR]);
       }
       this.debris.update(
-        dt * this.speed * m.slowmo,
+        flow,
         this.fx,
         this.feet,
         (p, sp) => this.sfx?.thud(Math.min(0.7, sp / 6), this.pan(p)),
@@ -736,7 +868,7 @@ export class Game {
         this.oilFeet[i * 2] = f.parts.legOut(0) ? null : this.models[i].joints[J.FootL];
         this.oilFeet[i * 2 + 1] = f.parts.legOut(1) ? null : this.models[i].joints[J.FootR];
       }
-      const stepped = this.oil.update(dt * this.speed * m.slowmo, this.oilFeet);
+      const stepped = this.oil.update(flow, this.oilFeet);
       // stepping in a puddle splashes the foot and shin
       for (let fi = 0; fi < 4; fi++) {
         if (!(stepped & (1 << fi))) continue;
@@ -793,8 +925,8 @@ export class Game {
     // contact occlusion follows whichever robots are on screen
     const shown = m && this.models.length === 2 ? this.models : this.showcase ? (this.spar ? [this.showcase.model, this.spar.model] : [this.showcase.model]) : [];
     for (let i = 0; i < 2; i++) contactAO.set(i, shown[i]?.joints ?? null, shown[i]?.size);
-    this.fx.update(dt, this.stage.camera);
-    this.stage.ripples.update(dt);
+    this.fx.update(still ? 0 : dt, this.stage.camera);
+    this.stage.ripples.update(still ? 0 : dt);
     perf.lap('fx');
     this.arena.pressRopes(m && this.models.length === 2 ? [this.models[0].joints, this.models[1].joints] : [], this.models.map((x) => x.size));
     const f = m?.fighters;
@@ -809,7 +941,7 @@ export class Game {
       this.arena.update(dt, this.time);
     }
     perf.lap('arena');
-    this.director.update(dt, m);
+    this.director.update(still && m ? 0 : dt, m);
     // a bot's-eye shot: the lens is inside that bot's head
     const pov = m && this.models.length === 2 ? this.director.pov : -1;
     if (pov >= 0) this.models[pov].hideHead();
@@ -954,20 +1086,25 @@ export class Game {
   }
 
   /** A part comes off: the piece flies, the stump bursts with sparks, the arena erupts. */
-  private tearOff(d: DetachInfo) {
+  private tearOff(d: DetachInfo, quiet = false) {
     const i = d.f.index;
     const model = this.models[i];
     if (!model) return;
     const piece = model.tearOff(d.part);
     if (piece) {
-      const anchor = this.debris.spawn(piece, d.dir, d.strength);
+      // (a part torn off during a seek just drops: it landed a while ago)
+      const anchor = this.debris.spawn(piece, d.dir, d.strength, !quiet);
       for (const j of CUT_JOINTS[d.part]) model.anchors[j] = anchor;
     }
     const stump = STUMP[d.part] ?? J.Chest;
-    this.stumps[i].push({ joint: stump, age: 0 });
+    this.stumps[i].push({ joint: stump, age: quiet ? 6 : 0 });
     const at = model.joints[stump];
     // the torn socket wrenches the metal around it and gushes oil over both robots
     model.socketWrench(d.part);
+    if (quiet) {
+      model.grime += 0.12;
+      return;
+    }
     this.oil.splash(at, d.dir, 1.4, 70, 1.3);
     for (let n = 0; n < 3; n++) model.oilSplash(SPLASH_JOINTS[(Math.random() * SPLASH_JOINTS.length) | 0], 0.1 + Math.random() * 0.08);
     model.grime += 0.12;
