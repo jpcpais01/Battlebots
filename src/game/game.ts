@@ -108,29 +108,30 @@ function oilLeak(part: number, cond: number) {
   return 0.15 + 0.85 * ((LEAK_BELOW - cond) / LEAK_BELOW);
 }
 
-/** A part grows a pressure valve that vents vapour below this condition. */
+/** A part's hinge starts blowing high-pressure vapour below this condition. */
 const VENT_BELOW = 0.3;
 type Radius = 'upper' | 'fore' | 'thigh' | 'shin';
 /**
- * Where each part's valve sits: on the segment from joint a to b, t of the way along, out
- * at the plating (a limb radius from the model, or a fixed one), and which side a limb's
- * valve faces (-1 left, 1 right, 0 anywhere). Hands and feet have none.
+ * The hinge each part vents from: joint a (t = 0) on the segment toward b, which the jet
+ * blows out across; how far out the seal sits (a limb radius from the model, or a fixed
+ * one); and which side a limb's jet faces (-1 left, 1 right, 0 anywhere). The head blows
+ * from the neck, the chest from the collar, the lower torso from the waist. Hands and feet have none.
  */
 const VENT_AT: ([a: number, b: number, t: number, r: Radius | number, side: number] | null)[] = [
-  [J.Neck, J.Head, 1, 0.12, 0],
-  [J.Pelvis, J.Chest, 0.95, 0.2, 0],
-  [J.Pelvis, J.Chest, 0.3, 0.16, 0],
-  [J.ShL, J.ElL, 0.5, 'upper', -1],
-  [J.ElL, J.HandL, 0.45, 'fore', -1],
+  [J.Neck, J.Head, 0.35, 0.07, 0],
+  [J.Chest, J.Neck, 0.85, 0.12, 0],
+  [J.Pelvis, J.Chest, 0.3, 0.15, 0],
+  [J.ShL, J.ElL, 0, 'upper', -1],
+  [J.ElL, J.HandL, 0, 'fore', -1],
   null,
-  [J.ShR, J.ElR, 0.5, 'upper', 1],
-  [J.ElR, J.HandR, 0.45, 'fore', 1],
+  [J.ShR, J.ElR, 0, 'upper', 1],
+  [J.ElR, J.HandR, 0, 'fore', 1],
   null,
-  [J.HipL, J.KneeL, 0.45, 'thigh', -1],
-  [J.KneeL, J.FootL, 0.4, 'shin', -1],
+  [J.HipL, J.KneeL, 0, 'thigh', -1],
+  [J.KneeL, J.FootL, 0, 'shin', -1],
   null,
-  [J.HipR, J.KneeR, 0.45, 'thigh', 1],
-  [J.KneeR, J.FootR, 0.4, 'shin', 1],
+  [J.HipR, J.KneeR, 0, 'thigh', 1],
+  [J.KneeR, J.FootR, 0, 'shin', 1],
   null,
 ];
 const _up = new THREE.Vector3(0, 1, 0);
@@ -231,7 +232,7 @@ export class Game {
   private stumps: { joint: number; age: number }[][] = [[], []];
   /** Oil bleeding from wrecked chests and lower torsos, and the puddles it leaves. */
   readonly oil = new Oil();
-  /** Pressure valves venting vapour from badly damaged parts. */
+  /** High-pressure vapour blowing from the hinges of badly damaged parts. */
   readonly steam = new Steam();
   /** Broadcast camera drones flying the shots (render only). */
   private drones = new Drones();
@@ -1120,7 +1121,7 @@ export class Game {
       this.fx.shrapnel(h.point, h.dir, Math.round(3 + wear * 14 + h.damage / 16), 2.5 + wear * 2.5);
       if (wear > 0.35) this.fx.smoke(h.point, 1 + Math.round(wear * 3), wear);
     }
-    // a blow to a venting part blows its valve
+    // a blow to a venting part makes its hinge blow
     if (h.partCond < VENT_BELOW) this.steam.kick(h.defender.index * 16 + h.part);
     const k = oilLeak(h.part, h.partCond);
     if (k > 0 && !h.blocked) {
@@ -1203,7 +1204,7 @@ export class Game {
       if (w > 0.4 && Math.random() < dt * (0.6 + kk * 10)) this.fx.smoke(_dp, 1 + Math.round(kk), 0.2 + kk * 0.8);
       if (w > 0.75 && Math.random() < dt * (0.3 + kk * 1.5)) this.fx.arc(_dp, 0.1 + kk * 0.06);
     }
-    // badly damaged parts grow a pressure valve that blows off vapour (it goes with the part)
+    // badly damaged parts blow high-pressure vapour from their hinges (it stops when the part comes off)
     const md = this.models[i];
     _fwd.set(Math.sin(f.yaw), 0, Math.cos(f.yaw));
     _side.subVectors(J0[J.ShR], J0[J.ShL]).setY(0);
@@ -1217,7 +1218,7 @@ export class Game {
       if (side) _sideP.copy(_side).multiplyScalar(side);
       const k = (VENT_BELOW - parts.cond[p]) / VENT_BELOW;
       const burst = this.steam.vent(i * 16 + p, J0[a], J0[b], t, radius, _fwd, side ? _sideP : null, k, md.size, dt);
-      if (burst > 0) this.sfx?.hiss(0.4 + k * 0.6, burst, this.pan(J0[b]));
+      if (burst > 0) this.sfx?.hiss(0.4 + k * 0.6, burst, this.pan(J0[a]));
     }
     // a wrecked chest or lower torso bleeds oil from a wound on its plating
     let bleed = 0;

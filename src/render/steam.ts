@@ -1,27 +1,22 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /**
- * Pressure-relief valves on wrecked parts. Once a part is badly beaten a brass valve pops
- * out of its plating; pressure builds inside and vents in hissing jets of white vapour,
- * more often and for longer the closer the part is to failing, and at once when the part
- * takes another blow. A part that comes off takes its valve with it, and the venting stops.
+ * High-pressure vapour blowing out of the hinges of wrecked parts. Once a part is badly
+ * beaten its joint seals fail: pressure builds inside and blasts out of the hinge in hard,
+ * hissing jets of white vapour, more often and for longer the closer the part is to failing,
+ * and at once when the part takes another blow. A part that comes off stops venting.
  *
  * Render only: the sim never sees any of this, so it may use Math.random freely.
  */
 
 /** Vapour puffs alive at once (one draw call). */
-const MAX_PUFFS = 520;
-/** Valves at once: every venting part of both robots (one instanced draw). */
-const MAX_VALVES = 32;
-/** How long a fresh valve takes to punch out of the plating, in seconds. */
-const POP_TIME = 0.16;
+const MAX_PUFFS = 1400;
+/** Hinges venting at once: every venting part of both robots. */
+const MAX_VENTS = 32;
 
 interface Vent {
-  /** Which way round the limb the valve faces (radians from the robot's front). */
+  /** Which way round the hinge the jet points (radians from the robot's front). */
   angle: number;
-  /** Seconds since the valve popped out. */
-  age: number;
   /** 0..1: the next burst fires when it reaches 1. */
   pressure: number;
   /** Seconds left of the current burst (0 when only seeping). */
@@ -53,53 +48,11 @@ function puffTexture(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(c);
 }
 
-/** A stubby relief valve along +y from the plating: flange, pipe, brass body, red handwheel, nozzle. */
-function valveGeometry(): THREE.BufferGeometry {
-  const paint = (geo: THREE.BufferGeometry, hex: number) => {
-    const c = new THREE.Color(hex);
-    const n = geo.attributes.position.count;
-    const col = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) col.set([c.r, c.g, c.b], i * 3);
-    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    return geo.toNonIndexed();
-  };
-  const steel = 0x8a9097;
-  const brass = 0xc9932e;
-  const red = 0xb3221a;
-  const flange = new THREE.CylinderGeometry(0.034, 0.038, 0.012, 10).translate(0, 0.006, 0);
-  const pipe = new THREE.CylinderGeometry(0.014, 0.014, 0.045, 8).translate(0, 0.034, 0);
-  const body = new THREE.CylinderGeometry(0.024, 0.024, 0.034, 6).translate(0, 0.07, 0);
-  const cap = new THREE.CylinderGeometry(0.012, 0.018, 0.014, 8).translate(0, 0.094, 0);
-  const nozzle = new THREE.CylinderGeometry(0.008, 0.01, 0.018, 8).translate(0, 0.109, 0);
-  // the handwheel stands off the side of the body on a short spindle
-  const spindle = new THREE.CylinderGeometry(0.005, 0.005, 0.03, 6).rotateZ(Math.PI / 2).translate(0.036, 0.07, 0);
-  const wheel = new THREE.TorusGeometry(0.02, 0.0045, 5, 12).rotateY(Math.PI / 2).translate(0.052, 0.07, 0);
-  const spoke = new THREE.BoxGeometry(0.004, 0.038, 0.004).translate(0.052, 0.07, 0);
-  const spoke2 = new THREE.BoxGeometry(0.004, 0.004, 0.038).translate(0.052, 0.07, 0);
-  const geo = mergeGeometries([
-    paint(flange, steel),
-    paint(pipe, steel),
-    paint(body, brass),
-    paint(cap, brass),
-    paint(nozzle, steel),
-    paint(spindle, steel),
-    paint(wheel, red),
-    paint(spoke, red),
-    paint(spoke2, red),
-  ])!;
-  geo.computeVertexNormals();
-  return geo;
-}
-
 const _a = new THREE.Vector3();
 const _r = new THREE.Vector3();
 const _s = new THREE.Vector3();
 const _v = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
-const _q = new THREE.Quaternion();
-const _qt = new THREE.Quaternion();
-const _m = new THREE.Matrix4();
-const _sc = new THREE.Vector3();
 
 export class Steam {
   readonly group = new THREE.Group();
@@ -119,7 +72,6 @@ export class Steam {
   private live = 0;
   private geo = new THREE.BufferGeometry();
   private points: THREE.Points;
-  private valves: THREE.InstancedMesh;
 
   constructor() {
     this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
@@ -134,7 +86,7 @@ export class Steam {
           void main(){ vA = alpha; vec4 mv = modelViewMatrix*vec4(position,1.); gl_PointSize = size * uScale / -mv.z; gl_Position = projectionMatrix*mv; }`,
         fragmentShader: /* glsl */ `
           uniform sampler2D uTex; varying float vA;
-          void main(){ float a = texture2D(uTex, gl_PointCoord).a * vA; if (a < 0.01) discard; gl_FragColor = vec4(vec3(0.86, 0.89, 0.93), a); }`,
+          void main(){ float a = texture2D(uTex, gl_PointCoord).a * vA; if (a < 0.01) discard; gl_FragColor = vec4(vec3(0.95, 0.97, 1.0), a); }`,
         transparent: true,
         depthWrite: false,
       }),
@@ -144,14 +96,6 @@ export class Steam {
     this.points.visible = false;
     this.group.add(this.points);
 
-    this.valves = new THREE.InstancedMesh(
-      valveGeometry(),
-      new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.75, roughness: 0.32 }),
-      MAX_VALVES,
-    );
-    this.valves.count = 0;
-    this.valves.frustumCulled = false;
-    this.group.add(this.valves);
   }
 
   setPixelScale(h: number) {
@@ -159,9 +103,9 @@ export class Steam {
   }
 
   /**
-   * Keep the valve of one wrecked part venting this frame. `a`→`b` is the segment the part
-   * sits on, `t` how far along it the valve is, `radius` how far out the plating is.
-   * `fwd` is the robot's facing; `side` (or null) pushes a limb's valve to its outer side.
+   * Keep the hinge of one wrecked part venting this frame. `a`→`b` is the segment the jet
+   * blows out across, `t` how far along it the hinge is, `radius` how far out its seal is.
+   * `fwd` is the robot's facing; `side` (or null) turns a limb's jet to its outer side.
    * `k` is 0 (just heavily damaged) to 1 (about to fail). Returns the length of a burst
    * that starts now (for its hiss), else 0.
    */
@@ -169,10 +113,9 @@ export class Steam {
     let v = this.vents.get(key);
     let fresh = false;
     if (!v) {
-      if (this.vents.size >= MAX_VALVES) return 0;
+      if (this.vents.size >= MAX_VENTS) return 0;
       v = {
         angle: (Math.random() - 0.5) * 2.6,
-        age: 0,
         pressure: 1,
         burst: 0,
         burstLen: 0,
@@ -203,98 +146,112 @@ export class Steam {
     if (side && v.dir.dot(side) < 0) v.dir.copy(_r).multiplyScalar(c).addScaledVector(_s, -s);
     v.pos.lerpVectors(a, b, t).addScaledVector(v.dir, radius);
     if (fresh) {
-      // the valve punches out with a crack of vapour
-      for (let n = 0; n < 10; n++) this.puff(v, 2.5 + Math.random() * 2, 0.35);
+      // the seal gives with a crack: one hard blast
+      for (let n = 0; n < 40; n++) this.puff(v, 9 + Math.random() * 4, n % 3 === 0);
     }
     if (dt <= 0) return 0;
-    v.age += dt;
     let started = 0;
     if (v.burst > 0) v.burst -= dt;
     else {
       // pressure builds faster the worse the part is: every few seconds at first, near constant at the end
-      v.pressure += dt * (0.22 + k * 0.85) * (0.75 + Math.random() * 0.5);
+      v.pressure += dt * (0.3 + k * 1.0) * (0.75 + Math.random() * 0.5);
       if (v.pressure >= 1) {
         v.pressure = Math.random() * 0.25;
-        v.burstLen = v.burst = 0.3 + k * 0.8 + Math.random() * 0.35;
+        v.burstLen = v.burst = 0.45 + k * 0.9 + Math.random() * 0.4;
         started = v.burstLen;
       }
     }
-    // a burst roars out, then sputters; between bursts the seals weep a thin wisp
-    let rate: number;
-    let speed: number;
+    // a burst screams out at full pressure, then sputters; between bursts the hinge weeps a wisp
     if (v.burst > 0) {
       const e = v.burst / v.burstLen;
-      const env = Math.min(1, (1 - e) * 12) * (0.35 + 0.65 * Math.min(1, e * 2.5));
-      rate = (55 + k * 70) * env;
-      speed = (4 + k * 3) * (0.5 + 0.5 * env);
+      const env = Math.min(1, (1 - e) * 20) * (0.3 + 0.7 * Math.min(1, e * 2.5));
+      // a tight, fast core with thick billows rolling off it
+      v.carry += (150 + k * 130) * env * dt;
+      const speed = (9 + k * 5) * (0.45 + 0.55 * env);
+      while (v.carry >= 1) {
+        v.carry -= 1;
+        this.puff(v, speed * (0.85 + Math.random() * 0.3), Math.random() < 0.6);
+      }
     } else {
-      rate = 2 + k * 6;
-      speed = 0.5;
-    }
-    v.carry += rate * dt;
-    while (v.carry >= 1) {
-      v.carry -= 1;
-      this.puff(v, speed * (0.75 + Math.random() * 0.5), v.burst > 0 ? 0.5 : 0.18);
+      v.carry += (3 + k * 8) * dt;
+      while (v.carry >= 1) {
+        v.carry -= 1;
+        this.wisp(v);
+      }
     }
     return started;
   }
 
-  /** The part was hit: pressure spikes and the valve blows on its next update. */
+  /** The part was hit: pressure spikes and the hinge blows on its next update. */
   kick(key: number) {
     const v = this.vents.get(key);
     if (v && v.burst <= 0) v.pressure = 1;
   }
 
-  private puff(v: Vent, speed: number, alpha: number) {
-    if (this.live >= MAX_PUFFS) return;
+  private slot(): number {
+    if (this.live >= MAX_PUFFS) return -1;
     const i = this.next;
     this.next = (i + 1) % MAX_PUFFS;
     if (this.life[i] <= 0) this.live++;
-    const sp = 0.16;
+    return i;
+  }
+
+  /**
+   * One puff of a jet. A core puff is small, dense and flies far in a tight line (the
+   * pressure); a billow is wider, slower and swells into the cloud around it.
+   */
+  private puff(v: Vent, speed: number, core: boolean) {
+    const i = this.slot();
+    if (i < 0) return;
+    const sp = core ? 0.06 : 0.3;
     _v.set(v.dir.x + (Math.random() - 0.5) * sp, v.dir.y + (Math.random() - 0.5) * sp, v.dir.z + (Math.random() - 0.5) * sp);
     _v.normalize();
-    // out of the nozzle tip
-    const tip = 0.11 * v.size;
-    this.pos[i * 3] = v.pos.x + v.dir.x * tip;
-    this.pos[i * 3 + 1] = v.pos.y + v.dir.y * tip;
-    this.pos[i * 3 + 2] = v.pos.z + v.dir.z * tip;
-    this.vel[i * 3] = _v.x * speed;
-    this.vel[i * 3 + 1] = _v.y * speed + 0.15;
-    this.vel[i * 3 + 2] = _v.z * speed;
-    const life = speed > 1.5 ? 0.45 + Math.random() * 0.45 : 0.9 + Math.random() * 0.6;
+    const sp2 = core ? speed : speed * (0.35 + Math.random() * 0.3);
+    // start a little way along the jet so it fills from the hinge outward
+    const o = Math.random() * 0.03 * v.size;
+    this.pos[i * 3] = v.pos.x + _v.x * o;
+    this.pos[i * 3 + 1] = v.pos.y + _v.y * o;
+    this.pos[i * 3 + 2] = v.pos.z + _v.z * o;
+    this.vel[i * 3] = _v.x * sp2;
+    this.vel[i * 3 + 1] = _v.y * sp2;
+    this.vel[i * 3 + 2] = _v.z * sp2;
+    const life = core ? 0.3 + Math.random() * 0.2 : 0.7 + Math.random() * 0.6;
     this.life[i] = life;
     this.max[i] = life;
-    this.size0[i] = (speed > 1.5 ? 0.03 : 0.05) * v.size;
-    this.grow[i] = speed > 1.5 ? 9 + Math.random() * 5 : 4 + Math.random() * 2;
-    this.drag[i] = speed > 1.5 ? 4.5 : 1.5;
-    this.peak[i] = alpha * (0.7 + Math.random() * 0.3);
+    this.size0[i] = (core ? 0.035 : 0.06) * v.size;
+    this.grow[i] = core ? 5 + Math.random() * 3 : 9 + Math.random() * 6;
+    this.drag[i] = core ? 9 : 5;
+    this.peak[i] = core ? 0.95 : 0.6 + Math.random() * 0.25;
+  }
+
+  /** A thin wisp seeping from the hinge between bursts. */
+  private wisp(v: Vent) {
+    const i = this.slot();
+    if (i < 0) return;
+    this.pos[i * 3] = v.pos.x;
+    this.pos[i * 3 + 1] = v.pos.y;
+    this.pos[i * 3 + 2] = v.pos.z;
+    const s = 0.4 + Math.random() * 0.4;
+    this.vel[i * 3] = v.dir.x * s + (Math.random() - 0.5) * 0.15;
+    this.vel[i * 3 + 1] = v.dir.y * s + 0.2;
+    this.vel[i * 3 + 2] = v.dir.z * s + (Math.random() - 0.5) * 0.15;
+    const life = 1 + Math.random() * 0.6;
+    this.life[i] = life;
+    this.max[i] = life;
+    this.size0[i] = 0.05 * v.size;
+    this.grow[i] = 4 + Math.random() * 2;
+    this.drag[i] = 1.5;
+    this.peak[i] = 0.3;
   }
 
   update(dt: number) {
     if (dt > 0) {
-      // valves that weren't refreshed went with their part (or the fight ended)
+      // hinges that weren't refreshed went with their part (or the fight ended)
       for (const [key, v] of this.vents) {
         if (!v.seen) this.vents.delete(key);
         else v.seen = false;
       }
     }
-    // the valves sit on their parts, rattling while they blow
-    let n = 0;
-    for (const v of this.vents.values()) {
-      const p = Math.min(1, v.age / POP_TIME);
-      const pop = p < 1 ? p * (1.35 - 0.35 * p) : 1;
-      _q.setFromUnitVectors(_up, v.dir);
-      if (v.burst > 0) {
-        _qt.setFromAxisAngle(_v.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(), (Math.random() - 0.5) * 0.12);
-        _q.multiply(_qt);
-      }
-      _sc.setScalar(Math.max(0.001, pop * v.size));
-      _m.compose(v.pos, _q, _sc);
-      this.valves.setMatrixAt(n++, _m);
-    }
-    this.valves.count = n;
-    if (n) this.valves.instanceMatrix.needsUpdate = true;
-
     if (!this.live) {
       this.points.visible = false;
       return;
@@ -322,7 +279,7 @@ export class Steam {
       this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
       const age = 1 - k;
       this.shown[i] = this.size0[i] * (1 + this.grow[i] * Math.sqrt(age));
-      this.alpha[i] = this.peak[i] * Math.min(1, age * 14) * k * k;
+      this.alpha[i] = this.peak[i] * Math.min(1, age * 20) * k;
     }
     this.live = live;
     this.points.visible = live > 0;
@@ -336,7 +293,6 @@ export class Steam {
     this.life.fill(0);
     this.alpha.fill(0);
     this.live = 0;
-    this.valves.count = 0;
     this.points.visible = false;
   }
 }

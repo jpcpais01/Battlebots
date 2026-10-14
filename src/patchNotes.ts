@@ -24,7 +24,7 @@ export const PATCH_NOTES: PatchNote[] = [
       'Sparks streak off in the direction of the blow, skate across the plating and bounce along the canvas, cooling from white hot to red.',
       'Hard hits knock nuts, bolts and flecks of paint loose that clink across the canvas. The more beaten up a part is, the more comes off it.',
       'The camera now rocks the way each blow travels, so you feel which way the hit went.',
-      'Badly damaged parts now pop out a brass pressure valve that blasts hissing jets of vapour, more often as the part nears failure and every time it gets hit. Tear the part off and the venting stops.',
+      'Badly damaged parts now blast hard, hissing jets of high-pressure vapour out of their joints, more often as the part nears failure and every time it gets hit. Tear the part off and the venting stops.',
       'New icons for every special move, and every passive now has its own icon in the garage and on the fight HUD.',
       'The back arrow in the garage and online screens is now a proper Home button with a house icon, and the results screen\'s Home button says what it does.',
       'The arena floor around the ring is now matte black, no more shiny glare.',
