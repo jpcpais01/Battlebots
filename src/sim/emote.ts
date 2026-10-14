@@ -1043,7 +1043,7 @@ export class Showman {
     } else if (this.kind === 'taunt') {
       if (m.phase !== 'fight' || me.state !== 'fight' || me.action || opp.state === 'fight' || opp.state === 'ko') this.cancel(0.14);
       // the opponent is rising: be back in guard before they are
-      else if (opp.state === 'getup' && opp.stateTime > opp.getupDur * 0.4) this.cancel(0.3);
+      else if (opp.state === 'getup' && !opp.getupFail && opp.stateTime > opp.getupDur * 0.4) this.cancel(0.3);
     } else if (
       m.phase === 'fight' &&
       !this.tauntedThisCount &&

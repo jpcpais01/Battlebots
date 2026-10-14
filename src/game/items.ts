@@ -274,7 +274,7 @@ export const ITEMS: ItemDef[] = [
     maker: 'kensei',
     tagline: 'Balanced sensor suite with a calm mind.',
     stats: { reaction: 0.1, accuracy: 0.05, hp: 40 },
-    passive: { id: 'composure', name: 'Composure', value: 0.25, text: 'Gets up {v} faster after knockdowns.' },
+    passive: { id: 'composure', name: 'Composure', value: 0.25, text: '{v} more likely to beat the count.' },
     look: 0,
   },
   {
@@ -787,7 +787,7 @@ export const ITEMS: ItemDef[] = [
     maker: 'halcyon',
     tagline: 'A calm mind under a ring of light.',
     stats: { reaction: 0.14, stamina: 10, accuracy: 0.03 },
-    passive: { id: 'composure', name: 'Reboot', value: 0.3, text: 'Gets up {v} faster after knockdowns.' },
+    passive: { id: 'composure', name: 'Reboot', value: 0.3, text: '{v} more likely to beat the count.' },
     look: 8,
   },
   {
@@ -1000,15 +1000,15 @@ export function sanitizeSize(v: unknown): number {
 }
 
 /**
- * What a frame size does to the stats, as fractions per unit of size away from 1 (hp 0.45
- * at size 1.2 is +9% HP). A big frame has more HP and armour, hits harder and is hard to
+ * What a frame size does to the stats, as fractions per unit of size away from 1 (hp 0.4
+ * at size 1.2 is +8% HP). A big frame has more HP and armour, hits harder and is hard to
  * knock down, but is slow to move and to react; a small one is quick, sharp and accurate.
  * Reach and target size come from the body itself (the sim scales it): a giant out-reaches
  * and lands head shots from above, a small bot gets inside and works the body. Tuned with
  * mirrored sim fights so 0.8 vs 1.2 comes out roughly even.
  */
 export const SIZE_EFFECT = {
-  hp: 0.45,
+  hp: 0.4,
   armor: 0.1,
   /**
    * Part durability. Small frames are compact (short levers, plates close to the frame),
