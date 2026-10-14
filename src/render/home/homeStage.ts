@@ -6,13 +6,14 @@ import type { BotSpec } from '../../game/loadout';
 import { Actor } from './actor';
 import { Beach } from './beach';
 import { Gym } from './gym';
+import { Lounge } from './lounge';
 import type { HomeScene, SceneCam, SceneKit } from './scene';
 
-export type HomeSceneId = 'beach' | 'gym';
-export const HOME_SCENES: HomeSceneId[] = ['beach', 'gym'];
+export type HomeSceneId = 'beach' | 'gym' | 'lounge';
+export const HOME_SCENES: HomeSceneId[] = ['beach', 'gym', 'lounge'];
 
 /**
- * The animated home screen: one of the places (beach, gym) with the player's robot living in
+ * The animated home screen: one of the places (beach, gym, lounge) with the player's robot living in
  * it, and the cinematic way out to the arena when Fight is pressed. Places are built the first
  * time they're shown and kept; only the visible one updates.
  */
@@ -50,7 +51,8 @@ export class HomeStage {
   private build(id: HomeSceneId) {
     let s = this.scenes[id];
     if (!s) {
-      s = id === 'beach' ? new Beach(this.stage.renderer, this.stage.quality) : new Gym(this.stage.renderer, this.stage.quality);
+      const { renderer, quality } = this.stage;
+      s = id === 'beach' ? new Beach(renderer, quality) : id === 'gym' ? new Gym(renderer, quality) : new Lounge(renderer, quality);
       this.scenes[id] = s;
       this.tag(s.group, 'venue');
       this.group.add(s.group);
