@@ -4,6 +4,7 @@ import { Arena } from '../render/arena';
 import { Fx, type Trail } from '../render/fx';
 import { Director } from '../render/director';
 import { ClearView } from '../render/clearView';
+import { Drones } from '../render/drones';
 import { CrowdMood } from '../audio/crowd';
 import { BotModel } from '../render/botModel';
 import { Match, SIM_DT, type DetachInfo, type HitInfo } from '../sim/match';
@@ -142,6 +143,9 @@ export class Game {
   private stumps: { joint: number; age: number }[][] = [[], []];
   /** Oil bleeding from wrecked chests and lower torsos, and the puddles it leaves. */
   readonly oil = new Oil();
+  /** Broadcast camera drones flying the shots (render only). */
+  private drones = new Drones();
+  private focus = new THREE.Vector3(0, 1.1, 0);
   /** Per fighter: which way round the body each trunk wound faces (radians from the front). */
   private wounds: number[][] = [[0, 0], [0, 0]];
   /** Every foot in a fixed order (null once its leg is gone), for oily footprints. */
@@ -164,6 +168,8 @@ export class Game {
     this.stage.scene.add(this.fx.group);
     this.stage.scene.add(this.debris.group);
     this.stage.scene.add(this.oil.group);
+    this.stage.scene.add(this.drones.group);
+    this.clearView.apply(this.drones.group);
     this.tagParts();
     this.director = new Director(this.stage.camera);
     this.stage.onResize = (w, h) => {
@@ -186,6 +192,7 @@ export class Game {
     p.tag(this.fx.group, 'effects');
     p.tag(this.debris.group, 'bots');
     p.tag(this.oil.group, 'effects');
+    p.tag(this.drones.group, 'effects');
     this.arena.group.traverse((o) => {
       if (o.name === 'ropes' || o.name === 'beams') p.tag(o, o.name);
     });
@@ -206,6 +213,7 @@ export class Game {
     }
     this.arena.group.visible = !inGarage;
     this.arena.venue.group.visible = !inGarage;
+    this.drones.group.visible = !inGarage;
     if (inGarage) this.garage!.enter(this.stage);
     else {
       this.garage?.exit();
@@ -777,6 +785,9 @@ export class Game {
       this.clearView.update(this.stage.camera, []);
       house.update(dt, null);
     }
+    if (m && this.director.mode === 'match') this.focus.addVectors(this.chests[0], this.chests[1]).multiplyScalar(0.5);
+    else this.focus.set(0, 1.1, 0);
+    this.drones.update(dt, this.stage.camera, this.director.cuts, this.director.mode, this.focus);
     perf.lap('camera');
     this.sfx?.crowdTick(dt, crowdState);
     this.sfx?.booth.tick(dt, this.crowdMood.excite, !!m && !this.paused);

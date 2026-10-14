@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-14 03:00',
+    title: 'Camera drones',
+    notes: [
+      'Three little camera drones now fly the arena. Each camera angle is one of them filming: when the shot cuts, the drone that just filmed hangs where the camera was and climbs away, and you can spot the others hovering past the ring with their red tally lights on.',
+    ],
+  },
+  {
     hour: '2026-10-14 01:00',
     title: 'The whole ring is open, and your paint online',
     notes: [
