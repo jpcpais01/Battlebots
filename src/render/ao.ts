@@ -76,8 +76,10 @@ class ContactAO {
   /** The full-screen triangle that draws the map (tagged as ring work in the performance overlay). */
   readonly mapMesh = new THREE.Mesh(fullScreenTriangle());
   private mapCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-  /** The map holds no robots (all white): nothing to redraw until one turns up. */
-  private mapClear = false;
+  /** The map's texels are undefined (new or resized): the next draw covers all of it. */
+  private mapFresh = true;
+  /** Texels the robots darkened last frame (x0, y0, x1, y1); x1 <= x0 when none. */
+  private mapLast = [0, 0, 0, 0];
 
   /** Call before any material is patched: the sphere count is compiled into the shaders. */
   setQuality(q: 'low' | 'med' | 'high') {
@@ -112,20 +114,53 @@ class ContactAO {
         depthTest: false,
         depthWrite: false,
       });
-    this.mapClear = false;
+    this.mapFresh = true;
   }
 
-  /** Work out the floor's occlusion for this frame. Call once before the scene renders. */
+  /**
+   * Work out the floor's occlusion for this frame. Call once before the scene renders.
+   * Only the patches under the robots change, so only they are redrawn: where each robot's
+   * occlusion reaches the floor now, plus where it reached last frame (which goes back to white).
+   * Everywhere else keeps what it had, so most of the map costs nothing.
+   */
   renderMap(renderer: THREE.WebGLRenderer) {
-    if (!this.map) return;
+    const map = this.map;
+    if (!map) return;
     const b = this.uniforms.uAOB.value;
-    const empty = b[3] <= 0 && b[7] <= 0;
-    if (empty && this.mapClear) return;
+    const n = map.width;
+    const k = n / (2 * MAP_HALF);
+    const now = [n, n, 0, 0];
+    for (let i = 0; i < 2; i++) {
+      const r = b[i * 4 + 3], cy = b[i * 4 + 1];
+      // the robot's bounding sphere meets the floor in a disc (the shader's bounding test)
+      if (r <= Math.abs(cy)) continue;
+      const rr = Math.sqrt(r * r - cy * cy);
+      const x = (b[i * 4] + MAP_HALF) * k, z = (b[i * 4 + 2] + MAP_HALF) * k;
+      // a texel or two over, for the floor's bilinear taps
+      now[0] = Math.min(now[0], Math.floor(x - rr * k) - 2);
+      now[1] = Math.min(now[1], Math.floor(z - rr * k) - 2);
+      now[2] = Math.max(now[2], Math.ceil(x + rr * k) + 2);
+      now[3] = Math.max(now[3], Math.ceil(z + rr * k) + 2);
+    }
+    for (let j = 0; j < 4; j++) now[j] = Math.max(0, Math.min(n, now[j]));
+    const has = (q: number[]) => q[2] > q[0] && q[3] > q[1];
+    const box = [n, n, 0, 0];
+    for (const q of [now, this.mapLast]) {
+      if (!has(q)) continue;
+      box[0] = Math.min(box[0], q[0]);
+      box[1] = Math.min(box[1], q[1]);
+      box[2] = Math.max(box[2], q[2]);
+      box[3] = Math.max(box[3], q[3]);
+    }
+    this.mapLast = has(now) ? now : [0, 0, 0, 0];
+    if (!this.mapFresh && !has(box)) return;
+    map.scissorTest = !this.mapFresh;
+    map.scissor.set(box[0], box[1], box[2] - box[0], box[3] - box[1]);
+    this.mapFresh = false;
     const prev = renderer.getRenderTarget();
-    renderer.setRenderTarget(this.map);
+    renderer.setRenderTarget(map);
     renderer.render(this.mapMesh, this.mapCam);
     renderer.setRenderTarget(prev);
-    this.mapClear = empty;
   }
 
   /** Place robot `i`'s spheres from its world-space joints, or remove it with null. */

@@ -11,12 +11,14 @@ export const MAX_RIPPLES = 4;
  * the crest and pinches in just behind it, with a fainter second ring trailing; that reads as a
  * pressure wave bending the light. `uRipA` is (centre uv, radius, amplitude), radius and amplitude
  * in screen heights; `uRipB` is (ring width, crest tint rgb). `uAspect` is width / height.
+ * `uRipBox` is the screen box (uv min, max) outside which no ripple moves anything.
  */
 export const RIPPLE_GLSL = /* glsl */ `
   uniform vec4 uRipA[${MAX_RIPPLES}];
   uniform vec4 uRipB[${MAX_RIPPLES}];
   uniform int uRipN;
   uniform float uAspect;
+  uniform vec4 uRipBox;
   // returns the uv offset to sample with; crest gets how strongly this pixel sits on a wave front
   vec2 rippleOffset(vec2 uv, out vec3 crest) {
     vec2 off = vec2(0.0);
@@ -52,6 +54,7 @@ interface Ripple {
 }
 
 const _v = new THREE.Vector3();
+const _b = new THREE.Box2();
 
 /**
  * Screen-space shockwaves for big hits and shields: started at a point in the world, re-projected
@@ -60,11 +63,13 @@ const _v = new THREE.Vector3();
  */
 export class Ripples {
   private list: Ripple[] = [];
+  private box = new THREE.Box2();
   readonly uniforms = {
     uRipA: { value: Array.from({ length: MAX_RIPPLES }, () => new THREE.Vector4()) },
     uRipB: { value: Array.from({ length: MAX_RIPPLES }, () => new THREE.Vector4()) },
     uRipN: { value: 0 },
     uAspect: { value: 16 / 9 },
+    uRipBox: { value: new THREE.Vector4() },
   };
 
   /** A shockwave from `pos`. `size` is how far it spreads in metres, `strength` about 0.5..1.5. */
@@ -103,7 +108,7 @@ export class Ripples {
     camera.updateMatrixWorld();
     const p11 = camera.projectionMatrix.elements[5];
     let n = 0;
-    let box: THREE.Box2 | null = null;
+    const box = this.box.makeEmpty();
     for (const r of this.list) {
       if (r.t >= r.life) continue;
       _v.copy(r.pos).applyMatrix4(camera.matrixWorldInverse);
@@ -124,11 +129,15 @@ export class Ripples {
       u.uRipB.value[n].set(width, r.tint.r, r.tint.g, r.tint.b);
       // the ring plus the trailing wave behind it
       const ext = radius + width * 3.2;
-      const b = new THREE.Box2(new THREE.Vector2(cx - ext / aspect, cy - ext), new THREE.Vector2(cx + ext / aspect, cy + ext));
-      box = box ? box.union(b) : b;
+      _b.min.set(cx - ext / aspect, cy - ext);
+      _b.max.set(cx + ext / aspect, cy + ext);
+      box.union(_b);
       if (++n >= MAX_RIPPLES) break;
     }
     u.uRipN.value = n;
+    if (!n) return null;
+    // the composite only runs the warp inside this box
+    u.uRipBox.value.set(box.min.x, box.min.y, box.max.x, box.max.y);
     return box;
   }
 }
@@ -179,6 +188,24 @@ export class RippleOverlay {
     this.mesh.frustumCulled = false;
   }
 
+  /** One texture as big as the screen, reused; only the patch is copied into it. */
+  private texture(size: THREE.Vector2) {
+    if (!this.tex || this.tex.image.width !== size.x || this.tex.image.height !== size.y) {
+      this.tex?.dispose();
+      this.tex = new THREE.FramebufferTexture(size.x, size.y);
+      this.tex.minFilter = this.tex.magFilter = THREE.LinearFilter;
+    }
+    return this.tex;
+  }
+
+  /** Build the shader and allocate the copy now, rather than on the first big hit of a fight. */
+  prewarm(renderer: THREE.WebGLRenderer) {
+    renderer.compile(this.mesh, this.cam);
+    const tex = this.texture(renderer.getDrawingBufferSize(_size));
+    renderer.setRenderTarget(null);
+    copyRegion(renderer, tex, 0, 0, 1, 1, this.at);
+  }
+
   /** Call right after the scene has been drawn to the canvas. `box` comes from `Ripples.prepare`. */
   render(renderer: THREE.WebGLRenderer, box: THREE.Box2) {
     const size = renderer.getDrawingBufferSize(_size);
@@ -189,16 +216,11 @@ export class RippleOverlay {
     const y1 = Math.min(size.y, Math.ceil(box.max.y * size.y));
     const w = x1 - x0, h = y1 - y0;
     if (w < 2 || h < 2) return;
-    // one texture as big as the screen, reused; only the patch is copied into it
-    if (!this.tex || this.tex.image.width !== size.x || this.tex.image.height !== size.y) {
-      this.tex?.dispose();
-      this.tex = new THREE.FramebufferTexture(size.x, size.y);
-      this.tex.minFilter = this.tex.magFilter = THREE.LinearFilter;
-    }
+    const tex = this.texture(size);
     renderer.setRenderTarget(null);
-    copyRegion(renderer, this.tex, x0, y0, w, h, this.at);
+    copyRegion(renderer, tex, x0, y0, w, h, this.at);
     const m = this.mesh.material;
-    m.uniforms.tCopy.value = this.tex;
+    m.uniforms.tCopy.value = tex;
     // sample the copy in full-screen uv; the vertex shader places the quad over the patch
     (m.uniforms.uPatch.value as THREE.Vector4).set(x0 / size.x, y0 / size.y, w / size.x, h / size.y);
     const autoClear = renderer.autoClear;

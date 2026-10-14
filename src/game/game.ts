@@ -8,7 +8,7 @@ import { Drones } from '../render/drones';
 import { Stretcher, STRETCHER_TIME } from '../render/stretcher';
 import { CrowdMood } from '../audio/crowd';
 import { BotModel } from '../render/botModel';
-import { Match, PRESENT, SIM_DT, type DetachInfo, type HitInfo } from '../sim/match';
+import { impactPace, Match, PRESENT, SIM_DT, type DetachInfo, type HitInfo } from '../sim/match';
 import type { CoachCall } from '../sim/coach';
 import { CUT_JOINTS, P, PART_COUNT } from '../sim/damage';
 import { Debris } from '../render/debris';
@@ -206,7 +206,11 @@ export class Game {
   /** Garage finisher previews: a sparring dummy to perform them on, and the one playing. */
   private spar: { model: BotModel; mark: THREE.Vector3; yaw: number } | null = null;
   private sparRun: FinisherRun | null = null;
+  /** The sparring finisher's impact slow-down, as Match.hitstop. */
   private sparStop = 0;
+  private sparSpan = 0;
+  /** The arena's shaders have been built (see warmArena). */
+  private arenaWarm = false;
   private groundedPrev: number[][] = [
     [1, 1, 1],
     [1, 1, 1],
@@ -291,6 +295,18 @@ export class Game {
     };
     this.stage.resize();
     requestAnimationFrame(this.loop);
+  }
+
+  /**
+   * The first frame the arena is on screen, build every shader it and its effects can use
+   * (Stage.warmUp), so no spark, flash, oil, vapour or stretcher builds one on a fight's first
+   * hit. It waits for the arena itself: shaders depend on the lights and environment around them,
+   * and the home scenes have their own.
+   */
+  private warmArena() {
+    if (this.arenaWarm || this.place !== 'arena') return;
+    this.arenaWarm = true;
+    this.stage.warmUp([this.arena.group, this.arena.venue.group, this.fx.group, this.debris.group, this.oil.group, this.steam.group, this.drones.group, this.stretcher.group]);
   }
 
   /** Which part of the scene each draw call is charged to in the performance overlay. */
@@ -582,7 +598,11 @@ export class Game {
           this.sfx?.zap();
         }
       },
-      hitstop: (x) => (this.sparStop = Math.max(this.sparStop, x)),
+      hitstop: (x) => {
+        if (x <= this.sparStop) return;
+        this.sparStop = x;
+        this.sparSpan = x;
+      },
       wear: () => {},
     }, true);
     this.sparRun = run;
@@ -640,6 +660,8 @@ export class Game {
     this.trails = [a, b].map((spec) => {
       return [0, 1, 2, 3].map(() => this.fx.makeTrail(spec.paint.accent, 0.13));
     });
+    // these bots' shaders (their shield, and a torn-off part's) are built before the intro, not mid-fight
+    this.stage.warmUp([...this.models.map((md) => md.root), this.fx.group], this.models.flatMap((md) => md.pieceProxies()));
     this.director.mode = 'match';
     this.director.player = me;
     this.director.reset();
@@ -1002,7 +1024,8 @@ export class Game {
     const still = this.paused && !seeking;
     if (m && !still) {
       // match time this frame (none while a seek runs the sim)
-      let flow = dt * this.speed * m.slowmo;
+      // (each hit dips it for a moment: see Match.pace)
+      let flow = dt * this.speed * m.pace;
       if (seeking) {
         this.seekSlice(m);
         flow = 0;
@@ -1024,7 +1047,7 @@ export class Game {
         if (steps >= 16) this.acc = 0;
       }
       perf.lap('sim');
-      alpha = seeking || m.hitstop > 0 ? 1 : this.acc / SIM_DT;
+      alpha = seeking ? 1 : this.acc / SIM_DT;
       // the loser's ride out: from the stretcher's deck, not its body
       const carried = this.carry(m, seeking, flow);
       const st = this.stretcher;
@@ -1044,12 +1067,7 @@ export class Game {
         model.end(i === carried ? st.puppet : f, this.time, this.models[1 - i]);
         if (i === carried) st.dress(model);
         // riding the corner lift up in the intro
-        const lift = this.arena.corners.drop(m, i);
-        if (m.hitstop > 0) {
-          // tiny vibration while frozen on impact
-          const k = Math.min(1, m.hitstop * 20) * 0.012;
-          model.root.position.set((Math.random() - 0.5) * k, lift, (Math.random() - 0.5) * k);
-        } else model.root.position.set(0, lift, 0);
+        model.root.position.set(0, this.arena.corners.drop(m, i), 0);
         if (seeking || (i === carried && st.gone)) continue;
         this.updateTrailsAndFlames(i);
         if (m.fin && m.fin.att === f) this.finisherGlow(m, i, dt);
@@ -1097,14 +1115,11 @@ export class Game {
     if (this.showcase && this.place !== 'home') {
       const { fighter, model, show, dummy } = this.showcase;
       const run = this.sparRun;
-      this.showAcc += dt * (run ? run.slowmo : 1);
+      this.showAcc += dt * (run ? run.slowmo : 1) * impactPace(this.sparStop, this.sparSpan);
       let n = 0;
       while (this.showAcc >= SIM_DT && n++ < 16) {
         this.showAcc -= SIM_DT;
-        if (this.sparStop > 0) {
-          this.sparStop -= SIM_DT;
-          continue;
-        }
+        if (this.sparStop > 0) this.sparStop = Math.max(0, this.sparStop - SIM_DT);
         if (fighter.hooks) fighter.hooks.time += SIM_DT;
         if (dummy.hooks) dummy.hooks.time += SIM_DT;
         // drift back to the mark between previews
@@ -1230,6 +1245,7 @@ export class Game {
     this.lastCuts = this.director.cuts;
     this.lastMode = this.director.mode;
     this.stage.govern(dt, cut, this.pacer.target);
+    this.warmArena();
     this.probe.begin();
     this.stage.render();
     this.probe.end();

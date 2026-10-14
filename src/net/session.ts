@@ -278,7 +278,7 @@ export class OnlineSession {
   /** Where the other phone's fight is now, by its last word and how long ago that was. */
   private peerEstimate(m: Match) {
     const silent = (performance.now() - this.peerAt) / 1000;
-    return this.peerN + (silent + this.rtt / 2000) * STEPS_PER_S * m.slowmo;
+    return this.peerN + (silent + this.rtt / 2000) * STEPS_PER_S * m.pace;
   }
 
   private stepped(m: Match) {

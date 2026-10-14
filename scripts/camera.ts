@@ -55,7 +55,7 @@ function run(aspect: number, fov: number, label: string) {
     let t = 0;
     while (m.phase !== 'end' || t < 3) {
       const dt = 1 / FPS;
-      acc += dt * m.slowmo;
+      acc += dt * m.pace;
       let n = 0;
       while (acc >= SIM_DT && n++ < 16) {
         m.step(SIM_DT);

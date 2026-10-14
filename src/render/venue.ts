@@ -33,7 +33,9 @@ import { contactAO } from './ao';
 import { house, HOUSE_GLSL } from './house';
 import { FloorShow } from './floor';
 import { ArenaShow } from './show';
-import { cutHatches } from './corners';
+import { cornerAngle } from './ring';
+import { RING_CORNER } from '../sim/body';
+import { batchStatic } from './batch';
 
 /**
  * The indoor arena around the ring: a two-tier seating bowl with a suite level, LED ribbon
@@ -96,6 +98,13 @@ function tex(c: HTMLCanvasElement, repeat = true) {
   return t;
 }
 
+/** A sign painted once and never again: it can share an atlas with the others (see batch.ts). */
+function sign(c: HTMLCanvasElement) {
+  const t = tex(c, false);
+  t.userData.atlas = true;
+  return t;
+}
+
 const _m = new THREE.Matrix4();
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
@@ -146,32 +155,37 @@ function vomTexture(section: number): THREE.CanvasTexture {
   g.fillStyle = '#d9ffe6';
   g.font = 'bold 15px Arial, sans-serif';
   g.fillText('EXIT', 222, 20);
-  return tex(c, false);
+  return sign(c);
 }
 
-/** A moulded seat back: rounded shell, lighter top edge, a seat number plate. Alpha cuts its shape. */
-function seatBackTexture(): THREE.CanvasTexture {
-  const [c, g] = canvas(64, 64);
-  g.clearRect(0, 0, 64, 64);
-  const gr = g.createLinearGradient(0, 0, 0, 64);
-  gr.addColorStop(0, '#ffffff');
-  gr.addColorStop(0.25, '#d0d0d0');
-  gr.addColorStop(1, '#7a7a7a');
-  g.fillStyle = gr;
-  g.beginPath();
-  g.roundRect(6, 2, 52, 60, [14, 14, 6, 6]);
-  g.fill();
-  const side = g.createLinearGradient(6, 0, 58, 0);
-  side.addColorStop(0, 'rgba(0,0,0,0.35)');
-  side.addColorStop(0.5, 'rgba(0,0,0,0)');
-  side.addColorStop(1, 'rgba(0,0,0,0.35)');
-  g.fillStyle = side;
-  g.fillRect(6, 2, 52, 60);
-  g.fillStyle = '#e8e8e8';
-  g.fillRect(26, 8, 12, 6);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+/**
+ * The moulded seat back, as geometry rather than an alpha-tested quad (whose `discard` kept the
+ * GPU from skipping hidden pixels): a shell with rounded top corners, as (u across, v up) on the
+ * seat's 0.5 × 0.5 m quad. Ten points, so the shading can fall off towards both sides.
+ */
+const SEAT_PTS: [number, number][] = [
+  [0.094, 0.03],
+  [0.5, 0.03],
+  [0.906, 0.03],
+  [0.906, 0.75],
+  [0.845, 0.905],
+  [0.69, 0.97],
+  [0.5, 0.97],
+  [0.31, 0.97],
+  [0.155, 0.905],
+  [0.094, 0.75],
+];
+// prettier-ignore
+const SEAT_TRIS = [0, 1, 9, 1, 2, 3, 1, 3, 6, 3, 4, 6, 4, 5, 6, 1, 6, 9, 6, 7, 8, 6, 8, 9];
+const _shade = new THREE.Color();
+/** Brightness of the shell at (u, v): lighter at the top edge, darker down it and towards the sides. */
+function seatShade(u: number, v: number) {
+  // the old texture's gradients, in sRGB: white, #d0d0d0 a quarter of the way down, #7a7a7a at the foot
+  const y = (1 - v) * 64;
+  const tone = y < 16 ? 255 - 47 * (y / 16) : 208 - 86 * ((y - 16) / 48);
+  const side = 1 - 0.35 * Math.min(1, Math.abs(u * 64 - 32) / 26);
+  const k = (tone * side) / 255;
+  return _shade.setRGB(k, k, k, THREE.SRGBColorSpace).r;
 }
 
 /** Upper concourse glimpsed through openings behind the top row: warm light, pillars, people. */
@@ -215,7 +229,7 @@ function skirtTexture(label: string, colour: string): THREE.CanvasTexture {
   g.textBaseline = 'middle';
   g.fillStyle = '#e9ecf2';
   g.fillText(label, 256, 66, 470);
-  return tex(c, false);
+  return sign(c);
 }
 
 /** The centre-hung screens: the arena logo between fights, the live score while one is on. */
@@ -459,7 +473,7 @@ function bannerTexture(): THREE.CanvasTexture {
     g.font = 'bold 60px "Russo One", Impact, sans-serif';
     g.fillText(b, x + 128, 395, 230);
   });
-  return tex(c, false);
+  return sign(c);
 }
 
 function tunnelTexture(colour: string, label: string): THREE.CanvasTexture {
@@ -484,27 +498,28 @@ function tunnelTexture(colour: string, label: string): THREE.CanvasTexture {
   g.font = 'bold 22px "Russo One", Impact, sans-serif';
   g.textAlign = 'center';
   g.fillText(label, 128, 28);
-  return tex(c, false);
+  return sign(c);
 }
 
 /**
  * Emissive LED panel. Plain mode scrolls its texture along u (metres). With `ads`, u is cut into
  * segments of `len` metres that each show one cell of the ad atlas, rotating to the next sponsor
  * every few seconds with a wipe (staggered per segment). Both strobe on big moments.
+ * `len`, `speed` and `glow` are per vertex (see led()), so all the panels of a kind are one draw.
  */
-function ledMaterial(map: THREE.Texture, len: number, speed: number, glow = 1.4, ads = false) {
+function ledMaterial(map: THREE.Texture, ads = false) {
   const m = new THREE.ShaderMaterial({
     defines: ads ? { ADS: '', AD_COLS: AD_COLS.toFixed(1), AD_ROWS: AD_ROWS.toFixed(1), AD_COUNT: AD_COUNT.toFixed(1) } : {},
-    uniforms: THREE.UniformsUtils.merge([
-      THREE.UniformsLib.fog,
-      { uMap: { value: null }, uLen: { value: len }, uSpeed: { value: speed }, uGlow: { value: RenderSettings.glow(glow) } },
-    ]),
+    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uMap: { value: null } }]),
     vertexShader: /* glsl */ `
       #include <common>
       #include <fog_pars_vertex>
+      attribute vec3 aLed;
       varying vec2 vUv;
+      varying vec3 vLed;
       void main() {
         vUv = uv;
+        vLed = aLed;
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
@@ -512,9 +527,11 @@ function ledMaterial(map: THREE.Texture, len: number, speed: number, glow = 1.4,
     fragmentShader: /* glsl */ `
       #include <common>
       #include <fog_pars_fragment>
-      uniform sampler2D uMap; uniform float uLen, uSpeed, uGlow, uTime, uFlash, uHype;
+      uniform sampler2D uMap; uniform float uTime, uFlash, uHype;
       varying vec2 vUv;
+      varying vec3 vLed;
       void main() {
+        float uLen = vLed.x, uSpeed = vLed.y, uGlow = vLed.z;
         #ifdef ADS
           float x = vUv.x / uLen - uTime * uSpeed;
           float seg = floor(x), f = x - seg;
@@ -543,6 +560,15 @@ function ledMaterial(map: THREE.Texture, len: number, speed: number, glow = 1.4,
   return m;
 }
 
+/** An LED panel's settings for ledMaterial, on every vertex: segment length (m), scroll speed, brightness. */
+function led(geo: THREE.BufferGeometry, len: number, speed: number, glow = 1.4) {
+  const n = geo.attributes.position.count;
+  const a = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) a.set([len, speed, RenderSettings.glow(glow)], i * 3);
+  geo.setAttribute('aLed', new THREE.BufferAttribute(a, 3));
+  return geo;
+}
+
 /** Press and judges' desks in two corners of the floor, outside the camera's space, with seats for their crew. */
 function ringsideDesks() {
   const out: { x: number; z: number; rot: number; label: string; colour: string; seats: Seat[] }[] = [];
@@ -567,6 +593,8 @@ export class Venue {
   readonly group = new THREE.Group();
   readonly crowd: Crowd;
   readonly floor: FloorShow;
+  /** The arena floor round the stage. */
+  readonly floorMesh: THREE.Mesh;
   /** Moving-head beams, pyro and confetti. */
   readonly show: ArenaShow;
   readonly uniforms: Uniforms & { uFlash: { value: number } };
@@ -603,6 +631,10 @@ export class Venue {
     // ---------------------------------------------------------------- floor
     const floorPts = outline(-0.6);
     const shape = new THREE.Shape(floorPts.map((p) => new THREE.Vector2(p.x, -p.z)));
+    // none of it under the stage, which hides it (the lift shafts go down through that hole too):
+    // cut just inside where the stage's steel foot meets the floor
+    const foot = RING_CORNER + 0.75 + 0.19;
+    shape.holes.push(new THREE.Path(Array.from({ length: 8 }, (_, i) => new THREE.Vector2(Math.cos(cornerAngle(i)) * foot, -Math.sin(cornerAngle(i)) * foot))));
     const floorGeo = new THREE.ShapeGeometry(shape, 4);
     floorGeo.rotateX(-Math.PI / 2);
     // the stage casts a wide soft contact shadow onto the arena floor
@@ -611,12 +643,11 @@ export class Venue {
       floor: true,
       direct: 0.8,
     });
-    // the lift shafts in the corners go down through it
-    cutHatches(floorMat);
     const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.position.y = FLOOR;
     floor.receiveShadow = true;
     g.add(floor);
+    this.floorMesh = floor;
     // glowing floor ring around the stage
     const halo = new THREE.Mesh(
       new THREE.RingGeometry(6.6, 6.75, 64).rotateX(-Math.PI / 2),
@@ -672,24 +703,27 @@ export class Venue {
     // the roof catches a little light from the bowl near its edge
     const roof = (_x: number, _y: number, _z: number, v: number): Rgb => [0.045 - 0.025 * v, 0.048 - 0.026 * v, 0.062 - 0.032 * v];
     stands.strip(back, ROOF_Y, roofIn, ROOF_Y + 5, roof);
-    const standMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+    // every strip faces into the bowl, the only side anyone sees, so the back faces are culled
+    const standMat = new THREE.MeshBasicMaterial({ vertexColors: true });
     const spots = this.spots;
-    // lit by the house lights in its own shader, so the roaming spots stay bright on the dimmed bowl
+    // lit by the house lights in its own shader, so the roaming spots stay bright on the dimmed bowl.
+    // Every plain house-lit piece of the venue is batched onto this material (batch.ts); `aSpot`
+    // is 1 on the stands themselves, the only surfaces the spots light.
     standMat.userData.house = false;
     standMat.onBeforeCompile = (sh) => {
       sh.uniforms.uSpots = { value: spots };
       sh.uniforms.uHouse = house.uniforms.uHouse;
       sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+        .replace('#include <common>', '#include <common>\nattribute float aSpot;\nvarying vec3 vWPos;\nvarying float vSpot;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvSpot = aSpot;');
       sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', `#include <common>\nvarying vec3 vWPos; uniform vec4 uSpots[3];\n${HOUSE_GLSL}`)
+        .replace('#include <common>', `#include <common>\nvarying vec3 vWPos; varying float vSpot; uniform vec4 uSpots[3];\n${HOUSE_GLSL}`)
         .replace(
           '#include <opaque_fragment>',
           `outgoingLight *= houseLight(vWPos);
            for (int i = 0; i < 3; i++) {
              vec4 sp = uSpots[i];
-             outgoingLight += vec3(1.0, 0.95, 0.85) * 0.22 * sp.w * smoothstep(sp.z, sp.z * 0.55, distance(vWPos.xz, sp.xy)) * step(vWPos.y, 22.0);
+             outgoingLight += vec3(1.0, 0.95, 0.85) * 0.22 * vSpot * sp.w * smoothstep(sp.z, sp.z * 0.55, distance(vWPos.xz, sp.xy)) * step(vWPos.y, 22.0);
            }
            #include <opaque_fragment>`,
         );
@@ -697,36 +731,47 @@ export class Venue {
     const roofCap = new THREE.ShapeGeometry(new THREE.Shape(roofIn.map((p) => new THREE.Vector2(p.x, -p.z))), 2);
     roofCap.rotateX(-Math.PI / 2);
     roofCap.translate(0, ROOF_Y + 5, 0);
-    const capCol = new Float32Array(roofCap.attributes.position.count * 3).fill(0.018);
-    roofCap.setAttribute('color', new THREE.BufferAttribute(capCol, 3));
-    roofCap.deleteAttribute('normal');
-    const standGeo = stands.geometry();
-    roofCap.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(roofCap.attributes.position.count * 2), 2));
-    g.add(new THREE.Mesh(mergeGeometries([standGeo, roofCap])!, standMat));
+    // seen from below: turned to face down
+    const capIdx = roofCap.index!;
+    for (let k = 0; k < capIdx.count; k += 3) {
+      const b = capIdx.getX(k + 1);
+      capIdx.setX(k + 1, capIdx.getX(k + 2));
+      capIdx.setX(k + 2, b);
+    }
+    roofCap.setAttribute('color', new THREE.BufferAttribute(new Float32Array(roofCap.attributes.position.count * 3).fill(0.018), 3));
+    g.add(new THREE.Mesh(stands.geometry(), standMat));
+    g.add(new THREE.Mesh(roofCap, standMat));
 
     // ---------------------------------------------------------------- LED boards
     const adsTex = adAtlas();
     const ribbonTex = ledTexture();
-    const ledStrip = (d: number, y0: number, y1: number, map: THREE.Texture, speed: number, glow: number) => {
+    const ledStrip = (d: number, y0: number, y1: number, speed: number, glow: number) => {
       const s = new Strips();
       const o = outline(d);
       s.strip(o, y0, o, y1, () => [1, 1, 1]);
       const total = o[o.length - 1].s;
       const len = (y1 - y0) * AD_ASPECT;
-      const m = hookLed(ledMaterial(map, total / Math.max(1, Math.round(total / len)), speed, glow, true));
-      m.side = THREE.DoubleSide;
-      const mesh = new THREE.Mesh(s.geometry(), m);
-      g.add(mesh);
-      return mesh;
+      const geo = s.geometry();
+      geo.deleteAttribute('color');
+      return led(geo, total / Math.max(1, Math.round(total / len)), speed, glow);
     };
-    // ringside boards on the barrier, the suite-level ribbon, and a ring of lights at the top
-    ledStrip(-0.6, FLOOR + 0.05, 0.42, adsTex, 0, 0.9);
-    ledStrip(SUITE_D - 0.02, UPPER_Y - 1.15, UPPER_Y - 0.2, adsTex, -0.04, 1.3);
-    // and a crown of boards round the top of the bowl, above the concourse openings
-    ledStrip(BACK_D - 0.04, TOP_Y + 3.0, TOP_Y + 4.1, adsTex, 0.05, 1.1);
+    const adsMat = hookLed(ledMaterial(adsTex, true));
+    adsMat.side = THREE.DoubleSide;
+    g.add(
+      new THREE.Mesh(
+        mergeGeometries([
+          // ringside boards on the barrier, the suite-level ribbon, and a ring of lights at the top
+          ledStrip(-0.6, FLOOR + 0.05, 0.42, 0, 0.9),
+          ledStrip(SUITE_D - 0.02, UPPER_Y - 1.15, UPPER_Y - 0.2, -0.04, 1.3),
+          // and a crown of boards round the top of the bowl, above the concourse openings
+          ledStrip(BACK_D - 0.04, TOP_Y + 3.0, TOP_Y + 4.1, 0.05, 1.1),
+        ])!,
+        adsMat,
+      ),
+    );
     const cap = new Strips();
     cap.strip(outline(-0.6), 0.42, outline(-0.35), 0.42, () => [0.05, 0.055, 0.07]);
-    g.add(new THREE.Mesh(cap.geometry(), new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })));
+    g.add(new THREE.Mesh(cap.geometry(), new THREE.MeshBasicMaterial({ vertexColors: true })));
     // suite windows
     const win = new Strips();
     win.strip(suite, lowTop + 0.35, suite, lowTop + 2.05, () => [1, 1, 1]);
@@ -858,26 +903,22 @@ export class Venue {
     const sbW = 7.2, sbH = 4.05;
     board.add(new THREE.Mesh(new THREE.BoxGeometry(sbW + 0.3, sbH + 0.3, sbW + 0.3), new THREE.MeshBasicMaterial({ color: 0x0c0f16 })));
     const screenMat = new THREE.MeshBasicMaterial({ map: this.board.texture, color: new THREE.Color(1, 1, 1).multiplyScalar(RenderSettings.glow(1.3)), toneMapped: false });
-    for (let i = 0; i < 4; i++) {
-      const p = new THREE.Mesh(new THREE.PlaneGeometry(sbW, sbH), screenMat);
+    const screens = [0, 1, 2, 3].map((i) => {
       const a = (i * Math.PI) / 2;
-      p.position.set(Math.sin(a) * (sbW / 2 + 0.16), 0, Math.cos(a) * (sbW / 2 + 0.16));
-      p.rotation.y = a;
-      board.add(p);
-    }
+      return new THREE.PlaneGeometry(sbW, sbH).rotateY(a).translate(Math.sin(a) * (sbW / 2 + 0.16), 0, Math.cos(a) * (sbW / 2 + 0.16));
+    });
+    board.add(new THREE.Mesh(mergeGeometries(screens)!, screenMat));
     // LED rings above and below the screens
-    for (const [y, h] of [
+    const ledRings = [
       [-sbH / 2 - 0.75, 0.6],
       [sbH / 2 + 0.55, 0.5],
-    ]) {
-      const ring = new THREE.CylinderGeometry(sbW * 0.62, sbW * 0.62, h, 32, 1, true);
+    ].map(([y, h]) => {
+      const ring = new THREE.CylinderGeometry(sbW * 0.62, sbW * 0.62, h, 32, 1, true).translate(0, y, 0);
       const uv = ring.attributes.uv;
       for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * sbW * 0.62 * Math.PI * 2);
-      const m = hookLed(ledMaterial(ribbonTex, (sbW * 0.62 * Math.PI * 2) / 3, 0.03, 1.6));
-      const mesh = new THREE.Mesh(ring, m);
-      mesh.position.y = y;
-      board.add(mesh);
-    }
+      return led(ring, (sbW * 0.62 * Math.PI * 2) / 3, 0.03, 1.6);
+    });
+    board.add(new THREE.Mesh(mergeGeometries(ledRings)!, hookLed(ledMaterial(ribbonTex))));
     board.position.y = 17.2;
     g.add(board);
 
@@ -894,7 +935,7 @@ export class Venue {
         b.translate((i - 1.5) * 6, ROOF_Y - 2.2, sz * (AX - 3 + 21));
         bannerGeos.push(b);
       }
-    const banners = new THREE.Mesh(mergeGeometries(bannerGeos)!, new THREE.MeshBasicMaterial({ map: bannerTex, color: 0x8a8f9c, side: THREE.DoubleSide }));
+    const banners = new THREE.Mesh(mergeGeometries(bannerGeos)!, new THREE.MeshBasicMaterial({ map: bannerTex, color: 0x8a8f9c }));
     g.add(banners);
 
     // ---------------------------------------------------------------- vomitories
@@ -982,34 +1023,37 @@ export class Venue {
       sg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       sg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
       sg.setIndex(idx);
-      g.add(new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })));
+      g.add(new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ vertexColors: true })));
     }
     {
-      // a folding seat back behind every seat, in the tier's colour
+      // a folding seat back behind every seat, in the tier's colour, facing the ring
       const n = bowlSeats.length;
-      const pos = new Float32Array(n * 12), col = new Float32Array(n * 12), uv = new Float32Array(n * 8);
+      const P = SEAT_PTS.length;
+      const pos = new Float32Array(n * P * 3), col = new Float32Array(n * P * 3);
       const idx: number[] = [];
       const lowC = new THREE.Color(0x5a1c22), upC = new THREE.Color(0x1d2c4c);
+      const shade = SEAT_PTS.map(([u, v]) => seatShade(u, v));
       bowlSeats.forEach((st, i) => {
         const nx = st.nx ?? 0, nz = st.nz ?? 0;
         const row = ROWS[st.row];
         const bx = st.x + nx * row.depth * 0.32, bz = st.z + nz * row.depth * 0.32;
         const tx = -nz * 0.25, tz = nx * 0.25;
         const y0 = st.y + 0.36, y1 = st.y + 0.86;
-        pos.set([bx - tx, y0, bz - tz, bx + tx, y0, bz + tz, bx + tx + nx * 0.06, y1, bz + tz + nz * 0.06, bx - tx + nx * 0.06, y1, bz - tz + nz * 0.06], i * 12);
-        uv.set([0, 0, 1, 0, 1, 1, 0, 1], i * 8);
         const c = row.upper ? upC : lowC;
         const k = (1 - Math.sqrt(Math.min(1, Math.max(0, st.y / 20))) * 0.5) * (0.85 + 0.3 * (((i * 2654435761) >>> 0) % 100) / 100);
-        for (let v = 0; v < 4; v++) col.set([c.r * k, c.g * k, c.b * k], i * 12 + v * 3);
-        const b = i * 4;
-        idx.push(b, b + 1, b + 2, b, b + 2, b + 3);
+        SEAT_PTS.forEach(([u, v], j) => {
+          // across the seat from -t to +t, leaning back 6 cm at the top
+          const w = 2 * u - 1;
+          pos.set([bx + tx * w + nx * 0.06 * v, y0 + (y1 - y0) * v, bz + tz * w + nz * 0.06 * v], (i * P + j) * 3);
+          col.set([c.r * k * shade[j], c.g * k * shade[j], c.b * k * shade[j]], (i * P + j) * 3);
+        });
+        for (const t of SEAT_TRIS) idx.push(i * P + t);
       });
       const bg = new THREE.BufferGeometry();
       bg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       bg.setAttribute('color', new THREE.BufferAttribute(col, 3));
-      bg.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
       bg.setIndex(idx);
-      g.add(new THREE.Mesh(bg, new THREE.MeshBasicMaterial({ map: seatBackTexture(), vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide })));
+      g.add(new THREE.Mesh(bg, new THREE.MeshBasicMaterial({ vertexColors: true })));
     }
     // a rail along the back of the top row
     {
@@ -1085,6 +1129,9 @@ export class Venue {
       desk.rotation.y = d.rot;
       g.add(desk);
     }
+
+    // a few draws instead of dozens (the crowd draws itself)
+    batchStatic(g, { skip: [this.crowd.group], spots: standMat, rigY: 12 });
 
     // ---------------------------------------------------------------- crowd
     g.add(this.crowd.group);

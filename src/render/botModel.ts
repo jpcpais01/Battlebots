@@ -767,6 +767,16 @@ export class BotModel {
     return g;
   }
 
+  /**
+   * Stand-ins for a torn-off part (its materials on a mesh without a skeleton, as tearOff makes),
+   * for Stage.warmUp: the first part a fight rips off then has its shaders ready.
+   */
+  pieceProxies(): THREE.Object3D[] {
+    const om = new THREE.Mesh(this.opaque.geometry, this.opaque.material);
+    om.castShadow = true;
+    return [om, new THREE.Mesh(this.emissive.geometry, this.emissive.material)];
+  }
+
   /** Put a damage mark on `bone` at a world point (stored in the bone's own frame, so it moves with it). */
   private mark(slot: number, bone: B, at: THREE.Vector3, radius: number, kind: number, strength: number) {
     if (this.hidden.has(bone)) return;

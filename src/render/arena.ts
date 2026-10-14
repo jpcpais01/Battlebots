@@ -7,7 +7,9 @@ import { splitWedges } from './wedges';
 import { contactAO } from './ao';
 import { FLOOR } from './bowl';
 import { beam, canvasTexture, cornerAngle, octBand, octDisc, skirtTexture } from './ring';
-import { Corners, cutHatches } from './corners';
+import { Corners } from './corners';
+import { layer, LAYER } from './layers';
+import { HATCH_R, hatchXZ } from '../sim/entrance';
 
 export const RING_RADIUS = RING_CORNER; // corner radius of the octagon
 const SIDES = 8;
@@ -86,6 +88,13 @@ export class Arena {
 
     // light beams (fake volumetrics)
     if (quality !== 'low') g.add(this.buildBeams());
+
+    // nearest first, so what is hidden behind the ring and the fans is never shaded
+    const v = this.venue;
+    layer(g, LAYER.ring);
+    layer(v.floorMesh, LAYER.floor);
+    layer(v.crowd.group, LAYER.crowd);
+    layer(v.group, LAYER.stands);
   }
 
   /**
@@ -97,8 +106,9 @@ export class Arena {
     const g = this.group;
     const R = RING_RADIUS + 0.55;
     // the robots' contact shadows land here; the edges and post bases are baked into the texture
+    // the corner lifts come up through it: the hatches are holes in it
     const canvas = new THREE.Mesh(
-      octDisc(R),
+      octDisc(R, R, [0, 1].map((i) => [...hatchXZ(i), HATCH_R] as const)),
       contactAO.patch(new THREE.MeshStandardMaterial({ map: canvasTexture(quality === 'high' ? 2048 : 1024, R), roughness: 0.82, metalness: 0.04 }), {
         spheres: true,
         floor: true,
@@ -107,8 +117,6 @@ export class Arena {
       }),
     );
     canvas.receiveShadow = true;
-    // the corner lifts come up through it
-    cutHatches(canvas.material);
     g.add(canvas);
     g.add(this.corners.group);
     // the canvas wraps over a padded bumper at its edge

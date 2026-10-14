@@ -50,6 +50,13 @@ function tex(c: HTMLCanvasElement) {
   return t;
 }
 
+/** Painted once and never again: it can share the venue's sign atlas (see batch.ts). */
+function sign(c: HTMLCanvasElement) {
+  const t = tex(c);
+  t.userData.atlas = true;
+  return t;
+}
+
 /** Front of a robot charging station: four bays of charge bars and status lights. */
 function chargerTexture(colour: string) {
   const [c, g] = canvas(128, 256);
@@ -75,7 +82,7 @@ function chargerTexture(colour: string) {
     g.arc(110, y + 23, 3, 0, Math.PI * 2);
     g.fill();
   }
-  return tex(c);
+  return sign(c);
 }
 
 /** Front of a tool chest: team-coloured drawers with handles. */
@@ -92,7 +99,7 @@ function cartTexture(colour: string) {
     g.fillStyle = '#c9ced8';
     g.fillRect(44, y + 7, 40, 4);
   }
-  return tex(c);
+  return sign(c);
 }
 
 /** Skirt of the ringside VIP seating. */
