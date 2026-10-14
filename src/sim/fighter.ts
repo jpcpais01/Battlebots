@@ -321,6 +321,15 @@ export class Fighter {
   stunTime = 0;
   invuln = 0;
   downTime = 0;
+  /** Seconds since it went down (the count's clock, as the fighter sees it). */
+  downAge = 0;
+  /**
+   * Attempts to rise that will fail during this count, in order: when they start (downAge)
+   * and how far through the get-up the strength gives out (0..1). Set by the match.
+   */
+  tries: { at: number; fail: number }[] = [];
+  /** Non-zero while a doomed attempt runs: the get-up fraction it collapses at. */
+  getupFail = 0;
   getupFrom = new Vector3();
   /** Get-up: lying pose (local, in the get-up frame), which script, and its length. */
   private getupSnap = Array.from({ length: JOINT_COUNT }, () => new Vector3());
@@ -837,10 +846,29 @@ export class Fighter {
       case 'down':
         this.body.tone = 0;
         this.downTime -= dt;
+        this.downAge += dt;
         if (this.downTime <= 0 && this.hp > 0) this.beginGetUp();
+        else if (this.tries.length && this.downAge >= this.tries[0].at && this.hp > 0) {
+          // tries to get up, but hasn't the strength
+          this.getupFail = this.tries.shift()!.fail;
+          this.beginGetUp();
+        }
         break;
       case 'getup': {
         const k = clamp01(this.stateTime / this.getupDur);
+        if (this.getupFail) {
+          this.downTime -= dt;
+          this.downAge += dt;
+          // never stronger than half tone, shaking as the strength drains, then it gives out
+          this.body.tone = lerp(0.5, 0.35, smoothstep(0, this.getupFail, k)) + this.noise.at(this.stateTime * 9) * 0.06;
+          if (k >= this.getupFail) {
+            this.getupFail = 0;
+            this.setState('down');
+            this.body.tone = 0;
+            this.hooks?.emit('getupFail', { f: this });
+          } else if (this.downTime <= 0) this.getupFail = 0; // the count's own rise: carry on up
+          break;
+        }
         // firm enough to follow the choreography from the first frame, stiffening as it rises
         this.body.tone = lerp(0.5, 1, smoothstep(0, 0.45, k));
         if (k >= 1) {
@@ -883,6 +911,9 @@ export class Fighter {
     this.spinYaw = 0;
     this.lift = 0;
     if (counts) this.knockdowns++;
+    this.downAge = 0;
+    this.tries.length = 0;
+    this.getupFail = 0;
     this.setState(this.hp <= 0 ? 'ko' : 'down');
     this.body.tone = 0;
     _v.copy(dir).setY(0).normalize();

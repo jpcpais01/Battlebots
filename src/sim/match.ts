@@ -18,6 +18,8 @@ export const SIM_DT = 1 / 120;
 export const COUNT_OUT = 9.6;
 /** Chance a downed bot gets up on each second of the count, at full health (scales with HP). */
 export const GETUP_PER_SECOND = 0.2;
+/** Seconds between failed tries to rise during a count (one collapses and settles first). */
+const TRY_GAP = 2;
 export const ROUND_TIME = 99;
 
 export type MatchPhase = 'intro' | 'countdown' | 'greet' | 'fight' | 'ko' | 'end';
@@ -844,17 +846,28 @@ export class Match {
   /**
    * The count. On each of the referee's numbers from two to nine the downed bot rolls to
    * get up, at odds set by the health it has left (about 10% a second at half health, 5%
-   * at a fifth). Health can't change while it lies there, so every roll is made now, on
-   * the match Rng: the bot knows when it will rise, and the taunts and the count fit it.
-   * Missing all eight is a count-out.
+   * at a fifth). A failed roll is often a visible try that gives out partway, more often
+   * and further up the healthier it is. Health can't change while it lies there, so every
+   * roll is made now, on the match Rng, and handed to the fighter as its plan for the
+   * count. Missing all eight is a count-out.
    */
   private rollCount(att: Fighter, def: Fighter) {
-    const p = clamp(GETUP_PER_SECOND * def.hpRatio * (1 + def.passive('composure')), 0.01, 0.6);
+    const rng = this.rng;
+    const hp = def.hpRatio;
+    const p = clamp(GETUP_PER_SECOND * hp * (1 + def.passive('composure')), 0.01, 0.6);
+    let last = -9;
     for (let n = 2; n <= 9; n++) {
-      if (this.rng.chance(p)) {
-        // the HUD shows count n at n - 0.65 s; it starts to rise just after the number
-        def.downTime = n - 0.65 + 0.2;
+      // the HUD shows count n at n - 0.65 s; it moves just after the number
+      const at = n - 0.65 + 0.2;
+      if (rng.chance(p)) {
+        // up for real, once it has settled from the last failed try
+        def.downTime = Math.max(at, last + TRY_GAP);
         return;
+      }
+      // a try must have collapsed and settled before the referee says ten
+      if (n <= 8 && at - last >= TRY_GAP && rng.chance(0.3 + hp * 0.4)) {
+        def.tries.push({ at, fail: rng.range(0.22, 0.38) + hp * 0.2 });
+        last = at;
       }
     }
     def.downTime = COUNT_OUT + 1; // ko() lands first
