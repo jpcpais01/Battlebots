@@ -25,7 +25,22 @@ import * as THREE from 'three';
  * Limb parts (forearm, fist apart from the thumb, thigh, shin) are shared by both
  * sides, so they stay symmetric across X.
  */
-export type MatKey = 'paint' | 'paint2' | 'metal' | 'chrome' | 'dark' | 'joint' | 'glow' | 'core' | 'rarity';
+export type MatKey =
+  | 'paint'
+  | 'paint2'
+  | 'metal'
+  | 'chrome'
+  | 'dark'
+  | 'joint'
+  | 'brass'
+  | 'glass'
+  | 'rubber'
+  | 'steel'
+  | 'carbon'
+  | 'alu'
+  | 'glow'
+  | 'core'
+  | 'rarity';
 export const EMISSIVE_KEYS: ReadonlySet<MatKey> = new Set<MatKey>(['glow', 'core', 'rarity']);
 
 const PI = Math.PI;
@@ -378,10 +393,10 @@ function hazard(b: PB, w: number, h: number, x: number, y: number, z: number, rx
 }
 
 /** A row of chrome rivet heads from (x0, y0, z0) to (x1, y1, z1). */
-function rivets(b: PB, n: number, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, r = 0.008) {
+function rivets(b: PB, n: number, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, r = 0.008, key: MatKey = 'chrome') {
   for (let i = 0; i < n; i++) {
     const t = n > 1 ? i / (n - 1) : 0.5;
-    b.add(G.sphere(r, 6, 4), 'chrome', x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, z0 + (z1 - z0) * t);
+    b.add(G.sphere(r, 6, 4), key, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, z0 + (z1 - z0) * t);
   }
 }
 
@@ -417,19 +432,9 @@ interface HeadFit {
   crown: boolean;
 }
 
-function neckSocket(b: PB) {
+function neckSocket(b: PB, key: MatKey = 'metal') {
   b.add(G.cyl(0.048, 0.06, 0.036, 12), 'dark', 0, -0.094, -0.01);
-  b.add(G.torus(0.052, 0.007, 4, 16), 'metal', 0, -0.082, -0.01, HP, 0, 0);
-}
-
-/** Ear drums through the head: an axle, a chrome ring and a lit pip on each side. */
-function ears(b: PB, y: number, z: number, hw: number, r = 0.04, pip: MatKey | null = 'glow') {
-  b.addAxle(r, hw * 2, 'metal', 0, y, z, 16);
-  b.addAxle(r * 0.62, hw * 2 + 0.018, 'joint', 0, y, z, 12);
-  b.both((s) => {
-    s.add(G.torus(r * 0.78, 0.005, 4, 16), 'chrome', hw + 0.001, y, z, 0, HP, 0);
-    if (pip) s.add(G.cyl(r * 0.3, r * 0.3, 0.006, 10), pip, hw + 0.01, y, z, 0, 0, HP);
-  });
+  b.add(G.torus(0.052, 0.007, 4, 16), key, 0, -0.082, -0.01, HP, 0, 0);
 }
 
 function headTier(b: PB, r: number, f: HeadFit) {
@@ -465,200 +470,133 @@ function headTier(b: PB, r: number, f: HeadFit) {
   }
 }
 
-/** Head: origin at the head joint (centre of the skull), facing +Z. Kept compact so the bot reads tough. */
+/**
+ * Head: origin at the head joint (centre of the skull), facing +Z. `look` is the maker:
+ * 0 Ironhorse, 1 Lumen, 2 Longwei, 3 Martelli, 4 Kensei, 5 Strix (every builder below).
+ */
 export function buildHead(look: number, r = 0): PB {
   const b = new PB();
-  neckSocket(b);
   let fit: HeadFit;
   switch (look) {
     case 0: {
-      // Sentinel Visor: boxer's helmet with a wide visor slit, a ridge and a vented jaw guard
-      b.add(G.loft([[-0.085, 0.13, 0.15, 0.02], [-0.035, 0.19, 0.2, 0.0], [0.05, 0.2, 0.21, -0.005], [0.1, 0.16, 0.175, -0.015], [0.12, 0.1, 0.12, -0.02]], 0.32), 'paint');
-      b.add(G.loft([[0.07, 0.044, 0.2, -0.006], [0.128, 0.034, 0.13, -0.022]], 0.35), 'paint2');
-      b.add(G.cbox(0.19, 0.064, 0.05, 0.014), 'dark', 0, 0.014, 0.092);
-      b.add(G.cbox(0.162, 0.017, 0.012, 0.006), 'glow', 0, 0.016, 0.117);
-      b.add(G.cbox(0.2, 0.012, 0.03, 0.005), 'chrome', 0, 0.051, 0.1);
-      b.add(G.loft([[-0.1, 0.11, 0.05], [-0.03, 0.17, 0.06]], 0.3), 'paint2', 0, 0, 0.088);
-      for (let i = 0; i < 3; i++) b.add(G.box(0.07 - i * 0.012, 0.006, 0.008), 'dark', 0, -0.035 - i * 0.017, 0.12);
-      b.both((s) => bolt(s, 0.066, -0.052, 0.115, 'z', 0.007));
-      ears(b, -0.005, -0.015, 0.113, 0.042);
-      vent(b, 0.09, 0.05, 3, 0, 0.0, -0.096, 0, PI, 0);
-      b.add(G.cyl(0.012, 0.014, 0.02, 8), 'metal', 0.064, 0.105, -0.05);
-      b.add(G.cyl(0.006, 0.006, 0.1, 6), 'chrome', 0.07, 0.14, -0.064, -0.35, 0, -0.15);
-      b.add(G.sphere(0.012, 8, 6), 'rarity', 0.078, 0.187, -0.083);
-      fit = { top: 0.128, hw: 0.1, front: 0.1, brow: 0.06, crown: true };
+      // Locomotive Helm (Ironhorse): a riveted steel cab with one big headlamp over a radiator
+      // grille, a striped visor beam, a cowcatcher chin, hoses round the cheeks and twin stacks
+      neckSocket(b, 'steel');
+      const cab: Sec[] = [[-0.085, 0.2, 0.2, 0.0], [-0.03, 0.235, 0.22], [0.07, 0.235, 0.22, -0.005], [0.125, 0.21, 0.2, -0.012], [0.148, 0.16, 0.16, -0.015]];
+      b.add(G.loft(cab, 0.12), 'paint');
+      band(b, cab, 0.128, 0.148, 0.004, 'steel', 0.12);
+      b.add(G.cbox(0.2, 0.14, 0.04, 0.008), 'dark', 0, -0.01, 0.1);
+      // radiator grille
+      b.add(G.cbox(0.17, 0.075, 0.016, 0.004), 'steel', 0, -0.045, 0.121);
+      b.add(G.cbox(0.15, 0.058, 0.012, 0.003), 'dark', 0, -0.045, 0.126);
+      for (let i = 0; i < 7; i++) b.add(G.cbox(0.01, 0.056, 0.012, 0.002), 'steel', -0.06 + i * 0.02, -0.045, 0.129);
+      // the headlamp and two marker lamps
+      b.addDisc(0.036, 0.03, 'steel', 0, 0.035, 0.124, 20);
+      b.addDisc(0.027, 0.012, 'glow', 0, 0.035, 0.137, 20);
+      b.add(G.torus(0.031, 0.005, 4, 20), 'chrome', 0, 0.035, 0.139);
+      b.both((s) => {
+        s.addDisc(0.014, 0.016, 'steel', 0.075, 0.035, 0.124, 10);
+        s.addDisc(0.009, 0.008, 'glow', 0.075, 0.035, 0.132, 10);
+      });
+      // visor beam with hazard stripes
+      b.add(G.cbox(0.25, 0.034, 0.07, 0.006), 'paint2', 0, 0.088, 0.096);
+      hazard(b, 0.22, 0.026, 0, 0.088, 0.132);
+      // cowcatcher
+      for (let i = -2; i <= 2; i++) b.add(G.cbox(0.012, 0.05, 0.012, 0.003), 'steel', i * 0.03, -0.098, 0.118 + Math.abs(i) * -0.006, -0.55, 0, 0);
+      b.add(G.cbox(0.16, 0.012, 0.016, 0.004), 'steel', 0, -0.118, 0.131);
+      // riveted cheek plates, hoses and the stacks behind
+      b.both((s) => {
+        s.add(G.cbox(0.03, 0.15, 0.17, 0.006), 'paint2', 0.124, 0.01, -0.01);
+        rivets(s, 3, 0.14, 0.07, 0.06, 0.14, 0.07, -0.08, 0.007, 'steel');
+        rivets(s, 3, 0.14, -0.05, 0.06, 0.14, -0.05, -0.08, 0.007, 'steel');
+        vent(s, 0.07, 0.05, 3, 0.141, 0.01, -0.01, 0, HP, 0, 'steel');
+        s.group(0.07, 0.11, -0.085, -0.18, 0, -0.06, (v) => {
+          v.add(G.cyl(0.016, 0.019, 0.1, 10), 'steel', 0, 0.05, 0);
+          v.add(G.cyl(0.022, 0.022, 0.014, 10), 'dark', 0, 0.104, 0);
+          v.add(G.cyl(0.013, 0.013, 0.004, 10), 'core', 0, 0.112, 0);
+        });
+      });
+      vent(b, 0.11, 0.05, 3, 0, 0.0, -0.112, 0, PI, 0, 'steel');
+      fit = { top: 0.15, hw: 0.14, front: 0.132, brow: 0.088, crown: false };
       break;
     }
     case 1: {
-      // Hawkeye Optic: an oversized zoom lens over one eye, a range-finder blade and a side sensor array
-      b.add(G.loft([[-0.08, 0.13, 0.15, 0.015], [-0.02, 0.18, 0.21], [0.07, 0.18, 0.21, -0.01], [0.1, 0.12, 0.16, -0.03]], 0.32), 'paint');
-      b.add(G.loft([[0.04, 0.2, 0.12, -0.05], [0.09, 0.16, 0.1, -0.06]], 0.3), 'paint2');
-      // main lens: housing, focus rings, lens, iris
-      b.addDisc(0.056, 0.07, 'dark', 0.032, 0.015, 0.09, 18);
-      b.addDisc(0.062, 0.018, 'metal', 0.032, 0.015, 0.1, 18);
-      b.add(G.torus(0.058, 0.006, 4, 20), 'chrome', 0.032, 0.015, 0.112);
-      b.addDisc(0.038, 0.02, 'glow', 0.032, 0.015, 0.126, 18);
-      b.add(G.torus(0.05, 0.008, 6, 20), 'rarity', 0.032, 0.015, 0.128);
-      b.add(G.torus(0.02, 0.005, 4, 14), 'dark', 0.032, 0.015, 0.137);
-      for (let i = 0; i < 4; i++) {
-        const a = (i / 4) * PI * 2 + PI / 4;
-        bolt(b, 0.032 + Math.cos(a) * 0.058, 0.015 + Math.sin(a) * 0.058, 0.11, 'z', 0.006);
-      }
-      // second, smaller eye
-      b.addDisc(0.022, 0.05, 'dark', -0.056, 0.036, 0.095, 12);
-      b.addDisc(0.014, 0.02, 'glow', -0.056, 0.036, 0.12, 12);
-      b.add(G.torus(0.022, 0.004, 4, 14), 'metal', -0.056, 0.036, 0.12);
-      // mandible grille
-      b.add(G.cbox(0.12, 0.045, 0.06, 0.012), 'dark', -0.01, -0.055, 0.08);
-      for (let i = 0; i < 3; i++) b.add(G.cbox(0.012, 0.03, 0.012, 0.003), 'metal', -0.045 + i * 0.03, -0.055, 0.112);
-      // range-finder blade on top and a sensor array on the right
-      b.add(G.fin([[0.03, 0], [0.0, 0], [-0.12, 0.06], [-0.08, 0.065]], 0.018), 'paint2', 0.04, 0.09, 0.0);
-      b.add(G.cyl(0.004, 0.004, 0.09, 5), 'chrome', 0.04, 0.12, -0.04, -1.1, 0, 0);
-      b.add(G.cyl(0.03, 0.03, 0.05, 12), 'metal', -0.1, 0.0, -0.01, 0, 0, HP);
-      b.add(G.torus(0.024, 0.005, 4, 14), 'glow', -0.126, 0.0, -0.01, 0, HP, 0);
-      b.add(G.cyl(0.005, 0.005, 0.12, 5), 'chrome', -0.105, 0.07, -0.04, -0.3, 0, 0.2);
-      b.add(G.cyl(0.004, 0.004, 0.08, 5), 'chrome', -0.112, 0.05, -0.07, -0.5, 0, 0.3);
-      b.addAxle(0.034, 0.218, 'metal', 0, -0.01, -0.02);
-      fit = { top: 0.1, hw: 0.1, front: 0.1, brow: 0.07, crown: true };
+      // Vision (Lumen): a seamless egg with a wraparound band of smoked glass, one light line
+      // across it and flush aluminium ear caps
+      neckSocket(b, 'alu');
+      b.add(G.sphere(0.11, 28, 18), 'paint', 0, 0.02, -0.005, 0, 0, 0, 1, 1.1, 1.04);
+      b.add(G.sphere(0.104, 32, 18), 'glass', 0, 0.014, 0.022, 0, 0, 0, 1.02, 0.6, 1);
+      arcFlat(b, 0.105, 0.003, PI * 0.36, 'glow', 0, 0.014, 0.022, 4);
+      b.both((s) => {
+        s.add(G.cyl(0.034, 0.034, 0.012, 28), 'alu', 0.106, 0.0, -0.012, 0, 0, HP);
+        s.add(G.cyl(0.024, 0.024, 0.014, 28), 'paint2', 0.107, 0.0, -0.012, 0, 0, HP);
+      });
+      b.add(G.torus(0.055, 0.008, 6, 28), 'alu', 0, -0.07, -0.01, HP, 0, 0);
+      fit = { top: 0.141, hw: 0.11, front: 0.116, brow: 0.06, crown: true };
       break;
     }
     case 2: {
-      // Oracle Dome: faceted sensor dome with a wraparound scanner band and sensor pods
-      b.add(G.loft([[-0.075, 0.17, 0.18], [-0.02, 0.22, 0.22], [0.04, 0.22, 0.22], [0.09, 0.17, 0.17], [0.115, 0.09, 0.09]], 0.42), 'paint');
-      b.add(G.loft([[-0.03, 0.225, 0.225], [0.01, 0.228, 0.228]], 0.42), 'dark');
-      b.add(G.cbox(0.16, 0.022, 0.012, 0.006), 'glow', 0, -0.008, 0.112);
-      b.addSym(G.cbox(0.012, 0.016, 0.06, 0.004), 'glow', 0.104, -0.008, 0.06, 0, -0.45, 0);
-      b.addSym(G.cbox(0.012, 0.012, 0.04, 0.004), 'glow', 0.112, -0.008, -0.03, 0, 0, 0);
-      b.add(G.cbox(0.08, 0.012, 0.012, 0.004), 'glow', 0, -0.008, -0.112);
-      b.add(G.loft([[-0.1, 0.13, 0.14, 0.02], [-0.06, 0.17, 0.19, 0.01]], 0.3), 'paint2');
-      b.add(G.cbox(0.07, 0.03, 0.02, 0.006), 'dark', 0, -0.07, 0.1);
-      for (let i = 0; i < 3; i++) b.add(G.box(0.05, 0.004, 0.006), 'metal', 0, -0.078 + i * 0.008, 0.111);
-      // three sensor pods round the crown
-      for (let i = 0; i < 3; i++) {
-        const a = (i / 3) * PI * 2;
-        const x = Math.sin(a) * 0.072, z = Math.cos(a) * 0.072;
-        b.add(G.sphere(0.018, 10, 6), 'metal', x, 0.075, z);
-        b.add(G.sphere(0.009, 8, 6), 'glow', x * 1.18, 0.08, z * 1.18);
-      }
-      b.add(G.torus(0.06, 0.006, 4, 20), 'rarity', 0, 0.1, -0.005, HP - 0.2, 0, 0);
-      b.add(G.cyl(0.012, 0.02, 0.04, 8), 'chrome', 0, 0.13, -0.02);
-      b.add(G.cyl(0.004, 0.006, 0.07, 6), 'chrome', 0, 0.18, -0.02);
-      b.add(G.sphere(0.008, 8, 6), 'glow', 0, 0.217, -0.02);
-      fit = { top: 0.115, hw: 0.11, front: 0.11, brow: 0.035, crown: false };
+      // Tianyan (Longwei): a hard-edged helmet ringed with a glass sensor band, stereo cameras,
+      // a lidar puck on the crown, carbon jaw and cheek actuators
+      neckSocket(b, 'alu');
+      const shell: Sec[] = [[-0.085, 0.17, 0.18, 0.01], [-0.03, 0.215, 0.215], [0.06, 0.22, 0.215, -0.005], [0.11, 0.18, 0.18, -0.012], [0.135, 0.11, 0.12, -0.02]];
+      b.add(G.loft(shell, 0.2), 'paint');
+      band(b, shell, -0.02, 0.035, 0.003, 'glass', 0.2);
+      band(b, shell, 0.09, 0.095, 0.002, 'dark', 0.2);
+      b.addSym(G.cbox(0.034, 0.012, 0.006, 0.002), 'glow', 0.042, 0.008, 0.112);
+      b.addSym(G.cyl(0.008, 0.008, 0.006, 10), 'alu', 0.075, 0.008, 0.11, HP, 0, 0);
+      b.add(G.loft([[-0.095, 0.12, 0.06, 0.07], [-0.03, 0.17, 0.07, 0.077]], 0.3), 'carbon');
+      for (let i = 0; i < 3; i++) b.add(G.box(0.05 - i * 0.01, 0.004, 0.006), 'dark', 0, -0.05 - i * 0.012, 0.112);
+      // lidar puck
+      b.add(G.cyl(0.042, 0.046, 0.02, 24), 'carbon', 0, 0.142, -0.02);
+      b.add(G.cyl(0.037, 0.037, 0.022, 24), 'glass', 0, 0.163, -0.02);
+      b.add(G.cyl(0.041, 0.041, 0.008, 24), 'alu', 0, 0.178, -0.02);
+      b.both((s) => {
+        s.add(G.cbox(0.03, 0.07, 0.08, 0.008), 'paint2', 0.112, -0.042, 0.0);
+        s.add(G.cyl(0.017, 0.017, 0.008, 16), 'alu', 0.128, -0.042, 0.0, 0, 0, HP);
+      });
+      vent(b, 0.1, 0.04, 3, 0, 0.0, -0.108, 0, PI, 0, 'alu');
+      fit = { top: 0.18, hw: 0.11, front: 0.114, brow: 0.05, crown: false };
       break;
     }
     case 3: {
-      // Bulwark Helm: heavy grille-faced helm with cheek armour and a thick brow
-      b.add(G.loft([[-0.09, 0.17, 0.17, 0.02], [-0.03, 0.22, 0.22], [0.07, 0.22, 0.22, -0.01], [0.11, 0.17, 0.18, -0.02]], 0.22), 'paint');
-      b.add(G.cbox(0.16, 0.11, 0.05, 0.014), 'dark', 0, -0.02, 0.095);
-      for (let i = 0; i < 4; i++) b.add(G.cbox(0.14, 0.01, 0.012, 0.004), 'chrome', 0, -0.06 + i * 0.024, 0.122);
-      for (let i = -1; i <= 1; i += 2) b.add(G.cbox(0.01, 0.1, 0.012, 0.004), 'chrome', i * 0.035, -0.024, 0.125);
-      b.addPlatePair([[0.015, 0], [0.065, 0.012], [0.063, -0.005], [0.015, -0.011]], 0.012, 'glow', 0.04, 0.118);
-      b.add(G.cbox(0.21, 0.036, 0.06, 0.01), 'paint', 0, 0.066, 0.092, -0.25, 0, 0);
+      // Centurione (Martelli): a legionary's bowl helm with a brass brow band and peak, a crest
+      // plume on a brass rail, hinged cheek guards, a dark face with a lit eye slit and a neck guard
+      neckSocket(b, 'brass');
+      const bowl: Sec[] = [[-0.02, 0.2, 0.21, -0.005], [0.05, 0.205, 0.215, -0.01], [0.1, 0.17, 0.18, -0.015], [0.135, 0.09, 0.1, -0.02]];
+      b.add(G.loft(bowl, 0.42), 'paint');
+      band(b, bowl, -0.02, 0.0, 0.006, 'brass', 0.42);
+      b.add(G.cbox(0.17, 0.01, 0.036, 0.004), 'brass', 0, -0.014, 0.112, 0.22, 0, 0);
+      b.add(G.cbox(0.15, 0.1, 0.05, 0.014), 'dark', 0, -0.06, 0.072);
+      b.add(G.cbox(0.11, 0.012, 0.006, 0.003), 'glow', 0, -0.036, 0.099);
+      b.add(G.cbox(0.016, 0.06, 0.012, 0.004), 'brass', 0, -0.056, 0.101);
+      // cheek guards hinged off the brow band
       b.both((s) => {
-        s.add(G.cbox(0.03, 0.16, 0.18, 0.01), 'paint2', 0.115, -0.01, 0.0);
-        s.add(G.cbox(0.012, 0.11, 0.12, 0.004), 'dark', 0.13, -0.015, 0.0);
-        bolt(s, 0.132, 0.045, 0.05, 'x', 0.008);
-        bolt(s, 0.132, -0.07, 0.05, 'x', 0.008);
-        bolt(s, 0.132, 0.045, -0.06, 'x', 0.008);
-        bolt(s, 0.132, -0.07, -0.06, 'x', 0.008);
-      });
-      b.add(G.loft([[0.1, 0.05, 0.22, -0.01], [0.135, 0.03, 0.18, -0.02]], 0.3), 'paint2');
-      vent(b, 0.12, 0.06, 3, 0, 0.0, -0.11, 0, PI, 0);
-      b.add(G.box(0.036, 0.008, 0.008), 'rarity', 0, 0.12, 0.105);
-      fit = { top: 0.135, hw: 0.13, front: 0.12, brow: 0.07, crown: true };
-      break;
-    }
-    case 5: {
-      // Rampart Helm (Bastion): a slab-sided bunker with a recessed vision slit under a striped brow,
-      // a gridded jaw block, riveted side plates and a squat roof hatch
-      b.add(G.loft([[-0.085, 0.19, 0.19, 0.0], [-0.03, 0.225, 0.215], [0.07, 0.225, 0.215, -0.005], [0.12, 0.2, 0.19, -0.012], [0.135, 0.15, 0.15, -0.015]], 0.14), 'paint');
-      b.add(G.cbox(0.19, 0.044, 0.05, 0.006), 'dark', 0, 0.03, 0.094);
-      b.add(G.cbox(0.15, 0.011, 0.012, 0.004), 'glow', 0, 0.03, 0.118);
-      b.add(G.cbox(0.235, 0.046, 0.07, 0.008), 'paint2', 0, 0.074, 0.09);
-      hazard(b, 0.2, 0.03, 0, 0.074, 0.127);
-      b.add(G.cbox(0.205, 0.08, 0.066, 0.01), 'paint', 0, -0.032, 0.088);
-      for (let i = 0; i < 4; i++) b.add(G.cbox(0.014, 0.048, 0.01, 0.003), 'dark', -0.054 + i * 0.036, -0.036, 0.121);
-      b.both((s) => {
-        s.add(G.cbox(0.03, 0.15, 0.18, 0.006), 'paint2', 0.118, 0.012, -0.005);
-        rivets(s, 2, 0.134, 0.07, 0.065, 0.134, 0.07, -0.075);
-        rivets(s, 2, 0.134, -0.045, 0.065, 0.134, -0.045, -0.075);
-      });
-      b.add(G.cyl(0.042, 0.048, 0.022, 10), 'metal', 0, 0.142, -0.02);
-      b.add(G.cyl(0.032, 0.032, 0.008, 10), 'dark', 0, 0.155, -0.02);
-      b.add(G.cbox(0.05, 0.008, 0.012, 0.003), 'chrome', 0, 0.162, -0.02);
-      vent(b, 0.12, 0.06, 3, 0, 0.01, -0.108, 0, PI, 0);
-      fit = { top: 0.16, hw: 0.133, front: 0.127, brow: 0.074, crown: false };
-      break;
-    }
-    case 6: {
-      // Peregrine Canopy (Kestrel): a swept cockpit shell with a bulging canopy, a hooked beak of
-      // a chin, intake gills and two fins raked back off the crown
-      b.add(G.loft([[-0.08, 0.14, 0.16, 0.02], [-0.02, 0.165, 0.2, 0.01], [0.05, 0.155, 0.205, -0.01], [0.1, 0.11, 0.17, -0.035], [0.125, 0.05, 0.1, -0.055]], 0.42), 'paint');
-      b.add(G.loft([[-0.012, 0.15, 0.07, 0.083], [0.045, 0.135, 0.06, 0.08], [0.088, 0.085, 0.045, 0.06]], 0.45), 'dark');
-      b.add(G.cbox(0.12, 0.007, 0.01, 0.003), 'glow', 0, 0.02, 0.115, -0.1, 0, 0);
-      b.add(G.fin([[0.0, 0.0], [0.05, -0.02], [0.02, -0.06], [-0.02, -0.055]], 0.06, 0.006), 'paint2', 0, -0.02, 0.075);
-      b.both((s) => {
-        s.add(G.cbox(0.012, 0.04, 0.05, 0.004), 'dark', 0.077, -0.035, 0.035);
-        for (let i = 0; i < 3; i++) s.add(G.box(0.006, 0.034, 0.006), 'metal', 0.084, -0.035, 0.02 + i * 0.015);
-        s.group(0.055, 0.075, -0.02, 0, 0, -0.35, (v) => {
-          v.add(G.fin([[0.03, 0], [-0.1, 0.02], [-0.13, 0.07], [-0.05, 0.035]], 0.012), 'paint2');
-          v.add(G.fin([[-0.1, 0.024], [-0.124, 0.064], [-0.116, 0.066], [-0.092, 0.03]], 0.016, 0.002), 'glow');
+        s.group(0.098, -0.06, 0.035, 0, 0.32, 0, (g) => {
+          g.add(G.prism([[-0.05, 0.05], [0.04, 0.05], [0.035, -0.02], [0.0, -0.055], [-0.045, -0.03]], 0.014, 0.004), 'paint2', 0, 0, 0, 0, HP, 0);
+          rivets(g, 2, 0.009, 0.035, 0.02, 0.009, 0.035, -0.03, 0.006, 'brass');
         });
+        s.add(G.cyl(0.02, 0.02, 0.01, 16), 'brass', 0.104, 0.008, 0.0, 0, 0, HP);
       });
-      ears(b, -0.015, -0.01, 0.083, 0.03);
-      b.add(G.cbox(0.02, 0.008, 0.04, 0.003), 'glow', 0, 0.127, -0.055);
-      fit = { top: 0.125, hw: 0.083, front: 0.118, brow: 0.06, crown: true };
-      break;
-    }
-    case 7: {
-      // Crucible Mask (Vulkan): a heavy skull with a furnace door for a face, glowing between its
-      // grate bars, a hooded brow, cooling fins over the ears and twin exhaust stacks behind
-      b.add(G.loft([[-0.085, 0.17, 0.17, 0.01], [-0.03, 0.21, 0.205], [0.06, 0.21, 0.205, -0.01], [0.11, 0.16, 0.165, -0.022], [0.13, 0.09, 0.1, -0.03]], 0.3), 'paint');
-      b.add(G.cbox(0.15, 0.12, 0.04, 0.01), 'metal', 0, -0.008, 0.096);
-      b.add(G.cbox(0.124, 0.094, 0.012, 0.004), 'dark', 0, -0.008, 0.113);
-      for (let i = 0; i < 4; i++) b.add(G.cbox(0.108, 0.01, 0.01, 0.003), 'glow', 0, -0.044 + i * 0.024, 0.116);
-      for (let i = -1; i <= 1; i++) b.add(G.cbox(0.009, 0.1, 0.012, 0.003), 'chrome', i * 0.04, -0.008, 0.122);
-      b.addSym(G.cyl(0.007, 0.007, 0.1, 6), 'chrome', 0.078, -0.008, 0.115);
-      b.add(G.cbox(0.21, 0.035, 0.07, 0.01), 'paint2', 0, 0.07, 0.088, -0.25, 0, 0);
-      b.add(G.cbox(0.13, 0.03, 0.05, 0.008), 'paint2', 0, -0.08, 0.08);
-      b.both((s) => {
-        for (let i = 0; i < 4; i++) s.add(G.cbox(0.034, 0.01, 0.11, 0.003), 'metal', 0.108, -0.04 + i * 0.026, -0.01);
-        s.group(0.05, 0.095, -0.06, -0.4, 0, -0.12, (v) => {
-          v.add(G.cyl(0.017, 0.02, 0.09, 10), 'metal', 0, 0.045, 0);
-          v.add(G.cyl(0.021, 0.021, 0.012, 10), 'dark', 0, 0.092, 0);
-          v.add(G.cyl(0.012, 0.012, 0.004, 10), 'glow', 0, 0.099, 0);
-          v.add(G.torus(0.02, 0.004, 4, 12), 'chrome', 0, 0.03, 0, HP, 0, 0);
+      // neck guard flaring out behind
+      for (let k = 0; k < 5; k++) {
+        const a = PI - 0.62 + k * 0.31;
+        b.group(Math.sin(a) * 0.1, -0.022, Math.cos(a) * 0.105 - 0.005, 0, a, 0, (g) => {
+          g.add(G.cbox(0.036, 0.012, 0.055, 0.004), 'paint2', 0, 0, 0.022, 0.35, 0, 0);
+          g.add(G.cbox(0.036, 0.008, 0.008, 0.002), 'brass', 0, -0.011, 0.05, 0.35, 0, 0);
         });
-      });
-      fit = { top: 0.13, hw: 0.105, front: 0.122, brow: 0.07, crown: true };
-      break;
-    }
-    case 8: {
-      // Seraph Halo (Halcyon): a smooth egg of a helmet, a lit visor band wrapping the face, ear
-      // discs, hex cells in the jaw and a halo floating over the crown
-      b.add(G.sphere(0.108, 20, 14), 'paint', 0, 0.02, -0.005, 0, 0, 0, 1, 1.08, 1.04);
-      arcFlat(b, 0.1, 0.02, PI * 1.15, 'dark', 0, 0.015, -0.005);
-      arcFlat(b, 0.118, 0.006, PI * 0.9, 'glow', 0, 0.018, -0.005);
-      b.both((s) => {
-        s.add(G.cyl(0.042, 0.042, 0.02, 16), 'metal', 0.105, 0.0, -0.01, 0, 0, HP);
-        s.add(G.torus(0.032, 0.005, 4, 16), 'glow', 0.116, 0.0, -0.01, 0, HP, 0);
-        s.add(G.cyl(0.018, 0.018, 0.006, 12), 'paint2', 0.117, 0.0, -0.01, 0, 0, HP);
-      });
-      b.add(G.loft([[-0.085, 0.12, 0.12, 0.03], [-0.04, 0.15, 0.14, 0.035]], 0.4), 'paint2');
-      for (let i = -1; i <= 1; i++) {
-        b.add(G.cyl(0.016, 0.016, 0.01, 6), 'dark', i * 0.034, -0.06, 0.102, HP, 0, 0);
-        b.add(G.cyl(0.007, 0.007, 0.012, 6), 'glow', i * 0.034, -0.06, 0.104, HP, 0, 0);
       }
-      b.add(G.cyl(0.006, 0.008, 0.045, 8), 'chrome', 0, 0.152, -0.03);
-      b.add(G.sphere(0.009, 8, 6), 'glow', 0, 0.178, -0.03);
-      b.add(G.torus(0.082, 0.007, 6, 32), 'glow', 0, 0.188, -0.03, HP - 0.3, 0, 0);
-      fit = { top: 0.137, hw: 0.108, front: 0.12, brow: 0.05, crown: false };
+      // crest
+      b.add(G.cbox(0.016, 0.016, 0.17, 0.004), 'brass', 0, 0.13, -0.015, -0.1, 0, 0);
+      b.add(G.fin([[0.07, -0.025], [0.0, 0.0], [-0.1, -0.035], [-0.14, 0.02], [-0.12, 0.06], [-0.06, 0.085], [0.02, 0.09], [0.08, 0.07], [0.105, 0.03]], 0.018, 0.006), 'paint2', 0, 0.136, -0.01);
+      for (let i = 0; i < 9; i++) b.add(G.box(0.022, 0.05, 0.003), 'dark', 0, 0.17, -0.1 + i * 0.024, 0, 0, 0, 1, 0.6 + 0.4 * Math.sin((i / 8) * PI), 1);
+      fit = { top: 0.2, hw: 0.105, front: 0.112, brow: 0.0, crown: false };
       break;
     }
-    case 9: {
+    case 4: {
       // Kabuto Helm (Kensei): a helmet bowl over a menpo face mask with lit eye slits, a three-row
-      // neck guard of laced plates fanning round the back and a crescent crest off the brow
+      // neck guard of laced plates fanning round the back and a gold crescent crest off the brow
+      neckSocket(b);
       const bowl: Sec[] = [[-0.005, 0.205, 0.215, -0.005], [0.06, 0.2, 0.21, -0.012], [0.105, 0.155, 0.165, -0.02], [0.135, 0.07, 0.08, -0.025]];
       b.add(G.loft(bowl, 0.38), 'paint');
       band(b, bowl, -0.005, 0.01, 0.005, 'paint2', 0.38);
@@ -678,26 +616,32 @@ export function buildHead(look: number, r = 0): PB {
       // fukigaeshi: the turned-back wings at the front corners
       b.both((s) => {
         s.add(G.cbox(0.07, 0.05, 0.012, 0.004), 'paint2', 0.072, 0.022, 0.064, 0, PI / 4, 0);
-        bolt(s, 0.077, 0.022, 0.069, 'z', 0.006);
+        bolt(s, 0.077, 0.022, 0.069, 'z', 0.006, 'brass');
       });
-      // maedate: a crescent rising off a chrome mount on the brow
-      b.add(G.cbox(0.03, 0.026, 0.022, 0.006), 'chrome', 0, 0.045, 0.1);
-      b.add(G.torus(0.068, 0.008, 4, 22, PI * 1.25), 'paint2', 0, 0.115, 0.108, 0, 0, 1.5 * PI - PI * 0.625, 1, 1, 0.6);
+      // maedate: a gold crescent rising off a mount on the brow
+      b.add(G.cbox(0.03, 0.026, 0.022, 0.006), 'brass', 0, 0.045, 0.1);
+      b.add(G.torus(0.068, 0.008, 4, 22, PI * 1.25), 'brass', 0, 0.115, 0.108, 0, 0, 1.5 * PI - PI * 0.625, 1, 1, 0.6);
       fit = { top: 0.135, hw: 0.105, front: 0.112, brow: 0.03, crown: true };
       break;
     }
     default: {
-      // Berserker Crest: angled brow, V optics, a toothed jaw and swept crest fins
-      b.add(G.loft([[-0.08, 0.12, 0.15, 0.025], [-0.02, 0.18, 0.2], [0.06, 0.18, 0.2, -0.01], [0.095, 0.13, 0.16, -0.02]], 0.28), 'paint');
-      b.add(G.prism([[-0.1, 0.0], [0.1, 0.0], [0.07, -0.035], [0, -0.012], [-0.07, -0.035]], 0.07, 0.008), 'paint2', 0, 0.06, 0.075, -0.25, 0, 0);
-      b.addPlatePair([[0.012, 0.0], [0.068, 0.024], [0.068, 0.012], [0.012, -0.011]], 0.012, 'glow', 0.024, 0.1);
-      b.add(G.loft([[-0.09, 0.1, 0.05], [-0.03, 0.15, 0.06]], 0.3), 'dark', 0, 0, 0.082);
-      for (let i = 0; i < 4; i++) b.add(G.prism([[-0.008, 0], [0.008, 0], [0, -0.022]], 0.012, 0.002), 'chrome', -0.036 + i * 0.024, -0.03, 0.112);
-      b.add(G.fin([[0.03, 0.0], [0.0, 0.0], [-0.2, 0.06], [-0.12, 0.08]], 0.018, 0.005), 'rarity', 0, 0.075, 0.05);
-      b.add(G.fin([[0.025, 0.0], [0.0, 0.0], [-0.13, 0.04], [-0.08, 0.05]], 0.014), 'paint2', 0, 0.06, -0.06);
-      b.add(G.fin([[0.03, 0.0], [0.0, 0.0], [-0.16, 0.05], [-0.1, 0.066]], 0.03), 'paint2', 0, 0.07, 0.03);
-      b.addSym(G.cone(0.018, 0.08, 6), 'metal', 0.095, 0.03, -0.06, -1.2, 0, -0.5);
-      fit = { top: 0.1, hw: 0.09, front: 0.11, brow: 0.05, crown: false };
+      // Nighthawk (Strix): a faceted stealth wedge under a gold canopy, a carbon beak, chines
+      // down the sides, a sawtooth trailing edge and a canted V-tail
+      neckSocket(b, 'carbon');
+      b.add(G.loft([[-0.08, 0.15, 0.17, 0.02], [-0.02, 0.19, 0.21, 0.01], [0.05, 0.18, 0.2, -0.01], [0.1, 0.12, 0.16, -0.03], [0.122, 0.05, 0.1, -0.045]], 0.08), 'paint');
+      b.add(G.loft([[-0.01, 0.13, 0.06, 0.09], [0.05, 0.11, 0.05, 0.076], [0.088, 0.05, 0.03, 0.05]], 0.45), 'brass');
+      b.add(G.cbox(0.12, 0.006, 0.008, 0.002), 'glow', 0, -0.022, 0.118, -0.1, 0, 0);
+      b.add(G.fin([[0.0, 0.0], [0.045, -0.012], [0.0, -0.05], [-0.03, -0.05]], 0.07, 0.006), 'carbon', 0, -0.03, 0.086);
+      b.both((s) => {
+        s.add(G.cbox(0.032, 0.006, 0.17, 0.002), 'carbon', 0.1, -0.008, 0.0, 0, 0, -0.22);
+        s.add(G.cbox(0.012, 0.03, 0.04, 0.003), 'dark', 0.092, -0.045, 0.045);
+        s.group(0.045, 0.085, -0.055, 0, 0, -0.45, (v) => {
+          v.add(G.fin([[0.03, 0], [-0.07, 0], [-0.1, 0.075], [-0.062, 0.075]], 0.01, 0.003), 'paint2');
+          v.add(G.fin([[-0.07, 0.068], [-0.1, 0.068], [-0.1, 0.075], [-0.062, 0.075]], 0.014, 0.002), 'glow');
+        });
+      });
+      b.add(G.prism([[-0.075, 0.03], [0.075, 0.03], [0.075, -0.02], [0.05, -0.04], [0.025, -0.02], [0.0, -0.04], [-0.025, -0.02], [-0.05, -0.04], [-0.075, -0.02]], 0.02, 0.004), 'carbon', 0, -0.035, -0.096);
+      fit = { top: 0.122, hw: 0.095, front: 0.12, brow: 0.05, crown: false };
       break;
     }
   }
@@ -741,31 +685,22 @@ interface TorsoFit {
   back: number;
 }
 const TORSO_FIT: TorsoFit[] = [
-  { side: 0.218, flank: -0.06, back: -0.18 },
-  { side: 0.27, flank: -0.02, back: -0.17 },
-  { side: 0.28, flank: -0.06, back: -0.23 },
-  { side: 0.212, flank: 0.0, back: -0.18 },
-  { side: 0.209, flank: -0.06, back: -0.18 },
-  // the makers' lines: Bastion, Kestrel, Vulkan, Halcyon, Kensei
-  { side: 0.285, flank: -0.02, back: -0.245 },
-  { side: 0.2, flank: -0.04, back: -0.17 },
-  { side: 0.285, flank: -0.07, back: -0.2 },
-  { side: 0.25, flank: -0.04, back: -0.18 },
+  { side: 0.295, flank: -0.03, back: -0.24 },
+  { side: 0.24, flank: -0.04, back: -0.145 },
+  { side: 0.295, flank: -0.04, back: -0.245 },
+  { side: 0.29, flank: -0.04, back: -0.205 },
   { side: 0.245, flank: -0.03, back: -0.165 },
+  { side: 0.22, flank: -0.04, back: -0.16 },
 ];
 
 /** Where each chest seats the core unit: [y, z] of its housing. */
 const CORE_AT: [number, number][] = [
-  [0.045, 0.195],
-  [-0.02, 0.15],
-  [0.02, 0.215],
-  [0.045, 0.17],
-  [0.045, 0.195],
-  [0.035, 0.232],
-  [0.05, 0.178],
-  [0.04, 0.205],
-  [0.035, 0.175],
+  [0.04, 0.214],
+  [0.03, 0.166],
+  [0.03, 0.205],
+  [-0.06, 0.178],
   [0.04, 0.175],
+  [0.05, 0.17],
 ];
 
 function torsoTier(b: PB, r: number, f: TorsoFit) {
@@ -815,202 +750,98 @@ export function buildTorso(look: number, r = 0): PB {
   b.add(G.cbox(0.16, 0.04, 0.12, 0.012), 'dark', 0, -0.31, 0.06);
   switch (look) {
     case 0: {
-      // Plated: boxer's pec plates over a keel, stacked ab plates, a sloped yoke and flank vents
-      b.add(G.loft([[-0.13, 0.36, 0.25, 0.01], [-0.02, 0.48, 0.3, 0.02], [0.12, 0.54, 0.3, 0.01], [0.21, 0.42, 0.25, -0.01]], 0.24), 'paint');
-      b.addLoftPair([[-0.08, 0.15, 0.05, 0.172, 0.115], [0.04, 0.21, 0.06, 0.185, 0.13], [0.15, 0.2, 0.05, 0.172, 0.125]], 'paint', 0.3);
-      b.add(G.loft([[-0.12, 0.05, 0.05, 0.18], [-0.03, 0.054, 0.05, 0.183]], 0.3), 'paint2');
-      b.add(G.loft([[0.12, 0.062, 0.05, 0.188], [0.17, 0.065, 0.05, 0.19]], 0.3), 'paint2');
-      b.add(G.loft([[-0.11, 0.3, 0.03, 0.165], [-0.09, 0.4, 0.03, 0.175]], 0.3), 'dark');
+      // Radiator Block (Ironhorse): a locomotive front of a chest, the core set like a headlamp in a
+      // full-width radiator grille, a striped buffer beam with sprung buffers, riveted flank boxes, a
+      // steel collar and two exhaust stacks rising behind the shoulders
+      const main: Sec[] = [[-0.15, 0.46, 0.3, 0.0], [-0.02, 0.62, 0.36, 0.01], [0.13, 0.64, 0.36, 0.0], [0.22, 0.52, 0.29, -0.01]];
+      b.add(G.loft(main, 0.12), 'paint');
+      b.add(G.cbox(0.38, 0.21, 0.03, 0.006), 'steel', 0, 0.035, 0.186);
+      b.add(G.cbox(0.34, 0.18, 0.016, 0.004), 'dark', 0, 0.035, 0.197);
+      for (let i = 0; i < 11; i++) b.add(G.cbox(0.011, 0.175, 0.016, 0.002), 'steel', -0.15 + i * 0.03, 0.035, 0.203);
+      rivets(b, 10, -0.18, 0.15, 0.203, 0.18, 0.15, 0.203, 0.008, 'steel');
+      b.add(G.cbox(0.52, 0.055, 0.06, 0.008), 'steel', 0, -0.1, 0.17);
+      hazard(b, 0.46, 0.034, 0, -0.1, 0.204);
       b.both((s) => {
-        s.add(G.loft([[0.16, 0.16, 0.2, 0.0, 0.11], [0.23, 0.1, 0.16, -0.01, 0.1]], 0.3), 'paint2');
-        bolt(s, 0.2, 0.12, 0.205, 'z', 0.008);
-        bolt(s, 0.165, -0.065, 0.198, 'z', 0.008);
+        s.addDisc(0.024, 0.05, 'steel', 0.215, -0.1, 0.215, 12);
+        s.addDisc(0.034, 0.012, 'chrome', 0.215, -0.1, 0.243, 16);
+        s.add(G.cbox(0.045, 0.17, 0.23, 0.006), 'paint2', 0.272, -0.02, 0.0);
+        rivets(s, 3, 0.296, 0.04, 0.08, 0.296, 0.04, -0.08, 0.008, 'steel');
+        rivets(s, 3, 0.296, -0.08, 0.08, 0.296, -0.08, -0.08, 0.008, 'steel');
+        s.group(0.15, 0.13, -0.175, -0.1, 0, 0, (v) => {
+          v.add(G.cyl(0.03, 0.034, 0.28, 14), 'steel', 0, 0.14, 0);
+          v.add(G.cyl(0.039, 0.039, 0.03, 14), 'dark', 0, 0.285, 0);
+          v.add(G.cyl(0.026, 0.026, 0.004, 14), 'core', 0, 0.302, 0);
+          for (const yy of [0.05, 0.2]) v.add(G.torus(0.034, 0.005, 4, 14), 'dark', 0, yy, 0, HP, 0, 0);
+        });
       });
-      for (let i = 0; i < 3; i++) {
-        b.add(G.cbox(0.19 - i * 0.02, 0.05, 0.035, 0.008), 'dark', 0, -0.17 - i * 0.055, 0.09 - i * 0.012);
-        b.add(G.cbox(0.17 - i * 0.02, 0.045, 0.05, 0.012), 'paint2', 0, -0.17 - i * 0.055, 0.1 - i * 0.012);
-      }
-      b.add(G.box(0.14, 0.008, 0.008), 'rarity', 0, -0.13, 0.155);
-      b.add(G.cbox(0.36, 0.27, 0.06, 0.015), 'paint2', 0, 0.03, -0.15);
-      b.add(G.cbox(0.05, 0.3, 0.05, 0.012), 'dark', 0, 0.03, -0.17);
-      b.addSym(G.cbox(0.012, 0.18, 0.012, 0.004), 'dark', 0.12, 0.03, -0.184);
+      b.add(G.loft([[0.17, 0.46, 0.31, -0.02], [0.26, 0.37, 0.25, -0.03]], 0.12), 'steel');
+      b.add(G.cbox(0.42, 0.28, 0.07, 0.008), 'steel', 0, 0.04, -0.2);
+      for (let i = -1; i <= 1; i++) b.add(G.cbox(0.03, 0.26, 0.03, 0.006), 'dark', i * 0.15, 0.04, -0.24);
+      hazard(b, 0.32, 0.03, 0, -0.07, -0.237, 0, PI, 0);
       break;
     }
     case 1: {
-      // Reactive Frame: bolted reactive tiles on an exposed frame, with side rails and pressure rods
-      b.add(G.loft([[-0.13, 0.34, 0.24], [0.02, 0.46, 0.27], [0.2, 0.46, 0.24]], 0.3), 'paint2');
-      for (let row = 0; row < 3; row++)
-        for (let c = 0; c < 2; c++) {
-          const x = (c - 0.5) * 0.17, y = 0.13 - row * 0.1, z = 0.145 - row * 0.012;
-          b.add(G.cbox(0.15, 0.085, 0.04, 0.012), 'paint', x, y, z, -0.08, 0, 0);
-          bolt(b, x + (c - 0.5) * 0.09, y + 0.022, z + 0.022, 'z', 0.007);
-          bolt(b, x + (c - 0.5) * 0.09, y - 0.022, z + 0.022, 'z', 0.007);
-        }
-      b.add(G.cbox(0.014, 0.3, 0.03, 0.004), 'metal', 0, 0.03, 0.14);
-      for (let row = 0; row < 2; row++) b.add(G.cbox(0.34, 0.012, 0.03, 0.004), 'metal', 0, 0.08 - row * 0.1, 0.135 - row * 0.012);
-      b.addSym(G.loft([[-0.12, 0.06, 0.2], [0.16, 0.07, 0.24]], 0.3), 'paint', 0.235, 0, -0.01);
-      b.both((s) => {
-        s.add(G.cyl(0.01, 0.01, 0.3, 6), 'chrome', 0.19, 0.0, 0.12);
-        s.add(G.cyl(0.018, 0.018, 0.03, 8), 'metal', 0.19, 0.15, 0.12);
-        s.add(G.cyl(0.018, 0.018, 0.03, 8), 'metal', 0.19, -0.15, 0.12);
-      });
-      b.add(G.cbox(0.32, 0.24, 0.06, 0.014), 'paint', 0, 0.04, -0.14);
-      for (let i = 0; i < 3; i++) b.add(G.box(0.2, 0.009, 0.009), 'rarity', 0, 0.1 - i * 0.05, -0.172);
-      b.add(G.cbox(0.17, 0.05, 0.05, 0.012), 'metal', 0, -0.17, 0.1);
-      b.add(G.cbox(0.15, 0.04, 0.05, 0.012), 'paint2', 0, -0.225, 0.09);
+      // Unibody (Lumen): one seamless sculpted shell with a smooth yoke, the core glowing through a
+      // smoked glass panel, a single light line at the waist and an aluminium disc on the back
+      const main: Sec[] = [[-0.14, 0.34, 0.24, 0.01], [0.0, 0.48, 0.28, 0.02], [0.13, 0.52, 0.28, 0.0], [0.21, 0.42, 0.24, -0.012]];
+      b.add(G.loft(main, 0.48), 'paint');
+      b.add(G.loft([[0.15, 0.47, 0.272, -0.004], [0.235, 0.3, 0.2, -0.02]], 0.5), 'paint2');
+      b.add(G.sphere(0.1, 32, 14), 'glass', 0, 0.03, 0.148, 0, 0, 0, 1.08, 1.0, 0.13);
+      const [, , d, z] = secAt(main, -0.1);
+      b.add(G.cbox(0.2, 0.004, 0.006, 0.002), 'glow', 0, -0.1, z + d / 2 - 0.001);
+      b.add(G.cyl(0.075, 0.075, 0.01, 40), 'alu', 0, 0.05, -0.133, HP, 0, 0);
+      b.add(G.cyl(0.02, 0.02, 0.012, 24), 'paint2', 0, 0.05, -0.135, HP, 0, 0);
       break;
     }
     case 2: {
-      // Juggernaut Hull: barrel chest round a vault-door ring, riveted belt and a heavy collar
-      b.add(G.loft([[-0.16, 0.42, 0.29, 0.005], [-0.02, 0.62, 0.38, 0.01], [0.12, 0.64, 0.37], [0.22, 0.48, 0.3, -0.01]], 0.38), 'paint');
-      b.add(G.loft([[-0.135, 0.5, 0.33, 0.005], [-0.105, 0.535, 0.345, 0.006]], 0.38), 'metal');
-      for (let i = 0; i < 7; i++) {
-        const x = -0.18 + i * 0.06;
-        b.add(G.sphere(0.011, 6, 4), 'chrome', x, -0.12, 0.17 - Math.abs(x) * 0.18);
-      }
-      // vault-door ring round the core, with four locking bolts
-      b.add(G.torus(0.088, 0.016, 6, 24), 'metal', 0, 0.02, 0.2);
-      for (let i = 0; i < 4; i++) {
-        const a = (i / 4) * PI * 2 + PI / 4;
-        b.add(G.cbox(0.03, 0.022, 0.022, 0.005), 'chrome', Math.cos(a) * 0.104, 0.02 + Math.sin(a) * 0.104, 0.198, 0, 0, a);
-      }
-      b.add(G.loft([[0.17, 0.34, 0.28, -0.02], [0.25, 0.24, 0.2, -0.03]], 0.4), 'paint2');
+      // Great Wall (Longwei): a broad, square-shouldered chest of angular plates with light lines
+      // along their edges, a carbon sternum and flank modules, actuator housings on the shoulders,
+      // an aluminium collar and a carbon battery pack on the back
+      const main: Sec[] = [[-0.15, 0.42, 0.28, 0.005], [-0.02, 0.56, 0.33, 0.012], [0.12, 0.6, 0.33, 0.0], [0.21, 0.5, 0.27, -0.012]];
+      b.add(G.loft(main, 0.22), 'paint');
+      b.addPlatePair([[0.035, 0.13], [0.24, 0.12], [0.25, 0.02], [0.16, -0.06], [0.035, -0.03]], 0.04, 'paint2', 0.02, 0.18);
+      b.addPlatePair([[0.045, -0.04], [0.16, -0.075], [0.162, -0.066], [0.045, -0.031]], 0.006, 'glow', 0.02, 0.2);
+      b.add(G.cbox(0.06, 0.12, 0.03, 0.006), 'carbon', 0, -0.13, 0.163);
+      for (let i = 0; i < 3; i++) b.add(G.box(0.036, 0.004, 0.006), 'alu', 0, -0.165 + i * 0.03, 0.18);
       b.both((s) => {
-        s.add(G.loft([[0.12, 0.13, 0.3, -0.01, 0.2], [0.21, 0.09, 0.24, -0.02, 0.18]], 0.35), 'paint2');
+        s.add(G.cbox(0.05, 0.15, 0.2, 0.01), 'carbon', 0.272, -0.04, 0.0);
+        s.add(G.cyl(0.03, 0.03, 0.01, 20), 'alu', 0.3, -0.04, 0.03, 0, 0, HP);
+        s.add(G.box(0.006, 0.1, 0.006), 'glow', 0.299, -0.04, -0.06);
+        s.add(G.cbox(0.12, 0.05, 0.19, 0.014), 'paint2', 0.17, 0.205, -0.012);
       });
-      b.add(G.box(0.22, 0.009, 0.009), 'rarity', 0, 0.12, 0.218);
-      b.add(G.cbox(0.34, 0.22, 0.08, 0.02), 'metal', 0, 0.03, -0.19);
-      for (let i = -1; i <= 1; i++) b.add(G.cbox(0.03, 0.2, 0.03, 0.008), 'dark', i * 0.14, 0.03, -0.23);
-      b.add(G.cbox(0.2, 0.06, 0.06, 0.015), 'paint2', 0, -0.19, 0.11);
+      b.add(G.loft([[0.17, 0.42, 0.29, -0.02], [0.24, 0.31, 0.22, -0.03]], 0.25), 'alu');
+      b.add(G.cbox(0.38, 0.27, 0.08, 0.02), 'carbon', 0, 0.03, -0.2);
+      b.addSym(G.cbox(0.016, 0.27, 0.02, 0.004), 'alu', 0.18, 0.03, -0.235);
+      b.add(G.box(0.28, 0.008, 0.008), 'glow', 0, -0.085, -0.241);
       break;
     }
     case 3: {
-      // Aero Shell: tapered V chest, swept air intakes, chevron stripes and dorsal fins
-      b.add(G.loft([[-0.15, 0.24, 0.21, 0.01], [0.02, 0.44, 0.27, 0.02], [0.15, 0.58, 0.27], [0.21, 0.48, 0.2, -0.02]], 0.2), 'paint');
-      b.add(G.prism([[-0.18, 0.1], [0.18, 0.1], [0.07, -0.16], [-0.07, -0.16]], 0.04, 0.01), 'paint2', 0, 0.02, 0.15, -0.08, 0, 0);
-      b.addPlatePair([[0.02, 0.0], [0.034, 0.0], [0.12, 0.13], [0.1, 0.13]], 0.012, 'rarity', 0.0, 0.165);
+      // Corazza (Martelli): a sculpted muscle cuirass, chiselled pecs and abs, a brass gorget,
+      // brass hem and rosettes, the core set below the pecs and leather pteruges round the waist
+      const main: Sec[] = [[-0.15, 0.42, 0.28, 0.005], [-0.02, 0.58, 0.34, 0.012], [0.12, 0.6, 0.34, 0.0], [0.21, 0.48, 0.28, -0.012]];
+      b.add(G.loft(main, 0.36), 'paint');
+      b.addLoftPair([[-0.02, 0.2, 0.06, 0.172, 0.125], [0.07, 0.23, 0.07, 0.182, 0.13], [0.15, 0.21, 0.05, 0.166, 0.122]], 'paint', 0.42);
       b.both((s) => {
-        // intake scoop on each flank, lit inside
-        s.group(0.15, -0.09, 0.06, 0, -0.35, 0.28, (v) => {
-          v.add(G.cbox(0.05, 0.13, 0.09, 0.012), 'paint2');
-          v.add(G.cbox(0.03, 0.1, 0.02, 0.006), 'dark', 0.004, 0, 0.04);
-          v.add(G.box(0.02, 0.07, 0.006), 'glow', 0.004, 0, 0.046);
-        });
-        s.add(G.prism([[0, 0], [0.18, 0], [0.13, 0.06], [0.03, 0.06]], 0.014, 0.004), 'paint2', 0.07, 0.06, -0.15, HP - 0.3, HP, 0);
-        s.add(G.cone(0.022, 0.05, 8), 'dark', 0.07, -0.08, -0.16, HP - 0.3, 0, 0);
-        s.add(G.cyl(0.015, 0.015, 0.006, 8), 'glow', 0.07, -0.088, -0.186, HP - 0.3, 0, 0);
+        for (let i = 0; i < 2; i++) s.add(G.cbox(0.085, 0.045, 0.04, 0.014), 'paint', 0.05, -0.15 - i * 0.05, 0.152 - i * 0.008);
+        s.add(G.cyl(0.03, 0.03, 0.012, 20), 'brass', 0.22, 0.15, 0.135, HP - 0.5, 0, -0.5);
+        s.add(G.sphere(0.012, 10, 6), 'brass', 0.225, 0.152, 0.143);
       });
-      b.add(G.cbox(0.22, 0.12, 0.06, 0.015), 'dark', 0, 0.06, -0.15);
-      vent(b, 0.14, 0.06, 3, 0, 0.06, -0.181, 0, PI, 0);
-      break;
-    }
-    case 5: {
-      // Citadel Hull (Bastion): a slab-sided fortress chest, a riveted blast door round the core with
-      // hazard stripes on its sill, a high collar wall, armoured flank boxes and a ribbed back plate
-      b.add(G.loft([[-0.15, 0.44, 0.3, 0.0], [-0.02, 0.6, 0.355, 0.01], [0.13, 0.62, 0.35, 0.0], [0.22, 0.5, 0.28, -0.01]], 0.13), 'paint');
-      b.add(G.cbox(0.32, 0.26, 0.045, 0.008), 'paint2', 0, 0.02, 0.188);
-      b.add(G.torus(0.074, 0.012, 5, 22), 'dark', 0, 0.035, 0.212);
-      rivets(b, 9, -0.14, 0.135, 0.211, 0.14, 0.135, 0.211);
-      b.both((s) => rivets(s, 3, 0.145, 0.085, 0.211, 0.145, -0.035, 0.211));
-      hazard(b, 0.28, 0.034, 0, -0.085, 0.212);
-      b.add(G.loft([[0.17, 0.42, 0.3, -0.02], [0.26, 0.34, 0.25, -0.03]], 0.14), 'paint2');
-      b.both((s) => {
-        s.add(G.cbox(0.04, 0.16, 0.2, 0.008), 'paint2', 0.262, -0.02, 0.0);
-        rivets(s, 2, 0.283, 0.03, 0.07, 0.283, -0.07, 0.07);
-        rivets(s, 2, 0.283, 0.03, -0.07, 0.283, -0.07, -0.07);
-      });
-      rivets(b, 9, -0.2, -0.125, 0.16, 0.2, -0.125, 0.16, 0.01);
-      b.add(G.cbox(0.38, 0.26, 0.07, 0.01), 'metal', 0, 0.04, -0.195);
-      for (let i = -1; i <= 1; i++) b.add(G.cbox(0.03, 0.24, 0.03, 0.008), 'dark', i * 0.15, 0.04, -0.235);
-      hazard(b, 0.3, 0.03, 0, -0.06, -0.236, 0, PI, 0);
-      break;
-    }
-    case 6: {
-      // Skyframe Shell (Kestrel): a narrow V of a chest with a keeled chevron breastplate and its
-      // light lines, big swept intakes under the ribs, twin dorsal fins and a pair of back jets
-      b.add(G.loft([[-0.14, 0.26, 0.22, 0.012], [0.0, 0.42, 0.26, 0.02], [0.14, 0.53, 0.25, 0.0], [0.205, 0.46, 0.235, -0.015]], 0.42), 'paint');
-      b.add(G.prism([[-0.19, 0.1], [0.19, 0.1], [0.0, -0.15]], 0.035, 0.008), 'paint2', 0, 0.02, 0.14, -0.08, 0, 0);
-      b.addPlatePair([[0.02, -0.14], [0.034, -0.14], [0.12, -0.03], [0.106, -0.03]], 0.008, 'glow', 0.02, 0.159, -0.08);
-      b.add(G.cbox(0.02, 0.2, 0.025, 0.006), 'paint', 0, 0.0, 0.16);
-      b.both((s) => {
-        s.group(0.17, -0.06, 0.07, 0, -0.4, 0.22, (v) => {
-          v.add(G.cbox(0.06, 0.15, 0.1, 0.014), 'paint2');
-          v.add(G.cbox(0.036, 0.12, 0.02, 0.006), 'dark', 0.004, 0, 0.046);
-          v.add(G.box(0.02, 0.1, 0.006), 'glow', 0.004, 0, 0.05);
-          for (let i = 0; i < 3; i++) v.add(G.box(0.03, 0.006, 0.01), 'metal', 0.004, -0.04 + i * 0.04, 0.054);
+      band(b, main, -0.15, -0.135, 0.006, 'brass', 0.36);
+      b.add(G.loft([[0.17, 0.41, 0.3, -0.02], [0.235, 0.31, 0.23, -0.03]], 0.4), 'brass');
+      // pteruges
+      for (let i = -3; i <= 3; i++) {
+        const a = i * 0.32;
+        b.group(Math.sin(a) * 0.15, -0.205, Math.cos(a) * 0.125 - 0.01, 0, a, 0, (g) => {
+          g.add(G.cbox(0.045, 0.11, 0.012, 0.004), 'paint2', 0, 0, 0, -0.12, 0, 0);
+          g.add(G.sphere(0.007, 8, 5), 'brass', 0, -0.04, 0.012);
         });
-        s.group(0.085, 0.06, -0.12, 0, 0, -0.18, (v) => {
-          v.add(G.fin([[0.05, 0.0], [-0.06, 0.0], [-0.13, 0.28], [-0.09, 0.29]], 0.016), 'paint2');
-          v.add(G.fin([[-0.075, 0.03], [-0.085, 0.03], [-0.125, 0.26], [-0.115, 0.265]], 0.022, 0.002), 'glow');
-        });
-        s.group(0.07, -0.08, -0.12, -2.0, 0, 0, (v) => {
-          v.add(G.cyl(0.024, 0.032, 0.05, 12), 'metal', 0, 0.025, 0);
-          v.add(G.cyl(0.02, 0.02, 0.006, 12), 'glow', 0, 0.048, 0);
-        });
-      });
-      b.add(G.cbox(0.05, 0.28, 0.05, 0.012), 'dark', 0, 0.02, -0.13);
-      break;
-    }
-    case 7: {
-      // Foundry Plate (Vulkan): a cast barrel chest with heavy pecs, a glowing furnace grate under the
-      // core, banks of cooling fins down the flanks and twin smokestacks behind the shoulders
-      const main: Sec[] = [[-0.14, 0.4, 0.27, 0.005], [-0.02, 0.56, 0.33, 0.01], [0.12, 0.58, 0.33, 0.0], [0.21, 0.46, 0.27, -0.01]];
-      b.add(G.loft(main, 0.32), 'paint');
-      b.addLoftPair([[-0.04, 0.2, 0.05, 0.17, 0.125], [0.06, 0.24, 0.06, 0.178, 0.14], [0.15, 0.22, 0.05, 0.165, 0.13]], 'paint2', 0.3);
-      b.add(G.cbox(0.16, 0.1, 0.04, 0.01), 'metal', 0, -0.1, 0.165);
-      b.add(G.cbox(0.13, 0.072, 0.012, 0.004), 'dark', 0, -0.1, 0.184);
-      for (let i = 0; i < 3; i++) b.add(G.cbox(0.11, 0.009, 0.01, 0.003), 'glow', 0, -0.122 + i * 0.022, 0.188);
-      for (let i = 0; i < 4; i++) b.add(G.box(0.008, 0.08, 0.012), 'chrome', -0.045 + i * 0.03, -0.1, 0.192);
-      b.add(G.loft([[0.17, 0.32, 0.26, -0.02], [0.24, 0.24, 0.2, -0.03]], 0.35), 'paint2');
-      b.both((s) => {
-        for (let i = 0; i < 5; i++) {
-          const y = -0.13 + i * 0.03;
-          s.add(G.cbox(0.04, 0.012, 0.17, 0.003), 'metal', secAt(main, y)[1] / 2 + 0.006, y, 0.0);
-        }
-        s.add(G.cbox(0.07, 0.03, 0.05, 0.008), 'dark', 0.12, 0.13, -0.165);
-        s.group(0.12, 0.1, -0.18, -0.12, 0, -0.06, (v) => {
-          v.add(G.cyl(0.028, 0.034, 0.24, 12), 'metal', 0, 0.12, 0);
-          v.add(G.cyl(0.034, 0.034, 0.028, 12), 'dark', 0, 0.245, 0);
-          v.add(G.cyl(0.022, 0.022, 0.006, 12), 'glow', 0, 0.258, 0);
-          for (const yy of [0.04, 0.16]) v.add(G.torus(0.032, 0.005, 4, 14), 'chrome', 0, yy, 0, HP, 0, 0);
-        });
-      });
-      b.add(G.cbox(0.3, 0.22, 0.06, 0.014), 'paint2', 0, 0.02, -0.17);
-      break;
-    }
-    case 8: {
-      // Lattice Frame (Halcyon): a smooth sculpted chest set with lit hex cells, an orbit ring round the
-      // core, a glowing seam down the sternum and flanks, and a big hex plate on the back
-      const main: Sec[] = [[-0.135, 0.34, 0.25, 0.01], [0.0, 0.48, 0.29, 0.02], [0.13, 0.53, 0.29, 0.0], [0.21, 0.42, 0.25, -0.012]];
-      const cham = 0.4;
-      b.add(G.loft(main, cham), 'paint');
-      b.add(G.loft([[0.16, 0.36, 0.24, -0.01], [0.235, 0.26, 0.18, -0.02]], 0.45), 'paint2');
-      b.both((s) => {
-        for (const y of [-0.06, 0.02, 0.1]) {
-          const [, w, d, z] = secAt(main, y);
-          const c = Math.min(w, d) * cham;
-          for (const t of [0.28, 0.72]) {
-            const x = w / 2 - c * t, zz = z + d / 2 - c + c * t;
-            s.group(x + 0.003, y, zz + 0.003, 0, PI / 4, 0, (g) => {
-              g.add(G.cyl(0.026, 0.026, 0.012, 6), 'paint2', 0, 0, 0, HP, 0, 0);
-              g.add(G.cyl(0.011, 0.011, 0.016, 6), 'glow', 0, 0, 0.001, HP, 0, 0);
-            });
-          }
-        }
-        const fy = -0.03;
-        s.add(G.box(0.006, 0.16, 0.006), 'glow', secAt(main, fy)[1] / 2 + 0.001, fy, secAt(main, fy)[3]);
-      });
-      b.add(G.cbox(0.03, 0.12, 0.012, 0.004), 'dark', 0, -0.07, 0.149);
-      b.add(G.box(0.008, 0.11, 0.008), 'glow', 0, -0.07, 0.154);
-      b.add(G.torus(0.088, 0.006, 6, 30), 'glow', 0, 0.035, 0.17);
-      for (let i = 0; i < 3; i++) {
-        const a = HP + (i / 3) * PI * 2;
-        b.add(G.cbox(0.014, 0.022, 0.016, 0.004), 'chrome', Math.cos(a) * 0.088, 0.035 + Math.sin(a) * 0.088, 0.168, 0, 0, a);
       }
-      b.add(G.cyl(0.11, 0.11, 0.04, 6), 'paint2', 0, 0.05, -0.155, HP, 0, 0);
+      b.add(G.cbox(0.36, 0.26, 0.06, 0.02), 'paint2', 0, 0.03, -0.17);
+      b.add(G.cbox(0.02, 0.24, 0.012, 0.004), 'brass', 0, 0.03, -0.203);
+      rivets(b, 6, -0.15, 0.15, -0.203, 0.15, 0.15, -0.203, 0.008, 'brass');
       break;
     }
-    case 9: {
+    case 4: {
       // Lamellar Do (Kensei): rows of laced scale plates wrapping the torso, each row flaring over the
       // one below, a lacquered breastplate across the top, shoulder straps, lacing cords and a sash
       const main: Sec[] = [[-0.14, 0.34, 0.24, 0.005], [0.0, 0.46, 0.27, 0.012], [0.12, 0.5, 0.27, 0.0], [0.205, 0.42, 0.235, -0.012]];
@@ -1026,27 +857,29 @@ export function buildTorso(look: number, r = 0): PB {
       b.add(G.loft([[-0.142, 0.37, 0.27, 0.005], [-0.118, 0.38, 0.275, 0.006]], 0.3), 'paint2');
       b.both((s) => {
         s.add(G.cbox(0.06, 0.02, 0.24, 0.006), 'paint2', 0.17, 0.212, -0.01);
-        s.add(G.cbox(0.02, 0.012, 0.02, 0.004), 'chrome', 0.17, 0.222, 0.1);
+        s.add(G.cbox(0.02, 0.012, 0.02, 0.004), 'brass', 0.17, 0.222, 0.1);
       });
       break;
     }
     default: {
-      // Counter Plate: angular layered plates with crossed straps, buckles and shoulder spikes
-      b.add(G.loft([[-0.13, 0.36, 0.25], [0.04, 0.5, 0.29, 0.01], [0.2, 0.54, 0.26]], 0.12), 'paint2');
-      b.add(G.cbox(0.055, 0.4, 0.035, 0.008), 'paint', 0, 0.0, 0.15, 0, 0, 0.72);
-      b.add(G.cbox(0.055, 0.4, 0.035, 0.008), 'paint', 0, 0.0, 0.152, 0, 0, -0.72);
+      // Wraith Frame (Strix): a faceted stealth chest with a carbon chevron breastplate, gold sensor
+      // strip, swept intakes under the ribs, a carbon spine and twin canted tails on the back
+      b.add(G.loft([[-0.14, 0.28, 0.22, 0.012], [0.0, 0.44, 0.26, 0.02], [0.14, 0.54, 0.25, 0.0], [0.205, 0.46, 0.22, -0.015]], 0.08), 'paint');
+      b.add(G.prism([[-0.2, 0.1], [0.2, 0.1], [0.0, -0.15]], 0.03, 0.004), 'carbon', 0, 0.03, 0.15, -0.08, 0, 0);
+      b.addPlatePair([[0.02, -0.12], [0.032, -0.12], [0.16, 0.07], [0.148, 0.07]], 0.006, 'glow', 0.03, 0.166, -0.08);
+      b.add(G.cbox(0.11, 0.018, 0.012, 0.003), 'brass', 0, 0.17, 0.14);
       b.both((s) => {
-        s.add(G.cbox(0.04, 0.03, 0.02, 0.005), 'chrome', 0.13, 0.15, 0.17, 0, 0, -0.72);
-        s.add(G.cbox(0.04, 0.03, 0.02, 0.005), 'chrome', 0.13, -0.14, 0.17, 0, 0, 0.72);
-        s.add(G.prism([[0.0, 0.0], [0.12, 0.0], [0.1, -0.07], [0.02, -0.1]], 0.03, 0.006), 'paint', 0.02, -0.12, 0.12, -0.15, 0, 0);
+        s.group(0.165, -0.06, 0.07, 0, -0.38, 0.16, (v) => {
+          v.add(G.cbox(0.07, 0.13, 0.1, 0.004), 'paint2');
+          v.add(G.cbox(0.05, 0.1, 0.02, 0.003), 'dark', 0.004, 0, 0.045);
+          v.add(G.box(0.03, 0.006, 0.01), 'carbon', 0.004, 0.05, 0.05);
+        });
+        s.group(0.085, 0.07, -0.12, 0, 0, -0.38, (v) => {
+          v.add(G.fin([[0.05, 0.0], [-0.06, 0.0], [-0.13, 0.24], [-0.085, 0.25]], 0.014, 0.003), 'paint2');
+          v.add(G.fin([[-0.12, 0.215], [-0.13, 0.24], [-0.085, 0.25], [-0.08, 0.225]], 0.018, 0.002), 'glow');
+        });
       });
-      b.addPlatePair([[0.03, 0.13], [0.24, 0.14], [0.26, 0.04], [0.16, -0.02], [0.03, 0.05]], 0.05, 'paint', 0.0, 0.135, -0.05, 0, 0, 0.01);
-      b.addSym(G.cone(0.032, 0.1, 4), 'metal', 0.24, 0.23, -0.02, 0, PI / 4, -0.55);
-      b.addSym(G.cone(0.022, 0.07, 4), 'metal', 0.19, 0.24, -0.06, 0, PI / 4, -0.35);
-      b.add(G.cbox(0.32, 0.16, 0.06, 0.012), 'dark', 0, 0.05, -0.15);
-      b.addPlatePair([[0.02, 0.1], [0.17, 0.08], [0.15, -0.06], [0.02, -0.03]], 0.03, 'paint', 0.05, -0.185);
-      b.add(G.box(0.008, 0.18, 0.008), 'rarity', 0, -0.05, 0.172);
-      for (let i = 0; i < 2; i++) b.add(G.cbox(0.17 - i * 0.02, 0.05, 0.05, 0.01), 'metal', 0, -0.17 - i * 0.06, 0.1 - i * 0.01);
+      b.add(G.cbox(0.08, 0.3, 0.05, 0.006), 'carbon', 0, 0.02, -0.125);
       break;
     }
   }
@@ -1076,100 +909,60 @@ export function buildUpperArm(chestLook: number, out: number, r = 0): PB {
   let rim = 0.1, rw = 0.14, rx = 0.065, face = 0.15, py = 0.02;
   switch (chestLook) {
     case 0:
-      shell([[-0.085, 0.13, 0.15, 0, 0.0], [-0.03, 0.22, 0.22, 0, 0.03], [0.05, 0.22, 0.21, 0, 0.05], [0.09, 0.16, 0.17, 0, 0.06]], 0.35);
-      shell([[0.075, 0.17, 0.17, 0, 0.06], [0.125, 0.15, 0.15, 0, 0.065]], 0.3, 'paint2');
-      b.add(G.box(0.008, 0.008, 0.12), 'rarity', o * 0.17, 0.02, 0);
-      bolt(b, o * 0.158, -0.02, 0.06, 'x', 0.008);
-      bolt(b, o * 0.158, -0.02, -0.06, 'x', 0.008);
-      rim = 0.125;
-      rw = 0.145;
-      face = 0.15;
+      // Ironhorse: a double slab pauldron, riveted, striped, with a work lamp on its front
+      shell([[-0.1, 0.16, 0.2, 0, 0.0], [-0.04, 0.3, 0.28, 0, 0.045], [0.06, 0.3, 0.28, 0, 0.065], [0.125, 0.24, 0.23, 0, 0.075]], 0.12);
+      shell([[0.115, 0.26, 0.245, 0, 0.07], [0.15, 0.23, 0.22, 0, 0.075]], 0.12, 'steel');
+      hazard(b, 0.17, 0.03, o * 0.218, 0.04, 0, 0, o * HP, 0);
+      rivets(b, 5, o * 0.21, -0.03, -0.11, o * 0.21, -0.03, 0.11, 0.008, 'steel');
+      rivets(b, 5, o * 0.212, 0.1, -0.1, o * 0.212, 0.1, 0.1, 0.008, 'steel');
+      b.addDisc(0.022, 0.03, 'steel', o * 0.12, -0.01, 0.148, 12);
+      b.addDisc(0.016, 0.006, 'glow', o * 0.12, -0.01, 0.164, 12);
+      rim = 0.15;
+      rw = 0.23;
+      rx = 0.075;
+      face = 0.215;
+      py = -0.03;
       break;
     case 1:
-      shell([[-0.08, 0.12, 0.15, 0, 0.0], [-0.02, 0.2, 0.2, 0, 0.03], [0.03, 0.2, 0.2, 0, 0.04]], 0.3);
-      shell([[0.035, 0.19, 0.19, 0, 0.055], [0.075, 0.18, 0.18, 0, 0.06]], 0.3);
-      shell([[0.08, 0.16, 0.16, 0, 0.065], [0.12, 0.15, 0.15, 0, 0.07]], 0.3, 'paint2');
-      vent(b, 0.08, 0.04, 2, o * 0.142, 0.0, 0, 0, o * HP, 0);
-      b.add(G.box(0.008, 0.008, 0.1), 'rarity', o * 0.155, 0.055, 0);
-      rim = 0.12;
-      rw = 0.145;
-      rx = 0.07;
-      face = 0.145;
-      py = 0.1;
-      break;
-    case 2:
-      shell([[-0.1, 0.14, 0.17, 0, 0.0], [-0.04, 0.27, 0.26, 0, 0.04], [0.06, 0.27, 0.26, 0, 0.06], [0.11, 0.2, 0.2, 0, 0.07]], 0.42);
-      shell([[0.1, 0.23, 0.22, 0, 0.065], [0.13, 0.2, 0.2, 0, 0.07]], 0.42, 'paint2');
-      for (let i = 0; i < 3; i++) b.add(G.sphere(0.01, 6, 4), 'chrome', o * (0.09 + i * 0.03), -0.06 + i * 0.03, 0.12);
-      for (let i = 0; i < 3; i++) b.add(G.sphere(0.01, 6, 4), 'chrome', o * (0.09 + i * 0.03), -0.06 + i * 0.03, -0.12);
-      rim = 0.13;
-      rw = 0.195;
-      rx = 0.07;
-      face = 0.2;
-      break;
-    case 3:
-      shell([[-0.075, 0.12, 0.13, 0, 0.0], [-0.02, 0.19, 0.18, 0, 0.03], [0.06, 0.17, 0.17, 0, 0.05]], 0.25);
-      b.add(G.fin([[0.07, 0], [-0.08, 0.0], [-0.1, 0.1], [-0.01, 0.08]], 0.012), 'paint2', o * 0.09, -0.03, 0, 0, 0, o * (PI - 0.2));
-      b.add(G.box(0.006, 0.05, 0.006), 'glow', o * 0.13, 0.0, 0.08);
-      rim = 0.06;
-      rw = 0.165;
-      rx = 0.05;
-      face = 0.135;
-      py = 0.035;
-      break;
-    case 5:
-      // Bastion: a slab pauldron, double-layered, riveted, with hazard stripes down its face
-      shell([[-0.1, 0.15, 0.19, 0, 0.0], [-0.04, 0.29, 0.27, 0, 0.045], [0.06, 0.29, 0.27, 0, 0.065], [0.12, 0.23, 0.22, 0, 0.075]], 0.14);
-      shell([[0.11, 0.25, 0.235, 0, 0.07], [0.145, 0.22, 0.21, 0, 0.075]], 0.14, 'paint2');
-      hazard(b, 0.16, 0.03, o * 0.207, 0.05, 0, 0, o * HP, 0);
-      rivets(b, 5, o * 0.196, -0.02, -0.1, o * 0.196, -0.02, 0.1);
-      rivets(b, 5, o * 0.198, 0.1, -0.09, o * 0.198, 0.1, 0.09);
-      rim = 0.145;
-      rw = 0.22;
-      rx = 0.075;
-      face = 0.21;
-      py = -0.02;
-      break;
-    case 6:
-      // Kestrel: a slim swept pauldron with a wing raking up and back, edged in light
-      shell([[-0.075, 0.12, 0.13, 0, 0.0], [-0.02, 0.185, 0.18, 0, 0.03], [0.05, 0.17, 0.17, 0, 0.045], [0.08, 0.13, 0.14, 0, 0.05]], 0.42);
-      b.group(o * 0.1, -0.04, 0.0, 0, 0, o * (PI + 0.25), (v) => {
-        v.add(G.fin([[0.09, 0.0], [-0.06, 0.0], [-0.13, 0.12], [-0.03, 0.07]], 0.012), 'paint2');
-        v.add(G.fin([[-0.04, 0.012], [-0.055, 0.012], [-0.115, 0.105], [-0.1, 0.105]], 0.016, 0.002), 'glow');
-      });
-      b.add(G.box(0.006, 0.006, 0.09), 'glow', o * 0.123, 0.02, 0.0);
-      rim = 0.065;
-      rw = 0.145;
-      rx = 0.05;
-      face = 0.118;
-      py = 0.03;
-      break;
-    case 7:
-      // Vulkan: a rounded heavy pauldron with heat-sink fins standing off the cap and a lit vent
-      shell([[-0.09, 0.14, 0.16, 0, 0.0], [-0.035, 0.245, 0.235, 0, 0.04], [0.06, 0.245, 0.235, 0, 0.058], [0.115, 0.185, 0.185, 0, 0.065]], 0.33);
-      shell([[0.105, 0.2, 0.2, 0, 0.062], [0.135, 0.18, 0.18, 0, 0.066]], 0.33, 'paint2');
-      for (let i = 0; i < 3; i++) b.add(G.cbox(0.012, 0.055, 0.15 - i * 0.02, 0.003), 'metal', o * (0.02 + i * 0.04), -0.1, 0);
-      b.add(G.cbox(0.012, 0.045, 0.1, 0.004), 'dark', o * 0.176, 0.03, 0);
-      for (const y of [0.02, 0.04]) b.add(G.box(0.006, 0.007, 0.08), 'glow', o * 0.182, y, 0);
-      rim = 0.135;
-      rw = 0.18;
-      rx = 0.066;
-      face = 0.176;
-      py = 0.03;
-      break;
-    case 8:
-      // Halcyon: a smooth dome ringed with a light band, a lit hex cell on its face
-      shell([[-0.08, 0.13, 0.15, 0, 0.0], [-0.02, 0.215, 0.215, 0, 0.035], [0.06, 0.205, 0.205, 0, 0.05], [0.105, 0.15, 0.15, 0, 0.056]], 0.46);
-      shell([[0.02, 0.222, 0.222, 0, 0.042], [0.034, 0.222, 0.222, 0, 0.044]], 0.46, 'glow');
-      b.add(G.cyl(0.034, 0.034, 0.014, 6), 'paint2', o * 0.15, 0.065, 0, 0, 0, HP);
-      b.add(G.cyl(0.014, 0.014, 0.018, 6), 'glow', o * 0.152, 0.065, 0, 0, 0, HP);
+      // Lumen: a smooth dome split by a thin aluminium ring, a glass lozenge on its face
+      shell([[-0.08, 0.13, 0.15, 0, 0.0], [-0.02, 0.215, 0.215, 0, 0.035], [0.06, 0.205, 0.205, 0, 0.05], [0.105, 0.15, 0.15, 0, 0.056]], 0.5);
+      shell([[0.014, 0.218, 0.218, 0, 0.041], [0.022, 0.217, 0.217, 0, 0.042]], 0.5, 'alu');
+      b.add(G.sphere(0.03, 16, 10), 'glass', o * 0.15, 0.06, 0, 0, 0, 0, 0.25, 0.8, 1.4);
       rim = 0.1;
       rw = 0.15;
       rx = 0.056;
-      face = 0.152;
-      py = 0.065;
+      face = 0.155;
+      py = -0.03;
       break;
-    case 9:
+    case 2:
+      // Longwei: an angular pauldron capped in carbon, a light line and an actuator disc on its face
+      shell([[-0.09, 0.14, 0.17, 0, 0.0], [-0.035, 0.25, 0.24, 0, 0.04], [0.05, 0.25, 0.24, 0, 0.06], [0.11, 0.19, 0.19, 0, 0.068]], 0.2);
+      shell([[0.1, 0.21, 0.2, 0, 0.064], [0.13, 0.19, 0.18, 0, 0.068]], 0.2, 'carbon');
+      shell([[-0.095, 0.1, 0.13, 0, 0.0], [-0.075, 0.13, 0.15, 0, 0.012]], 0.2, 'carbon');
+      b.add(G.box(0.006, 0.008, 0.13), 'glow', o * 0.189, 0.03, 0);
+      b.add(G.cyl(0.028, 0.028, 0.012, 20), 'alu', o * 0.186, -0.025, 0, 0, 0, HP);
+      rim = 0.13;
+      rw = 0.2;
+      rx = 0.068;
+      face = 0.188;
+      py = 0.07;
+      break;
+    case 3:
+      // Martelli: a big rounded pauldron edged in brass with two lames below and a brass boss
+      shell([[-0.1, 0.15, 0.17, 0, 0.0], [-0.04, 0.28, 0.27, 0, 0.045], [0.06, 0.28, 0.27, 0, 0.065], [0.12, 0.21, 0.21, 0, 0.072]], 0.42);
+      shell([[0.112, 0.222, 0.222, 0, 0.071], [0.126, 0.214, 0.214, 0, 0.073]], 0.42, 'brass');
+      shell([[0.13, 0.22, 0.21, 0, 0.076], [0.165, 0.2, 0.19, 0, 0.08]], 0.42, 'paint2');
+      shell([[0.17, 0.2, 0.19, 0, 0.082], [0.2, 0.18, 0.17, 0, 0.085]], 0.42, 'paint2');
+      b.add(G.cyl(0.032, 0.032, 0.012, 20), 'brass', o * 0.204, 0.0, 0, 0, 0, HP);
+      b.add(G.sphere(0.014, 10, 6), 'brass', o * 0.211, 0.0, 0);
+      rivets(b, 4, o * 0.172, 0.09, -0.08, o * 0.172, 0.09, 0.08, 0.007, 'brass');
+      rim = 0.12;
+      rw = 0.21;
+      rx = 0.072;
+      face = 0.205;
+      py = 0.06;
+      break;
+    case 4:
       // Kensei: a small cap under a sode, a flat shoulder board of laced rows hanging off the outside
       shell([[-0.08, 0.12, 0.15, 0, 0.0], [-0.025, 0.19, 0.19, 0, 0.03], [0.04, 0.18, 0.18, 0, 0.04]], 0.3, 'dark');
       for (let i = 0; i < 4; i++) b.add(G.cbox(0.018, 0.052, 0.21, 0.004), i === 0 ? 'paint2' : 'paint', o * (0.122 + i * 0.012), -0.05 + i * 0.046, 0, 0, 0, o * -0.12);
@@ -1181,14 +974,18 @@ export function buildUpperArm(chestLook: number, out: number, r = 0): PB {
       py = 0.0;
       break;
     default:
-      shell([[-0.09, 0.12, 0.16, 0, 0.0], [-0.03, 0.21, 0.21, 0, 0.035], [0.06, 0.2, 0.2, 0, 0.055]], 0.14);
-      b.add(G.cone(0.032, 0.11, 4), 'metal', o * 0.13, -0.05, 0, 0, PI / 4, o * -1.0);
-      b.add(G.cone(0.022, 0.07, 4), 'metal', o * 0.12, -0.03, -0.06, 0, PI / 4, o * -1.2);
-      shell([[0.06, 0.16, 0.17, 0, 0.06], [0.11, 0.14, 0.15, 0, 0.07]], 0.14, 'paint2');
-      rim = 0.11;
-      rw = 0.135;
-      rx = 0.07;
-      face = 0.15;
+      // Strix: a slim faceted pauldron with a carbon wing raking up and back, edged in light
+      shell([[-0.075, 0.12, 0.13, 0, 0.0], [-0.02, 0.185, 0.18, 0, 0.03], [0.05, 0.17, 0.17, 0, 0.045], [0.08, 0.13, 0.14, 0, 0.05]], 0.1);
+      b.group(o * 0.1, -0.04, 0.0, 0, 0, o * (PI + 0.25), (v) => {
+        v.add(G.fin([[0.09, 0.0], [-0.06, 0.0], [-0.13, 0.12], [-0.03, 0.07]], 0.012, 0.003), 'carbon');
+        v.add(G.fin([[-0.04, 0.012], [-0.055, 0.012], [-0.115, 0.105], [-0.1, 0.105]], 0.016, 0.002), 'glow');
+      });
+      b.add(G.box(0.006, 0.006, 0.09), 'glow', o * 0.123, 0.02, 0.0);
+      rim = 0.065;
+      rw = 0.145;
+      rx = 0.05;
+      face = 0.118;
+      py = 0.03;
       break;
   }
   if (r >= 2) {
@@ -1210,6 +1007,9 @@ export function buildUpperArm(chestLook: number, out: number, r = 0): PB {
 }
 
 // ======================================================================= CORE
+/** The bezel each maker rings its core housing with. */
+const CORE_BEZEL: MatKey[] = ['steel', 'alu', 'alu', 'brass', 'metal', 'carbon'];
+
 /** Power core on the chest and the matching reactor on the back (rides the torso bone). */
 export function buildCore(look: number, chestLook: number, r = 0): PB {
   const b = new PB();
@@ -1217,106 +1017,58 @@ export function buildCore(look: number, chestLook: number, r = 0): PB {
   const bz = (TORSO_FIT[chestLook] ?? TORSO_FIT[0]).back;
   // the chest unit: housing, bezel, then the core itself
   b.addDisc(0.06, 0.05, 'dark', 0, y, z, 18);
-  b.add(G.torus(0.06, 0.012, 6, 22), 'metal', 0, y, z + 0.022);
+  b.add(G.torus(0.06, 0.012, 6, 22), CORE_BEZEL[look] ?? 'metal', 0, y, z + 0.022);
   switch (look) {
     case 0:
-      // Fusion: a glowing sphere behind a chrome cross cage
-      b.add(G.sphere(0.04, 14, 10), 'core', 0, y, z + 0.01);
-      b.add(G.torus(0.046, 0.005, 4, 22), 'rarity', 0, y, z + 0.031);
-      b.add(G.cbox(0.09, 0.008, 0.008, 0.002), 'chrome', 0, y, z + 0.05, 0, 0, PI / 4);
-      b.add(G.cbox(0.09, 0.008, 0.008, 0.002), 'chrome', 0, y, z + 0.05, 0, 0, -PI / 4);
-      b.addDisc(0.01, 0.01, 'metal', 0, y, z + 0.054, 8);
+      // Turbodiesel: a glowing turbo intake behind pitched steel vanes and a spinner, caged by a bar
+      b.addDisc(0.046, 0.012, 'core', 0, y, z + 0.02, 18);
+      for (let i = 0; i < 8; i++) b.group(0, y, z + 0.03, 0, 0, (i / 8) * PI * 2, (v) => v.add(G.box(0.012, 0.038, 0.003), 'steel', 0, 0.026, 0, 0, 0.7, 0));
+      b.add(G.cone(0.016, 0.028, 12), 'steel', 0, y, z + 0.044, HP, 0, 0);
+      b.add(G.cbox(0.11, 0.012, 0.012, 0.003), 'steel', 0, y, z + 0.052);
+      for (const s of [-1, 1]) bolt(b, s * 0.06, y, z + 0.052, 'z', 0.008, 'steel');
       break;
     case 1:
-      // Overdrive: three redline bars behind a frame, ringed by heat-sink fins
-      b.add(G.cbox(0.084, 0.084, 0.02, 0.006), 'dark', 0, y, z + 0.02);
-      for (let i = -1; i <= 1; i++) b.add(G.cbox(0.017, 0.066, 0.03, 0.006), 'core', i * 0.025, y, z + 0.02);
-      b.add(G.torus(0.048, 0.005, 4, 4), 'rarity', 0, y, z + 0.031, 0, 0, PI / 4);
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * PI * 2 + PI / 8;
-        b.add(G.box(0.022, 0.006, 0.026), 'metal', Math.cos(a) * 0.082, y + Math.sin(a) * 0.082, z + 0.008, 0, 0, a);
-      }
+      // Cell: a seamless pool of light flush in an aluminium ring
+      b.add(G.sphere(0.047, 28, 14), 'core', 0, y, z + 0.022, 0, 0, 0, 1, 1, 0.38);
+      b.add(G.torus(0.05, 0.004, 6, 36), 'alu', 0, y, z + 0.032);
       break;
     case 2:
-      // Aegis: a hex emitter in a hex frame with three projector prongs
-      b.add(G.cyl(0.043, 0.043, 0.02, 6), 'core', 0, y, z + 0.02, HP, 0, 0);
-      b.add(G.torus(0.05, 0.005, 4, 6), 'rarity', 0, y, z + 0.033, 0, 0, PI / 6);
-      for (let i = 0; i < 3; i++) {
-        const a = (i / 3) * PI * 2 + HP;
-        b.group(Math.cos(a) * 0.07, y + Math.sin(a) * 0.07, z + 0.03, 0, 0, a - HP, (v) => {
-          v.add(G.cbox(0.02, 0.03, 0.02, 0.005), 'metal');
-          v.add(G.cone(0.008, 0.03, 6), 'chrome', 0, 0.028, 0);
-        });
+      // Qilin: a hex cell in a carbon hex frame, studded with six aluminium tabs
+      b.add(G.cyl(0.042, 0.042, 0.02, 6), 'core', 0, y, z + 0.02, HP, 0, 0);
+      b.add(G.torus(0.052, 0.008, 4, 6), 'carbon', 0, y, z + 0.034, 0, 0, PI / 6);
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * PI * 2;
+        b.add(G.cbox(0.012, 0.008, 0.008, 0.002), 'alu', Math.cos(a) * 0.052, y + Math.sin(a) * 0.052, z + 0.042, 0, 0, a);
       }
       break;
     case 3:
-      // Leech: a crystal held by four clamp jaws
-      b.add(G.octa(0.043), 'core', 0, y, z + 0.024, 0, 0, 0, 0.8, 1.15, 0.6);
-      b.add(G.torus(0.048, 0.005, 4, 20), 'rarity', 0, y, z + 0.031);
-      for (let i = 0; i < 4; i++) {
-        const a = (i / 4) * PI * 2 + PI / 4;
-        b.group(Math.cos(a) * 0.058, y + Math.sin(a) * 0.058, z + 0.034, 0, 0, a - HP, (v) => {
-          v.add(G.cbox(0.016, 0.03, 0.016, 0.004), 'metal');
-          v.add(G.prism([[-0.008, 0], [0.008, 0], [0.002, -0.022]], 0.014, 0.003), 'chrome', 0, -0.012, 0.004);
-        });
+      // Sole d'Oro: a golden sun, its rays fanned round the glowing disc
+      b.addDisc(0.034, 0.014, 'core', 0, y, z + 0.026, 20);
+      b.add(G.torus(0.038, 0.006, 4, 24), 'brass', 0, y, z + 0.034);
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * PI * 2;
+        const L = i % 2 ? 0.016 : 0.026;
+        b.group(Math.cos(a) * 0.044, y + Math.sin(a) * 0.044, z + 0.036, 0, 0, a - HP, (v) => v.add(G.prism([[-0.006, 0], [0.006, 0], [0, L]], 0.006, 0.001), 'brass'));
       }
       break;
-    case 5:
-      // Bunker: the core glows through a cross-shaped gap in an armoured shutter
-      b.add(G.cbox(0.074, 0.074, 0.02, 0.004), 'core', 0, y, z + 0.02);
-      b.both((s) => {
-        for (const sy of [-1, 1]) s.add(G.cbox(0.033, 0.033, 0.016, 0.004), 'paint2', 0.021, y + sy * 0.021, z + 0.036);
-      });
-      b.add(G.torus(0.052, 0.008, 4, 4), 'chrome', 0, y, z + 0.032, 0, 0, PI / 4);
-      b.add(G.torus(0.06, 0.004, 4, 20), 'rarity', 0, y, z + 0.036);
-      for (let i = 0; i < 4; i++) {
-        const a = (i / 4) * PI * 2;
-        bolt(b, Math.cos(a) * 0.06, y + Math.sin(a) * 0.06, z + 0.035, 'z', 0.007);
-      }
-      break;
-    case 6:
-      // Turbine: a lit intake behind a ring of pitched fan blades round a chrome spinner
-      b.addDisc(0.046, 0.012, 'core', 0, y, z + 0.02, 18);
-      for (let i = 0; i < 9; i++) b.group(0, y, z + 0.03, 0, 0, (i / 9) * PI * 2, (v) => v.add(G.box(0.01, 0.04, 0.003), 'metal', 0, 0.028, 0, 0, 0.6, 0));
-      b.add(G.cone(0.016, 0.03, 12), 'chrome', 0, y, z + 0.045, HP, 0, 0);
-      b.add(G.torus(0.05, 0.004, 4, 24), 'rarity', 0, y, z + 0.031);
-      break;
-    case 7:
-      // Magma: a molten pool in a heavy crucible lip, held behind chunky grate bars
-      b.add(G.sphere(0.042, 14, 10), 'core', 0, y, z + 0.008, 0, 0, 0, 1, 1, 0.7);
-      b.add(G.torus(0.046, 0.012, 6, 20), 'metal', 0, y, z + 0.03);
-      for (let i = -1; i <= 1; i++) b.add(G.cbox(0.096, 0.011, 0.012, 0.003), 'chrome', 0, y + i * 0.026, z + 0.044);
-      b.add(G.torus(0.06, 0.004, 4, 22), 'rarity', 0, y, z + 0.036);
-      break;
-    case 8:
-      // Zenith: a small star hung in two crossed gimbal rings
-      b.add(G.sphere(0.03, 16, 12), 'core', 0, y, z + 0.036);
-      b.add(G.torus(0.042, 0.004, 4, 24), 'chrome', 0, y, z + 0.036, 0, 0.6, 0);
-      b.add(G.torus(0.042, 0.004, 4, 24), 'chrome', 0, y, z + 0.036, 0, -0.6, 0);
-      for (const s of [-1, 1]) b.add(G.cyl(0.006, 0.006, 0.012, 8), 'metal', 0, y + s * 0.045, z + 0.036);
-      b.add(G.torus(0.06, 0.004, 4, 22), 'rarity', 0, y, z + 0.036);
-      break;
-    case 9:
+    case 4:
       // Zen: a lit disc framed like a sword guard, four petals round a dark diamond
       b.addDisc(0.036, 0.01, 'core', 0, y, z + 0.026, 18);
-      b.add(G.torus(0.044, 0.007, 4, 28), 'chrome', 0, y, z + 0.032);
+      b.add(G.torus(0.044, 0.007, 4, 28), 'brass', 0, y, z + 0.032);
       for (let i = 0; i < 4; i++) {
         const a = PI / 4 + (i / 4) * PI * 2;
         b.add(G.cyl(0.011, 0.011, 0.008, 10), 'paint2', Math.cos(a) * 0.044, y + Math.sin(a) * 0.044, z + 0.037, HP, 0, 0);
       }
       b.add(G.cbox(0.024, 0.024, 0.01, 0.003), 'dark', 0, y, z + 0.034, 0, 0, PI / 4);
-      b.add(G.torus(0.06, 0.004, 4, 22), 'rarity', 0, y, z + 0.036);
       break;
     default:
-      // Static: a crackling crystal inside a tilted Tesla ring with three spark nodes
-      b.add(G.ico(0.038), 'core', 0, y, z + 0.022);
-      b.add(G.torus(0.05, 0.005, 4, 20), 'rarity', 0, y, z + 0.033, 0.5, 0.4, 0);
-      for (let i = 0; i < 3; i++) {
-        const a = (i / 3) * PI * 2 + HP;
-        const x = Math.cos(a) * 0.074, yy = y + Math.sin(a) * 0.074;
-        b.add(G.cyl(0.005, 0.005, 0.03, 5), 'chrome', x, yy, z + 0.03, HP, 0, 0);
-        b.add(G.sphere(0.009, 8, 6), 'core', x, yy, z + 0.048);
+      // Scramjet: a lit throat inside a carbon diamond inlet, a gold sensor dot over it
+      b.addDisc(0.044, 0.012, 'core', 0, y, z + 0.02, 18);
+      for (let i = 0; i < 4; i++) {
+        const a = PI / 4 + (i / 4) * PI * 2;
+        b.add(G.cbox(0.07, 0.012, 0.014, 0.003), 'carbon', Math.cos(a) * 0.036, y + Math.sin(a) * 0.036, z + 0.036, 0, 0, a + HP);
       }
+      b.add(G.sphere(0.007, 8, 6), 'brass', 0, y + 0.068, z + 0.03);
       break;
   }
   if (r >= 2) for (let i = 0; i < 6; i++) {
@@ -1334,101 +1086,69 @@ export function buildCore(look: number, chestLook: number, r = 0): PB {
   const rz = bz - 0.03;
   switch (look) {
     case 0:
-      b.addDisc(0.072, 0.08, 'metal', 0, 0.05, rz, 16);
-      for (let i = 0; i < 3; i++) b.addDisc(0.08, 0.008, 'dark', 0, 0.05, rz + 0.025 - i * 0.022, 16);
-      b.add(G.torus(0.058, 0.011, 6, 20), 'chrome', 0, 0.05, rz - 0.043);
-      b.addDisc(0.043, 0.02, 'core', 0, 0.05, rz - 0.045, 16);
-      b.addSym(G.cyl(0.017, 0.017, 0.12, 8), 'dark', 0.08, 0.07, rz + 0.01);
+      // a diesel engine block: finned head, glowing grate, an exhaust pipe each side and hoses
+      b.add(G.cbox(0.22, 0.18, 0.1, 0.012), 'steel', 0, 0.04, rz);
+      for (let i = 0; i < 4; i++) b.add(G.cbox(0.24, 0.008, 0.11, 0.002), 'dark', 0, 0.145 + i * 0.016, rz);
+      b.add(G.cbox(0.16, 0.08, 0.012, 0.003), 'dark', 0, 0.02, rz - 0.052);
+      for (let i = 0; i < 3; i++) b.add(G.cbox(0.14, 0.01, 0.01, 0.003), 'core', 0, -0.004 + i * 0.024, rz - 0.056);
+      for (let i = -2; i <= 2; i++) b.add(G.box(0.008, 0.08, 0.012), 'steel', i * 0.03, 0.02, rz - 0.06);
+      b.both((s) => {
+        s.add(G.cyl(0.02, 0.024, 0.26, 10), 'steel', 0.13, 0.13, rz - 0.01);
+        s.add(G.cyl(0.026, 0.026, 0.02, 10), 'dark', 0.13, 0.27, rz - 0.01);
+        s.add(G.cyl(0.016, 0.016, 0.004, 10), 'core', 0.13, 0.282, rz - 0.01);
+        s.add(G.torus(0.04, 0.008, 5, 12, PI), 'rubber', 0.1, -0.05, rz, 0, HP, PI);
+      });
       break;
     case 1:
-      // twin exhaust stacks
-      b.addDisc(0.055, 0.06, 'metal', 0, 0.0, rz + 0.01, 14);
-      b.addDisc(0.034, 0.02, 'core', 0, 0.0, rz - 0.022, 14);
-      b.both((s) => {
-        s.add(G.cyl(0.03, 0.034, 0.24, 10), 'metal', 0.075, 0.14, rz);
-        s.add(G.cyl(0.036, 0.036, 0.03, 10), 'dark', 0.075, 0.27, rz);
-        s.add(G.cyl(0.022, 0.022, 0.006, 10), 'core', 0.075, 0.287, rz);
-        s.add(G.torus(0.033, 0.005, 4, 12), 'chrome', 0.075, 0.08, rz, HP, 0, 0);
-      });
+      // a smooth aluminium disc pack ringed with light
+      b.add(G.cyl(0.1, 0.1, 0.04, 40), 'alu', 0, 0.05, rz + 0.01, HP, 0, 0);
+      b.add(G.torus(0.086, 0.004, 4, 40), 'core', 0, 0.05, rz - 0.011);
+      b.add(G.cyl(0.062, 0.062, 0.006, 32), 'paint2', 0, 0.05, rz - 0.011, HP, 0, 0);
       break;
     case 2:
-      // hex barrier generator with three emitter vanes
-      b.add(G.cyl(0.082, 0.082, 0.07, 6), 'metal', 0, 0.05, rz, HP, 0, 0);
-      b.add(G.cyl(0.05, 0.05, 0.02, 6), 'core', 0, 0.05, rz - 0.03, HP, 0, 0);
-      b.add(G.torus(0.064, 0.008, 4, 6), 'chrome', 0, 0.05, rz - 0.036, 0, 0, PI / 6);
-      for (let i = 0; i < 3; i++) {
-        const a = (i / 3) * PI * 2 + HP;
-        b.add(G.cbox(0.016, 0.06, 0.05, 0.004), 'paint2', Math.cos(a) * 0.1, 0.05 + Math.sin(a) * 0.1, rz, 0, 0, a - HP);
-      }
+      // battery modules in a carbon rack, three status bars and two cooling fans
+      b.add(G.cbox(0.22, 0.2, 0.06, 0.012), 'carbon', 0, 0.04, rz);
+      for (let i = -1; i <= 1; i++) b.add(G.cbox(0.012, 0.14, 0.008, 0.002), 'core', i * 0.04, 0.04, rz - 0.032);
+      b.addSym(G.cbox(0.012, 0.22, 0.07, 0.003), 'alu', 0.116, 0.04, rz);
+      b.both((s) => {
+        s.addDisc(0.03, 0.012, 'dark', 0.075, -0.1, rz + 0.01, 16);
+        s.add(G.torus(0.03, 0.004, 4, 20), 'alu', 0.075, -0.1, rz + 0.003);
+        s.add(G.cbox(0.05, 0.006, 0.004, 0.001), 'alu', 0.075, -0.1, rz + 0.002, 0, 0, 0.6);
+      });
       break;
     case 3:
-      // a pair of collector tanks with lit sight windows
-      b.both((s) => {
-        s.add(G.cyl(0.04, 0.04, 0.2, 12), 'metal', 0.06, 0.06, rz);
-        s.add(G.sphere(0.04, 12, 6), 'metal', 0.06, 0.16, rz);
-        s.add(G.sphere(0.04, 12, 6), 'metal', 0.06, -0.04, rz);
-        s.add(G.box(0.012, 0.13, 0.01), 'core', 0.06, 0.06, rz - 0.038);
-        s.add(G.torus(0.041, 0.006, 4, 12), 'dark', 0.06, 0.12, rz, HP, 0, 0);
-        s.add(G.torus(0.041, 0.006, 4, 12), 'dark', 0.06, 0.0, rz, HP, 0, 0);
-      });
-      b.add(G.cbox(0.06, 0.04, 0.04, 0.008), 'dark', 0, 0.06, rz);
+      // a V-twin engine: two finned cylinders splayed off a crankcase, brass heads, a lit sump
+      b.add(G.cbox(0.12, 0.09, 0.08, 0.02), 'steel', 0, -0.02, rz);
+      b.addDisc(0.03, 0.012, 'core', 0, -0.02, rz - 0.04, 18);
+      b.add(G.torus(0.032, 0.005, 4, 20), 'brass', 0, -0.02, rz - 0.046);
+      for (const s of [-1, 1])
+        b.group(s * 0.03, 0.02, rz, 0, 0, -s * 0.55, (v) => {
+          v.add(G.cyl(0.036, 0.036, 0.15, 16), 'paint2', 0, 0.08, 0);
+          for (let i = 0; i < 4; i++) v.add(G.torus(0.04, 0.005, 4, 18), 'brass', 0, 0.035 + i * 0.03, 0, HP, 0, 0);
+          v.add(G.cyl(0.03, 0.042, 0.03, 16), 'brass', 0, 0.17, 0);
+        });
       break;
-    case 5:
-      // a blocky generator with twin glow slits over a hazard-striped sill and side pipes
-      b.add(G.cbox(0.2, 0.17, 0.08, 0.012), 'metal', 0, 0.05, rz);
-      for (const yy of [0.08, 0.05]) b.add(G.cbox(0.16, 0.012, 0.012, 0.004), 'core', 0, yy, rz - 0.041);
-      hazard(b, 0.17, 0.026, 0, 0.0, rz - 0.046, 0, PI, 0);
-      rivets(b, 2, -0.085, 0.12, rz - 0.041, 0.085, 0.12, rz - 0.041);
-      b.addSym(G.cyl(0.018, 0.018, 0.14, 8), 'dark', 0.12, 0.05, rz + 0.01);
-      break;
-    case 6:
-      // twin turbine pods on a spar, exhausts lit
-      b.add(G.cbox(0.1, 0.04, 0.05, 0.01), 'dark', 0, 0.03, rz);
-      b.both((s) => {
-        s.add(G.cyl(0.035, 0.03, 0.1, 14), 'metal', 0.07, 0.03, rz - 0.01, HP, 0, 0);
-        s.add(G.torus(0.033, 0.005, 4, 14), 'chrome', 0.07, 0.03, rz - 0.055);
-        s.add(G.cyl(0.024, 0.024, 0.006, 14), 'core', 0.07, 0.03, rz - 0.062, HP, 0, 0);
-      });
-      break;
-    case 7:
-      // a squat firebox with a lit grate and a short flue
-      b.add(G.cbox(0.16, 0.16, 0.08, 0.016), 'metal', 0, 0.02, rz);
-      b.add(G.cbox(0.11, 0.07, 0.012, 0.004), 'dark', 0, 0.0, rz - 0.04);
-      for (let i = 0; i < 3; i++) b.add(G.cbox(0.09, 0.008, 0.01, 0.003), 'core', 0, -0.022 + i * 0.022, rz - 0.044);
-      for (let i = -1; i <= 1; i++) b.add(G.box(0.008, 0.075, 0.012), 'chrome', i * 0.035, 0.0, rz - 0.047);
-      b.add(G.cyl(0.024, 0.028, 0.06, 10), 'metal', 0, 0.12, rz - 0.01);
-      b.add(G.cyl(0.016, 0.016, 0.004, 10), 'core', 0, 0.152, rz - 0.01);
-      break;
-    case 8:
-      // a halo ring round a sphere on three light spokes
-      b.add(G.torus(0.11, 0.009, 6, 36), 'core', 0, 0.06, rz - 0.02);
-      b.add(G.sphere(0.04, 14, 10), 'metal', 0, 0.06, rz + 0.005);
-      b.add(G.sphere(0.026, 12, 8), 'core', 0, 0.06, rz - 0.03);
-      for (let i = 0; i < 3; i++) {
-        const a = HP + (i / 3) * PI * 2;
-        b.add(G.cyl(0.004, 0.004, 0.07, 5), 'chrome', Math.cos(a) * 0.075, 0.06 + Math.sin(a) * 0.075, rz - 0.015, 0, 0, a - HP);
-      }
-      break;
-    case 9:
+    case 4:
       // two sheathed blades crossed on the back, hilts over the shoulders
       b.add(G.cbox(0.06, 0.06, 0.04, 0.01), 'paint2', 0, 0.06, rz + 0.01);
       for (const s of [-1, 1])
         b.group(0, 0.06, rz + (s < 0 ? 0.012 : -0.016), 0, 0, s * 0.62, (v) => {
           v.add(G.cbox(0.034, 0.46, 0.026, 0.01), 'dark', 0, -0.03, 0);
           v.add(G.cbox(0.038, 0.02, 0.03, 0.006), 'paint2', 0, -0.25, 0);
-          v.add(G.cyl(0.03, 0.03, 0.008, 12), 'chrome', 0, 0.204, 0);
+          v.add(G.cyl(0.03, 0.03, 0.008, 12), 'brass', 0, 0.204, 0);
           v.add(G.cbox(0.026, 0.11, 0.022, 0.006), 'paint2', 0, 0.264, 0);
           for (let i = 0; i < 4; i++) v.add(G.box(0.03, 0.006, 0.026), 'dark', 0, 0.226 + i * 0.024, 0);
-          v.add(G.cyl(0.015, 0.015, 0.008, 8), 'chrome', 0, 0.322, 0);
+          v.add(G.cyl(0.015, 0.015, 0.008, 8), 'brass', 0, 0.322, 0);
         });
       break;
     default:
-      // a coil tower
-      b.addDisc(0.06, 0.04, 'metal', 0, 0.0, rz + 0.01, 14);
-      b.add(G.cyl(0.016, 0.016, 0.3, 8), 'dark', 0, 0.15, rz);
-      for (let i = 0; i < 3; i++) b.add(G.torus(0.045 - i * 0.008, 0.008, 5, 16), 'chrome', 0, 0.08 + i * 0.07, rz, HP, 0, 0);
-      b.add(G.sphere(0.024, 10, 8), 'core', 0, 0.31, rz);
-      b.addSym(G.cyl(0.015, 0.015, 0.1, 8), 'dark', 0.065, 0.02, rz);
+      // twin jet nozzles on a carbon spar, lit inside
+      b.add(G.cbox(0.12, 0.05, 0.05, 0.006), 'carbon', 0, 0.03, rz);
+      b.both((s) => {
+        s.add(G.cyl(0.036, 0.03, 0.1, 14), 'paint2', 0.07, 0.03, rz - 0.01, HP, 0, 0);
+        s.add(G.cyl(0.028, 0.034, 0.03, 12, true), 'carbon', 0.07, 0.03, rz - 0.07, HP, 0, 0);
+        s.add(G.cyl(0.024, 0.024, 0.006, 14), 'core', 0.07, 0.03, rz - 0.062, HP, 0, 0);
+      });
       break;
   }
   return b;
@@ -1449,114 +1169,66 @@ export function buildForearm(look: number, r = 0): PB {
   let side = 0;
   switch (look) {
     case 0:
-      // Brawler: a taped bracer with a bolted strike plate
-      main = [[0.05, 0.12, 0.12], [0.11, 0.15, 0.145, 0.005], [0.22, 0.165, 0.155, 0.005], [0.265, 0.15, 0.14]];
+      // Piledriver (Ironhorse): a square bracer banded in steel, a hydraulic ram along the back
+      // of the arm with its hose, riveted edges and stripes down the sides
+      main = [[0.04, 0.17, 0.17], [0.11, 0.21, 0.2, 0.005], [0.24, 0.22, 0.2, 0.005], [0.275, 0.2, 0.18]];
+      cham = 0.12;
       b.add(G.loft(main, cham), 'paint');
-      band(b, main, 0.095, 0.11, 0.004, 'dark', cham);
-      band(b, main, 0.235, 0.25, 0.004, 'dark', cham);
-      b.add(G.loft([[0.1, 0.07, 0.03], [0.24, 0.09, 0.03]], 0.3), 'paint2', 0, 0, 0.083);
-      for (const y of [0.12, 0.22]) bolt(b, 0, y, 0.1, 'z', 0.007);
-      b.add(G.box(0.008, 0.06, 0.008), 'rarity', 0, 0.17, 0.1);
+      band(b, main, 0.06, 0.085, 0.006, 'steel', cham);
+      band(b, main, 0.245, 0.265, 0.006, 'steel', cham);
+      b.add(G.cbox(0.07, 0.03, 0.03, 0.006), 'steel', 0, 0.05, 0.112);
+      b.add(G.cyl(0.032, 0.032, 0.13, 12), 'dark', 0, 0.12, 0.125);
+      b.add(G.cyl(0.036, 0.036, 0.014, 12), 'steel', 0, 0.185, 0.125);
+      b.add(G.cyl(0.017, 0.017, 0.08, 10), 'chrome', 0, 0.23, 0.125);
+      b.add(G.cbox(0.07, 0.03, 0.04, 0.006), 'steel', 0, 0.27, 0.118);
+      b.add(G.torus(0.04, 0.007, 5, 12, PI), 'rubber', 0.04, 0.09, 0.115, 0, HP, -HP);
+      b.both((s) => {
+        hazard(s, 0.12, 0.05, 0.111, 0.17, 0.0, 0, HP, 0);
+        rivets(s, 3, 0.11, 0.12, 0.085, 0.11, 0.23, 0.085, 0.007, 'steel');
+      });
+      side = 0.118;
       break;
     case 1:
-      // Piston Jabbers: a slim sleeve driven by twin pneumatic rams, with an air tank underneath
-      main = [[0.05, 0.1, 0.1], [0.25, 0.115, 0.105]];
-      b.add(G.loft(main, cham), 'paint2');
-      b.both((s) => {
-        s.add(G.cyl(0.015, 0.015, 0.22, 8), 'chrome', 0.065, 0.15, 0.03);
-        s.add(G.cyl(0.025, 0.025, 0.06, 8), 'metal', 0.065, 0.07, 0.03);
-        s.add(G.cyl(0.023, 0.023, 0.03, 8), 'metal', 0.065, 0.25, 0.03);
-        s.add(G.torus(0.026, 0.004, 4, 10), 'dark', 0.065, 0.1, 0.03, HP, 0, 0);
-      });
-      b.add(G.loft([[0.08, 0.06, 0.02], [0.22, 0.07, 0.02]], 0.3), 'paint', 0, 0, 0.062);
-      b.add(G.cyl(0.026, 0.026, 0.12, 10), 'metal', 0, 0.16, -0.06);
-      b.add(G.sphere(0.026, 10, 6), 'metal', 0, 0.1, -0.06);
-      b.add(G.sphere(0.026, 10, 6), 'metal', 0, 0.22, -0.06);
-      b.add(G.box(0.008, 0.1, 0.008), 'rarity', 0, 0.15, 0.075);
-      side = 0.09;
+      // Touch (Lumen): a smooth capsule sleeve with a glass panel along its back and a light ring
+      main = [[0.05, 0.11, 0.11], [0.15, 0.13, 0.13, 0.004], [0.265, 0.115, 0.115]];
+      cham = 0.5;
+      b.add(G.loft(main, cham), 'paint');
+      b.add(G.sphere(0.05, 20, 12), 'glass', 0, 0.155, 0.064, 0, 0, 0, 0.75, 1.8, 0.24);
+      band(b, main, 0.236, 0.242, 0.003, 'glow', cham);
+      band(b, main, 0.05, 0.07, 0.003, 'alu', cham);
+      side = 0.068;
       break;
     case 2:
-      // Thunder: capacitor coils round the sleeve and charge cans either side
-      main = [[0.05, 0.12, 0.12], [0.25, 0.135, 0.13]];
-      b.add(G.loft(main, cham), 'paint2');
-      for (let i = 0; i < 3; i++) b.add(G.torus(0.074, 0.011, 6, 16), 'glow', 0, 0.085 + i * 0.06, 0, HP, 0, 0);
-      b.add(G.loft([[0.06, 0.06, 0.03], [0.25, 0.07, 0.03]], 0.3), 'paint', 0, 0, 0.075);
+      // Jingang (Longwei): an angular sleeve with a carbon spine and a light line, aluminium
+      // actuators down both sides
+      main = [[0.05, 0.13, 0.13], [0.12, 0.16, 0.15, 0.004], [0.25, 0.15, 0.14, 0.004]];
+      cham = 0.22;
+      b.add(G.loft(main, cham), 'paint');
+      b.add(G.loft([[0.08, 0.08, 0.03], [0.23, 0.09, 0.03]], 0.2), 'carbon', 0, 0, 0.074);
+      b.add(G.box(0.006, 0.13, 0.006), 'glow', 0, 0.155, 0.091);
+      band(b, main, 0.23, 0.236, 0.002, 'dark', cham);
       b.both((s) => {
-        s.add(G.cyl(0.022, 0.022, 0.1, 10), 'metal', 0.085, 0.16, -0.02);
-        s.add(G.cyl(0.016, 0.016, 0.012, 10), 'chrome', 0.085, 0.215, -0.02);
-        s.add(G.cyl(0.016, 0.016, 0.012, 10), 'chrome', 0.085, 0.105, -0.02);
+        s.add(G.cyl(0.016, 0.016, 0.14, 12), 'alu', 0.086, 0.16, -0.02);
+        s.add(G.cyl(0.021, 0.021, 0.02, 12), 'carbon', 0.086, 0.085, -0.02);
+        s.add(G.cyl(0.021, 0.021, 0.02, 12), 'carbon', 0.086, 0.235, -0.02);
       });
-      side = 0.107;
+      side = 0.105;
       break;
     case 3:
-      // Rocket: a launch sleeve with stabiliser fins and booster nozzles at the elbow
-      main = [[0.03, 0.13, 0.13], [0.06, 0.15, 0.15], [0.24, 0.14, 0.14]];
-      cham = 0.42;
+      // Colosseo (Martelli): a vambrace flaring to a heavy cuff, brass bands, a raised ridge
+      // studded with brass rivets and a brass medallion
+      main = [[0.05, 0.13, 0.13], [0.13, 0.16, 0.155, 0.004], [0.23, 0.18, 0.17, 0.004], [0.275, 0.2, 0.19]];
+      cham = 0.4;
       b.add(G.loft(main, cham), 'paint');
-      b.add(G.torus(0.068, 0.009, 6, 16), 'rarity', 0, 0.245, 0, HP, 0, 0);
-      b.addSym(G.cbox(0.018, 0.05, 0.03, 0.006), 'glow', 0.072, 0.07, -0.03);
-      b.add(G.cyl(0.055, 0.065, 0.04, 14), 'metal', 0, 0.025, 0);
-      b.add(G.fin([[0.0, 0.0], [0.0, 0.12], [0.03, 0.09], [0.03, 0.02]], 0.012), 'paint2', 0, 0.08, 0.06);
-      b.both((s) => {
-        s.add(G.fin([[0.0, 0.0], [0.0, 0.1], [0.025, 0.08], [0.025, 0.02]], 0.01), 'paint2', 0.068, 0.09, 0, 0, HP, 0);
-        s.add(G.cone(0.022, 0.04, 10), 'dark', 0.055, -0.005, -0.05, PI, 0, 0);
-        s.add(G.cyl(0.014, 0.014, 0.005, 10), 'glow', 0.055, -0.026, -0.05);
-      });
-      break;
-    case 5:
-      // Breaker Mauls: a square riot bracer, hazard-striped on top and riveted down both edges
-      main = [[0.04, 0.16, 0.16], [0.11, 0.2, 0.19, 0.005], [0.24, 0.21, 0.2, 0.005], [0.275, 0.19, 0.18]];
-      cham = 0.14;
-      b.add(G.loft(main, cham), 'paint');
-      band(b, main, 0.06, 0.085, 0.006, 'paint2', cham);
-      band(b, main, 0.245, 0.265, 0.006, 'paint2', cham);
-      hazard(b, 0.13, 0.1, 0, 0.17, 0.106);
-      b.both((s) => {
-        rivets(s, 3, 0.106, 0.12, 0.055, 0.106, 0.22, 0.055);
-        rivets(s, 3, 0.106, 0.12, -0.045, 0.106, 0.22, -0.045);
-      });
-      side = 0.11;
-      break;
-    case 6:
-      // Talon Strikers: a slim aero sleeve with a swept fin down its back, light slits and a cuff
-      main = [[0.05, 0.1, 0.11], [0.12, 0.125, 0.13, 0.006], [0.26, 0.11, 0.115, 0.004]];
-      cham = 0.44;
-      b.add(G.loft(main, cham), 'paint');
-      b.add(G.fin([[0.0, 0.03], [0.0, 0.25], [0.035, 0.2], [0.05, 0.06]], 0.012), 'paint2', 0, 0, 0.06);
-      b.addSym(G.box(0.006, 0.12, 0.006), 'glow', 0.062, 0.16, 0.02);
-      band(b, main, 0.235, 0.255, 0.004, 'dark', cham);
-      side = 0.065;
-      break;
-    case 7:
-      // Anvil Breakers: a thick sleeve ringed with cooling fins, molten light between them, and open
-      // rams down both sides
-      main = [[0.05, 0.145, 0.145], [0.12, 0.165, 0.165, 0.004], [0.26, 0.17, 0.17, 0.004]];
-      cham = 0.34;
-      b.add(G.loft(main, cham), 'paint2');
-      b.add(G.cbox(0.05, 0.13, 0.01, 0.003), 'glow', 0, 0.165, 0.089);
-      for (let i = 0; i < 5; i++) band(b, main, 0.1 + i * 0.03, 0.11 + i * 0.03, 0.012, 'metal', cham);
-      b.both((s) => {
-        s.add(G.cyl(0.024, 0.024, 0.09, 10), 'dark', 0.1, 0.11, -0.02);
-        s.add(G.cyl(0.012, 0.012, 0.12, 8), 'chrome', 0.1, 0.2, -0.02);
-        s.add(G.cyl(0.02, 0.02, 0.02, 8), 'metal', 0.1, 0.262, -0.02);
-      });
-      side = 0.124;
-      break;
-    case 8:
-      // Arc Emitters: a smooth sleeve wrapped in two floating light rings, emitter nodes either side
-      main = [[0.05, 0.115, 0.115], [0.15, 0.135, 0.135, 0.004], [0.265, 0.12, 0.12]];
-      cham = 0.46;
-      b.add(G.loft(main, cham), 'paint');
-      for (const y of [0.11, 0.2]) b.add(G.torus(0.088, 0.005, 6, 28), 'glow', 0, y, 0.002, HP, 0, 0);
-      b.both((s) => {
-        s.add(G.sphere(0.017, 10, 8), 'metal', 0.072, 0.155, 0.0);
-        s.add(G.sphere(0.009, 8, 6), 'glow', 0.086, 0.155, 0.0);
-      });
-      b.add(G.cbox(0.05, 0.12, 0.012, 0.004), 'paint2', 0, 0.16, 0.07);
+      band(b, main, 0.07, 0.085, 0.005, 'brass', cham);
+      band(b, main, 0.255, 0.27, 0.005, 'brass', cham);
+      b.add(G.loft([[0.09, 0.05, 0.03], [0.24, 0.06, 0.03]], 0.4), 'paint2', 0, 0, 0.078);
+      rivets(b, 4, 0, 0.11, 0.096, 0, 0.23, 0.096, 0.007, 'brass');
+      b.addSym(G.cyl(0.022, 0.022, 0.01, 18), 'brass', 0.082, 0.17, 0.0, 0, 0, HP);
       side = 0.09;
       break;
-    case 9:
-      // Kote Gauntlets: lacquered splints laced over a dark sleeve, with a chrome wrist ring
+    case 4:
+      // Kote Gauntlets (Kensei): lacquered splints laced over a dark sleeve, with a gold wrist ring
       main = [[0.05, 0.115, 0.115], [0.26, 0.125, 0.122]];
       b.add(G.loft(main, cham), 'dark');
       for (let i = 0; i < 5; i++) {
@@ -1564,23 +1236,23 @@ export function buildForearm(look: number, r = 0): PB {
         b.group(Math.sin(a) * 0.066, 0.155, Math.cos(a) * 0.066, 0, a, 0, (v) => v.add(G.cbox(0.024, 0.19, 0.012, 0.004), 'paint', 0, 0, 0));
       }
       for (const y of [0.1, 0.21]) band(b, main, y, y + 0.008, 0.016, 'dark', cham);
-      band(b, main, 0.245, 0.262, 0.008, 'chrome', cham);
+      band(b, main, 0.245, 0.262, 0.008, 'brass', cham);
       side = 0.072;
       break;
     default:
-      // Titan: a massive banded bracer with riveted bands
-      main = [[0.05, 0.15, 0.15], [0.12, 0.18, 0.17], [0.24, 0.19, 0.18], [0.27, 0.17, 0.16]];
-      cham = 0.22;
+      // Sidewinder (Strix): a slim faceted launch sleeve, a carbon fin down its back, light slits
+      // and booster nozzles at the elbow
+      main = [[0.05, 0.1, 0.11], [0.12, 0.125, 0.13, 0.006], [0.26, 0.11, 0.115, 0.004]];
+      cham = 0.1;
       b.add(G.loft(main, cham), 'paint');
-      band(b, main, 0.06, 0.09, 0.006, 'metal', cham);
-      band(b, main, 0.2, 0.23, 0.006, 'metal', cham);
-      for (const y of [0.075, 0.215]) {
-        const [, w, d] = secAt(main, y);
-        bolt(b, 0, y, d / 2 + 0.008, 'z', 0.008);
-        bolt(b, 0, y, -d / 2 - 0.008, 'z', 0.008);
-        b.addSym(G.cyl(0.008, 0.008, 0.007, 6), 'chrome', w / 2 + 0.008, y, 0, 0, 0, HP);
-      }
-      b.add(G.box(0.01, 0.1, 0.01), 'rarity', 0, 0.15, 0.092);
+      b.add(G.fin([[0.0, 0.03], [0.0, 0.25], [0.035, 0.2], [0.05, 0.06]], 0.012, 0.003), 'carbon', 0, 0, 0.06);
+      b.addSym(G.box(0.006, 0.12, 0.006), 'glow', 0.062, 0.16, 0.02);
+      band(b, main, 0.235, 0.255, 0.004, 'carbon', cham);
+      b.both((s) => {
+        s.add(G.cone(0.02, 0.04, 8), 'carbon', 0.05, -0.005, -0.05, PI, 0, 0);
+        s.add(G.cyl(0.013, 0.013, 0.005, 10), 'glow', 0.05, -0.026, -0.05);
+      });
+      side = 0.065;
       break;
   }
   const top = main[main.length - 1][0];
@@ -1603,10 +1275,15 @@ export function buildForearm(look: number, r = 0): PB {
   return b;
 }
 
+/** How big each maker's fist is, where the back of the hand is and how high the knuckles stand. */
+const FIST_BIG = [1.2, 1.0, 1.06, 1.14, 1.0, 0.94];
+const FIST_BACK = [0.096, 0.088, 0.09, 0.092, 0.091, 0.082];
+const FIST_KTOP = [0.13, 0.106, 0.11, 0.118, 0.103, 0.1];
+
 /** Fist: origin at the hand joint, knuckles +Y, back of hand +Z, thumb on `thumb` X side. */
 export function buildFist(look: number, thumb: number, r = 0): PB {
   const b = new PB();
-  const big = [1.04, 0.93, 1.04, 1.04, 1.2, 1.18, 0.92, 1.12, 1.0, 1.0][look] ?? 1.04;
+  const big = FIST_BIG[look] ?? 1.04;
   const f = new PB();
   // hand: palm block, two-segment curled fingers with knuckle caps, wrapped thumb, wrist drum
   f.add(G.loft([[-0.075, 0.13, 0.11], [0.03, 0.15, 0.13]], 0.25), 'dark', 0, 0, -0.005);
@@ -1623,100 +1300,60 @@ export function buildFist(look: number, thumb: number, r = 0): PB {
   f.add(G.torus(0.064, 0.006, 4, 14), 'metal', 0, -0.07, 0, HP, 0, 0);
   switch (look) {
     case 0:
-      // Brawler Knuckles: a heavy knuckle plate with duster studs
-      f.add(G.loft([[0.045, 0.165, 0.11, 0.025], [0.1, 0.16, 0.1, 0.03]], 0.3), 'paint');
-      f.add(G.cbox(0.15, 0.018, 0.02, 0.005), 'dark', 0, 0.104, 0.07);
-      for (let i = 0; i < 4; i++) f.add(G.cyl(0.01, 0.013, 0.02, 8), 'chrome', -0.054 + i * 0.036, 0.108, 0.04);
-      f.add(G.loft([[-0.07, 0.14, 0.03], [0.05, 0.155, 0.035]], 0.3), 'paint', 0, 0, 0.07);
-      for (const x of [-0.045, 0.045]) bolt(f, x, -0.03, 0.089, 'z', 0.007);
+      // Piledriver: a hammerhead block with a riveted steel striking face, a striped back plate
+      // and banded sides
+      f.add(G.loft([[0.03, 0.19, 0.16], [0.105, 0.2, 0.16]], 0.12), 'paint');
+      f.add(G.loft([[0.105, 0.19, 0.15], [0.128, 0.18, 0.14]], 0.16), 'steel');
+      for (let i = 0; i < 3; i++) for (const zz of [-0.04, 0.04]) bolt(f, -0.06 + i * 0.06, 0.13, zz, 'y', 0.009, 'steel');
+      f.addSym(G.cbox(0.012, 0.075, 0.165, 0.004), 'steel', 0.1, 0.068, 0);
+      f.add(G.loft([[-0.07, 0.17, 0.04], [0.04, 0.18, 0.04]], 0.12), 'paint2', 0, 0, 0.075);
+      hazard(f, 0.15, 0.05, 0, -0.015, 0.096);
       break;
     case 1:
-      // Piston Jabbers: a compact plate with knuckle rams on the back of the hand
-      f.add(G.loft([[0.06, 0.14, 0.08, 0.025], [0.1, 0.135, 0.07, 0.025]], 0.3), 'paint2');
-      f.add(G.loft([[-0.06, 0.12, 0.025], [0.05, 0.13, 0.025]], 0.3), 'paint', 0, 0, 0.068);
-      f.add(G.torus(0.064, 0.009, 6, 16), 'chrome', 0, -0.06, 0, HP, 0, 0);
-      for (const x of [-0.045, 0.045]) {
-        f.add(G.cyl(0.011, 0.011, 0.06, 8), 'metal', x, -0.02, 0.088);
-        f.add(G.cyl(0.006, 0.006, 0.05, 6), 'chrome', x, 0.03, 0.088);
-      }
+      // Touch: a smooth knuckle shell with one light line and a flush aluminium disc on the back
+      f.add(G.loft([[0.05, 0.158, 0.1, 0.025], [0.1, 0.15, 0.09, 0.027]], 0.5), 'paint');
+      f.add(G.cbox(0.12, 0.004, 0.006, 0.002), 'glow', 0, 0.104, 0.07);
+      f.add(G.loft([[-0.07, 0.14, 0.03], [0.05, 0.15, 0.03]], 0.5), 'paint', 0, 0, 0.07);
+      f.add(G.cyl(0.03, 0.03, 0.01, 28), 'alu', 0, -0.012, 0.086, HP, 0, 0);
+      f.add(G.torus(0.064, 0.006, 6, 24), 'alu', 0, -0.062, 0, HP, 0, 0);
       break;
     case 2:
-      // Thunder: conductor prongs over the knuckles and a lit charge bar
-      f.add(G.loft([[0.05, 0.16, 0.1, 0.025], [0.1, 0.155, 0.095, 0.025]], 0.3), 'paint');
-      f.add(G.cbox(0.13, 0.014, 0.018, 0.005), 'glow', 0, 0.1, 0.064);
-      for (let i = 0; i < 4; i++) f.add(G.cone(0.01, 0.042, 4), 'chrome', -0.054 + i * 0.036, 0.122, 0.04);
-      f.add(G.loft([[-0.07, 0.14, 0.03], [0.05, 0.15, 0.03]], 0.3), 'paint', 0, 0, 0.07);
-      f.add(G.torus(0.068, 0.008, 6, 16), 'glow', 0, -0.055, 0, HP, 0, 0);
+      // Jingang: an angular knuckle guard with aluminium knuckle caps, a carbon back plate and a
+      // light line
+      f.add(G.loft([[0.05, 0.16, 0.1, 0.025], [0.1, 0.155, 0.095, 0.025]], 0.22), 'paint');
+      for (let i = 0; i < 4; i++) f.add(G.cbox(0.028, 0.012, 0.03, 0.004), 'alu', -0.054 + i * 0.036, 0.106, 0.035);
+      f.add(G.prism([[-0.07, 0.05], [0.07, 0.05], [0.07, -0.03], [0.04, -0.06], [-0.04, -0.06], [-0.07, -0.03]], 0.028, 0.004), 'carbon', 0, 0.0, 0.074);
+      f.add(G.box(0.1, 0.006, 0.006), 'glow', 0, 0.03, 0.09);
       break;
     case 3:
-      // Rocket: an armoured nose with stabiliser fins round the wrist
-      f.add(G.loft([[-0.07, 0.15, 0.05], [0.06, 0.16, 0.05]], 0.4), 'paint', 0, 0, 0.06);
-      f.add(G.loft([[0.055, 0.15, 0.09, 0.02], [0.098, 0.145, 0.085, 0.02]], 0.4), 'paint2');
-      f.add(G.torus(0.068, 0.011, 6, 16), 'glow', 0, -0.065, 0, HP, 0, 0);
-      for (let i = 0; i < 4; i++) {
-        const a = (i / 4) * PI * 2 + PI / 4;
-        f.add(G.fin([[0.0, -0.02], [0.0, 0.05], [0.028, 0.0], [0.028, -0.03]], 0.008), 'paint2', Math.sin(a) * 0.066, -0.075, Math.cos(a) * 0.066, 0, a, 0);
-      }
+      // Cestus: a heavy rounded knuckle guard with brass studs, strap bands round the hand and
+      // a brass wrist ring
+      f.add(G.loft([[0.04, 0.17, 0.12, 0.02], [0.1, 0.17, 0.115, 0.02]], 0.4), 'paint');
+      for (let i = 0; i < 4; i++) f.add(G.sphere(0.013, 10, 6), 'brass', -0.054 + i * 0.036, 0.104, 0.05);
+      f.add(G.loft([[-0.07, 0.15, 0.03], [0.04, 0.16, 0.035]], 0.4), 'paint2', 0, 0, 0.072);
+      for (const y of [-0.04, 0.0]) f.add(G.cbox(0.17, 0.012, 0.012, 0.004), 'brass', 0, y, 0.09);
+      f.add(G.torus(0.066, 0.008, 6, 18), 'brass', 0, -0.062, 0, HP, 0, 0);
       break;
-    case 5:
-      // Breaker Mauls: a brick of a knuckle guard with a riveted steel striking face and side cheeks
-      f.add(G.loft([[0.025, 0.18, 0.15, 0.012], [0.105, 0.18, 0.15, 0.012]], 0.14), 'paint');
-      f.add(G.cbox(0.17, 0.02, 0.13, 0.005), 'metal', 0, 0.112, 0.012);
-      for (const zz of [-0.035, 0.045]) rivets(f, 3, -0.055, 0.122, zz, 0.055, 0.122, zz);
-      f.add(G.loft([[-0.07, 0.15, 0.035], [0.04, 0.16, 0.035]], 0.14), 'paint2', 0, 0, 0.075);
-      hazard(f, 0.14, 0.04, 0, -0.03, 0.094);
-      f.addSym(G.cbox(0.012, 0.07, 0.12, 0.004), 'dark', 0.093, 0.06, 0.012);
-      break;
-    case 6:
-      // Talon Strikers: a sleek knuckle visor with a light line, two swept blades off the back of the hand
-      f.add(G.loft([[0.05, 0.15, 0.09, 0.03], [0.1, 0.14, 0.075, 0.035]], 0.42), 'paint');
-      f.add(G.cbox(0.13, 0.008, 0.01, 0.003), 'glow', 0, 0.075, 0.075);
-      f.add(G.loft([[-0.07, 0.12, 0.028], [0.05, 0.135, 0.028]], 0.4), 'paint2', 0, 0, 0.068);
-      for (const x of [-0.03, 0.03]) f.add(G.fin([[0.0, -0.06], [0.0, 0.05], [0.04, -0.04], [0.035, -0.07]], 0.008), 'paint', x, 0.0, 0.08);
-      break;
-    case 7:
-      // Anvil Breakers: an anvil-faced knuckle block flaring over the fingers, a molten seam along its face
-      // and a pair of rams on the back of the hand
-      f.add(G.loft([[0.03, 0.15, 0.12, 0.012], [0.075, 0.14, 0.11, 0.012], [0.1, 0.19, 0.15, 0.012], [0.128, 0.19, 0.15, 0.012]], 0.2), 'paint');
-      f.add(G.cbox(0.17, 0.008, 0.01, 0.002), 'glow', 0, 0.114, 0.088);
-      f.addSym(G.cbox(0.012, 0.02, 0.11, 0.003), 'metal', 0.096, 0.114, 0.012);
-      f.add(G.loft([[-0.07, 0.14, 0.032], [0.05, 0.15, 0.034]], 0.3), 'paint2', 0, 0, 0.072);
-      for (const x of [-0.04, 0.04]) {
-        f.add(G.cyl(0.012, 0.012, 0.06, 8), 'metal', x, -0.02, 0.098);
-        f.add(G.cyl(0.007, 0.007, 0.05, 6), 'chrome', x, 0.03, 0.098);
-      }
-      break;
-    case 8:
-      // Arc Emitters: a smooth knuckle shell with a lit bar and an emitter disc on the back of the hand
-      f.add(G.loft([[0.05, 0.158, 0.1, 0.025], [0.1, 0.15, 0.09, 0.027]], 0.46), 'paint');
-      f.add(G.cbox(0.12, 0.012, 0.016, 0.005), 'glow', 0, 0.104, 0.05);
-      f.add(G.loft([[-0.07, 0.14, 0.03], [0.05, 0.15, 0.03]], 0.46), 'paint', 0, 0, 0.07);
-      f.add(G.cyl(0.03, 0.03, 0.012, 18), 'metal', 0, -0.012, 0.09, HP, 0, 0);
-      f.add(G.cyl(0.02, 0.02, 0.014, 18), 'glow', 0, -0.012, 0.092, HP, 0, 0);
-      f.add(G.torus(0.035, 0.004, 4, 20), 'chrome', 0, -0.012, 0.095);
-      f.add(G.torus(0.068, 0.006, 6, 18), 'glow', 0, -0.05, 0, HP, 0, 0);
-      break;
-    case 9:
+    case 4:
       // Kote Gauntlets: a pointed tekko plate laced over the back of the hand, a keen-edged knuckle guard
       f.add(G.loft([[0.055, 0.15, 0.08, 0.03], [0.098, 0.145, 0.07, 0.032]], 0.3), 'paint');
       f.add(G.cbox(0.15, 0.006, 0.02, 0.002), 'chrome', 0, 0.1, 0.06);
       f.add(G.prism([[-0.062, 0.06], [0.062, 0.06], [0.05, -0.04], [0.0, -0.075], [-0.05, -0.04]], 0.022, 0.006), 'paint2', 0, 0.0, 0.075);
       for (const y of [-0.03, 0.02]) f.add(G.box(0.1, 0.005, 0.006), 'dark', 0, y, 0.088);
-      f.add(G.torus(0.064, 0.006, 4, 16), 'chrome', 0, -0.065, 0, HP, 0, 0);
+      f.add(G.torus(0.064, 0.006, 4, 16), 'brass', 0, -0.065, 0, HP, 0, 0);
       break;
     default:
-      // Titan: a hammerhead block with a riveted striking face and banded sides
-      f.add(G.loft([[0.03, 0.19, 0.16], [0.105, 0.2, 0.16]], 0.18), 'paint');
-      f.add(G.loft([[0.105, 0.19, 0.15], [0.125, 0.17, 0.13]], 0.24), 'metal');
-      for (let i = 0; i < 3; i++) for (const zz of [-0.04, 0.04]) bolt(f, -0.06 + i * 0.06, 0.126, zz, 'y', 0.009);
-      f.addSym(G.cbox(0.012, 0.075, 0.165, 0.004), 'dark', 0.1, 0.068, 0);
-      f.add(G.loft([[-0.07, 0.17, 0.04], [0.04, 0.18, 0.04]], 0.2), 'paint', 0, 0, 0.075);
-      bolt(f, 0, -0.045, 0.096, 'z', 0.009);
+      // Sidewinder: a sleek faceted knuckle visor, a light line and two carbon blades swept back
+      // off the hand
+      f.add(G.loft([[0.05, 0.15, 0.09, 0.03], [0.1, 0.14, 0.075, 0.035]], 0.1), 'paint');
+      f.add(G.cbox(0.13, 0.008, 0.01, 0.003), 'glow', 0, 0.075, 0.075);
+      f.add(G.loft([[-0.07, 0.12, 0.028], [0.05, 0.135, 0.028]], 0.1), 'paint2', 0, 0, 0.068);
+      for (const x of [-0.03, 0.03]) f.add(G.fin([[0.0, -0.06], [0.0, 0.05], [0.04, -0.04], [0.035, -0.07]], 0.008, 0.002), 'carbon', x, 0.0, 0.08);
       break;
   }
   // back-of-hand surface and knuckle top, for the tier add-ons
-  const back = [0.0875, 0.08, 0.085, 0.085, 0.095, 0.093, 0.082, 0.09, 0.096, 0.091][look] ?? 0.085;
-  const ktop = [0.1, 0.1, 0.1, 0.098, 0.125, 0.122, 0.1, 0.128, 0.11, 0.103][look] ?? 0.1;
+  const back = FIST_BACK[look] ?? 0.085;
+  const ktop = FIST_KTOP[look] ?? 0.1;
   if (r >= 2) f.add(G.cbox(0.06, 0.04, 0.012, 0.004), 'paint2', 0, 0.0, back + 0.006);
   if (r >= 3) f.add(G.cbox(0.16, 0.012, 0.016, 0.004), 'chrome', 0, ktop + 0.004, 0.068);
   if (r >= 4) {
@@ -1745,90 +1382,59 @@ export function buildPelvis(look: number, r = 0): PB {
   // the tassets (hip armour) each leg item hangs, with their outer face and bottom edge
   let tx = 0.19, ty = -0.13;
   switch (look) {
-    case 1:
-      // Hopper: light tassets with a shock canister on each hip
-      b.addSym(G.loft([[-0.12, 0.04, 0.14], [0.02, 0.05, 0.16]], 0.3), 'paint', 0.19);
+    case 0:
+      // Ironhorse: riveted slab tassets with a stack on each hip and a striped front plate
+      b.addSym(G.cbox(0.07, 0.17, 0.22, 0.008), 'paint', 0.215, -0.07, 0);
       b.both((s) => {
-        s.add(G.cyl(0.018, 0.018, 0.08, 8), 'metal', 0.21, -0.02, -0.07);
-        s.add(G.coil(0.022, 0.004, 0.06, 4), 'chrome', 0.21, -0.02, -0.07);
+        rivets(s, 2, 0.251, -0.02, 0.075, 0.251, -0.12, 0.075, 0.008, 'steel');
+        rivets(s, 2, 0.251, -0.02, -0.075, 0.251, -0.12, -0.075, 0.008, 'steel');
+        s.add(G.cbox(0.074, 0.02, 0.224, 0.004), 'steel', 0.215, 0.006, 0);
+        s.group(0.2, 0.02, -0.11, -0.3, 0, 0, (v) => {
+          v.add(G.cyl(0.018, 0.021, 0.12, 10), 'steel', 0, 0.04, 0);
+          v.add(G.cyl(0.024, 0.024, 0.014, 10), 'dark', 0, 0.1, 0);
+          v.add(G.cyl(0.013, 0.013, 0.004, 10), 'core', 0, 0.108, 0);
+        });
       });
-      tx = 0.215;
+      hazard(b, 0.11, 0.026, 0, -0.035, 0.127);
+      tx = 0.251;
+      ty = -0.155;
+      break;
+    case 1:
+      // Lumen: smooth tassets with a flush aluminium cap on each hip
+      b.addSym(G.loft([[-0.12, 0.04, 0.15, 0.0], [0.02, 0.05, 0.17]], 0.5), 'paint', 0.19);
+      b.both((s) => {
+        s.add(G.cyl(0.034, 0.034, 0.01, 28), 'alu', 0.218, -0.05, 0, 0, 0, HP);
+        s.add(G.cyl(0.022, 0.022, 0.012, 24), 'paint2', 0.219, -0.05, 0, 0, 0, HP);
+      });
+      tx = 0.225;
       ty = -0.12;
       break;
     case 2:
-      // Anchor: double-layered heavy tassets
-      b.addSym(G.loft([[-0.15, 0.06, 0.2], [0.02, 0.07, 0.22]], 0.3), 'paint', 0.205);
-      b.addSym(G.loft([[-0.2, 0.05, 0.17], [-0.12, 0.06, 0.19]], 0.3), 'paint2', 0.215);
+      // Longwei: angular carbon tassets with a light line and an actuator disc on each hip
+      b.addSym(G.loft([[-0.13, 0.05, 0.17], [0.02, 0.06, 0.19]], 0.22), 'paint', 0.195);
       b.both((s) => {
-        bolt(s, 0.244, -0.05, 0.06, 'x', 0.009);
-        bolt(s, 0.244, -0.05, -0.06, 'x', 0.009);
+        s.add(G.cbox(0.014, 0.09, 0.15, 0.004), 'carbon', 0.228, -0.06, 0);
+        s.add(G.box(0.006, 0.006, 0.12), 'glow', 0.236, -0.1, 0);
+        s.add(G.cyl(0.028, 0.028, 0.012, 20), 'alu', 0.236, -0.045, 0, 0, 0, HP);
       });
-      tx = 0.245;
-      ty = -0.2;
-      break;
-    case 3:
-      // Hydraulic: tassets with pressure lines feeding the leg rams
-      b.addSym(G.loft([[-0.13, 0.05, 0.17], [0.02, 0.06, 0.19]], 0.3), 'paint', 0.195);
-      b.addSym(G.cyl(0.013, 0.013, 0.16, 6), 'chrome', 0.225, -0.05, 0.0, HP, 0, 0);
-      b.both((s) => {
-        s.add(G.torus(0.05, 0.008, 5, 10, PI), 'dark', 0.15, -0.03, -0.11, 0, HP, 0);
-        s.add(G.cyl(0.016, 0.016, 0.03, 8), 'metal', 0.226, -0.05, 0.09, HP, 0, 0);
-      });
-      tx = 0.225;
+      tx = 0.236;
       ty = -0.13;
       break;
-    case 4:
-      // Phantom: slim tassets with light lines
-      b.addSym(G.loft([[-0.12, 0.04, 0.15], [0.02, 0.05, 0.17]], 0.3), 'paint', 0.19);
-      b.addSym(G.box(0.006, 0.1, 0.006), 'glow', 0.217, -0.05, 0.05);
-      b.add(G.box(0.16, 0.008, 0.008), 'rarity', 0, 0.055, 0.103);
-      tx = 0.215;
-      ty = -0.12;
+    case 3:
+      // Martelli: a brass belt over a skirt of pteruges hanging all the way round
+      b.add(G.loft([[0.0, 0.33, 0.235], [0.03, 0.326, 0.232]], 0.3), 'brass');
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * PI * 2;
+        b.group(Math.sin(a) * 0.19, -0.055, Math.cos(a) * 0.135, 0, a, 0, (g) => {
+          g.add(G.cbox(0.052, 0.12, 0.012, 0.004), i % 2 ? 'paint2' : 'paint', 0, 0, 0, -0.14, 0, 0);
+          g.add(G.sphere(0.007, 8, 5), 'brass', 0, -0.045, 0.012);
+        });
+      }
+      tx = 0.205;
+      ty = -0.115;
       break;
-    case 5:
-      // Pylon: slab tassets with riveted faces and a hazard-striped front plate
-      b.addSym(G.cbox(0.07, 0.17, 0.22, 0.01), 'paint', 0.215, -0.07, 0);
-      b.both((s) => {
-        rivets(s, 2, 0.25, -0.02, 0.07, 0.25, -0.12, 0.07);
-        rivets(s, 2, 0.25, -0.02, -0.07, 0.25, -0.12, -0.07);
-      });
-      hazard(b, 0.11, 0.026, 0, -0.035, 0.127);
-      tx = 0.25;
-      ty = -0.155;
-      break;
-    case 6:
-      // Swift: slim swept tassets, a fin trailing off each hip and a light line
-      b.addSym(G.loft([[-0.12, 0.035, 0.13, -0.01], [0.02, 0.045, 0.16]], 0.4), 'paint', 0.19);
-      b.both((s) => {
-        s.add(G.fin([[0.04, 0.0], [-0.05, 0.0], [-0.12, -0.08], [-0.07, -0.08]], 0.012), 'paint2', 0.215, -0.02, 0.0);
-        s.add(G.box(0.006, 0.08, 0.006), 'glow', 0.214, -0.05, 0.06);
-      });
-      tx = 0.212;
-      ty = -0.12;
-      break;
-    case 7:
-      // Steamhammer: heavy finned tassets with a steam stack on each hip
-      b.addSym(G.loft([[-0.14, 0.055, 0.19], [0.02, 0.065, 0.21]], 0.3), 'paint', 0.205);
-      b.both((s) => {
-        for (let i = 0; i < 3; i++) s.add(G.cbox(0.02, 0.012, 0.16, 0.003), 'metal', 0.24, -0.04 - i * 0.035, 0.0);
-        s.add(G.cyl(0.018, 0.02, 0.11, 10), 'metal', 0.2, 0.02, -0.11, -0.3, 0, 0);
-        s.add(G.cyl(0.012, 0.012, 0.004, 10), 'glow', 0.2, 0.074, -0.127, -0.3, 0, 0);
-      });
-      tx = 0.25;
-      ty = -0.14;
-      break;
-    case 8:
-      // Drift: smooth tassets with a light ring at each hip
-      b.addSym(G.loft([[-0.12, 0.04, 0.15, 0.0], [0.02, 0.05, 0.17]], 0.46), 'paint', 0.19);
-      b.both((s) => {
-        s.add(G.torus(0.05, 0.005, 6, 22), 'glow', 0.218, -0.05, 0, 0, HP, 0);
-        s.add(G.cyl(0.028, 0.028, 0.012, 6), 'paint2', 0.218, -0.05, 0, 0, 0, HP);
-      });
-      tx = 0.225;
-      ty = -0.12;
-      break;
-    case 9: {
-      // Hakama: kusazuri, laced panels of plate rows hanging front, back and over each hip
+    case 4: {
+      // Hakama (Kensei): kusazuri, laced panels of plate rows hanging front, back and over each hip
       const panel = (s: PB, x: number, z: number, ry: number) =>
         s.group(x, -0.02, z, 0, ry, 0, (g) => {
           for (let i = 0; i < 3; i++) g.add(G.cbox(0.13, 0.05, 0.014, 0.004), i === 2 ? 'paint2' : 'paint', 0, -i * 0.045, i * 0.008, -0.16, 0, 0);
@@ -1842,14 +1448,16 @@ export function buildPelvis(look: number, r = 0): PB {
       break;
     }
     default:
-      // Strider: plain bolted tassets
-      b.addSym(G.loft([[-0.13, 0.045, 0.16], [0.02, 0.055, 0.18]], 0.3), 'paint', 0.19);
-      b.both((s) => bolt(s, 0.218, -0.03, 0.0, 'x', 0.008));
-      tx = 0.215;
-      ty = -0.13;
+      // Strix: slim faceted tassets with a carbon fin trailing off each hip and a light line
+      b.addSym(G.loft([[-0.12, 0.035, 0.13, -0.01], [0.02, 0.045, 0.16]], 0.1), 'paint', 0.19);
+      b.both((s) => {
+        s.add(G.fin([[0.04, 0.0], [-0.05, 0.0], [-0.12, -0.08], [-0.07, -0.08]], 0.012, 0.003), 'carbon', 0.215, -0.02, 0.0);
+        s.add(G.box(0.006, 0.08, 0.006), 'glow', 0.214, -0.05, 0.06);
+      });
+      tx = 0.212;
+      ty = -0.12;
       break;
   }
-  if (look <= 3) b.add(G.box(0.008, 0.05, 0.008), 'rarity', 0, -0.06, 0.127);
   if (r >= 2) b.both((s) => s.add(G.cbox(0.014, 0.05, 0.1, 0.004), 'paint2', tx + 0.004, -0.06, 0));
   if (r >= 3) b.add(G.loft([[0.0, 0.316, 0.226], [0.016, 0.314, 0.222]], 0.3), 'chrome');
   if (r >= 4) b.both((s) => s.add(G.box(0.008, 0.008, 0.13), 'rarity', tx + 0.004, ty + 0.012, 0));
@@ -1866,96 +1474,54 @@ export function buildThigh(look: number, r = 0): PB {
   let cham = 0.3;
   switch (look) {
     case 0:
-      // Strider: a clean armoured thigh with a seam and bolted sides
-      main = [[0.05, 0.15, 0.15, 0.005], [0.12, 0.19, 0.19, 0.012], [0.26, 0.18, 0.18, 0.012], [0.37, 0.14, 0.14, 0.008], [0.41, 0.11, 0.11]];
+      // Crawler (Ironhorse): a square column of plate with steel bands and one big ram down the front
+      main = [[0.05, 0.19, 0.19, 0.005], [0.12, 0.23, 0.225, 0.012], [0.3, 0.225, 0.215, 0.012], [0.38, 0.18, 0.17, 0.006], [0.42, 0.14, 0.13]];
+      cham = 0.12;
       b.add(G.loft(main, cham), 'paint');
-      band(b, main, 0.27, 0.285, 0.003, 'dark', cham);
-      b.add(G.loft([[0.1, 0.09, 0.03], [0.3, 0.08, 0.03]], 0.3), 'paint2', 0, 0, 0.1);
-      for (const y of [0.1, 0.33]) b.addSym(G.cyl(0.008, 0.008, 0.007, 6), 'chrome', secAt(main, y)[1] / 2 + 0.002, y, 0.01, 0, 0, HP);
+      for (const y of [0.13, 0.33]) band(b, main, y, y + 0.022, 0.005, 'steel', cham);
+      b.add(G.cyl(0.032, 0.032, 0.13, 12), 'dark', 0, 0.15, 0.14);
+      b.add(G.cyl(0.038, 0.038, 0.018, 12), 'steel', 0, 0.085, 0.14);
+      b.add(G.cyl(0.018, 0.018, 0.17, 10), 'chrome', 0, 0.28, 0.14);
+      b.add(G.cbox(0.06, 0.035, 0.05, 0.008), 'steel', 0, 0.37, 0.13);
+      b.both((s) => {
+        const [, w] = secAt(main, 0.22);
+        hazard(s, 0.13, 0.05, w / 2 + 0.006, 0.23, 0.0, 0, HP, 0);
+        rivets(s, 3, w / 2 + 0.006, 0.142, -0.07, w / 2 + 0.006, 0.142, 0.07, 0.008, 'steel');
+      });
       break;
     case 1:
-      // Hopper: slim struts with an exposed shock behind
-      main = [[0.05, 0.13, 0.13], [0.12, 0.155, 0.155, 0.008], [0.28, 0.14, 0.14, 0.008], [0.4, 0.1, 0.1]];
-      b.add(G.loft(main, cham), 'paint');
-      b.add(G.loft([[0.1, 0.06, 0.025], [0.32, 0.05, 0.025]], 0.3), 'paint2', 0, 0, 0.083);
-      b.add(G.cyl(0.012, 0.012, 0.2, 6), 'chrome', 0, 0.26, -0.085);
-      b.add(G.coil(0.022, 0.004, 0.14, 6), 'chrome', 0, 0.24, -0.085);
-      break;
-    case 2:
-      // Anchor: a pillar of plate with a riveted band
-      main = [[0.05, 0.17, 0.17, 0.005], [0.12, 0.22, 0.22, 0.012], [0.28, 0.22, 0.21, 0.012], [0.38, 0.17, 0.16], [0.42, 0.13, 0.13]];
-      cham = 0.36;
-      b.add(G.loft(main, cham), 'paint');
-      band(b, main, 0.29, 0.32, 0.004, 'dark', cham);
-      band(b, main, 0.14, 0.165, 0.005, 'metal', cham);
-      for (let i = 0; i < 3; i++) b.add(G.sphere(0.009, 6, 4), 'chrome', -0.05 + i * 0.05, 0.1525, 0.128);
-      b.add(G.loft([[0.17, 0.11, 0.035], [0.27, 0.11, 0.035]], 0.3), 'paint2', 0, 0, 0.115);
-      break;
-    case 3:
-      // Hydraulic: twin rams down the front with hose loops
-      main = [[0.05, 0.14, 0.14], [0.12, 0.175, 0.175, 0.01], [0.27, 0.17, 0.17, 0.01], [0.4, 0.11, 0.11]];
-      b.add(G.loft(main, cham), 'paint2');
-      b.both((s) => {
-        s.add(G.cyl(0.015, 0.015, 0.24, 8), 'chrome', 0.06, 0.22, 0.075);
-        s.add(G.cyl(0.025, 0.025, 0.08, 8), 'metal', 0.06, 0.12, 0.075);
-        s.add(G.cyl(0.02, 0.02, 0.02, 8), 'metal', 0.06, 0.34, 0.075);
-        s.add(G.torus(0.03, 0.006, 4, 8, PI), 'dark', 0.088, 0.09, 0.04, 0, HP, 0);
-      });
-      break;
-    case 5: {
-      // Pylon: a square column of plate with riveted bands and a hazard-striped front
-      main = [[0.05, 0.19, 0.19, 0.005], [0.12, 0.23, 0.225, 0.012], [0.3, 0.225, 0.215, 0.012], [0.38, 0.18, 0.17, 0.006], [0.42, 0.14, 0.13]];
-      cham = 0.14;
-      b.add(G.loft(main, cham), 'paint');
-      for (const y of [0.14, 0.29]) {
-        band(b, main, y, y + 0.025, 0.005, 'metal', cham);
-        const [, , d, z] = secAt(main, y + 0.0125);
-        rivets(b, 3, -0.06, y + 0.0125, z + d / 2 + 0.006, 0.06, y + 0.0125, z + d / 2 + 0.006);
-      }
-      const [, , d, z] = secAt(main, 0.225);
-      hazard(b, 0.15, 0.05, 0, 0.225, z + d / 2 + 0.006);
-      break;
-    }
-    case 6:
-      // Swift: a slim aero blade with a light line down the front and a fin off the back
-      main = [[0.05, 0.13, 0.14, 0.004], [0.14, 0.15, 0.165, 0.014], [0.3, 0.12, 0.135, 0.008], [0.41, 0.09, 0.09]];
-      cham = 0.42;
-      b.add(G.loft(main, cham), 'paint');
-      b.add(G.loft([[0.1, 0.05, 0.02], [0.32, 0.04, 0.02]], 0.4), 'paint2', 0, 0, 0.088);
-      b.add(G.box(0.006, 0.18, 0.006), 'glow', 0, 0.21, 0.1);
-      b.add(G.fin([[0.0, 0.0], [-0.07, 0.0], [-0.06, 0.16], [-0.02, 0.12]], 0.012), 'paint2', 0, 0.1, -0.06);
-      break;
-    case 7:
-      // Steamhammer: a thick thigh with one big exposed ram down the front and cooling fins on the sides
-      main = [[0.05, 0.16, 0.16, -0.01], [0.12, 0.2, 0.19, -0.004], [0.28, 0.19, 0.18, -0.004], [0.4, 0.13, 0.12, -0.006]];
-      b.add(G.loft(main, cham), 'paint2');
-      b.add(G.cyl(0.03, 0.03, 0.14, 12), 'dark', 0, 0.13, 0.105);
-      b.add(G.cyl(0.036, 0.036, 0.02, 12), 'metal', 0, 0.065, 0.105);
-      b.add(G.torus(0.032, 0.006, 4, 12), 'glow', 0, 0.19, 0.105, HP, 0, 0);
-      b.add(G.cyl(0.017, 0.017, 0.2, 10), 'chrome', 0, 0.28, 0.105);
-      b.add(G.cyl(0.03, 0.03, 0.025, 12), 'metal', 0, 0.385, 0.105);
-      b.add(G.cbox(0.05, 0.03, 0.05, 0.008), 'metal', 0, 0.385, 0.075);
-      b.both((s) => {
-        for (let i = 0; i < 4; i++) {
-          const y = 0.15 + i * 0.035;
-          s.add(G.cbox(0.03, 0.012, 0.14, 0.003), 'metal', secAt(main, y)[1] / 2 + 0.006, y, -0.004);
-        }
-      });
-      break;
-    case 8: {
-      // Drift: a smooth thigh shell ringed with light and set with a hex cell
+      // Glide (Lumen): a smooth capsule thigh, an aluminium band and a light line at the knee
       main = [[0.05, 0.14, 0.15, 0.005], [0.14, 0.17, 0.18, 0.012], [0.3, 0.15, 0.155, 0.008], [0.41, 0.1, 0.1]];
-      cham = 0.46;
+      cham = 0.5;
       b.add(G.loft(main, cham), 'paint');
-      band(b, main, 0.2, 0.212, 0.006, 'glow', cham);
-      band(b, main, 0.33, 0.342, 0.006, 'glow', cham);
-      const [, , d, z] = secAt(main, 0.27);
-      b.add(G.cyl(0.026, 0.026, 0.012, 6), 'paint2', 0, 0.27, z + d / 2 + 0.002, HP, 0, 0);
-      b.add(G.cyl(0.011, 0.011, 0.014, 6), 'glow', 0, 0.27, z + d / 2 + 0.004, HP, 0, 0);
+      band(b, main, 0.09, 0.1, 0.003, 'alu', cham);
+      band(b, main, 0.35, 0.355, 0.003, 'glow', cham);
+      break;
+    case 2: {
+      // Longma (Longwei): an angular thigh with a carbon front panel, a light line down it and an
+      // aluminium actuator behind
+      main = [[0.05, 0.15, 0.15, 0.005], [0.13, 0.19, 0.185, 0.012], [0.29, 0.18, 0.175, 0.01], [0.4, 0.12, 0.12]];
+      cham = 0.22;
+      b.add(G.loft(main, cham), 'paint');
+      b.add(G.loft([[0.1, 0.09, 0.03, 0.098], [0.32, 0.08, 0.03, 0.09]], 0.22), 'carbon');
+      b.add(G.box(0.006, 0.18, 0.006), 'glow', 0, 0.21, 0.116);
+      b.add(G.cyl(0.016, 0.016, 0.18, 12), 'alu', 0, 0.23, -0.1);
+      b.add(G.cyl(0.024, 0.024, 0.03, 12), 'carbon', 0, 0.13, -0.1);
+      band(b, main, 0.27, 0.276, 0.002, 'dark', cham);
       break;
     }
-    case 9:
-      // Hakama: haidate, rows of small plates over the front of a dark thigh
+    case 3:
+      // Legionario (Martelli): a sculpted thigh with a brass band and a riveted brass knee rim
+      main = [[0.05, 0.17, 0.17, 0.005], [0.13, 0.215, 0.21, 0.014], [0.28, 0.2, 0.195, 0.012], [0.38, 0.15, 0.15], [0.42, 0.12, 0.12]];
+      cham = 0.4;
+      b.add(G.loft(main, cham), 'paint');
+      band(b, main, 0.12, 0.135, 0.005, 'brass', cham);
+      band(b, main, 0.36, 0.372, 0.005, 'brass', cham);
+      b.add(G.loft([[0.16, 0.1, 0.04, 0.1], [0.3, 0.09, 0.035, 0.095]], 0.4), 'paint2');
+      rivets(b, 3, -0.05, 0.128, 0.122, 0.05, 0.128, 0.122, 0.008, 'brass');
+      break;
+    case 4:
+      // Hakama (Kensei): haidate, rows of small plates over the front of a dark thigh
       main = [[0.05, 0.14, 0.15, 0.004], [0.13, 0.17, 0.175, 0.01], [0.3, 0.155, 0.16, 0.008], [0.41, 0.1, 0.1]];
       b.add(G.loft(main, cham), 'dark');
       for (let row = 0; row < 4; row++) {
@@ -1965,13 +1531,13 @@ export function buildThigh(look: number, r = 0): PB {
       }
       break;
     default:
-      // Phantom: a sleek blade with light lines and swept fins
-      main = [[0.05, 0.14, 0.15, 0.005], [0.14, 0.17, 0.18, 0.015], [0.3, 0.14, 0.15, 0.01], [0.41, 0.1, 0.1]];
-      cham = 0.16;
+      // Raptor (Strix): a slim faceted aero blade with a carbon strake, a light line and a fin behind
+      main = [[0.05, 0.13, 0.14, 0.004], [0.14, 0.15, 0.165, 0.014], [0.3, 0.12, 0.135, 0.008], [0.41, 0.09, 0.09]];
+      cham = 0.1;
       b.add(G.loft(main, cham), 'paint');
-      b.add(G.box(0.008, 0.2, 0.008), 'glow', 0, 0.22, 0.098);
-      b.addSym(G.box(0.006, 0.14, 0.006), 'glow', 0.084, 0.2, -0.045);
-      b.addSym(G.fin([[0.0, 0.0], [-0.06, 0.0], [-0.08, 0.08], [-0.03, 0.06]], 0.01), 'paint2', 0.08, 0.32, -0.02);
+      b.add(G.loft([[0.1, 0.05, 0.02], [0.32, 0.04, 0.02]], 0.1), 'carbon', 0, 0, 0.088);
+      b.add(G.box(0.006, 0.18, 0.006), 'glow', 0, 0.21, 0.1);
+      b.add(G.fin([[0.0, 0.0], [-0.07, 0.0], [-0.06, 0.16], [-0.02, 0.12]], 0.012, 0.003), 'carbon', 0, 0.1, -0.06);
       break;
   }
   const [, mw] = secAt(main, 0.2);
@@ -2001,73 +1567,54 @@ export function buildShin(legLook: number, r = 0): PB {
   let calf: Sec[];
   let cham = 0.3;
   switch (legLook) {
-    case 0:
-      calf = [[0.06, 0.12, 0.13, -0.01], [0.15, 0.15, 0.17, -0.02], [0.3, 0.13, 0.14, -0.012], [0.41, 0.1, 0.1]];
+    case 0: {
+      // Crawler (Ironhorse): a slab calf carrying a rubber track loop on steel road wheels
+      calf = [[0.06, 0.15, 0.15, -0.008], [0.15, 0.19, 0.18, -0.014], [0.32, 0.185, 0.17, -0.008], [0.42, 0.16, 0.15]];
+      cham = 0.12;
       b.add(G.loft(calf, cham), 'paint2');
-      band(b, calf, 0.22, 0.235, 0.003, 'dark', cham);
-      break;
-    case 1:
-      // Hopper: a coil-sprung damper down the calf
-      calf = [[0.06, 0.1, 0.11, -0.01], [0.14, 0.12, 0.14, -0.018], [0.32, 0.1, 0.11], [0.41, 0.085, 0.085]];
-      b.add(G.loft(calf, cham), 'paint2');
-      b.add(G.cyl(0.013, 0.013, 0.26, 6), 'dark', 0, 0.27, -0.09);
-      b.add(G.coil(0.026, 0.0055, 0.2, 7), 'chrome', 0, 0.27, -0.09);
-      b.add(G.cyl(0.03, 0.03, 0.016, 10), 'metal', 0, 0.165, -0.09);
-      b.add(G.cyl(0.03, 0.03, 0.016, 10), 'metal', 0, 0.375, -0.09);
-      break;
-    case 2:
-      calf = [[0.06, 0.14, 0.15, -0.005], [0.14, 0.18, 0.19, -0.01], [0.32, 0.18, 0.19], [0.42, 0.16, 0.16]];
-      cham = 0.36;
-      b.add(G.loft(calf, cham), 'paint2');
-      band(b, calf, 0.33, 0.36, 0.004, 'dark', cham);
-      for (let i = 0; i < 3; i++) b.add(G.sphere(0.009, 6, 4), 'chrome', -0.05 + i * 0.05, 0.345, -0.1);
-      break;
-    case 3:
-      calf = [[0.06, 0.12, 0.13, -0.01], [0.15, 0.15, 0.17, -0.02], [0.3, 0.13, 0.14, -0.012], [0.41, 0.1, 0.1]];
-      b.add(G.loft(calf, cham), 'paint2');
-      b.add(G.cyl(0.015, 0.015, 0.24, 8), 'chrome', 0, 0.25, 0.094);
-      b.addSym(G.cyl(0.011, 0.011, 0.2, 6), 'dark', 0.072, 0.25, -0.03);
-      break;
-    case 5: {
-      // Pylon: a slab calf with a riveted band
-      calf = [[0.06, 0.15, 0.16, -0.008], [0.15, 0.19, 0.2, -0.016], [0.32, 0.185, 0.19, -0.008], [0.42, 0.16, 0.16]];
-      cham = 0.14;
-      b.add(G.loft(calf, cham), 'paint2');
-      band(b, calf, 0.2, 0.225, 0.005, 'metal', cham);
-      const [, , d, z] = secAt(calf, 0.2125);
-      rivets(b, 3, -0.05, 0.2125, z - d / 2 - 0.006, 0.05, 0.2125, z - d / 2 - 0.006);
+      band(b, calf, 0.1, 0.12, 0.005, 'steel', cham);
+      const tz = -0.135;
+      for (const y of [0.15, 0.37]) {
+        b.addAxle(0.04, 0.074, 'rubber', 0, y, tz, 18);
+        b.addAxle(0.026, 0.082, 'steel', 0, y, tz, 12);
+      }
+      b.addAxle(0.026, 0.074, 'steel', 0, 0.26, tz + 0.008, 12);
+      for (const dz of [-0.04, 0.04]) b.add(G.box(0.074, 0.22, 0.008), 'rubber', 0, 0.26, tz + dz);
+      for (let i = 0; i < 8; i++) b.add(G.box(0.078, 0.008, 0.008), 'steel', 0, 0.165 + i * 0.027, tz - 0.046);
+      b.addSym(G.cbox(0.01, 0.26, 0.05, 0.003), 'steel', 0.042, 0.26, tz + 0.02);
       break;
     }
-    case 6:
-      // Swift: a slim calf with a curved running blade sprung behind it
-      calf = [[0.06, 0.1, 0.11, -0.01], [0.15, 0.12, 0.14, -0.02], [0.32, 0.1, 0.11, -0.008], [0.41, 0.08, 0.085]];
-      cham = 0.42;
+    case 1:
+      // Glide (Lumen): a smooth calf with a light band and a hover pod at its foot
+      calf = [[0.06, 0.11, 0.13, -0.01], [0.16, 0.14, 0.17, -0.022], [0.32, 0.12, 0.13, -0.01], [0.41, 0.09, 0.095]];
+      cham = 0.5;
       b.add(G.loft(calf, cham), 'paint2');
-      b.add(G.fin([[-0.065, 0.08], [-0.12, 0.17], [-0.118, 0.3], [-0.075, 0.4], [-0.065, 0.39], [-0.098, 0.3], [-0.1, 0.18], [-0.055, 0.1]], 0.04, 0.004), 'paint');
+      band(b, calf, 0.23, 0.236, 0.003, 'glow', cham);
+      b.add(G.cyl(0.03, 0.024, 0.07, 24), 'alu', 0, 0.36, -0.07);
+      b.add(G.cyl(0.02, 0.02, 0.006, 24), 'glow', 0, 0.397, -0.07);
+      break;
+    case 2:
+      // Longma (Longwei): a calf fairing in carbon over an aluminium damper, a light line down the side
+      calf = [[0.06, 0.12, 0.13, -0.01], [0.15, 0.155, 0.17, -0.02], [0.3, 0.14, 0.15, -0.012], [0.41, 0.1, 0.1]];
+      cham = 0.22;
+      b.add(G.loft(calf, cham), 'paint2');
+      b.add(G.loft([[0.1, 0.08, 0.03, -0.1], [0.32, 0.07, 0.03, -0.085]], 0.22), 'carbon');
+      b.add(G.cyl(0.014, 0.014, 0.2, 10), 'alu', 0, 0.27, -0.12);
+      b.add(G.cyl(0.022, 0.022, 0.08, 12), 'carbon', 0, 0.2, -0.12);
       b.addSym(G.box(0.005, 0.14, 0.005), 'glow', secAt(calf, 0.24)[1] / 2 + 0.002, 0.24, -0.01);
       break;
-    case 7:
-      // Steamhammer: a finned calf with twin exhaust pipes up the back
-      calf = [[0.06, 0.13, 0.14, -0.01], [0.15, 0.17, 0.18, -0.02], [0.31, 0.16, 0.17, -0.01], [0.42, 0.13, 0.13]];
+    case 3: {
+      // Legionario (Martelli): a sculpted calf greave with a brass band and rivets
+      calf = [[0.06, 0.13, 0.14, -0.008], [0.15, 0.17, 0.19, -0.022], [0.3, 0.15, 0.16, -0.012], [0.42, 0.13, 0.13]];
+      cham = 0.4;
       b.add(G.loft(calf, cham), 'paint2');
-      for (let i = 0; i < 3; i++) band(b, calf, 0.26 + i * 0.03, 0.27 + i * 0.03, 0.008, 'metal', cham);
-      b.both((s) => {
-        s.add(G.cyl(0.016, 0.018, 0.16, 10), 'metal', 0.05, 0.2, -0.1);
-        s.add(G.cyl(0.012, 0.012, 0.004, 10), 'glow', 0.05, 0.118, -0.1);
-        s.add(G.torus(0.018, 0.004, 4, 12), 'dark', 0.05, 0.16, -0.1, HP, 0, 0);
-      });
+      band(b, calf, 0.32, 0.335, 0.005, 'brass', cham);
+      const [, , d, z] = secAt(calf, 0.18);
+      rivets(b, 3, -0.04, 0.18, z - d / 2 - 0.004, 0.04, 0.18, z - d / 2 - 0.004, 0.007, 'brass');
       break;
-    case 8:
-      // Drift: a smooth calf with a light band and a hover jet pod at its foot
-      calf = [[0.06, 0.11, 0.13, -0.01], [0.16, 0.14, 0.17, -0.022], [0.32, 0.12, 0.13, -0.01], [0.41, 0.09, 0.095]];
-      cham = 0.46;
-      b.add(G.loft(calf, cham), 'paint2');
-      band(b, calf, 0.23, 0.24, 0.005, 'glow', cham);
-      b.add(G.cyl(0.03, 0.022, 0.07, 14), 'metal', 0, 0.36, -0.07);
-      b.add(G.cyl(0.018, 0.018, 0.006, 14), 'glow', 0, 0.397, -0.07);
-      break;
-    case 9:
-      // Hakama: lacquered splints round the back of a dark calf, tied with two bands
+    }
+    case 4:
+      // Hakama (Kensei): lacquered splints round the back of a dark calf, tied with two bands
       calf = [[0.06, 0.11, 0.12, -0.008], [0.15, 0.135, 0.155, -0.018], [0.32, 0.115, 0.125, -0.008], [0.41, 0.09, 0.09]];
       b.add(G.loft(calf, cham), 'dark');
       for (let i = 0; i < 3; i++) {
@@ -2077,11 +1624,12 @@ export function buildShin(legLook: number, r = 0): PB {
       for (const y of [0.15, 0.33]) band(b, calf, y, y + 0.008, 0.018, 'paint2', cham);
       break;
     default:
-      calf = [[0.06, 0.11, 0.13, -0.01], [0.16, 0.14, 0.17, -0.025], [0.32, 0.11, 0.12, -0.01], [0.41, 0.085, 0.09]];
-      cham = 0.16;
+      // Raptor (Strix): a slim faceted calf with a curved carbon running blade sprung behind it
+      calf = [[0.06, 0.1, 0.11, -0.01], [0.15, 0.12, 0.14, -0.02], [0.32, 0.1, 0.11, -0.008], [0.41, 0.08, 0.085]];
+      cham = 0.1;
       b.add(G.loft(calf, cham), 'paint2');
-      b.add(G.box(0.008, 0.22, 0.008), 'glow', 0, 0.25, 0.07);
-      b.addSym(G.fin([[0.0, 0.0], [-0.05, 0.0], [-0.07, 0.07], [-0.03, 0.06]], 0.01), 'paint', 0.06, 0.32, -0.04);
+      b.add(G.fin([[-0.065, 0.08], [-0.12, 0.17], [-0.118, 0.3], [-0.075, 0.4], [-0.065, 0.39], [-0.098, 0.3], [-0.1, 0.18], [-0.055, 0.1]], 0.04, 0.004), 'carbon');
+      b.addSym(G.box(0.005, 0.14, 0.005), 'glow', secAt(calf, 0.24)[1] / 2 + 0.002, 0.24, -0.01);
       break;
   }
   const [, cw] = secAt(calf, 0.17);
@@ -2096,84 +1644,55 @@ export function buildShinGuard(kickLook: number, r = 0): PB {
   const b = new PB();
   switch (kickLook) {
     case 0:
-      // Snap Boots: a broad flat guard for the teep, bolted down
-      b.add(G.prism([[-0.055, 0.11], [0.055, 0.11], [0.048, -0.1], [0.0, -0.13], [-0.048, -0.1]], 0.03, 0.008), 'paint', 0, 0.24, 0.08);
-      b.add(G.prism([[-0.03, 0.07], [0.03, 0.07], [0.026, -0.06], [0.0, -0.08], [-0.026, -0.06]], 0.014, 0.004), 'paint2', 0, 0.24, 0.098);
-      for (const y of [0.17, 0.31]) b.addSym(G.cyl(0.007, 0.007, 0.007, 6), 'chrome', 0.04, y, 0.096, HP, 0, 0);
-      break;
-    case 1:
-      // Whip Shins: a long striking blade with chrome edges
-      b.add(G.prism([[-0.035, 0.15], [0.035, 0.15], [0.03, -0.12], [0.0, -0.16], [-0.03, -0.12]], 0.03, 0.008), 'paint', 0, 0.24, 0.08);
-      b.addSym(G.box(0.005, 0.24, 0.008), 'chrome', 0.034, 0.25, 0.088, 0, 0, 0.02);
-      b.add(G.box(0.008, 0.22, 0.008), 'rarity', 0, 0.23, 0.097);
-      break;
-    case 2:
-      // Sweeper Greaves: stacked greaves with hooked side flanges
-      b.add(G.cbox(0.15, 0.13, 0.04, 0.012), 'paint', 0, 0.33, 0.075);
-      b.add(G.cbox(0.13, 0.08, 0.035, 0.01), 'paint', 0, 0.2, 0.08);
-      b.add(G.cbox(0.11, 0.03, 0.03, 0.008), 'dark', 0, 0.255, 0.075);
+      // Dozer Blades (Ironhorse): a curved bulldozer blade down the shin with a toothed steel
+      // cutting edge, striped across the top and pushed by two rams
+      for (let i = 0; i < 4; i++) b.add(G.cbox(0.16, 0.075, 0.024, 0.005), 'paint', 0, 0.13 + i * 0.07, 0.086 + Math.abs(i - 1.5) * 0.012, (i - 1.5) * 0.22, 0, 0);
+      b.add(G.cbox(0.16, 0.024, 0.03, 0.005), 'steel', 0, 0.39, 0.104);
+      for (let i = 0; i < 4; i++) b.add(G.prism([[-0.014, 0], [0.014, 0], [0, -0.022]], 0.02, 0.003), 'steel', -0.054 + i * 0.036, 0.414, 0.106, PI, 0, 0);
+      hazard(b, 0.14, 0.03, 0, 0.11, 0.106, -0.33, 0, 0);
       b.both((s) => {
-        s.add(G.prism([[0.0, 0.05], [0.03, 0.03], [0.045, -0.05], [0.0, -0.03]], 0.05, 0.006), 'paint2', 0.07, 0.36, 0.04);
-        bolt(s, 0.05, 0.36, 0.097, 'z', 0.007);
+        s.add(G.cyl(0.013, 0.013, 0.12, 8), 'chrome', 0.07, 0.24, 0.05, 0.25, 0, 0);
+        s.add(G.cyl(0.019, 0.019, 0.06, 8), 'dark', 0.07, 0.17, 0.035, 0.25, 0, 0);
       });
       break;
+    case 1:
+      // Curve (Lumen): one smooth curved guard with a light line down its middle
+      b.add(G.loft([[0.1, 0.09, 0.03, 0.078], [0.25, 0.11, 0.034, 0.084], [0.38, 0.08, 0.026, 0.078]], 0.5), 'paint');
+      b.add(G.box(0.004, 0.2, 0.004), 'glow', 0, 0.25, 0.101);
+      b.add(G.sphere(0.032, 20, 12), 'alu', 0, 0.075, 0.07, 0, 0, 0, 1, 0.8, 0.5);
+      break;
+    case 2:
+      // Xuanfeng (Longwei): an angular guard with a carbon centre, light chevrons and aluminium edges
+      b.add(G.prism([[-0.058, 0.13], [0.058, 0.13], [0.05, -0.1], [0.0, -0.13], [-0.05, -0.1]], 0.03, 0.006), 'paint', 0, 0.25, 0.08);
+      b.add(G.prism([[-0.03, 0.1], [0.03, 0.1], [0.026, -0.08], [0.0, -0.1], [-0.026, -0.08]], 0.012, 0.003), 'carbon', 0, 0.25, 0.098);
+      for (let i = 0; i < 3; i++) b.add(G.prism([[-0.022, 0.0], [0.0, -0.014], [0.022, 0.0], [0.022, 0.006], [0.0, -0.008], [-0.022, 0.006]], 0.006, 0.001), 'glow', 0, 0.27 + i * 0.03, 0.105);
+      b.addSym(G.box(0.005, 0.2, 0.008), 'alu', 0.056, 0.25, 0.088, 0, 0, 0.02);
+      break;
     case 3:
-      // Comet Heels: a guard with a glowing orb and comet-tail chevrons
-      b.add(G.prism([[-0.055, 0.1], [0.055, 0.1], [0.045, -0.1], [-0.045, -0.1]], 0.03, 0.008), 'paint', 0, 0.26, 0.08);
-      b.add(G.sphere(0.015, 8, 6), 'glow', 0, 0.26, 0.1);
-      b.add(G.torus(0.022, 0.004, 4, 14), 'chrome', 0, 0.26, 0.097);
-      for (let i = 0; i < 3; i++) b.add(G.prism([[-0.03, 0.0], [0.0, 0.016], [0.03, 0.0], [0.03, 0.008], [0.0, 0.024], [-0.03, 0.008]], 0.008, 0.002), 'glow', 0, 0.3 + i * 0.025, 0.097);
+      // Spartano (Martelli): a classical greave edged in brass with a brass boss at the knee
+      b.add(G.loft([[0.1, 0.1, 0.03, 0.08], [0.24, 0.12, 0.035, 0.085], [0.38, 0.09, 0.03, 0.08]], 0.42), 'paint');
+      b.add(G.box(0.006, 0.26, 0.01), 'brass', 0, 0.24, 0.103);
+      b.addSym(G.box(0.005, 0.25, 0.01), 'brass', 0.054, 0.24, 0.09, 0, 0, 0.025);
+      b.add(G.sphere(0.04, 16, 10), 'paint2', 0, 0.075, 0.068, 0, 0, 0, 1, 0.85, 0.55);
+      b.add(G.sphere(0.018, 12, 8), 'brass', 0, 0.075, 0.088);
       break;
-    case 5:
-      // Battering Boots: a slab guard under a steel-faced ram block at the knee, striped at the ankle
-      b.add(G.cbox(0.14, 0.24, 0.04, 0.008), 'paint', 0, 0.26, 0.082);
-      b.add(G.cbox(0.15, 0.08, 0.06, 0.01), 'paint2', 0, 0.09, 0.08, 0.12, 0, 0);
-      b.add(G.cbox(0.12, 0.05, 0.012, 0.003), 'metal', 0, 0.09, 0.114, 0.12, 0, 0);
-      hazard(b, 0.12, 0.034, 0, 0.36, 0.104);
-      b.both((s) => rivets(s, 2, 0.058, 0.17, 0.103, 0.058, 0.3, 0.103));
-      break;
-    case 6:
-      // Gale Blades: a narrow blade guard with a shark fin down the front and chrome edges
-      b.add(G.prism([[-0.032, 0.14], [0.032, 0.14], [0.026, -0.12], [0.0, -0.16], [-0.026, -0.12]], 0.026, 0.006), 'paint', 0, 0.24, 0.08);
-      b.add(G.fin([[0.0, -0.12], [0.0, 0.1], [0.03, 0.08], [0.045, -0.06]], 0.01), 'paint2', 0, 0.24, 0.092);
-      b.addSym(G.box(0.004, 0.24, 0.008), 'chrome', 0.03, 0.25, 0.088, 0, 0, 0.02);
-      b.addSym(G.box(0.005, 0.15, 0.005), 'glow', 0.016, 0.25, 0.094);
-      break;
-    case 7:
-      // Firebrand Greaves: a heavy guard with glowing heat slots, a flame chevron and knee cooling fins
-      b.add(G.prism([[-0.058, 0.12], [0.058, 0.12], [0.05, -0.1], [0.0, -0.13], [-0.05, -0.1]], 0.034, 0.008), 'paint', 0, 0.25, 0.082);
-      for (let i = 0; i < 4; i++) {
-        b.add(G.cbox(0.07 - i * 0.008, 0.012, 0.012, 0.003), 'dark', 0, 0.28 + i * 0.026, 0.1);
-        b.add(G.box(0.056 - i * 0.008, 0.005, 0.006), 'glow', 0, 0.28 + i * 0.026, 0.105);
-      }
-      b.add(G.prism([[-0.05, 0.0], [0.0, 0.03], [0.05, 0.0], [0.05, 0.016], [0.0, 0.046], [-0.05, 0.016]], 0.012, 0.003), 'paint2', 0, 0.17, 0.102);
-      for (let i = 0; i < 3; i++) b.add(G.cbox(0.13, 0.01, 0.05, 0.002), 'metal', 0, 0.09 + i * 0.022, 0.075);
-      break;
-    case 8:
-      // Nova Spurs: a smooth guard with a lit orb ring at the knee and a light seam down the shin
-      b.add(G.loft([[0.13, 0.1, 0.03, 0.08], [0.25, 0.11, 0.032, 0.083], [0.37, 0.08, 0.026, 0.08]], 0.46), 'paint');
-      b.add(G.torus(0.036, 0.006, 6, 24), 'glow', 0, 0.075, 0.09);
-      b.add(G.sphere(0.022, 12, 8), 'paint2', 0, 0.075, 0.088);
-      b.add(G.sphere(0.012, 10, 6), 'glow', 0, 0.075, 0.106);
-      b.add(G.box(0.006, 0.2, 0.006), 'glow', 0, 0.26, 0.099);
-      break;
-    case 9:
-      // Kama Greaves: three lacquered splints tied at two bands, a knee cop and a hooked blade at each side
+    case 4:
+      // Kama Greaves (Kensei): three lacquered splints tied at two bands, a knee cop and a hooked blade at each side
       for (let i = 0; i < 3; i++) b.add(G.cbox(0.03, 0.26, 0.016, 0.005), 'paint', (i - 1) * 0.034, 0.26, 0.086 - Math.abs(i - 1) * 0.008, 0, (i - 1) * 0.3, 0);
       for (const y of [0.17, 0.35]) b.add(G.cbox(0.12, 0.008, 0.02, 0.003), 'dark', 0, y, 0.086);
       b.add(G.sphere(0.042, 12, 8), 'paint2', 0, 0.07, 0.065, 0, 0, 0, 1, 0.75, 0.5);
       b.both((s) => s.add(G.fin([[0.03, 0.0], [-0.03, -0.01], [-0.075, 0.03], [-0.03, 0.02]], 0.008), 'chrome', 0.062, 0.34, 0.0, 0, 0, -0.2));
       break;
     default:
-      // Jet Knees: an armoured knee with twin jets and a calf booster
-      b.add(G.prism([[-0.055, 0.08], [0.055, 0.08], [0.045, -0.1], [-0.045, -0.1]], 0.03, 0.008), 'paint', 0, 0.28, 0.08);
-      b.add(G.cbox(0.14, 0.09, 0.05, 0.012), 'paint2', 0, 0.075, 0.07, 0.15, 0, 0);
+      // Afterburner (Strix): a faceted knee with twin lit jets and a calf booster
+      b.add(G.prism([[-0.05, 0.08], [0.05, 0.08], [0.04, -0.1], [0.0, -0.13], [-0.04, -0.1]], 0.026, 0.004), 'paint', 0, 0.28, 0.08);
+      b.add(G.cbox(0.13, 0.09, 0.05, 0.004), 'carbon', 0, 0.075, 0.07, 0.15, 0, 0);
       b.both((s) => {
-        s.add(G.cyl(0.02, 0.026, 0.05, 10), 'metal', 0.06, 0.12, 0.055, 0.3, 0, 0);
+        s.add(G.cyl(0.02, 0.026, 0.05, 10), 'paint2', 0.06, 0.12, 0.055, 0.3, 0, 0);
         s.add(G.cyl(0.016, 0.016, 0.005, 10), 'glow', 0.06, 0.146, 0.063, 0.3, 0, 0);
       });
-      b.add(G.cyl(0.038, 0.046, 0.1, 12), 'metal', 0, 0.1, -0.075, -0.5, 0, 0);
-      b.add(G.torus(0.044, 0.006, 4, 14), 'dark', 0, 0.075, -0.06, HP - 0.5, 0, 0);
+      b.add(G.cyl(0.038, 0.046, 0.1, 12), 'carbon', 0, 0.1, -0.075, -0.5, 0, 0);
+      b.add(G.torus(0.044, 0.006, 4, 14), 'brass', 0, 0.075, -0.06, HP - 0.5, 0, 0);
       b.add(G.cyl(0.028, 0.028, 0.01, 12), 'glow', 0, 0.055, -0.1, -0.5, 0, 0);
       break;
   }
@@ -2187,60 +1706,45 @@ export function buildShinGuard(kickLook: number, r = 0): PB {
   return b;
 }
 
-/** Foot heel/ankle section: origin at the ankle; the sole sits at y = -0.08. */
 /** Foot width per kick look. */
-const FOOT_W = [1, 0.92, 1.12, 1, 1, 1.14, 0.9, 1.06, 1, 0.96];
+const FOOT_W = [1.16, 0.96, 1.06, 1.04, 0.96, 0.9];
 
+/** Foot heel/ankle section: origin at the ankle; the sole sits at y = -0.08. */
 export function buildFoot(look: number, r = 0): PB {
   const b = new PB();
   const w = FOOT_W[look] ?? 1;
-  b.add(G.loft([[-0.058, 0.14 * w, 0.16, 0.0], [0.0, 0.12 * w, 0.13, -0.01], [0.02, 0.09 * w, 0.09, -0.01]], 0.3), 'paint');
-  b.add(G.cbox(0.148 * w, 0.024, 0.165, 0.008), 'dark', 0, -0.068, -0.002);
+  b.add(G.loft([[-0.058, 0.14 * w, 0.16, 0.0], [0.0, 0.12 * w, 0.13, -0.01], [0.02, 0.09 * w, 0.09, -0.01]], look === 1 ? 0.45 : 0.3), 'paint');
+  b.add(G.cbox(0.148 * w, 0.024, 0.165, 0.008), look === 0 ? 'rubber' : 'dark', 0, -0.068, -0.002);
   b.add(G.cbox(0.152 * w, 0.008, 0.16, 0.003), 'metal', 0, -0.058, -0.002);
   b.add(G.cbox(0.1, 0.048, 0.04, 0.01), 'metal', 0, -0.04, -0.085);
   b.addAxle(0.03, 0.12 * w, 'joint', 0, 0.0, -0.005, 12);
   switch (look) {
-    case 1:
-      b.add(G.fin([[0, 0], [-0.06, 0], [0.0, 0.08]], 0.02, 0.005), 'paint2', 0, -0.02, -0.06);
-      break;
-    case 2:
-      b.add(G.cone(0.03, 0.09, 4), 'metal', 0, -0.04, -0.13, -HP, 0, 0);
-      b.both((s) => s.add(G.prism([[0.0, 0.0], [0.03, -0.01], [0.03, -0.05], [0.0, -0.05]], 0.08, 0.006), 'paint2', 0.07 * w, -0.012, -0.03));
-      break;
-    case 3:
-      b.addDisc(0.033, 0.02, 'glow', 0, -0.035, -0.105, 12);
-      b.add(G.torus(0.036, 0.007, 4, 14), 'chrome', 0, -0.035, -0.11);
-      b.add(G.cbox(0.02, 0.08, 0.1, 0.006), 'paint2', 0, 0.035, -0.04);
-      break;
-    case 4:
-      b.add(G.cyl(0.035, 0.045, 0.05, 12), 'metal', 0, -0.052, -0.06);
-      b.add(G.cyl(0.028, 0.028, 0.01, 12), 'glow', 0, -0.08, -0.06);
-      b.addSym(G.cyl(0.016, 0.02, 0.04, 8), 'metal', 0.055, -0.03, -0.09, -1.2, 0, 0);
-      break;
-    case 5:
-      // Battering: a steel heel block with hazard stripes
-      b.add(G.cbox(0.12 * w, 0.05, 0.03, 0.006), 'metal', 0, -0.035, -0.09);
-      hazard(b, 0.09, 0.03, 0, -0.035, -0.111, 0, PI, 0);
+    case 0:
+      // Ironhorse: a steel heel block with stripes, a lugged rubber sole and side plates
+      b.add(G.cbox(0.13 * w, 0.05, 0.03, 0.006), 'steel', 0, -0.035, -0.092);
+      hazard(b, 0.1, 0.03, 0, -0.035, -0.113, 0, PI, 0);
+      for (let i = 0; i < 3; i++) b.add(G.box(0.15 * w, 0.01, 0.012), 'rubber', 0, -0.082, -0.06 + i * 0.05);
       b.both((s) => s.add(G.cbox(0.012, 0.05, 0.1, 0.004), 'paint2', 0.07 * w + 0.004, -0.03, -0.02));
       break;
-    case 6:
-      // Gale: a raked heel spur and light lines down the sides
-      b.add(G.fin([[0, 0], [-0.09, 0], [-0.02, 0.1]], 0.016, 0.004), 'paint2', 0, -0.025, -0.06);
-      b.addSym(G.box(0.004, 0.004, 0.09), 'glow', 0.066 * w, -0.04, 0.0);
+    case 1:
+      // Lumen: a light line round the sole and a smooth aluminium heel cap
+      b.add(G.cbox(0.154 * w, 0.004, 0.162, 0.002), 'glow', 0, -0.058, -0.002);
+      b.add(G.sphere(0.04, 20, 12), 'alu', 0, -0.03, -0.088, 0, 0, 0, 1.3, 0.8, 0.8);
       break;
-    case 7:
-      // Firebrand: a heel thruster flaring back, lit inside
-      b.add(G.cyl(0.034, 0.026, 0.04, 12), 'metal', 0, -0.035, -0.12, -HP, 0, 0);
-      b.add(G.cyl(0.024, 0.024, 0.004, 12), 'glow', 0, -0.035, -0.139, -HP, 0, 0);
-      b.add(G.cbox(0.02, 0.07, 0.09, 0.006), 'paint2', 0, 0.03, -0.04);
+    case 2:
+      // Longwei: a carbon heel counter with a light line and an aluminium ankle disc
+      b.add(G.cbox(0.12 * w, 0.05, 0.03, 0.006), 'carbon', 0, -0.035, -0.09);
+      b.add(G.box(0.08, 0.005, 0.006), 'glow', 0, -0.03, -0.107);
+      b.addSym(G.cyl(0.024, 0.024, 0.01, 20), 'alu', 0.06 * w + 0.004, 0.0, -0.005, 0, 0, HP);
       break;
-    case 8:
-      // Nova: a glowing sole line and a smooth heel cap
-      b.add(G.cbox(0.156 * w, 0.006, 0.164, 0.002), 'glow', 0, -0.058, -0.002);
-      b.add(G.sphere(0.04, 12, 8), 'paint2', 0, -0.03, -0.088, 0, 0, 0, 1.3, 0.8, 0.8);
+    case 3:
+      // Martelli: sandal straps of brass-studded leather over the instep and a brass heel spur
+      for (const y of [-0.04, -0.015]) b.add(G.cbox(0.14 * w + 0.012, 0.012, 0.15 - (y + 0.04) * 0.6, 0.004), 'paint2', 0, y, -0.004);
+      b.addSym(G.sphere(0.007, 8, 5), 'brass', 0.075 * w, -0.04, 0.02);
+      b.add(G.cone(0.014, 0.04, 8), 'brass', 0, -0.035, -0.11, -HP, 0, 0);
       break;
-    case 9:
-      // Kama: tabi straps over the instep and lacquered ankle plates
+    case 4:
+      // Kama (Kensei): tabi straps over the instep and lacquered ankle plates
       for (const y of [-0.012, 0.006]) {
         const t = (y + 0.058) / 0.058;
         b.add(G.cbox((0.14 + (0.12 - 0.14) * Math.min(1, t)) * w + 0.01, 0.008, 0.16 - 0.03 * Math.min(1, t) + 0.01, 0.003), 'dark', 0, y, -0.006);
@@ -2248,8 +1752,9 @@ export function buildFoot(look: number, r = 0): PB {
       b.both((s) => s.add(G.cbox(0.01, 0.05, 0.07, 0.003), 'paint2', 0.07 * w, -0.025, -0.02));
       break;
     default:
-      b.add(G.box(0.1, 0.008, 0.008), 'rarity', 0, 0.005, 0.07);
-      b.add(G.cbox(0.12, 0.04, 0.02, 0.006), 'paint2', 0, -0.025, -0.087);
+      // Strix: a raked carbon heel spur and light lines down the sides
+      b.add(G.fin([[0, 0], [-0.09, 0], [-0.02, 0.1]], 0.016, 0.004), 'carbon', 0, -0.025, -0.06);
+      b.addSym(G.box(0.004, 0.004, 0.09), 'glow', 0.066 * w, -0.04, 0.0);
       break;
   }
   if (r >= 2) b.addSym(G.cbox(0.012, 0.04, 0.06, 0.004), 'paint2', 0.07 * w + 0.004, -0.02, -0.01);
@@ -2261,25 +1766,35 @@ export function buildFoot(look: number, r = 0): PB {
 export function buildToe(look: number, r = 0): PB {
   const b = new PB();
   const w = FOOT_W[look] ?? 1;
-  b.add(G.loft([[-0.03, 0.142 * w, 0.115, 0.05], [0.012, 0.13 * w, 0.1, 0.045], [0.028, 0.1 * w, 0.06, 0.03]], 0.3), 'paint');
-  b.add(G.cbox(0.146 * w, 0.02, 0.118, 0.006), 'dark', 0, -0.032, 0.052);
+  b.add(G.loft([[-0.03, 0.142 * w, 0.115, 0.05], [0.012, 0.13 * w, 0.1, 0.045], [0.028, 0.1 * w, 0.06, 0.03]], look === 1 ? 0.45 : 0.3), 'paint');
+  b.add(G.cbox(0.146 * w, 0.02, 0.118, 0.006), look === 0 ? 'rubber' : 'dark', 0, -0.032, 0.052);
   b.add(G.cbox(0.11 * w, 0.03, 0.018, 0.006), r >= 3 ? 'chrome' : 'metal', 0, -0.016, 0.106);
-  if (look === 1) b.add(G.prism([[-0.05, 0], [0.05, 0], [0, 0.06]], 0.035, 0.008), 'paint2', 0, -0.005, 0.1, -HP, 0, 0);
-  if (look === 2) b.add(G.box(0.12, 0.008, 0.008), 'rarity', 0, 0.02, 0.1);
-  if (look === 3 || look === 4 || look === 8) b.add(G.box(0.008, 0.008, 0.05), 'glow', 0, 0.03, 0.04);
-  if (look === 5) {
-    // a thick steel toe cap
-    b.add(G.cbox(0.14 * w, 0.042, 0.03, 0.008), 'metal', 0, -0.006, 0.1);
-    rivets(b, 3, -0.04, 0.004, 0.116, 0.04, 0.004, 0.116, 0.006);
+  switch (look) {
+    case 0:
+      // a thick riveted steel toe cap
+      b.add(G.cbox(0.14 * w, 0.042, 0.03, 0.008), 'steel', 0, -0.006, 0.1);
+      rivets(b, 3, -0.045, 0.004, 0.116, 0.045, 0.004, 0.116, 0.006, 'steel');
+      break;
+    case 1:
+      b.add(G.box(0.004, 0.004, 0.05), 'glow', 0, 0.03, 0.04);
+      break;
+    case 2:
+      b.add(G.cbox(0.12 * w, 0.01, 0.07, 0.003), 'carbon', 0, 0.027, 0.045);
+      b.add(G.box(0.006, 0.006, 0.05), 'glow', 0, 0.033, 0.045);
+      break;
+    case 3:
+      b.add(G.cbox(0.13 * w, 0.012, 0.012, 0.004), 'paint2', 0, 0.016, 0.06);
+      b.add(G.cbox(0.12 * w, 0.014, 0.014, 0.004), 'brass', 0, -0.012, 0.11);
+      break;
+    case 4:
+      // a tabi strap round the toe
+      b.add(G.loft([[0.0, 0.1334 * w + 0.008, 0.112, 0.0464], [0.008, 0.1311 * w + 0.008, 0.109, 0.0452]], 0.3), 'dark');
+      break;
+    default:
+      b.add(G.prism([[-0.05, 0], [0.05, 0], [0, 0.075]], 0.03, 0.006), 'carbon', 0, -0.006, 0.1, -HP, 0, 0);
+      b.add(G.box(0.006, 0.006, 0.05), 'glow', 0, 0.026, 0.04);
+      break;
   }
-  if (look === 6) b.add(G.prism([[-0.05, 0], [0.05, 0], [0, 0.075]], 0.03, 0.008), 'paint2', 0, -0.006, 0.1, -HP, 0, 0);
-  if (look === 6) b.add(G.box(0.006, 0.006, 0.05), 'glow', 0, 0.026, 0.04);
-  if (look === 7) {
-    b.add(G.cbox(0.13 * w, 0.012, 0.08, 0.004), 'paint2', 0, 0.026, 0.045);
-    b.add(G.box(0.1 * w, 0.006, 0.006), 'glow', 0, 0.006, 0.099);
-  }
-  // a tabi strap round the toe
-  if (look === 9) b.add(G.loft([[0.0, 0.1334 * w + 0.008, 0.112, 0.0464], [0.008, 0.1311 * w + 0.008, 0.109, 0.0452]], 0.3), 'dark');
   if (r >= 4) b.add(G.box(0.1 * w, 0.006, 0.006), 'rarity', 0, -0.0, 0.117);
   return b;
 }
