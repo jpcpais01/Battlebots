@@ -17,6 +17,13 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-14 21:00",
+    title: "Tidier performance stats",
+    notes: [
+      "Performance stats now start as just the FPS counter. Tap it to open the full panel.",
+    ],
+  },
+  {
+    hour: "2026-10-14 21:00",
     title: "Saved replays, steadier entrances, finishers that connect",
     notes: [
       "Save your favourite fights: tap Save replay on the results, then watch them again any time from Replays on the home screen. You can keep 30, and they follow your account to other devices.",
