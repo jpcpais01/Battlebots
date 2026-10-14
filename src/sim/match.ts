@@ -130,13 +130,12 @@ export class Match {
   private ropeCooldown = [0, 0];
   /** The finisher being performed (the clock stops and both brains wait). */
   fin: FinisherRun | null = null;
-  /** A clinch, takedown or ground and pound in progress (or its poses still handing back). */
+  /** A clinch or takedown in progress (or its poses still handing back). */
   grapple: Grapple | null = null;
   private readonly grappleHost: GrappleHost = {
     emit: (t, d) => this.emit(t, d),
     hitstop: (x) => (this.hitstop = Math.max(this.hitstop, x)),
     blow: (att, def, b) => this.grappleBlow(att, def, b),
-    groundBlows: (att) => this.brains[att.index].groundBlows(),
   };
   /** A knocked-down bot that will not beat the count, and who put it there. */
   private countOut: { att: Fighter; def: Fighter; at: number } | null = null;
@@ -640,7 +639,7 @@ export class Match {
     dbn.onGrabbed();
   }
 
-  /** A body slammed into the canvas, or a punch from on top. */
+  /** A body slammed into the canvas. */
   private grappleBlow(att: Fighter, def: Fighter, b: GrappleBlow) {
     if (this.phase !== 'fight' || def.state === 'ko') return;
     const dst = def.build.stats;
@@ -648,36 +647,23 @@ export class Match {
     dmg *= 1 - dst.armor;
     if (b.zone === 'body') dmg *= 1 - def.passive('bulwark');
     if (b.zone === 'head') dmg *= (1 - dst.headGuard) * (1 - def.passive('ironChin'));
-    let shielded = false;
-    if (def.shield && b.kind === 'ground') {
-      shielded = true;
-      def.shield = false;
-      def.shieldTimer = def.passive('aegis');
-      dmg = 0;
-    }
     dmg = Math.round(dmg);
     def.hp = Math.max(0, def.hp - dmg);
     def.lastHitTime = this.time;
-    const partCond = shielded ? def.parts.cond[b.part] : def.parts.damage(b.part, dmg);
-    if (!shielded) this.wearCheck(def, b.part);
+    const partCond = def.parts.damage(b.part, dmg);
+    this.wearCheck(def, b.part);
     att.stats.dealt += dmg;
     att.stats.landed++;
-    const move = b.kind === 'slam' ? MOVES.shoot : MOVES.cross;
+    const move = MOVES.shoot;
     if (dmg > att.stats.biggest) {
       att.stats.biggest = dmg;
-      att.stats.biggestMove = b.kind === 'slam' ? 'Takedown' : 'Ground punch';
+      att.stats.biggestMove = 'Takedown';
     }
     // the body jolts with it
     const body = def.body;
     _b.copy(b.dir).multiplyScalar(b.jolt);
-    if (b.kind === 'slam') {
-      for (const j of [J.Chest, J.Pelvis, J.Head]) body.addVelocity(j, _b, SIM_DT);
-    } else {
-      const j = b.zone === 'head' ? J.Head : J.Chest;
-      body.addVelocity(j, _b, SIM_DT);
-      body.addVelocity(J.Neck, _b.multiplyScalar(0.4), SIM_DT);
-    }
-    this.hitstop = Math.max(this.hitstop, b.kind === 'slam' ? 0.1 : clamp(0.04 + dmg * 0.0009, 0.04, 0.1));
+    for (const j of [J.Chest, J.Pelvis, J.Head]) body.addVelocity(j, _b, SIM_DT);
+    this.hitstop = Math.max(this.hitstop, 0.1);
     const info: HitInfo = {
       part: b.part,
       partCond,
@@ -692,21 +678,19 @@ export class Match {
       counter: false,
       point: b.point,
       dir: b.dir,
-      heavy: b.kind === 'slam' || dmg >= 55,
-      knockdown: b.kind === 'slam',
+      heavy: true,
+      knockdown: true,
       stagger: false,
-      shielded,
+      shielded: false,
       guardBreak: false,
     };
     this.emit('hit', info);
-    if (info.knockdown) {
-      att.stats.takedowns++;
-      this.emit('knockdown', info);
-    }
+    att.stats.takedowns++;
+    this.emit('knockdown', info);
     this.brains[att.index].onDealt(dmg);
     this.brains[def.index].onTaken(dmg, false, false, move);
-    // the referee waves it off: a slam is a knockout, punches on a downed bot a stoppage
-    if (def.hp <= 0) this.ko(att, def, b.kind === 'slam' ? 'KO' : 'TKO');
+    // slammed out cold
+    if (def.hp <= 0) this.ko(att, def, 'KO');
   }
 
   // ---------------------------------------------------------------- finishers
