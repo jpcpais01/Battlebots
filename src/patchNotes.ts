@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-14 20:00',
     title: 'A new ring, heavier hits, arena light show',
     notes: [
+      'Smoother fights on phones: the robots, the ring floor, the crowd and the stands all cost the graphics chip much less to draw, with no change to how they look. Tiny details too small to see are skipped (and left out of shadows), and the parts of the arena behind the camera are no longer drawn.',
       'The whole game has a fresh, cleaner look: one simple console-style design across every menu, with glass panels, rounded buttons, and a bright white button for the next thing to do.',
       'New home screen: your bot\'s name, moves and six fitted parts sit bottom left (tap a part to jump straight to it in the garage), and Fight, Garage and Online sit together bottom right.',
       'The results screen is one tidy card with a bar under each stat showing who came out ahead. Settings, pause, saved bots, account and online rooms all share the new style, and patch notes are now under What\'s new.',
