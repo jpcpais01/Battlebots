@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-14 03:00',
     title: 'Bot sizes, beat the count, camera drones and real oil',
     notes: [
+      'Swipe left or right on the home screen (or drag with the mouse) to walk the camera round your bot. Fling it and it keeps turning, then glides back to the usual view a few seconds after you let go.',
       'Oil now looks like real motor oil: thick, glossy black with a rainbow sheen. Drops bead on the wound, stretch and string out as they fall, and spread into slick puddles.',
       'Tearing a part off wrenches the joint it was attached to: the part it hung from loses 30% of what it had left, and the metal around the socket is wrecked.',
       'Torn sockets gush oil, then keep bleeding for the rest of the fight.',
