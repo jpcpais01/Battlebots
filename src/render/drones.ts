@@ -3,34 +3,30 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { RenderSettings } from './settings';
 
 /**
- * Broadcast camera drones. Three small quadcopters film the fight: one of them is always "live"
+ * Broadcast camera drones. Three ducted-fan camera drones film the fight: one of them is always "live"
  * (it sits at the lens, hidden, so the shot you see is its feed), and the others hold station on
  * the far side of the ring, high up and off to the sides of the frame, lenses on the fighters.
  * On every hard cut the drone nearest the new angle takes over and the one that just filmed is
  * left hanging where the camera was, from where it climbs away to its standby slot.
  *
- * Render only: nothing here touches the sim. Three draw calls for all of them (bodies, rotor
- * blur discs, lights), all instanced.
+ * Render only: nothing here touches the sim. Three draw calls for all of them (hulls, fan
+ * blur discs, everything that glows), all instanced.
  */
 
 const N = 3;
-/** Built at about 0.5 m across, shown a bit bigger so they read from across the arena. */
+/** Built at about 0.55 m across, shown a bit bigger so they read from across the arena. */
 const SCALE = 1.35;
 /** Standby ring: out past the ropes, under the stands' front row. */
 const SLOT_R = 7.2;
 const SLOT_Y = [3.7, 4.4, 4.0];
-/** Rotor hubs in the body frame (+Z is where the lens looks). */
+/** Ducted fan centres in the body frame (+Z is where the eye looks): a swept X around the core. */
 const MOTORS = [
-  [0.15, 0.045, 0.15],
-  [-0.15, 0.045, 0.15],
-  [0.15, 0.045, -0.15],
-  [-0.15, 0.045, -0.15],
+  [0.19, 0.012, 0.11],
+  [-0.19, 0.012, 0.11],
+  [0.19, 0.012, -0.13],
+  [-0.19, 0.012, -0.13],
 ];
-/** Lights in the body frame: red tally on the camera head, green nav light at the tail. */
-const LEDS = [
-  [0, -0.022, 0.118],
-  [0, 0.03, -0.17],
-];
+const DUCT_R = 0.072;
 
 function tint(g: THREE.BufferGeometry, hex: number, m?: THREE.Matrix4) {
   if (m) g.applyMatrix4(m);
@@ -42,45 +38,8 @@ function tint(g: THREE.BufferGeometry, hex: number, m?: THREE.Matrix4) {
   return g;
 }
 
-const _m = new THREE.Matrix4();
-const _q = new THREE.Quaternion();
-const _e = new THREE.Euler();
-const _v = new THREE.Vector3();
-const _s = new THREE.Vector3();
-const _local = new THREE.Matrix4();
-
-function bodyGeometry() {
-  const at = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) =>
-    _m.compose(_v.set(x, y, z), _q.setFromEuler(_e.set(rx, ry, rz)), _s.set(sx, sy, sz)).clone();
-  const SHELL = 0xdfe3e8, DARK = 0x2a2e35, ORANGE = 0xff6a14, BLACK = 0x0d0f13, GLASS = 0x1c3550, RIM = 0x8a929c;
-  const parts: THREE.BufferGeometry[] = [
-    // fuselage: a smooth pod with an orange stripe along the top
-    tint(new THREE.SphereGeometry(1, 16, 10), SHELL, at(0, 0, 0, 0, 0, 0, 0.085, 0.042, 0.15)),
-    tint(new THREE.SphereGeometry(1, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), ORANGE, at(0, 0.012, -0.01, 0, 0, 0, 0.03, 0.036, 0.11)),
-    // battery pack under the belly
-    tint(new THREE.BoxGeometry(0.07, 0.03, 0.12), DARK, at(0, -0.035, -0.03)),
-    // skids
-    tint(new THREE.BoxGeometry(0.012, 0.012, 0.22), DARK, at(0.075, -0.1, 0)),
-    tint(new THREE.BoxGeometry(0.012, 0.012, 0.22), DARK, at(-0.075, -0.1, 0)),
-    tint(new THREE.BoxGeometry(0.01, 0.075, 0.01), DARK, at(0.06, -0.065, 0.06, 0, 0, 0.35)),
-    tint(new THREE.BoxGeometry(0.01, 0.075, 0.01), DARK, at(-0.06, -0.065, 0.06, 0, 0, -0.35)),
-    tint(new THREE.BoxGeometry(0.01, 0.075, 0.01), DARK, at(0.06, -0.065, -0.06, 0, 0, 0.35)),
-    tint(new THREE.BoxGeometry(0.01, 0.075, 0.01), DARK, at(-0.06, -0.065, -0.06, 0, 0, -0.35)),
-    // gimbal yoke and camera head with its lens
-    tint(new THREE.BoxGeometry(0.014, 0.05, 0.014), DARK, at(0, -0.045, 0.095)),
-    tint(new THREE.SphereGeometry(0.036, 12, 8), BLACK, at(0, -0.07, 0.105)),
-    tint(new THREE.CylinderGeometry(0.024, 0.026, 0.026, 16), RIM, at(0, -0.07, 0.138, Math.PI / 2)),
-    tint(new THREE.CircleGeometry(0.019, 16), GLASS, at(0, -0.07, 0.1515)),
-  ];
-  for (const [x, y, z] of MOTORS) {
-    const len = Math.hypot(x, z);
-    // arm from the body out to the motor
-    parts.push(tint(new THREE.BoxGeometry(0.026, 0.02, len), DARK, at(x / 2, 0.005, z / 2, 0, Math.atan2(x, z))));
-    // motor can with an orange cap
-    parts.push(tint(new THREE.CylinderGeometry(0.024, 0.026, 0.035, 12), DARK, at(x, y - 0.022, z)));
-    parts.push(tint(new THREE.CylinderGeometry(0.016, 0.022, 0.012, 12), ORANGE, at(x, y, z)));
-  }
-  // mergeGeometries needs one layout: drop uvs, unindex everything
+/** mergeGeometries needs one layout: drop uvs, unindex everything. */
+function merge(parts: THREE.BufferGeometry[]) {
   return mergeGeometries(
     parts.map((g) => {
       g.deleteAttribute('uv');
@@ -89,25 +48,103 @@ function bodyGeometry() {
   )!;
 }
 
-/** A spinning prop seen as a soft disc with two blade smears. */
+const _m = new THREE.Matrix4();
+const _q = new THREE.Quaternion();
+const _e = new THREE.Euler();
+const _v = new THREE.Vector3();
+const _s = new THREE.Vector3();
+const _local = new THREE.Matrix4();
+
+const at = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) =>
+  _m.compose(_v.set(x, y, z), _q.setFromEuler(_e.set(rx, ry, rz)), _s.set(sx, sy, sz)).clone();
+/** A ring lying flat (axis up), or facing +Z with `flat` off. */
+const ring = (r: number, tube: number, seg: number, flat = true) => {
+  const g = new THREE.TorusGeometry(r, tube, 6, seg);
+  return flat ? g.rotateX(Math.PI / 2) : g;
+};
+
+/**
+ * The hull: a pearl-white teardrop over a gunmetal belly, one big glass eye up front, swept tail
+ * fins, and four ducted fans on swept pylons. No skids, no exposed props: it looks like it was
+ * built to fly, not to land.
+ */
+function bodyGeometry() {
+  const PEARL = 0xe8ecf1, GUN = 0x2a2f37, GLASS = 0x06080c, METAL = 0x7c8590;
+  const parts: THREE.BufferGeometry[] = [
+    // core: pearl canopy over a dark belly, nose a touch fuller than the tail
+    tint(new THREE.SphereGeometry(1, 22, 8, 0, Math.PI * 2, 0, Math.PI / 2), PEARL, at(0, 0, 0, 0, 0, 0, 0.078, 0.055, 0.165)),
+    tint(new THREE.SphereGeometry(1, 22, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), GUN, at(0, -0.004, 0, 0, 0, 0, 0.072, 0.04, 0.155)),
+    // dorsal spine and two swept tail fins
+    tint(new THREE.BoxGeometry(0.008, 0.032, 0.11), PEARL, at(0, 0.052, -0.07, -0.18)),
+    tint(new THREE.BoxGeometry(0.075, 0.006, 0.045), GUN, at(0.045, 0.004, -0.165, 0, 0.5, -0.35)),
+    tint(new THREE.BoxGeometry(0.075, 0.006, 0.045), GUN, at(-0.045, 0.004, -0.165, 0, -0.5, 0.35)),
+    // the eye: black glass dome in a machined bezel
+    tint(new THREE.SphereGeometry(0.042, 18, 12), GLASS, at(0, -0.004, 0.13)),
+    tint(ring(0.041, 0.007, 24, false), METAL, at(0, -0.004, 0.153)),
+    // belly thruster housing
+    tint(new THREE.CylinderGeometry(0.03, 0.036, 0.016, 18), GUN, at(0, -0.042, -0.02)),
+  ];
+  for (const [x, y, z] of MOTORS) {
+    // swept pylon from the hull out to the duct
+    const len = Math.hypot(x, z) - DUCT_R * 0.7;
+    const a = Math.atan2(x, z);
+    parts.push(tint(new THREE.BoxGeometry(0.03, 0.012, len), GUN, at((x / 2) * 0.9, y - 0.004, (z / 2) * 0.9, 0, a)));
+    // the duct: a fat pearl ring with a dark lip underneath
+    parts.push(tint(ring(DUCT_R, 0.015, 28), PEARL, at(x, y, z)));
+    parts.push(tint(ring(DUCT_R - 0.004, 0.009, 28), GUN, at(x, y - 0.012, z)));
+    // stator cross and motor hub inside it
+    parts.push(tint(new THREE.BoxGeometry(DUCT_R * 2, 0.005, 0.008), GUN, at(x, y - 0.01, z, 0, Math.PI / 4)));
+    parts.push(tint(new THREE.BoxGeometry(DUCT_R * 2, 0.005, 0.008), GUN, at(x, y - 0.01, z, 0, -Math.PI / 4)));
+    parts.push(tint(new THREE.CylinderGeometry(0.013, 0.016, 0.022, 12), METAL, at(x, y - 0.006, z)));
+  }
+  return merge(parts);
+}
+
+/**
+ * Everything that shines, in one mesh: the eye's iris ring and red tally, light lines along the
+ * hull seam and the duct rims, and the thruster glow underneath (the side the cameras mostly see).
+ */
+function glowGeometry() {
+  const CYAN = 0x38e6ff, DEEP = 0x1a7fb8, RED = 0xff1a12;
+  const parts: THREE.BufferGeometry[] = [
+    tint(ring(0.026, 0.0032, 24, false), CYAN, at(0, -0.004, 0.164)),
+    tint(new THREE.SphereGeometry(0.0075, 10, 8), RED, at(0, -0.004, 0.17)),
+    // seam line where canopy meets belly
+    tint(ring(1, 0.05, 40), CYAN, at(0, 0.001, 0, 0, 0, 0, 0.079, 0.06, 0.166)),
+    // belly thruster
+    tint(new THREE.CircleGeometry(0.027, 20).rotateX(Math.PI / 2), DEEP, at(0, -0.0505, -0.02)),
+    tint(ring(0.031, 0.0028, 20), CYAN, at(0, -0.05, -0.02)),
+  ];
+  for (const [x, y, z] of MOTORS) {
+    // a light line along the duct's top lip
+    parts.push(tint(ring(DUCT_R, 0.0032, 28), CYAN, at(x, y + 0.0155, z)));
+    parts.push(tint(new THREE.CircleGeometry(DUCT_R - 0.016, 24).rotateX(Math.PI / 2), DEEP, at(x, y - 0.018, z)));
+    // pylon tip light
+    parts.push(tint(new THREE.SphereGeometry(0.006, 8, 6), CYAN, at(x + Math.sign(x) * (DUCT_R + 0.014), y, z)));
+  }
+  return merge(parts);
+}
+
+/** A fan inside its duct seen as a soft disc with blade smears. */
 function rotorTexture() {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
   const g = c.getContext('2d')!;
   g.translate(64, 64);
-  const rg = g.createRadialGradient(0, 0, 6, 0, 0, 62);
-  rg.addColorStop(0, 'rgba(255,255,255,0.35)');
-  rg.addColorStop(0.75, 'rgba(255,255,255,0.14)');
+  const rg = g.createRadialGradient(0, 0, 8, 0, 0, 62);
+  rg.addColorStop(0, 'rgba(255,255,255,0.4)');
+  rg.addColorStop(0.8, 'rgba(255,255,255,0.18)');
   rg.addColorStop(1, 'rgba(255,255,255,0)');
   g.fillStyle = rg;
   g.beginPath();
   g.arc(0, 0, 62, 0, Math.PI * 2);
   g.fill();
-  for (const base of [0, Math.PI]) {
-    for (let i = 0; i < 22; i++) {
+  for (let b = 0; b < 5; b++) {
+    const base = (b / 5) * Math.PI * 2;
+    for (let i = 0; i < 12; i++) {
       const a = base - i * 0.06;
-      const k = 1 - i / 22;
-      g.fillStyle = `rgba(255,255,255,${(0.55 * k * k).toFixed(3)})`;
+      const k = 1 - i / 12;
+      g.fillStyle = `rgba(255,255,255,${(0.5 * k * k).toFixed(3)})`;
       g.beginPath();
       g.moveTo(0, 0);
       g.arc(0, 0, 60, a - 0.06, a);
@@ -151,19 +188,19 @@ export class Drones {
     this.group.name = 'drones';
     this.bodies = new THREE.InstancedMesh(
       bodyGeometry(),
-      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.3 }),
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.28, metalness: 0.55 }),
       N,
     );
-    const disc = new THREE.CircleGeometry(0.088, 20).rotateX(-Math.PI / 2);
+    const disc = new THREE.CircleGeometry(DUCT_R - 0.018, 20).rotateX(-Math.PI / 2);
     this.rotors = new THREE.InstancedMesh(
       disc,
-      new THREE.MeshBasicMaterial({ map: rotorTexture(), color: 0x9aa3ad, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ map: rotorTexture(), color: 0x8fdcf0, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide }),
       N * MOTORS.length,
     );
     this.lights = new THREE.InstancedMesh(
-      new THREE.SphereGeometry(0.011, 8, 6),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 1, 1).multiplyScalar(RenderSettings.glow(2.2)), toneMapped: false }),
-      N * LEDS.length,
+      glowGeometry(),
+      new THREE.MeshBasicMaterial({ vertexColors: true, color: new THREE.Color(1, 1, 1).multiplyScalar(RenderSettings.glow(2.2)), toneMapped: false }),
+      N,
     );
     for (const m of [this.bodies, this.rotors, this.lights]) {
       m.frustumCulled = false; // instances fly far from the base geometry's bounds
@@ -271,7 +308,7 @@ export class Drones {
         // inside the lens: not drawn
         this.bodies.setMatrixAt(i, this.zero);
         for (let j = 0; j < MOTORS.length; j++) this.rotors.setMatrixAt(i * MOTORS.length + j, this.zero);
-        for (let j = 0; j < LEDS.length; j++) this.lights.setMatrixAt(i * LEDS.length + j, this.zero);
+        this.lights.setMatrixAt(i, this.zero);
         continue;
       }
       const want = Math.atan2(focus.x - d.pos.x, focus.z - d.pos.z);
@@ -297,18 +334,11 @@ export class Drones {
         local.setPosition(x, y + 0.004, z);
         this.rotors.setMatrixAt(i * MOTORS.length + j, local.premultiply(body));
       }
-      // tally: steady red with a slow pulse; nav: green double flash
-      const tally = 0.6 + 0.4 * Math.sin(t * 3 + d.phase);
-      const beat = (t * 0.8 + d.phase * 0.37) % 1;
-      const nav = beat < 0.06 || (beat > 0.14 && beat < 0.2) ? 1 : 0.08;
-      for (let j = 0; j < LEDS.length; j++) {
-        const [x, y, z] = LEDS[j];
-        local.makeTranslation(x, y, z);
-        this.lights.setMatrixAt(i * LEDS.length + j, local.premultiply(body));
-        if (j === 0) this.color.setRGB(1, 0.09, 0.07).multiplyScalar(tally);
-        else this.color.setRGB(0.15, 1, 0.45).multiplyScalar(nav);
-        this.lights.setColorAt(i * LEDS.length + j, this.color);
-      }
+      // the lights breathe, with a quick shimmer as the drone works hard
+      const effort = Math.min(1, d.vel.length() * 0.25);
+      const glow = 0.78 + 0.16 * Math.sin(t * 2.2 + d.phase) + effort * (0.25 + 0.1 * Math.sin(t * 31 + d.phase));
+      this.lights.setMatrixAt(i, body);
+      this.lights.setColorAt(i, this.color.setScalar(glow));
     }
     this.bodies.instanceMatrix.needsUpdate = true;
     this.rotors.instanceMatrix.needsUpdate = true;

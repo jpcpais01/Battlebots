@@ -1156,15 +1156,14 @@ export class Game {
   private partHit(h: HitInfo) {
     if (h.shielded) return;
     const wear = 1 - h.partCond;
-    // nuts, bolts and flecks of plating: a few from a hard blow, more the worse the part gets
+    // torn plate, nuts and bolts: a spray from a hard blow, more the worse the part gets
+    const paint = this.match?.specs[h.defender.index].paint.primary ?? 0x888888;
+    const power = Math.min(1, h.damage / 70 + wear * 0.45 + (h.crit ? 0.3 : 0));
     const n = h.blocked
-      ? Math.random() < 0.15 + wear * 0.6 ? 1 : 0
-      : Math.min(8, Math.floor(wear * 6 + h.damage / 32 + (h.crit ? 1.5 : 0) + Math.random()));
-    if (n > 0) this.fx.bits.spawn(h.point, h.dir, n, this.match?.specs[h.defender.index].paint.primary ?? 0x888888, 2.5 + wear * 2 + h.damage / 40);
-    if (wear > 0.12 && h.damage >= 6) {
-      this.fx.shrapnel(h.point, h.dir, Math.round(3 + wear * 14 + h.damage / 16), 2.5 + wear * 2.5);
-      if (wear > 0.35) this.fx.smoke(h.point, 1 + Math.round(wear * 3), wear);
-    }
+      ? Math.floor(h.damage / 30 + wear * 2 + Math.random() * 1.2)
+      : Math.min(24, Math.floor(h.damage / 10 + wear * wear * 12 + (h.crit ? 4 : 0) + (h.heavy ? 3 : 0) + Math.random() * 2));
+    if (n > 0) this.fx.bits.spawn(h.point, h.dir, n, paint, h.blocked ? power * 0.5 : power);
+    if (wear > 0.35 && h.damage >= 6) this.fx.smoke(h.point, 1 + Math.round(wear * 3), wear);
     // a blow to a venting part makes its hinge blow
     if (h.partCond < VENT_BELOW) this.steam.kick(h.defender.index * 16 + h.part);
     const k = oilLeak(h.part, h.partCond);
@@ -1213,8 +1212,7 @@ export class Game {
     this.fx.sparks(at, _up, 24, 0x9ad8ff, 5, 1.6);
     this.fx.flash(at, 0xffe0b0, 2.2, 0.28);
     this.fx.arc(at, 1.2);
-    this.fx.shrapnel(at, d.dir, 26, 5);
-    this.fx.bits.spawn(at, d.dir, 10, this.match?.specs[i].paint.primary ?? 0x888888, 4.5);
+    this.fx.bits.spawn(at, d.dir, 30, this.match?.specs[i].paint.primary ?? 0x888888, 1);
     this.fx.smoke(at, 6, 1);
     this.stage.ripples.add(at, 2.2, 1.5, 0xffb070);
     this.director.shake(0.85);
