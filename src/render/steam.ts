@@ -2,9 +2,9 @@ import * as THREE from 'three';
 
 /**
  * High-pressure vapour blowing out of the hinges of wrecked parts. Once a part is badly
- * beaten its joint seals fail: pressure builds inside and blasts out of the hinge in hard,
- * hissing jets of white vapour, more often and for longer the closer the part is to failing,
- * and at once when the part takes another blow. A part that comes off stops venting.
+ * beaten its joint seals fail and every 3 to 7 seconds blast out a hissing jet of white
+ * vapour, anywhere from a short puff to a full blast (harder the closer the part is to
+ * failing). A hit can set it off early. A part that comes off stops venting.
  *
  * Render only: the sim never sees any of this, so it may use Math.random freely.
  */
@@ -13,12 +13,22 @@ import * as THREE from 'three';
 const MAX_PUFFS = 1100;
 /** Hinges venting at once: every venting part of both robots. */
 const MAX_VENTS = 32;
+/** Seconds between bursts of one hinge: a random wait in this range. */
+const WAIT_MIN = 3;
+const WAIT_MAX = 7;
+/** The smallest burst, as a share of the fullest. */
+const MIN_BLOW = 0.3;
+const nextWait = () => WAIT_MIN + Math.random() * (WAIT_MAX - WAIT_MIN);
 
 interface Vent {
   /** Which way round the hinge the jet points (radians from the robot's front). */
   angle: number;
-  /** 0..1: the next burst fires when it reaches 1. */
-  pressure: number;
+  /** Seconds until the next burst (3 to 7, at random). */
+  wait: number;
+  /** Seconds since the last burst started. */
+  since: number;
+  /** How big the current burst is: 1 is the fullest blast, down to MIN_BLOW. */
+  blow: number;
   /** Seconds left of the current burst (0 when only seeping). */
   burst: number;
   /** Length of the current burst, for its envelope. */
@@ -244,16 +254,18 @@ export class Steam {
    * blows out across, `t` how far along it the hinge is, `radius` how far out its seal is.
    * `fwd` is the robot's facing; `side` (or null) turns a limb's jet to its outer side.
    * `k` is 0 (just heavily damaged) to 1 (about to fail). Returns the length of a burst
-   * that starts now (for its hiss), else 0.
+   * that starts now (for its hiss; its size is then `blow`), else 0.
    */
   vent(key: number, a: THREE.Vector3, b: THREE.Vector3, t: number, radius: number, fwd: THREE.Vector3, side: THREE.Vector3 | null, k: number, size: number, dt: number): number {
     let v = this.vents.get(key);
-    let fresh = false;
     if (!v) {
       if (this.vents.size >= MAX_VENTS) return 0;
       v = {
         angle: (Math.random() - 0.5) * 2.6,
-        pressure: 1,
+        // the seal gives straight away, then every few seconds
+        wait: 0,
+        since: 0,
+        blow: 1,
         burst: 0,
         burstLen: 0,
         k,
@@ -265,7 +277,6 @@ export class Steam {
         size,
       };
       this.vents.set(key, v);
-      fresh = true;
     }
     v.seen = true;
     v.k = k;
@@ -283,31 +294,27 @@ export class Steam {
     v.dir.copy(_r).multiplyScalar(c).addScaledVector(_s, s);
     if (side && v.dir.dot(side) < 0) v.dir.copy(_r).multiplyScalar(c).addScaledVector(_s, -s);
     v.pos.lerpVectors(a, b, t).addScaledVector(v.dir, radius);
-    if (fresh) {
-      // the seal gives with a crack: one hard blast
-      for (let n = 0; n < 14; n++) this.puff(v, CORE, 11 + Math.random() * 4);
-      for (let n = 0; n < 10; n++) this.puff(v, BILLOW, 11 + Math.random() * 4);
-    }
     if (dt <= 0) return 0;
     let started = 0;
+    v.since += dt;
     if (v.burst > 0) v.burst -= dt;
-    else {
-      // pressure builds faster the worse the part is: every few seconds at first, near constant at the end
-      v.pressure += dt * (0.3 + k * 1.0) * (0.75 + Math.random() * 0.5);
-      if (v.pressure >= 1) {
-        v.pressure = Math.random() * 0.25;
-        v.burstLen = v.burst = 0.45 + k * 0.9 + Math.random() * 0.4;
-        started = v.burstLen;
-      }
+    v.wait -= dt;
+    if (v.wait <= 0 && v.burst <= 0) {
+      // every 3 to 7 seconds the seal blows, anywhere from a short puff to the full blast
+      v.wait = nextWait();
+      v.since = 0;
+      v.blow = MIN_BLOW + Math.random() * (1 - MIN_BLOW);
+      v.burstLen = v.burst = (0.45 + k * 0.9 + Math.random() * 0.4) * (0.5 + 0.5 * v.blow);
+      started = v.burstLen;
     }
     // a burst screams out at full pressure, then sputters; between bursts the hinge weeps a wisp
     if (v.burst > 0) {
       const e = v.burst / v.burstLen;
       const env = Math.min(1, (1 - e) * 20) * (0.3 + 0.7 * Math.min(1, e * 2.5));
-      const speed = (10 + k * 5) * (0.45 + 0.55 * env);
+      const speed = (10 + k * 5) * (0.45 + 0.55 * env) * (0.55 + 0.45 * v.blow);
       // a hard streak of pressure down the middle, with the cloud rolling off it
-      v.carry += (70 + k * 50) * env * dt;
-      v.carryB += (34 + k * 26) * env * dt;
+      v.carry += (70 + k * 50) * env * v.blow * dt;
+      v.carryB += (34 + k * 26) * env * v.blow * dt;
       for (; v.carry >= 1; v.carry -= 1) this.puff(v, CORE, speed * (0.85 + Math.random() * 0.3));
       for (; v.carryB >= 1; v.carryB -= 1) this.puff(v, BILLOW, speed * (0.85 + Math.random() * 0.3));
     } else {
@@ -317,10 +324,15 @@ export class Steam {
     return started;
   }
 
-  /** The part was hit: pressure spikes and the hinge blows on its next update. */
+  /** The part was hit: the hinge blows on its next update, if it hasn't for 3 seconds. */
   kick(key: number) {
     const v = this.vents.get(key);
-    if (v && v.burst <= 0) v.pressure = 1;
+    if (v && v.burst <= 0 && v.since >= WAIT_MIN) v.wait = 0;
+  }
+
+  /** Size (0..1) of the burst a hinge last started. */
+  blowOf(key: number) {
+    return this.vents.get(key)?.blow ?? 1;
   }
 
   /**
@@ -348,13 +360,13 @@ export class Steam {
     let life: number;
     if (kind === CORE) {
       life = 0.22 + Math.random() * 0.14;
-      this.size0[i] = 0.045 * v.size;
+      this.size0[i] = 0.045 * v.size * (0.6 + 0.4 * v.blow);
       this.grow[i] = 3.5 + Math.random() * 2;
       this.drag[i] = 6.5;
       this.peak[i] = 0.85;
     } else if (kind === BILLOW) {
       life = 0.9 + Math.random() * 0.7;
-      this.size0[i] = (0.08 + Math.random() * 0.05) * v.size;
+      this.size0[i] = (0.08 + Math.random() * 0.05) * v.size * (0.5 + 0.5 * v.blow);
       this.grow[i] = 5 + Math.random() * 3;
       this.drag[i] = 3.6;
       this.peak[i] = 0.5 + Math.random() * 0.2;

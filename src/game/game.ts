@@ -1209,7 +1209,7 @@ export class Game {
       : Math.min(24, Math.floor(h.damage / 10 + wear * wear * 12 + (h.crit ? 4 : 0) + (h.heavy ? 3 : 0) + Math.random() * 2));
     if (n > 0) this.fx.bits.spawn(h.point, h.dir, n, paint, h.blocked ? power * 0.5 : power);
     if (wear > 0.35 && h.damage >= 6) this.fx.smoke(h.point, 1 + Math.round(wear * 3), wear);
-    // a blow to a venting part makes its hinge blow
+    // a blow to a venting part makes its hinge blow (if it hasn't just)
     if (h.partCond < VENT_BELOW) this.steam.kick(h.defender.index * 16 + h.part);
     const k = oilLeak(h.part, h.partCond);
     if (k > 0 && !h.blocked) {
@@ -1305,7 +1305,7 @@ export class Game {
       if (side) _sideP.copy(_side).multiplyScalar(side);
       const k = (VENT_BELOW - parts.cond[p]) / VENT_BELOW;
       const burst = this.steam.vent(i * 16 + p, J0[a], J0[b], t, radius, _fwd, side ? _sideP : null, k, md.size, dt);
-      if (burst > 0) this.sfx?.hiss(0.4 + k * 0.6, burst, this.pan(J0[a]));
+      if (burst > 0) this.sfx?.hiss((0.4 + k * 0.6) * this.steam.blowOf(i * 16 + p), burst, this.pan(J0[a]));
     }
     // a wrecked chest or lower torso bleeds oil from a wound on its plating
     let bleed = 0;
