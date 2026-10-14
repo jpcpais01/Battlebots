@@ -673,14 +673,6 @@ export class Brain {
     return this.traits.plumPref > 0.5 ? 'plum' : 'lock';
   }
 
-  /** How many punches to drop on them after a takedown (0: let them up). */
-  groundBlows() {
-    const t = this.traits;
-    if (this.me.staminaRatio < 0.12) return 0;
-    const want = -1.2 + t.grappling * 2 + this.effAggression() * 1.4 + (this.opp.hpRatio < 0.3 ? 1 : 0) + this.fx.grab * 2 + this.rng.range(-0.8, 0.8);
-    return clamp(Math.round(want), 0, 4);
-  }
-
   /** They tied me up or shot in on me. */
   onGrabbed() {
     this.pending = null;
