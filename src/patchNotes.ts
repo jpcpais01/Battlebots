@@ -17,8 +17,10 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-14 21:00',
-    title: 'MMA fighting, a happy ride home, clearer intros',
+    title: 'MMA fighting, maker makeovers, a happy ride home',
     notes: [
+      'All gear has been rebuilt so each maker looks like itself: Ironhorse is riveted steel with headlamps, radiator grilles, exhaust stacks, dozer blades and rubber tracks; Lumen is seamless and smooth with smoked glass and single light lines; Longwei is sharp and sturdy with carbon panels, glass sensor bands and a lidar crown; Martelli is classic heavy armour with brass trim, a plumed helm, a muscle cuirass and a V-twin on the back; Kensei keeps its lacquered samurai plate with gold crests; Strix is a faceted stealth jet with a gold canopy, intakes and tail fins.',
+      "Each maker's power core now glows its own colour: diesel orange, Lumen white, Longwei cyan, Martelli gold, Kensei crimson and Strix green.",
       'Fights are now MMA, not just kickboxing. Bots tie each other up in a clinch, fight for the underhooks, drive knees up from the plum and walk each other onto the ropes.',
       'Takedowns: bots shoot double legs, trip each other from the clinch and lift and slam from a body lock. On top, they drop punches before the other bot scrambles back up.',
       'Bots defend against it too: they sprawl on shots, push off out of the clinch, and the referee breaks up a clinch that goes quiet.',
