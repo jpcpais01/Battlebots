@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: "2026-10-14 21:00",
     title: "A proper exit for the loser",
     notes: [
+      "The beach is clearer: the pier, the overwater houses, the lighthouse and the rocks are gone, leaving open sand and sea.",
       "The stretcher ride waits a little longer, then glides down the walkout carpet past the crew and security, waves goodbye and disappears through a glowing gate in the tunnel.",
       "The entrance tunnels are real now: open halls lit by rings of team-coloured light, with a gap in the ad boards to walk through.",
     ],
