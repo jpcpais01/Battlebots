@@ -181,6 +181,7 @@ export class App {
         this.hud.update(dt);
       }
       else if (this.current === 'garage') this.garageTick(dt);
+      else this.homeTick(dt);
     };
     game.cb.onMatchEvent = (type) => {
       if (type === 'end') setTimeout(() => this.showResults(), 700);
@@ -238,6 +239,10 @@ export class App {
     if (id === 'home' || id === 'online') {
       d.mode = 'menu';
       d.shiftX = 0;
+      d.menuTurn = 0;
+      d.menuLive = false;
+      this.spin.vel = 0;
+      this.spin.idle = 0;
       this.game.sfx?.ambience(0.25);
     } else if (id === 'garage') {
       d.mode = 'garage';
@@ -975,13 +980,18 @@ export class App {
         .join('')}</div>`;
   }
 
-  /** Drag to turn the robot (it keeps spinning a little when let go), and drift slowly when left alone. */
+  /**
+   * Drag or swipe sideways to turn the robot (it keeps spinning a little when let go).
+   * In the garage it drifts slowly when left alone; on the home screen the camera eases
+   * back to its idle orbit a few seconds after the last touch.
+   */
   private setupGarageDrag() {
     const canvas = this.game.stage.renderer.domElement;
     let lastX = 0;
     let lastT = 0;
     canvas.addEventListener('pointerdown', (e) => {
-      if (this.current !== 'garage') return;
+      if (this.current === 'fight') return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
       this.spin.dragging = true;
       this.spin.vel = 0;
       lastX = e.clientX;
@@ -991,7 +1001,12 @@ export class App {
       if (!this.spin.dragging) return;
       const now = performance.now();
       const d = (e.clientX - lastX) * 0.012;
-      this.game.director.garageYaw -= d;
+      const dir = this.game.director;
+      if (this.current === 'garage') dir.garageYaw -= d;
+      else {
+        dir.menuTurn -= d;
+        dir.menuLive = true;
+      }
       const dt = Math.max(1, now - lastT) / 1000;
       this.spin.vel = this.spin.vel * 0.5 + (-d / dt) * 0.5;
       lastX = e.clientX;
@@ -1008,15 +1023,39 @@ export class App {
     window.addEventListener('pointercancel', up);
   }
 
-  private garageTick(dt: number) {
+  /** Fling spin with inertia (both screens). Returns the turn to apply this frame. */
+  private flingStep(dt: number) {
     const s = this.spin;
-    if (s.dragging) return;
     s.idle += dt;
     s.vel *= Math.exp(-3.5 * dt);
     if (Math.abs(s.vel) > 6) s.vel = Math.sign(s.vel) * 6;
+    return s.vel * dt;
+  }
+
+  private garageTick(dt: number) {
+    const s = this.spin;
+    if (s.dragging) return;
+    const turn = this.flingStep(dt);
     // showroom drift once nobody has touched it for a while
     const drift = s.idle > 5 ? Math.min(1, (s.idle - 5) / 3) * 0.06 : 0;
-    this.game.director.garageYaw += (s.vel + drift) * dt;
+    this.game.director.garageYaw += turn + drift * dt;
+  }
+
+  /** Home screen: coast after a swipe, then glide back to the slow showcase orbit. */
+  private homeTick(dt: number) {
+    const s = this.spin;
+    const d = this.game.director;
+    if (s.dragging || !d.menuLive) return;
+    d.menuTurn += this.flingStep(dt);
+    if (s.idle < 3.5) return;
+    // the short way home: whole turns don't count
+    const TAU = Math.PI * 2;
+    d.menuTurn -= Math.round(d.menuTurn / TAU) * TAU;
+    d.menuTurn *= Math.exp(-Math.min(1, (s.idle - 3.5) / 1.5) * 1.6 * dt);
+    if (Math.abs(d.menuTurn) < 0.002 && Math.abs(s.vel) < 0.01) {
+      d.menuTurn = 0;
+      d.menuLive = false;
+    }
   }
 
   // ------------------------------------------------------------ fight

@@ -49,6 +49,8 @@ body {
   width: 100%;
   height: 100%;
   display: block;
+  /* sideways drags turn the robot; the browser keeps vertical pans */
+  touch-action: pan-y;
 }
 /* lens falloff over the 3D view: the eye stays on the lit ring (a static layer, no GPU pass) */
 #vignette {

@@ -141,6 +141,10 @@ export class Director {
   garageYaw = 0.5;
   /** Distance from the garage target (the garage moves in to look at one part). */
   garageDist = 4.7;
+  /** Extra turn (radians) the player has swiped the home camera round the bot. */
+  menuTurn = 0;
+  /** The player is steering the home camera (drag, fling or easing back): follow it tightly. */
+  menuLive = false;
   private snapNext = false;
   private narrow = false;
   /** Horizontal framing offset as a fraction of the view width (positive puts the subject left of center). */
@@ -299,10 +303,11 @@ export class Director {
       } else {
         this.orbit += dt * 0.1;
         const r = this.narrow ? 6.2 : 5;
-        const a = 0.5 + Math.sin(this.orbit) * 0.9;
+        const a = 0.5 + Math.sin(this.orbit) * 0.9 + this.menuTurn;
         wantPos.set(Math.sin(a) * r, 1.75 + Math.sin(this.t * 0.2) * 0.25, Math.cos(a) * r);
         wantLook.set(0, 1.05, 0);
-        posLambda = 1.5;
+        // a swipe moves the lens round the ring with the finger, not on a lazy chord through the bot
+        posLambda = this.menuLive ? 14 : 1.5;
       }
       if (this.snapNext) {
         this.pos.copy(wantPos);
