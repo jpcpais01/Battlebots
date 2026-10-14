@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-14 01:00',
+    title: 'Your paint, online',
+    notes: [
+      'Online fights keep both bots in their owners\' own paint. Your opponent is no longer repainted when your colours look alike.',
+    ],
+  },
+  {
     hour: '2026-10-14 00:00',
     title: 'Calmer, steadier bots',
     notes: [
