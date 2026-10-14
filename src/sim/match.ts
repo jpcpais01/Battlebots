@@ -288,6 +288,7 @@ export class Match {
         if (this.fin) break;
         this.clock = Math.max(0, this.clock - dt);
         // counted out: the referee reaches ten (the HUD count shows 10 at 9.35 s)
+        for (const f of this.fighters) this.checkRingOut(f);
         const co = this.countOut;
         if (co && co.def.state === 'down' && this.time - co.at >= COUNT_OUT) {
           this.countOut = null;
@@ -924,6 +925,17 @@ export class Match {
     }
     def.downTime = COUNT_OUT + 1; // ko() lands first
     this.countOut = { att, def, at: this.time };
+  }
+
+  /**
+   * Thrown clean over the top rope: a bot lying outside the ring can't climb back in
+   * before ten, so the count it is already on becomes a count-out.
+   */
+  private checkRingOut(f: Fighter) {
+    if (f.state !== 'down' || !f.body.outside[J.Pelvis] || this.countOut?.def === f) return;
+    f.tries.length = 0;
+    f.downTime = COUNT_OUT + 1;
+    this.countOut = { att: this.fighters[1 - f.index], def: f, at: this.time - f.downAge };
   }
 
   private stagger(f: Fighter, dur: number) {

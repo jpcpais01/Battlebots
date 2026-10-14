@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-14 19:00',
+    title: 'Thrown out of the ring',
+    notes: [
+      'Big knockout blows can now send a bot flying over the top rope and out of the ring, crashing down onto the arena floor. The ropes still catch anything lower, and the corner posts are solid all the way up. A bot knocked down outside the ring can\'t climb back in before ten.',
+    ],
+  },
+  {
     hour: '2026-10-14 17:00',
     title: 'Cleaner fights, whole-bot finishers',
     notes: [
