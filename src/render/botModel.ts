@@ -29,7 +29,7 @@ import { RenderSettings } from './settings';
 import { FLIP, surf, vertexPBR, type GlowKey, type Surfaces } from './bake';
 import { contactAO } from './ao';
 import { contactStats, Hull, partRadius, pushOut, samplePB, tally, type PlacedHull } from './contact';
-import { damageUniforms, patchDamage, patchDamageGlow, type DamageUniforms } from './damageLook';
+import { damageUniforms, patchDamage, patchDamageGlow, MARKS, MARK_OIL, MARK_SOCKET, type DamageUniforms } from './damageLook';
 import { P, PART_COUNT } from '../sim/damage';
 
 /** Core light per core look: the five originals, then Bastion amber, Kestrel ice, Vulkan molten, Halcyon violet, Kensei crimson. */
@@ -81,6 +81,23 @@ const TORN_BONES: Partial<Record<number, B[]>> = {
   [P.ThighR]: [B.ThighR, B.ShinR, B.FootR, B.ToeR, B.LegBarR, B.LegRodR],
   [P.ShinR]: [B.ShinR, B.FootR, B.ToeR, B.LegBarR, B.LegRodR],
 };
+
+/** The bone a sim joint's oil splash lands on (the armour around the joint). */
+const JOINT_BONE: B[] = [B.Pelvis, B.Torso, B.Torso, B.Head, B.UpL, B.ForeL, B.FistL, B.UpR, B.ForeR, B.FistR, B.ThighL, B.ShinL, B.FootL, B.ThighR, B.ShinR, B.FootR];
+/** Where a torn-off part leaves its socket: the bone that keeps it, and the joint it sits at. */
+const SOCKET_AT: Partial<Record<number, [B, number]>> = {
+  [P.Head]: [B.Torso, J.Neck],
+  [P.UpL]: [B.Torso, J.ShL],
+  [P.ForeL]: [B.UpL, J.ElL],
+  [P.UpR]: [B.Torso, J.ShR],
+  [P.ForeR]: [B.UpR, J.ElR],
+  [P.ThighL]: [B.Pelvis, J.HipL],
+  [P.ShinL]: [B.ThighL, J.KneeL],
+  [P.ThighR]: [B.Pelvis, J.HipR],
+  [P.ShinR]: [B.ThighR, J.KneeR],
+};
+/** Mark slots kept for wrenched sockets; the rest cycle through oil splashes. */
+const SOCKET_SLOTS = 4;
 
 /** Emissive channels: glow, core, then one per slot's rarity colour. */
 const CH_GLOW = 0;
@@ -403,6 +420,8 @@ export class BotModel {
    * shadows and rope contact follow the debris instead of an invisible limb.
    */
   readonly anchors: (THREE.Vector3 | null)[] = Array.from({ length: 16 }, () => null);
+  private sockets = 0;
+  private oilNext = SOCKET_SLOTS;
 
   constructor(loadout: Loadout, paint: Paint, size = 1) {
     this.loadout = loadout;
@@ -754,6 +773,56 @@ export class BotModel {
     return g;
   }
 
+  /** Put a damage mark on `bone` at a world point (stored in the bone's own frame, so it moves with it). */
+  private mark(slot: number, bone: B, at: THREE.Vector3, radius: number, kind: number, strength: number) {
+    if (this.hidden.has(bone)) return;
+    const b = this.bones[bone];
+    this.root.updateMatrixWorld(true);
+    _mk.copy(at).applyMatrix4(_mi.copy(b.matrixWorld).invert());
+    const m = this.dmg.uMark.value;
+    const mb = this.dmg.uMarkB.value;
+    m[slot * 4] = _mk.x;
+    m[slot * 4 + 1] = _mk.y;
+    m[slot * 4 + 2] = _mk.z;
+    m[slot * 4 + 3] = radius;
+    mb[slot * 3] = bone;
+    mb[slot * 3 + 1] = kind;
+    mb[slot * 3 + 2] = strength;
+  }
+
+  /**
+   * A part was torn off: the socket it left is wrenched (its metal wrecked around the joint)
+   * and slick with oil. Returns where the socket is (for the spill), or null.
+   */
+  socketWrench(part: number): THREE.Vector3 | null {
+    const s = SOCKET_AT[part];
+    if (!s) return null;
+    const [bone, joint] = s;
+    const at = this.joints[joint];
+    if (this.sockets < SOCKET_SLOTS) this.mark(this.sockets++, bone, at, 0.26, MARK_SOCKET, 0.95);
+    this.oilSplash(joint, 0.17, 1, 0);
+    return at;
+  }
+
+  /**
+   * Oil splashed onto the armour around a joint: a glossy black splash that runs down the
+   * part. `out` pushes the splash to one side of the part (0 = centred on the joint).
+   */
+  oilSplash(joint: number, radius: number, strength = 1, out = 0.11) {
+    const bone = JOINT_BONE[joint];
+    _mo.randomDirection().multiplyScalar(out).add(this.joints[joint]);
+    this.mark(this.oilNext, bone, _mo, radius, MARK_OIL, strength);
+    this.oilNext = this.oilNext + 1 >= MARKS ? SOCKET_SLOTS : this.oilNext + 1;
+  }
+
+  /** Oily grime over the whole robot, 0..1. */
+  get grime() {
+    return this.dmg.uGrime.value;
+  }
+  set grime(v: number) {
+    this.dmg.uGrime.value = Math.min(1, Math.max(0, v));
+  }
+
   /** Copy the triangles skinned to `bones` out into a standalone geometry around their centre. */
   private extract(src: THREE.BufferGeometry, bones: Set<number>, opaque: boolean) {
     const si = src.attributes.skinIndex as THREE.BufferAttribute;
@@ -821,6 +890,9 @@ export class BotModel {
   }
 }
 
+const _mk = new THREE.Vector3();
+const _mo = new THREE.Vector3();
+const _mi = new THREE.Matrix4();
 const _hot = new THREE.Color();
 function _hotScaled() {
   return _hot.copy(HOT).multiplyScalar(RenderSettings.glow(6));

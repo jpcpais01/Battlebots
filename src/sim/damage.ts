@@ -73,6 +73,14 @@ export const CARRIES: number[][] = [
   [P.ShinR, P.FootR],
   [],
 ];
+/**
+ * The part each detachable part hangs from: tearing a part off wrenches its socket, so the
+ * part it was attached to loses a share of what it had left.
+ */
+export const SOCKET: number[] = [P.Chest, -1, -1, P.Chest, P.UpL, -1, P.Chest, P.UpR, -1, P.Torso, P.ThighL, -1, P.Torso, P.ThighR, -1];
+/** Share of its remaining condition the socket part loses when the part on it is torn off. */
+export const SOCKET_WRENCH = 0.3;
+
 /** Can a hit tear this part off? (Fists and feet shatter in place instead; the trunk can't come off.) */
 export const DETACHABLE = CARRIES.map((c) => c.length > 0);
 
@@ -140,13 +148,16 @@ export class Parts {
     return this.cond[p];
   }
 
-  /** Tear part p off (and everything below it). */
+  /** Tear part p off (and everything below it). Returns the socket part it wrenched, or -1. */
   detach(p: number) {
     for (const q of CARRIES[p]) {
       this.off[q] = 1;
       this.cond[q] = 0;
     }
     this.lost.push(p);
+    const s = SOCKET[p];
+    if (s >= 0 && !this.off[s]) this.cond[s] *= 1 - SOCKET_WRENCH;
+    return s;
   }
 
   /** Chance (0..1) that a hit of this strength tears part p off. */

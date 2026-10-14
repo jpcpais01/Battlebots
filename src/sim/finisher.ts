@@ -815,7 +815,8 @@ export class FinisherRun {
       }
       case 'decap': {
         // the head comes off with the kick; the body folds where it knelt
-        def.parts.detach(P.Head);
+        const socket = def.parts.detach(P.Head);
+        this.host.wear(def, socket);
         body.sever(CUT_JOINTS[P.Head]);
         this.host.emit('detach', { f: def, by: this.att, part: P.Head, point: point.clone(), dir: dir.clone(), strength: 220, fatal: 'head' });
         if (this.preview) def.downTime = 99;

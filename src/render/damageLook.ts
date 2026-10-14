@@ -17,12 +17,29 @@ import { PART_COUNT } from '../sim/damage';
 export interface DamageUniforms {
   uWear: { value: Float32Array };
   uTime: { value: number };
+  /** Marks in a bone's own frame: xyz centre, w radius. */
+  uMark: { value: Float32Array };
+  /** Per mark: the bone it sits on, and its kind (MARK_NONE / MARK_SOCKET / MARK_OIL), and its strength. */
+  uMarkB: { value: Float32Array };
+  /** Oily grime over the whole robot, 0..1. */
+  uGrime: { value: number };
 }
+
+/** Marks per robot: a few wrenched sockets, the rest oil splatters. */
+export const MARKS = 12;
+export const MARK_NONE = 0;
+/** A torn-off part's socket: the metal around it is wrecked. */
+export const MARK_SOCKET = 1;
+/** A splash of oil, running down the part. */
+export const MARK_OIL = 2;
 
 export function damageUniforms(): DamageUniforms {
   return {
     uWear: { value: new Float32Array(PART_COUNT) },
     uTime: { value: 0 },
+    uMark: { value: new Float32Array(MARKS * 4) },
+    uMarkB: { value: new Float32Array(MARKS * 3) },
+    uGrime: { value: 0 },
   };
 }
 
@@ -58,6 +75,9 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
     prev.call(mat, sh, renderer);
     sh.uniforms.uWear = u.uWear;
     sh.uniforms.uTime = u.uTime;
+    sh.uniforms.uMark = u.uMark;
+    sh.uniforms.uMarkB = u.uMarkB;
+    sh.uniforms.uGrime = u.uGrime;
     sh.vertexShader = sh.vertexShader
       .replace(
         '#include <common>',
@@ -67,8 +87,11 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
           attribute vec3 dpos;
         #endif
         uniform float uWear[${PART_COUNT}];
+        uniform vec4 uMark[${MARKS}];
+        uniform vec3 uMarkB[${MARKS}];
         varying vec3 vDmgP;
         varying float vWear;
+        varying float vBone;
         ${NOISE}`,
       )
       .replace(
@@ -78,6 +101,16 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
         int dmgI = int(part + 0.5);
         vWear = uWear[dmgI];
         vDmgP = dmgP;
+        #ifdef USE_SKINNING
+          vBone = skinIndex.x;
+          // the metal around a torn-off part's socket is wrenched and wrecked
+          for (int k = 0; k < ${MARKS}; k++) {
+            if (uMarkB[k].y == ${MARK_SOCKET}.0 && abs(uMarkB[k].x - vBone) < 0.5)
+              vWear = max(vWear, uMarkB[k].z * (1.0 - smoothstep(uMark[k].w * 0.35, uMark[k].w, distance(dmgP, uMark[k].xyz))));
+          }
+        #else
+          vBone = -1.0;
+        #endif
         vec3 dmgBend = vec3(0.0);
         if (vWear > 0.01) {
           float w = vWear;
@@ -108,15 +141,42 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
         '#include <common>',
         `#include <common>
         uniform float uTime;
+        uniform vec4 uMark[${MARKS}];
+        uniform vec3 uMarkB[${MARKS}];
+        uniform float uGrime;
         varying vec3 vDmgP;
         varying float vWear;
+        varying float vBone;
         ${NOISE}`,
       )
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
-        if (vWear > 0.01) {
-          float w = vWear;
+        float sockW = 0.0;
+        float oil = 0.0;
+        if (vBone >= 0.0) {
+          for (int k = 0; k < ${MARKS}; k++) {
+            float kind = uMarkB[k].y;
+            if (kind == 0.0 || abs(uMarkB[k].x - vBone) > 0.5) continue;
+            vec3 q = vDmgP - uMark[k].xyz;
+            float r = uMark[k].w;
+            if (kind == ${MARK_SOCKET}.0) {
+              sockW = max(sockW, uMarkB[k].z * (1.0 - smoothstep(r * 0.35, r, length(q) + (dmgNoise(vDmgP * 9.0) - 0.5) * r * 0.5)));
+            } else {
+              // oil runs down the part in streaks below where it hit
+              float below = max(0.0, -q.y);
+              float lane = dmgNoise(vec3(vDmgP.x * 26.0, 0.0, vDmgP.z * 26.0) + float(k) * 7.1);
+              q.y = q.y < 0.0 ? q.y * mix(0.85, 0.22, smoothstep(0.35, 0.75, lane)) : q.y;
+              float d = length(q) / r + (dmgNoise(vDmgP * 13.0 + float(k) * 3.3) - 0.5) * 0.55;
+              float blob = 1.0 - smoothstep(0.7, 0.95, d);
+              // a fine spatter of droplets around each splash
+              float spat = smoothstep(0.78, 0.84, dmgNoise(vDmgP * 46.0 + float(k) * 11.0)) * (1.0 - smoothstep(1.0, 1.9, d));
+              oil = max(oil, max(blob, spat) * uMarkB[k].z);
+            }
+          }
+        }
+        if (vWear > 0.01 || sockW > 0.01) {
+          float w = max(vWear, sockW);
           float vis = 1.0 - (1.0 - w) * (1.0 - w);
           float heavy = smoothstep(0.45, 1.0, w);
           // damage gathers in a few hot spots (where the blows landed) and spreads from them
@@ -148,6 +208,24 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
           float flick = 0.65 + 0.35 * sin(uTime * 23.0 + vDmgP.y * 40.0) * sin(uTime * 7.0 + vDmgP.x * 30.0);
           float ember = smoothstep(hT + 0.04, hT + 0.1, spread) * smoothstep(0.45, 0.8, dmgNoise(vDmgP * 18.0 + 4.2)) * heavy;
           totalEmissiveRadiance += vec3(1.0, 0.32, 0.06) * (crack * 1.3 + ember * 0.5) * flick;
+        }
+        // oily grime: big dull smudges over the whole robot, worst low down
+        if (uGrime > 0.01) {
+          float smudge = dmgNoise(vDmgP * 4.3 + 2.1) * 0.7 + dmgNoise(vDmgP * 17.0) * 0.3;
+          float g = smoothstep(0.72 - uGrime * 0.4, 0.82 - uGrime * 0.4, smudge) * uGrime;
+          diffuseColor.rgb *= 1.0 - g * 0.7;
+          oil = max(oil, g * 0.45);
+        }
+        // motor oil: near-black, wet and glossy, with a thin-film rainbow sheen
+        if (oil > 0.01) {
+          vec3 vv = normalize(vViewPosition);
+          float graze = 1.0 - abs(dot(vv, normal));
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.01, 0.0095, 0.009), oil * 0.94);
+          roughnessFactor = mix(roughnessFactor, 0.06, oil);
+          metalnessFactor = mix(metalnessFactor, 0.15, oil);
+          float swirl = dmgNoise(vDmgP * 7.0 + 5.0) * 1.4 + graze * 1.8;
+          vec3 film = 0.5 + 0.5 * cos(6.2831 * (vec3(0.0, 0.33, 0.67) + swirl));
+          totalEmissiveRadiance += film * (0.012 + graze * graze * 0.06) * oil;
         }`,
       );
   };
