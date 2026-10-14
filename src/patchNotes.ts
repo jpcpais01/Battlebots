@@ -23,6 +23,7 @@ export const PATCH_NOTES: PatchNote[] = [
       'Six entrances to pick from in the garage (Emotes > Entrances): Power Up, Hero Landing, Cold Stare, Crowd Pleaser, Shadow Boxer and Earthquake. Equip none and your bot picks one to suit its style.',
       'Every bot has its own walk-on music, with the drop landing the moment it arrives: Steel Anthem, Neon Drive, Iron Forge, Bass Drop, Champion\'s Call or Arcade Boss. Pick yours in the Entrances tab and tap to hear it.',
       'The two corners are now properly blue and orange, with coloured corner pads and a lift hatch that stays as the corner\'s floor plate during the fight.',
+      'Camera drones now carry a red recording light on the nose and in the eye that blinks while they film.',
       'Damage flying off a bot is now real wreckage: jagged shards of torn armour, curled strips, nuts, bolts and washers at true size. They burst off hard with the blow, the freshly torn ones glowing orange and trailing sparks and smoke as they cool, then clatter and skid across the canvas and stay there, piling up as the fight wears on.',
       'The camera drones got a sci-fi makeover: sleek pearl-white hulls with a big glass eye, four glowing ducted fans instead of propellers, and cyan thrusters underneath that flare up when they race between shots.',
       'Vapour jets look far better: a hard streak of pressure blasts out of the joint and breaks into lumpy, lit clouds that curl upward and fray into wisps.',
