@@ -3,7 +3,7 @@ import { J } from '../sim/body';
 import type { Fighter } from '../sim/fighter';
 import { P } from '../sim/damage';
 import { COUNTDOWN, PRESENT, type HitInfo, type Match } from '../sim/match';
-import { entryTime, LIFT_DEPTH, liftUp } from '../sim/entrance';
+import { entryTime, hatchXZ, LIFT_DEPTH, liftUp } from '../sim/entrance';
 import { clamp, damp, Noise1, Rng, smoothstep } from '../sim/math';
 import { AX, AZ, SUITE_D, UPPER_Y } from './bowl';
 
@@ -858,15 +858,15 @@ export class Director {
    */
   private presentShot(match: Match, cut: boolean) {
     const who = match.presenting;
-    const f = match.fighters[who];
     const u = smoothstep(0, PRESENT, match.phaseTime - who * PRESENT);
-    const p = f.body.pos[J.Pelvis];
-    this.center.set(p.x, 1.12, p.z);
-    // in front of it (fighters face each other, so the other one is behind the lens), swinging
-    // round from the side its card is on
-    const fy = f.faceYaw;
+    // framed on the hatch, not the robot: an entrance that spins, struts or shuffles about
+    // plays out inside a steady shot instead of dragging the camera round with it
+    const [hx, hz] = hatchXZ(who), [ox, oz] = hatchXZ(1 - who);
+    this.center.set(hx, 1.12, hz);
+    // in front of it, looking back from the other corner (so the other robot is behind the
+    // lens), swinging round from the side its card is on
     const sw = who === 0 ? -1 : 1;
-    this.yaw = Math.atan2(Math.cos(fy), Math.sin(fy)) + sw * (0.8 - u * 0.45);
+    this.yaw = Math.atan2(oz - hz, ox - hx) + sw * (0.8 - u * 0.45);
     this.el = -0.05 + u * 0.1;
     this.dist = (3.1 - u * 0.75) * ZOOM[this.zoom].dist;
     this.fov = this.baseFov * ZOOM[this.zoom].fov * 0.9;

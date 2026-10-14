@@ -31,10 +31,13 @@ They live in `src/patchNotes.ts`.
 Every PR merged into `main` must add to `PATCH_NOTES` in the same PR.
 Notes are grouped by the **hour (UTC)** the PR is merged, not by day:
 
+- **A group holds at most 5 lines.**
 - Look at the current UTC hour (`date -u +'%Y-%m-%d %H:00'`).
-- If the top entry's `hour` matches it, add your lines at the top of that
-  entry's `notes`. Otherwise add a new entry at the **top** of the array with
-  that `hour`, a short title for the group, and your lines.
+- If the top entry's `hour` matches it and it has fewer than 5 notes, add your
+  lines at the top of its `notes` until it has 5. Anything left over (or if the
+  hour differs) goes in a new entry at the **top** of the array with that
+  `hour` (several groups may share an hour), its own short title, and the
+  lines, starting further groups every 5 lines.
 - One short player-facing line per change. Write for players, not developers:
   say what they will notice, not file names.
 - If your PR sat open into a new hour, move your lines into the current hour's
