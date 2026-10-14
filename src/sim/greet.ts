@@ -35,8 +35,10 @@ export class Greeting {
     this.t += dt;
     const [a, b] = m.fighters;
     const dx = b.root.x - a.root.x, dz = b.root.z - a.root.z;
-    const d = DM.hypot(dx, dz);
-    const ux = d > 1e-4 ? dx / d : 1, uz = d > 1e-4 ? dz / d : 0;
+    const dw = DM.hypot(dx, dz);
+    const ux = dw > 1e-4 ? dx / dw : 1, uz = dw > 1e-4 ? dz / dw : 0;
+    // spacing in standard-frame lengths: two giants touch gloves further apart
+    const d = dw / ((a.size + b.size) * 0.5);
     // speed of each fighter towards the other (negative backs off)
     let speed: number;
     let drop: number;

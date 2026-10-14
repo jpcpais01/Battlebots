@@ -1,4 +1,4 @@
-import { ITEM_BY_ID, SLOTS, capRarity } from '../game/items';
+import { ITEM_BY_ID, SLOTS, capRarity, sanitizeSize } from '../game/items';
 import { DEFAULT_PLAYER, type BotSpec } from '../game/loadout';
 import { sanitizePaint } from '../game/paint';
 import { EMOTE_KIND, MAX_PICKS, type EmoteKind } from '../sim/emote';
@@ -37,6 +37,8 @@ export function sanitizeBot(raw: unknown): BotSpec {
   if (typeof p.name === 'string' && p.name.trim()) out.name = p.name.trim().slice(0, 20);
   // older saves and peers sent a palette index instead of a paint job
   out.paint = sanitizePaint(p.paint, (p as { palette?: unknown }).palette);
+  // older saves and peers have no size: a standard frame
+  out.size = sanitizeSize(p.size);
   for (const slot of SLOTS) {
     const e = p.loadout?.[slot];
     const item = e && typeof e.id === 'string' && ITEM_BY_ID.get(e.id);

@@ -383,6 +383,8 @@ export class BotModel {
   private rocket = [false, false];
   readonly loadout: Loadout;
   readonly paint: Paint;
+  /** Frame size: every bone carries it as a uniform scale (the sim already scales the joints). */
+  readonly size: number;
   /** World-space interpolated joints (valid after update); limbs are slid out of armour. */
   joints: THREE.Vector3[] = Array.from({ length: 16 }, () => new THREE.Vector3());
   private hullPts = { torso: [] as number[], head: [] as number[], pelvis: [] as number[] };
@@ -402,9 +404,10 @@ export class BotModel {
    */
   readonly anchors: (THREE.Vector3 | null)[] = Array.from({ length: 16 }, () => null);
 
-  constructor(loadout: Loadout, paint: Paint) {
+  constructor(loadout: Loadout, paint: Paint, size = 1) {
     this.loadout = loadout;
     this.paint = paint;
+    this.size = size;
     const look = (slot: Slot) => ITEM_BY_ID.get(loadout[slot].id)!.look;
     const rar = (slot: Slot) => loadout[slot].rarity;
     const sb = new SkinBuilder(botSurfaces(paint));
@@ -435,6 +438,12 @@ export class BotModel {
     this.radii.fist = partRadius(samplePB(buildFist(look('fist'), 1)), 0.45, 0, 0.02, 0);
     this.radii.thigh = partRadius(band(samplePB(buildThigh(look('legs'))), 0.12, 0.4), 0.6);
     this.radii.shin = partRadius(band(samplePB(buildShinGuard(look('kick')), undefined, samplePB(buildShin(look('legs')))), 0.1, 0.38), 0.6);
+    const r = this.radii;
+    r.upper *= size;
+    r.fore *= size;
+    r.fist *= size;
+    r.thigh *= size;
+    r.shin *= size;
     for (let side = 0; side < 2; side++) {
       const L = side === 0;
       const arm = L ? P.UpL : P.UpR;
@@ -501,7 +510,7 @@ export class BotModel {
       blending: THREE.AdditiveBlending,
     });
     this.shieldMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), shieldMat);
-    this.shieldMesh.scale.set(0.75, 1.15, 0.75);
+    this.shieldMesh.scale.set(0.75, 1.15, 0.75).multiplyScalar(size);
     this.shieldMesh.visible = false;
     this.root.add(this.shieldMesh);
   }
@@ -520,6 +529,7 @@ export class BotModel {
       if (a) this.joints[i].copy(a);
       else this.joints[i].lerpVectors(body.last[i], body.pos[i], alpha);
     }
+    for (let i = 0; i < this.bones.length; i++) if (!this.hidden.has(i)) this.bones[i].scale.setScalar(this.size);
     this.poseCore(f, oppHead);
   }
 
@@ -552,9 +562,9 @@ export class BotModel {
     orientSegment(bn[B.Head], P[J.Neck], P[J.Head], look, torsoZ);
     bn[B.Head].position.copy(P[J.Head]);
     const sl = orientSegment(bn[B.Spine], P[J.Pelvis], P[J.Chest], torsoZ, _fwd);
-    bn[B.Spine].scale.set(1, sl, 1);
+    bn[B.Spine].scale.set(this.size, sl, this.size);
     const nl = orientSegment(bn[B.Neck], P[J.Neck], P[J.Head], torsoZ, _fwd);
-    bn[B.Neck].scale.set(1, nl * 0.75, 1);
+    bn[B.Neck].scale.set(this.size, nl * 0.75, this.size);
   }
 
   /** Slide elbows, fists, knees and airborne feet out of armour they would pass through. */
@@ -629,8 +639,8 @@ export class BotModel {
       if (this.rocket[side]) {
         const rp = bn[L ? B.RocketL : B.RocketR];
         rp.quaternion.copy(fore.quaternion);
-        rp.position.copy(el).addScaledVector(_tmp, 0.2);
-        rp.scale.set(1, Math.max(0.001, len - 0.2), 1);
+        rp.position.copy(el).addScaledVector(_tmp, 0.2 * this.size);
+        rp.scale.set(this.size, Math.max(0.001, len - 0.2 * this.size), this.size);
       }
       // triceps piston
       up.updateMatrix();
@@ -680,7 +690,7 @@ export class BotModel {
       }
       fb.position.copy(foot);
       fb.quaternion.copy(_qa);
-      toe.position.copy(TOE_OFFSET).applyQuaternion(_qa).add(foot);
+      toe.position.copy(TOE_OFFSET).multiplyScalar(this.size).applyQuaternion(_qa).add(foot);
       toe.quaternion.copy(_qc);
     }
   }

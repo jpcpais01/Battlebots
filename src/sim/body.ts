@@ -115,8 +115,13 @@ export class Body {
   grounded = new Uint8Array(JOINT_COUNT);
   /** Particles of torn-off parts: they no longer follow the rig or hold on to the body. */
   readonly cut = new Uint8Array(JOINT_COUNT);
+  /** Collision radius of each particle (RADII scaled by the frame size). */
+  readonly radii: number[];
+  readonly size: number;
 
-  constructor(restPose: Vector3[]) {
+  constructor(restPose: Vector3[], size = 1) {
+    this.size = size;
+    this.radii = RADII.map((r) => r * size);
     for (let i = 0; i < JOINT_COUNT; i++) {
       this.pos.push(restPose[i].clone());
       this.prev.push(restPose[i].clone());
@@ -236,8 +241,9 @@ export class Body {
     _c.addVectors(pa, pb).multiplyScalar(0.5);
     _a.subVectors(pm, _c);
     const along = _a.dot(_fwd) * sign;
-    if (along < 0.04) {
-      const push = (0.04 - along) * 0.5;
+    const min = 0.04 * this.size;
+    if (along < min) {
+      const push = (min - along) * 0.5;
       pm.addScaledVector(_fwd, push * sign);
       pa.addScaledVector(_fwd, -push * 0.25 * sign);
       pb.addScaledVector(_fwd, -push * 0.25 * sign);
@@ -247,7 +253,7 @@ export class Body {
   private collideWorld() {
     for (let i = 0; i < JOINT_COUNT; i++) {
       const p = this.pos[i];
-      const r = RADII[i];
+      const r = this.radii[i];
       if (p.y < r) {
         p.y = r;
         this.grounded[i] = 1;

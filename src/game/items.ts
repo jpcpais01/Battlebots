@@ -986,9 +986,46 @@ export interface FighterBuild {
   sets: SetState[];
   /** Rough power rating for UI. */
   rating: number;
+  /** Frame size (1 = standard): scales the whole body, its reach and how big a target it is. */
+  size: number;
 }
 
-export function computeBuild(loadout: Loadout): FighterBuild {
+/** How far a frame can be built down or up from the standard size. */
+export const SIZE_MIN = 0.8;
+export const SIZE_MAX = 1.2;
+/** Any size value made safe: within range, on 5% steps (exact on every device), 1 if missing. */
+export function sanitizeSize(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return 1;
+  return Math.round(Math.min(SIZE_MAX, Math.max(SIZE_MIN, v)) * 20) / 20;
+}
+
+/**
+ * What a frame size does to the stats, as fractions per unit of size away from 1 (hp 0.4
+ * at size 1.2 is +8% HP). A big frame has more HP and armour, hits harder and is hard to
+ * knock down, but is slow to move and to react; a small one is quick, sharp and accurate.
+ * Reach and target size come from the body itself (the sim scales it): a giant out-reaches
+ * and lands head shots from above, a small bot gets inside and works the body. Tuned with
+ * mirrored sim fights so 0.8 vs 1.2 comes out roughly even.
+ */
+export const SIZE_EFFECT = {
+  hp: 0.4,
+  armor: 0.1,
+  /**
+   * Part durability. Small frames are compact (short levers, plates close to the frame),
+   * so their parts hold together a little longer; a giant's head is up where every shot lands.
+   */
+  tough: -0.4,
+  power: 0.25,
+  stability: 1.2,
+  moveSpeed: -0.8,
+  agility: -1.4,
+  punchSpeed: -0.8,
+  reaction: -1.0,
+  accuracy: -0.6,
+  staminaRegen: -0.4,
+};
+
+export function computeBuild(loadout: Loadout, size = 1): FighterBuild {
   const s: Stats = { ...BASE_STATS };
   const pct: Partial<Record<StatKey, number>> = {};
   const passives = new Map<PassiveId, number>();
@@ -1036,5 +1073,22 @@ export function computeBuild(loadout: Loadout): FighterBuild {
   s.crit = Math.min(0.5, s.crit + (pct.crit ?? 0));
   s.stamina += pct.stamina ?? 0;
   s.staminaRegen *= 1 + (pct.staminaRegen ?? 0);
-  return { stats: s, passives, fistAbility, kickAbility, loadout, tough, sets, rating: Math.round(rating) };
+  size = sanitizeSize(size);
+  const d = size - 1;
+  if (d !== 0) {
+    const E = SIZE_EFFECT;
+    s.maxHp *= 1 + E.hp * d;
+    s.armor = Math.max(0, Math.min(0.45, s.armor + E.armor * d));
+    s.punchPower *= 1 + E.power * d;
+    s.kickPower *= 1 + E.power * d;
+    s.stability *= 1 + E.stability * d;
+    s.moveSpeed *= 1 + E.moveSpeed * d;
+    s.agility *= 1 + E.agility * d;
+    s.punchSpeed *= 1 + E.punchSpeed * d;
+    s.reaction /= 1 + E.reaction * d;
+    s.accuracy = Math.min(0.97, s.accuracy + E.accuracy * d);
+    s.staminaRegen *= 1 + E.staminaRegen * d;
+    for (const slot of SLOTS) tough[slot] += E.tough * d;
+  }
+  return { stats: s, passives, fistAbility, kickAbility, loadout, tough, sets, rating: Math.round(rating), size };
 }

@@ -17,8 +17,9 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-14 03:00',
-    title: 'Beat the count, and camera drones',
+    title: 'Bot sizes, beat the count, and camera drones',
     notes: [
+      'New Size tab in the garage: build your bot up to 120% or down to 80%. Big bots reach further, have more health and hit harder but are slower and easier to hit. Small bots are quick, sharp and hard to hit. Opponents come in all sizes too.',
       'Downed bots now really try to get up during the count: sometimes their legs give out halfway and they slump back to the canvas.',
       'Knocked-down bots now get a chance to rise on every second of the count, and the more health they have left the better their odds. A badly hurt bot can stay down for ten.',
       'Composure and Reboot now make a bot more likely to beat the count.',
