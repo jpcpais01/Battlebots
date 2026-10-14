@@ -48,7 +48,7 @@ export class OnlineScreen {
     const s = el('div', 'screen online');
     this.root = s;
     const top = el('div', 'online-top', '', s);
-    button('icon-btn', ICON.back, () => {
+    button('home-btn', `${ICON.back}${ICON.home}<span>Home</span>`, () => {
       this.host.tap('back');
       this.leave();
       this.host.home();

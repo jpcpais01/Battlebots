@@ -4406,3 +4406,40 @@ button {
 .dmg.coach.head {
   color: var(--orange);
 }
+
+/* back-to-home pill: chevron + house + label, slides the chevron on press */
+.home-btn {
+  height: 2.6em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0 1em 0 0.6em;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(34, 42, 64, 0.92), rgba(16, 20, 33, 0.92));
+  border: 1px solid var(--line);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 0.9em;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  flex: none;
+  transition: transform 0.12s, background 0.2s;
+}
+.home-btn svg {
+  width: 1.15em;
+  height: 1.15em;
+  flex: none;
+}
+.home-btn svg:first-child {
+  width: 0.95em;
+  opacity: 0.7;
+  transition: transform 0.15s;
+}
+.home-btn:hover svg:first-child,
+.home-btn:active svg:first-child {
+  transform: translateX(-3px);
+}
+.home-btn:active {
+  transform: scale(0.94);
+}
