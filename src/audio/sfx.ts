@@ -542,13 +542,14 @@ export class Sfx {
     } else if (k > 0.35) this.impact('punch', 0.2 + k * 0.2, 1.2, pan);
   }
 
-  /** A nut or a chip of plating bouncing on the canvas (k: 0..1 how hard). */
+  /** A chunk of metal torn off a bot landing on the canvas (k: 0..1 how hard). */
   tink(k: number, pan = 0) {
     if (!this.ok) return;
     const now = this.ctx!.currentTime;
-    if (now - this.lastTink < 0.05) return;
+    if (now - this.lastTink < 0.07) return;
     this.lastTink = now;
-    this.impact('tink', 0.05 + 0.13 * Math.min(1, k), 0.8 + Math.random() * 0.5, pan);
+    // heavier landings play lower
+    this.impact('tink', 0.08 + 0.16 * Math.min(1, k), 0.95 - Math.min(1, k) * 0.2 + Math.random() * 0.1, pan);
   }
 
   whoosh(power: boolean, kick: boolean, vol = 1) {
