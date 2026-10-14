@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { Body, J, JOINT_COUNT } from './body';
+import { Body, J, JOINT_COUNT, ropeGap, ropeSide, SIDE_NX, SIDE_NZ } from './body';
 import { MOVES, type MoveDef, type MoveId, type Zone } from './moves';
 import { Parts } from './damage';
 import { ITEM_BY_ID, type FighterBuild, type PassiveId } from '../game/items';
@@ -955,10 +955,13 @@ export class Fighter {
     // the first key's pelvis sits where the lying pelvis is
     const pz = this.getupKeys[0].pz;
     this.root.set(P[J.Pelvis].x - _u.x * pz, 0, P[J.Pelvis].z - _u.z * pz);
-    // keep inside ring
-    const r = DM.hypot(this.root.x, this.root.z);
-    const lim = this.body.arenaRadius - 0.8;
-    if (r > lim) this.root.multiplyScalar(lim / r);
+    // getting up under the ropes: stand up just inside them, not out past them
+    const gap = ropeGap(this.root.x, this.root.z);
+    if (gap < 0.35) {
+      const s = ropeSide(this.root.x, this.root.z);
+      this.root.x -= SIDE_NX[s] * (0.35 - gap);
+      this.root.z -= SIDE_NZ[s] * (0.35 - gap);
+    }
     this.rootVel.set(0, 0, 0);
     for (let i = 0; i < JOINT_COUNT; i++) this.toLocal(P[i], this.getupSnap[i]);
     this.computeLocalPose(0);

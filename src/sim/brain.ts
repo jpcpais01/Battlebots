@@ -2,7 +2,7 @@ import { Vector3 } from 'three';
 import { Fighter, makeObservation, type DodgeType, type GuardMode, type Observation, type StrikeAction } from './fighter';
 import { BASIC_PUNCHES, MOVES, type MoveDef, type MoveId, type Zone } from './moves';
 import { clamp, clamp01, lerp, Rng, smoothstep, sigmoid, softmaxPick } from './math';
-import { J } from './body';
+import { J, ropeGap } from './body';
 import { armPart, LOOSE, P } from './damage';
 import { DM } from './dmath';
 
@@ -433,10 +433,8 @@ export class Brain {
     const agg = this.effAggression();
     const cau = this.effCaution();
     const hpAdv = me.hpRatio - this.opp.hpRatio;
-    const myR = DM.hypot(me.root.x, me.root.z);
-    const nearRope = clamp01((myR - (me.body.arenaRadius - 1.6)) / 1.0);
-    const oppR = DM.hypot(this.predPos.x, this.predPos.z);
-    const oppNearRope = clamp01((oppR - (me.body.arenaRadius - 1.6)) / 1.0);
+    const nearRope = clamp01((1.1 - ropeGap(me.root.x, me.root.z)) / 0.8);
+    const oppNearRope = clamp01((1.3 - ropeGap(this.predPos.x, this.predPos.z)) / 0.9);
     const stam = me.staminaRatio;
     const close = this.bandScore(0);
     const mid = this.bandScore(1);
@@ -473,8 +471,7 @@ export class Brain {
     const dz = this.predPos.z - me.root.z;
     const cross = dx * -me.root.z - dz * -me.root.x;
     const towardCenter = cross > 0 ? -1 : 1;
-    const r = DM.hypot(me.root.x, me.root.z);
-    if (r > me.body.arenaRadius - 1.8) return towardCenter;
+    if (ropeGap(me.root.x, me.root.z) < 0.9) return towardCenter;
     return this.rng.chance(0.65) ? this.circleDir : -this.circleDir;
   }
 
@@ -522,8 +519,7 @@ export class Brain {
         rate += Math.max(0, p.guardLower - 0.2) * 0.25;
         if (p.stamina < 0.3) rate += 0.08;
       }
-      const R = me.body.arenaRadius;
-      if (DM.hypot(this.predPos.x, this.predPos.z) > R - 1.2) rate += 0.1;
+      if (ropeGap(this.predPos.x, this.predPos.z) < 0.8) rate += 0.1;
       this.tempo = clamp01(this.tempo + rate * dt);
     }
 
@@ -590,8 +586,7 @@ export class Brain {
     const me = this.me;
     const cau = this.effCaution();
     const agg = this.effAggression();
-    const r = DM.hypot(me.root.x, me.root.z);
-    const nearRope = clamp01((r - (me.body.arenaRadius - 1.6)) / 1.0);
+    const nearRope = clamp01((1.1 - ropeGap(me.root.x, me.root.z)) / 0.8);
     const kinds: OppEntryReact[] = ['meet', 'back', 'pivot', 'hold'];
     const u = [
       t.skill * 0.5 + agg * 0.4 + (this.plan === 'counter' ? 0.6 : 0) + (me.staminaRatio < 0.25 ? -0.5 : 0),
@@ -677,8 +672,7 @@ export class Brain {
     const cau = this.effCaution();
     const agg = this.effAggression();
     const oppRocked = p.state === 'stagger' ? 1 : p.state === 'stun' ? 0.5 : 0;
-    const r = DM.hypot(me.root.x, me.root.z);
-    const nearRope = clamp01((r - (me.body.arenaRadius - 1.6)) / 1.0);
+    const nearRope = clamp01((1.1 - ropeGap(me.root.x, me.root.z)) / 0.8);
     const kinds: AfterBurst[] = ['stay', 'back', 'pivot', 'cover'];
     const u = [
       t.pocketLove * 1.4 +
@@ -822,10 +816,10 @@ export class Brain {
     let radial = clamp(err * 2.4, -1, 1);
     // flat-footed fighters let small distance changes go
     if (Math.abs(err) < lerp(0.16, 0.07, busy)) radial = 0;
-    // the ropes: get off them
-    const r = DM.hypot(me.root.x, me.root.z);
-    const R = me.body.arenaRadius;
-    const ropeK = clamp01((r - (R - 1.4)) / 1.0);
+    // the ropes: once actually on them, work back off. Up to then the ring is open
+    // right to the ropes, and a fighter pressing in can pin the other one there.
+    const r = DM.hypot(me.root.x, me.root.z) || 1;
+    const ropeK = clamp01((0.7 - ropeGap(me.root.x, me.root.z)) / 0.45) * (this.plan === 'pressure' || this.plan === 'swarm' ? 0.35 : 1);
     lateral *= 1 + me.passive('footwork') * 3;
 
     // perp (to the right of the opponent direction)
@@ -834,8 +828,8 @@ export class Brain {
     let vz = tz * radial + pz * lateral;
     if (ropeK > 0) {
       // drift toward center, and circle away from the ropes
-      vx += (-me.root.x / r) * ropeK * 1.2;
-      vz += (-me.root.z / r) * ropeK * 1.2;
+      vx += (-me.root.x / r) * ropeK * 0.7;
+      vz += (-me.root.z / r) * ropeK * 0.7;
       if (ropeK > 0.5 && this.plan !== 'pressure') this.circleDir = this.chooseCircleDir();
     }
     const len = DM.hypot(vx, vz);
@@ -1285,9 +1279,7 @@ export class Brain {
       if (r === 'block' && move.kind === 'kick' && move.knockback > 3) v *= 0.6;
       if ((r === 'backstep' || r === 'sidestep') && me.staminaRatio < 0.15) v *= 0.4;
       if (r === 'backstep') {
-        const R = me.body.arenaRadius;
-        const rr = DM.hypot(me.root.x, me.root.z);
-        if (rr > R - 1.0) v *= 0.3; // nowhere to go
+        if (ropeGap(me.root.x, me.root.z) < 0.6) v *= 0.3; // nowhere to go
         v *= clamp((d - move.range[0]) / 0.5, 0.3, 1.3);
       }
       if (r === 'absorb') v += this.tired * 0.2;

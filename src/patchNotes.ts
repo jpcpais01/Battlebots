@@ -17,8 +17,9 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-14 01:00',
-    title: 'Your paint, online',
+    title: 'The whole ring is open, and your paint online',
     notes: [
+      'No more invisible wall: bots now use the whole ring right up to the ropes, lean and sink into them, and can get pinned there by an opponent pressing forward.',
       'Online fights keep both bots in their owners\' own paint. Your opponent is no longer repainted when your colours look alike.',
     ],
   },
