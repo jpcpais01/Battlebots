@@ -5,6 +5,7 @@ import { enterLandscape } from '../fullscreen';
 import { Rng } from '../sim/math';
 import { MOVES, type MoveId } from '../sim/moves';
 import type { Fighter } from '../sim/fighter';
+import type { Match } from '../sim/match';
 import {
   computeBuild,
   partTint,
@@ -127,6 +128,10 @@ export class App {
   private resultsAfterSeek = false;
   /** The fight on screen is a replay (it doesn't count towards the record). */
   private replaying = false;
+  /** The fight whose results are waiting on the loser's stretcher ride, and its Skip button. */
+  private resultsFor: Match | null = null;
+  private resultsAt = 0;
+  private skipBtn: HTMLElement | null = null;
   private account: Account;
   private accountBtn: HTMLButtonElement | null = null;
   /** Redraws the account popup while it's open. */
@@ -204,6 +209,7 @@ export class App {
       if (this.current === 'fight') {
         if (this.netFight) this.netFrame(dt);
         this.hud.update(dt);
+        if (this.resultsFor) this.awaitResults();
       }
       else if (this.current === 'garage') this.garageTick(dt);
       else this.homeTick(dt);
@@ -211,7 +217,7 @@ export class App {
     game.cb.onMatchEvent = (type, data) => {
       // a replay stops on its own last step, with its controls up
       if (this.replaying) return;
-      if (type === 'end') setTimeout(() => this.showResults(), 700);
+      if (type === 'end') this.queueResults();
       this.markMoment(type, data);
     };
     game.cb.onSeek = (done, m) => {
@@ -246,6 +252,7 @@ export class App {
     this.current = id;
     for (const [k, s] of Object.entries(this.screens)) s.classList.toggle('show', k === id);
     if (id !== 'fight') {
+      this.dropSkip();
       this.leaveNetFight();
       this.replaying = false;
     }
@@ -1557,9 +1564,43 @@ export class App {
     saveRecord(r);
   }
 
+  /** The fight is over: the results come up once the loser has been carried out (or on Skip). */
+  private queueResults() {
+    const m = this.game.match;
+    if (!m) return;
+    this.resultsFor = m;
+    this.resultsAt = this.game.carrying ? -1 : performance.now() + 700;
+    if (this.resultsAt < 0 && !this.skipBtn) {
+      this.skipBtn = button('btn small skip-ride', 'Skip', () => {
+        this.tap('select');
+        this.resultsAt = performance.now();
+      }, this.hud.root);
+    }
+  }
+
+  private awaitResults() {
+    const m = this.resultsFor;
+    if (!m || this.game.match !== m) return this.dropSkip();
+    if (this.resultsAt < 0) {
+      if (this.game.carrying) return;
+      this.resultsAt = performance.now() + 250;
+    }
+    if (performance.now() >= this.resultsAt) {
+      this.dropSkip();
+      this.showResults();
+    }
+  }
+
+  private dropSkip() {
+    this.resultsFor = null;
+    this.skipBtn?.remove();
+    this.skipBtn = null;
+  }
+
   private showResults() {
     const m = this.game.match;
     if (!m || this.current !== 'fight' || this.results) return;
+    this.dropSkip();
     this.hud.closeReplayBar();
     const [a, b] = m.fighters;
     const net = this.netFight;

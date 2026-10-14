@@ -28,6 +28,19 @@ interface Piece {
   stir: number;
   /** It has left the ring stage: it's the crowd's now. */
   loose: boolean;
+  /** Fighter it came off (-1: the garage dummy's). */
+  owner: number;
+  /** Taken out of the physics (it's riding off on the stretcher). */
+  held: boolean;
+}
+
+/** A piece handed over to something else to move (see Debris.hold). */
+export interface HeldPiece {
+  obj: THREE.Group;
+  /** The fighter's torn particles are drawn from here: keep it on the piece. */
+  anchor: THREE.Vector3;
+  /** Height of its centre above whatever it lies on (how high it sits on a flat deck). */
+  lift: number;
 }
 
 /** Top rope: anything flying above it clears the ring. */
@@ -91,7 +104,7 @@ export class Debris {
    * `strength` its damage before blocking. `canFly` lets a big blow send it out of the ring
    * (off in the garage, which has no stands to land in).
    */
-  spawn(obj: THREE.Group, dir: THREE.Vector3, strength: number, canFly = true): THREE.Vector3 {
+  spawn(obj: THREE.Group, dir: THREE.Vector3, strength: number, canFly = true, owner = -1): THREE.Vector3 {
     this.group.add(obj);
     // hull points from the geometry's bounds, a little inset so it rests on its plating
     const mesh = obj.children[0] as THREE.Mesh;
@@ -120,8 +133,25 @@ export class Debris {
     const anchor = obj.position.clone();
     const s0 = ropeSide(anchor.x, anchor.z);
     const ropeOut = anchor.x * SIDE_NX[s0] + anchor.z * SIDE_NZ[s0] - ROPE_LINE;
-    this.pieces.push({ obj, vel, spin, hull, radius, age: 0, rest: 0, anchor, ropeOut, stir: 0, loose: false });
+    this.pieces.push({ obj, vel, spin, hull, radius, age: 0, rest: 0, anchor, ropeOut, stir: 0, loose: false, owner, held: false });
     return anchor;
+  }
+
+  /**
+   * Take every piece that came off fighter `owner` out of the physics and hand it over (they
+   * stay in this group, and clear() still disposes them).
+   */
+  hold(owner: number): HeldPiece[] {
+    const out: HeldPiece[] = [];
+    for (const p of this.pieces) {
+      if (p.owner !== owner || p.held) continue;
+      p.held = true;
+      const o = p.obj;
+      // resting: as high as it sits now; still tumbling: about its rough size
+      const lift = p.rest > 0.2 ? o.position.y - groundAt(o.position.x, o.position.z) : p.radius * 0.6;
+      out.push({ obj: o, anchor: p.anchor, lift: Math.min(0.3, Math.max(0.03, lift)) });
+    }
+    return out;
   }
 
   /**
@@ -137,6 +167,7 @@ export class Debris {
   ) {
     dt = Math.min(dt, 1 / 30);
     for (const p of this.pieces) {
+      if (p.held) continue;
       p.age += dt;
       const o = p.obj;
       // the robots' feet scuff pieces along the canvas

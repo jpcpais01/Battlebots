@@ -5,6 +5,7 @@ import { Fx, type Trail } from '../render/fx';
 import { Director } from '../render/director';
 import { ClearView } from '../render/clearView';
 import { Drones } from '../render/drones';
+import { Stretcher, STRETCHER_TIME } from '../render/stretcher';
 import { CrowdMood } from '../audio/crowd';
 import { BotModel } from '../render/botModel';
 import { Match, PRESENT, SIM_DT, type DetachInfo, type HitInfo } from '../sim/match';
@@ -239,6 +240,8 @@ export class Game {
   readonly steam = new Steam();
   /** Broadcast camera drones flying the shots (render only). */
   private drones = new Drones();
+  /** The loser's hover stretcher ride out after the fight (render only). */
+  private stretcher = new Stretcher();
   private focus = new THREE.Vector3(0, 1.1, 0);
   /** Per fighter: which way round the body each trunk wound faces (radians from the front). */
   private wounds: number[][] = [[0, 0], [0, 0]];
@@ -266,6 +269,7 @@ export class Game {
     this.stage.scene.add(this.steam.group);
     this.stage.scene.add(this.drones.group);
     this.clearView.apply(this.drones.group);
+    this.stage.scene.add(this.stretcher.group);
     this.tagParts();
     this.director = new Director(this.stage.camera);
     this.stage.onResize = (w, h) => {
@@ -293,6 +297,7 @@ export class Game {
     p.tag(this.drones.group, 'effects');
     // the floor's contact-shadow map is drawn for the ring canvas
     p.tag(contactAO.mapMesh, 'ring');
+    p.tag(this.stretcher.group, 'bots');
     this.arena.group.traverse((o) => {
       if (o.name === 'ropes' || o.name === 'beams') p.tag(o, o.name);
     });
@@ -594,6 +599,33 @@ export class Game {
     this.quiet = false;
   }
 
+  /**
+   * The fight is over: the loser rides off on the hover stretcher. Runs on the match clock
+   * (so a replay or the other phone shows the same ride). Returns the fighter whose model is
+   * posed from the stretcher this frame, or -1.
+   */
+  private carry(m: Match, seeking: boolean, flow: number) {
+    const st = this.stretcher;
+    if (m.phase !== 'end' || !m.winner || seeking || !this.models.length) {
+      if (st.on && m.phase !== 'end') st.clear();
+      return -1;
+    }
+    const loser = m.winner.opp;
+    if (!st.on) st.begin(m, loser);
+    st.update(m.phaseTime + this.acc, flow, this.models[loser.index], this.debris, this.fx, this.sfx, this.quiet);
+    // carried off: its model goes with the stretcher, and stays gone once that has left
+    this.models[loser.index].root.visible = !st.gone;
+    // (gone, it keeps the last pose it had, down the tunnel, off the ropes and the canvas)
+    if ((st.posed || st.gone) && st.joints.every((v) => Number.isFinite(v.x))) return loser.index;
+    return -1;
+  }
+
+  /** The loser's stretcher is still on its way out (the results wait for it). */
+  get carrying() {
+    const m = this.match;
+    return !!m && m.phase === 'end' && !!m.winner && m.phaseTime < STRETCHER_TIME;
+  }
+
   // ---------------------------------------------------------------- replays
   /** Play a fight back from its tape: the same seed, intro cut and coach calls. */
   startReplay(t: Tape) {
@@ -691,6 +723,7 @@ export class Game {
     this.trails = [];
     this.models = [];
     this.match = null;
+    this.stretcher.clear();
     this.debris.clear();
     this.oil.clear();
     this.steam.clear();
@@ -894,8 +927,15 @@ export class Game {
       }
       perf.lap('sim');
       alpha = seeking || m.hitstop > 0 ? 1 : this.acc / SIM_DT;
+      // the loser's ride out: from the stretcher's deck, not its body
+      const carried = this.carry(m, seeking, flow);
+      const st = this.stretcher;
       // both bodies first: each bot's limbs then slide out of either bot's armour
       for (let i = 0; i < 2; i++) {
+        if (i === carried) {
+          this.models[i].beginPosed(st.puppet, st.joints, this.stage.camera.position);
+          continue;
+        }
         // the head follows the opponent, or wherever a celebration or taunt looks
         const em = m.fighters[i].emote;
         this.models[i].begin(m.fighters[i], alpha, em && em.gazeOn ? em.gaze : m.fighters[1 - i].body.pos[J.Head]);
@@ -903,7 +943,8 @@ export class Game {
       for (let i = 0; i < 2; i++) {
         const f = m.fighters[i];
         const model = this.models[i];
-        model.end(f, this.time, this.models[1 - i]);
+        model.end(i === carried ? st.puppet : f, this.time, this.models[1 - i]);
+        if (i === carried) st.dress(model);
         // riding the corner lift up in the intro
         const lift = this.arena.corners.drop(m, i);
         if (m.hitstop > 0) {
@@ -911,7 +952,7 @@ export class Game {
           const k = Math.min(1, m.hitstop * 20) * 0.012;
           model.root.position.set((Math.random() - 0.5) * k, lift, (Math.random() - 0.5) * k);
         } else model.root.position.set(0, lift, 0);
-        if (seeking) continue;
+        if (seeking || (i === carried && st.gone)) continue;
         this.updateTrailsAndFlames(i);
         if (m.fin && m.fin.att === f) this.finisherGlow(m, i, dt);
         this.groundImpacts(i);
@@ -999,8 +1040,9 @@ export class Game {
     }
     // contact occlusion follows whichever robots are on screen
     const shown = m && this.models.length === 2 ? this.models : this.showcase ? (this.spar ? [this.showcase.model, this.spar.model] : [this.showcase.model]) : [];
-    // (a robot still down in its lift shaft casts nothing on the canvas)
-    for (let i = 0; i < 2; i++) contactAO.set(i, m && this.arena.corners.drop(m, i) < -0.3 ? null : (shown[i]?.joints ?? null), shown[i]?.size);
+    // (a robot still down in its lift shaft casts nothing on the canvas, nor one carried off)
+    const away = m && this.stretcher.gone ? this.stretcher.loser : -1;
+    for (let i = 0; i < 2; i++) contactAO.set(i, i === away || (m && this.arena.corners.drop(m, i) < -0.3) ? null : (shown[i]?.joints ?? null), shown[i]?.size);
     this.fx.update(still ? 0 : dt, this.stage.camera);
     this.stage.ripples.update(still ? 0 : dt);
     perf.lap('fx');
@@ -1029,12 +1071,15 @@ export class Game {
       }
     }
     perf.lap('arena');
+    const shot = m && this.stretcher.on ? this.stretcher.shot : null;
+    if (shot) this.director.film(shot.pos, shot.look, shot.fovK, shot.cut);
     this.director.update(still && m ? 0 : dt, m);
     // a bot's-eye shot: the lens is inside that bot's head
     const pov = m && this.models.length === 2 ? this.director.pov : -1;
     if (pov >= 0) this.models[pov].hideHead();
     if (m && this.director.mode === 'match') {
       for (let i = 0; i < 2; i++) this.chests[i].copy(m.fighters[i].body.pos[J.Chest]);
+      if (this.stretcher.posed && this.models[this.stretcher.loser]) this.chests[this.stretcher.loser].copy(this.models[this.stretcher.loser].joints[J.Chest]);
       // ropes, posts and barriers between the lens and the robots dissolve, however far away
       // (from a bot's eyes, only what stands between it and the other one)
       this.clearView.update(this.stage.camera, pov >= 0 ? [this.chests[1 - pov]] : this.chests);
@@ -1187,7 +1232,7 @@ export class Game {
     const piece = model.tearOff(d.part);
     if (piece) {
       // (a part torn off during a seek just drops: it landed a while ago)
-      const anchor = this.debris.spawn(piece, d.dir, d.strength, !quiet);
+      const anchor = this.debris.spawn(piece, d.dir, d.strength, !quiet, i);
       for (const j of CUT_JOINTS[d.part]) model.anchors[j] = anchor;
     }
     const stump = STUMP[d.part] ?? J.Chest;

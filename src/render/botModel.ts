@@ -31,6 +31,15 @@ import { contactStats, Hull, partRadius, pushOut, samplePB, tally, type PlacedHu
 import { damageUniforms, patchDamage, patchDamageGlow, MARKS, MARK_OIL, MARK_SOCKET, type DamageUniforms } from './damageLook';
 import { P, PART_COUNT } from '../sim/damage';
 
+/**
+ * What posing a model reads from a fighter besides its joints. A real Fighter is one; so is a
+ * puppet (the loser riding off on the stretcher), which hands over joints of its own.
+ */
+export type PoseSource = Pick<
+  Fighter,
+  'faceYaw' | 'stance' | 'parts' | 'state' | 'strike' | 'dodge' | 'isDown' | 'shield' | 'overdrive' | 'index' | 'shockTime' | 'handRoll' | 'footYaw' | 'footHeel' | 'footAir' | 'footFlex'
+>;
+
 /** Core light per core look: the five originals, then Bastion amber, Kestrel ice, Vulkan molten, Halcyon violet, Kensei crimson. */
 const CORE_COLORS = [0x49c6ff, 0xff4a2a, 0x3cffd8, 0x52ff6a, 0xc77dff, 0xffa820, 0x8ff4ff, 0xff6200, 0xb48dff, 0xff2d55];
 
@@ -515,8 +524,18 @@ export class BotModel {
     this.poseCore(f, oppHead);
   }
 
+  /**
+   * begin() from joints given in world space instead of a fighter's body (torn-off parts still
+   * draw their particles from the flying pieces).
+   */
+  beginPosed(f: PoseSource, joints: readonly THREE.Vector3[], lookAt?: THREE.Vector3) {
+    for (let i = 0; i < 16; i++) this.joints[i].copy(this.anchors[i] ?? joints[i]);
+    for (let i = 0; i < this.bones.length; i++) if (!this.hidden.has(i)) this.bones[i].scale.setScalar(this.size);
+    this.poseCore(f, lookAt);
+  }
+
   /** Resolve limb contacts (own armour and, if given, the opponent's), then place the limbs. */
-  end(f: Fighter, time: number, opp?: BotModel) {
+  end(f: PoseSource, time: number, opp?: BotModel) {
     this.solveContacts(f, opp);
     this.poseLimbs(f);
     for (const b of this.hidden) this.bones[b].scale.setScalar(0);
@@ -532,7 +551,7 @@ export class BotModel {
     this.bones[B.Neck].scale.setScalar(0);
   }
 
-  private poseCore(f: Fighter, lookAt?: THREE.Vector3) {
+  private poseCore(f: PoseSource, lookAt?: THREE.Vector3) {
     const P = this.joints;
     const bn = this.bones;
     const yaw = f.faceYaw;
@@ -559,7 +578,7 @@ export class BotModel {
   }
 
   /** Slide elbows, fists, knees and airborne feet out of armour they would pass through. */
-  private solveContacts(f: Fighter, opp?: BotModel) {
+  private solveContacts(f: PoseSource, opp?: BotModel) {
     if (!contactStats.enabled) return;
     const P = this.joints;
     const r = this.radii;
@@ -596,7 +615,7 @@ export class BotModel {
     contactStats.worst = worst;
   }
 
-  private poseLimbs(f: Fighter) {
+  private poseLimbs(f: PoseSource) {
     const P = this.joints;
     const bn = this.bones;
     const torsoX = this.torsoX;
@@ -686,7 +705,7 @@ export class BotModel {
     }
   }
 
-  private effects(f: Fighter, time: number) {
+  private effects(f: PoseSource, time: number) {
     // battle damage shading follows the parts' condition
     const wear = this.dmg.uWear.value;
     for (let i = 0; i < PART_COUNT; i++) wear[i] = 1 - f.parts.cond[i];

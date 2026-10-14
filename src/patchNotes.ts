@@ -17,8 +17,11 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-14 21:00',
-    title: 'Clearer fight intros',
+    title: 'Clearer fight intros, a happy ride home',
     notes: [
+      'After every knockout the loser gets carried off on a hover stretcher. It swoops in from the tunnel, a lift beam floats the loser aboard, and then the loser perks right up for the camera with one of five bits: a peace sign, double thumbs up, a wave to the crowd, a lie-back with its hands behind its head, or some disco pointing. Then it flies off over the ropes and out the tunnel.',
+      'If the loser was torn apart, every piece that came off flies onto the stretcher too, even the ones that landed in the stands.',
+      'The results come up once the stretcher has gone. Tap Skip to see them straight away.',
       'The camera, speed and pause buttons now stay out of the way while the bots are introduced, so they no longer sit behind the name cards.',
     ],
   },
