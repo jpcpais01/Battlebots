@@ -62,7 +62,7 @@ export class EmotePose {
   readonly gaze = new Vector3();
   /** Re-plant the feet precisely: on the emote stance, and for a moment after an emote. */
   restep = false;
-  /** A fist sent to a point in the world (the pre-fight fist bump): which hand, how much, where. */
+  /** A fist sent to a point in the world (the pre-fight fist bump): which hand (2: both, side by side), how much, where. */
   reachSide = 1;
   reachW = 0;
   readonly reach = new Vector3();

@@ -1755,9 +1755,13 @@ export class Fighter {
           pole.lerp(_w, aw);
           roll = lerp(roll, e[o + 6], aw);
         }
-        // a fist sent to a point in the world (touching gloves)
+        // a fist sent to a point in the world (touching gloves), or both of them side by side
         const rw = em.w * em.reachW;
-        if (side === em.reachSide && rw > 0.001) hand.lerp(this.toLocal(em.reach, _p), rw);
+        if (rw > 0.001 && (side === em.reachSide || em.reachSide === 2)) {
+          this.toLocal(em.reach, _p);
+          if (em.reachSide === 2) _p.addScaledVector(_tX, sx * 0.075);
+          hand.lerp(_p, rw);
+        }
       }
       // a hand holding on to the opponent (clinch grips): it goes where their body goes
       const grip = this.emote ? this.emote.gripW[side] : 0;

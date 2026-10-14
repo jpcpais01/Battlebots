@@ -68,15 +68,24 @@ interface Blow {
   final?: FinalKind;
 }
 
-/** A strike thrown from the rig; the blow lands when the fist or foot reaches its target. */
+/**
+ * A strike thrown from the rig. It tracks the victim's live target (wherever the hits
+ * and the held pose have put it) and lands when the fist or foot actually reaches
+ * their surface; the footwork sets the range for it from `reach` beforehand.
+ */
 interface StrikeStep {
   at: number;
   strike: MoveId;
   zone: Zone;
   speed: number;
   blow: Blow;
+  /** Distance kept from the target point to the striker's root, in the striker's frame size (default per move). */
+  reach?: number;
 }
-/** A blow delivered by the authored pose itself (the hammer from a leap) at a set time. */
+/**
+ * A blow delivered by the authored pose itself (both fists from a leap). The hands are
+ * sent onto the victim (EmotePose reach) and it lands when they touch, around `at`.
+ */
 interface PoseStep {
   at: number;
   blow: Blow;
@@ -85,15 +94,26 @@ type Step = StrikeStep | PoseStep;
 
 /** What a finisher's pose functions read and write each step. */
 export class FinCtx {
+  /** Script time: it waits for a scripted strike still on its way, so every blow touches before the next beat. */
   t = 0;
   prevT = 0;
+  /** Real time since the finisher began (sways and trembles, which never wait). */
+  rt = 0;
   /** Time each blow landed (Infinity until it does). */
   readonly hits: number[] = [];
   // outputs (reset before each sample)
   /** Weight of the attacker's authored pose (the rig takes over while a strike is out). */
   aw = 0;
-  /** Distance the attacker keeps from the victim (0: none). */
+  /** Distance the attacker keeps from the victim (0: none), measured to `foot`. */
   range = 0;
+  /**
+   * What the range is kept to: the victim's feet ('root', scaled by both frames) or a point
+   * on the victim its fists or feet are going to touch ('head', 'back': scaled by the
+   * attacker's frame, since its reach is what has to fit).
+   */
+  foot: 'root' | 'head' | 'back' = 'root';
+  /** Both fists sent onto the victim's back (0..1), for the double-fisted smash. */
+  smash = 0;
   /** Slow motion. */
   slow = 1;
   /** Charge glow on the attacker's primary fist, 0..1 (rendered as sparks and arcs). */
@@ -106,6 +126,8 @@ export class FinCtx {
   reset() {
     this.aw = 0;
     this.range = 0;
+    this.foot = 'root';
+    this.smash = 0;
     this.slow = 1;
     this.glow = 0;
     this.lift = 0;
@@ -176,8 +198,9 @@ function sway(o: Shape, t: number, k: number) {
 const skyfall: FinSpec = (() => {
   // sink low under the dazed opponent, the rear fist cocked by the hip and crackling,
   // then explode up through the chin
-  const load = A({ crouch: 0.3, pitch: 0.3, twist: 0.42, hip: 0.25, head: [0, -0.02, 0.03], a: arm([0.3, -0.44, -0.1], [0.3, -0.2, -1], 0.4), b: arm([0.14, 0.2, 0.38], [0.6, -1, -0.3], 0.1) });
-  const deeper = A({ crouch: 0.36, pitch: 0.34, twist: 0.5, hip: 0.3, head: [0, -0.03, 0.04], a: arm([0.3, -0.48, -0.16], [0.3, -0.2, -1], 0.5), b: arm([0.12, 0.18, 0.4], [0.6, -1, -0.3], 0.1) });
+  // (the lead fist stays tight to the face: they're right on top of them)
+  const load = A({ crouch: 0.3, pitch: 0.3, twist: 0.42, hip: 0.25, head: [0, -0.02, 0.03], a: arm([0.3, -0.44, -0.1], [0.3, -0.2, -1], 0.4), b: arm([0.18, 0.24, 0.27], [0.6, -1, -0.3], 0.1) });
+  const deeper = A({ crouch: 0.36, pitch: 0.34, twist: 0.5, hip: 0.3, head: [0, -0.03, 0.04], a: arm([0.3, -0.48, -0.16], [0.3, -0.2, -1], 0.5), b: arm([0.17, 0.22, 0.28], [0.6, -1, -0.3], 0.1) });
   const reach = A({ crouch: -0.04, pitch: -0.22, twist: -0.32, a: arm([0.2, 0.78, 0.24], [1, 0, -0.3]), b: arm([0.34, -0.22, 0.2], [0.5, -0.4, -1], 0.3), heel: 0.7 });
   const K: Key[] = [[0, A_SET], [0.32, load, punchy], [1.05, deeper], [99, deeper]];
   return {
@@ -189,12 +212,14 @@ const skyfall: FinSpec = (() => {
       keys(o, t, K);
       // the loaded fist trembles with the charge
       const ch = hold(t, 0.35, 1.15, 0.2);
-      o[armI(0)] += DM.sin(t * 61) * 0.012 * ch;
-      o[armI(0) + 1] += DM.sin(t * 47 + 1) * 0.01 * ch;
+      o[armI(0)] += DM.sin(c.rt * 61) * 0.012 * ch;
+      o[armI(0) + 1] += DM.sin(c.rt * 47 + 1) * 0.01 * ch;
       o[EC.HEAD + 1] -= 0.01 * ch;
       c.aw = t < 1.15 ? 1 : 0;
       c.glow = smoothstep(0.25, 1.1, t) * (t < 1.32 ? 1 : 0);
-      c.range = 0.76;
+      // in close under their chin, kept to the head so a giant or a tiddler is no different
+      c.range = 0.68;
+      c.foot = 'head';
       c.slow = lerp(1, 0.55, hold(t, 0.45, 1.0, 0.2));
       c.gaze = 'opp';
       if (c.landed(0)) {
@@ -211,7 +236,7 @@ const skyfall: FinSpec = (() => {
     vic(o, c) {
       const t = c.t;
       keys(o, t, [[0, V_REEL], [0.45, V_DAZED], [99, V_DAZED]]);
-      sway(o, t, 1);
+      sway(o, c.rt, 1);
       // knees going: it sags lower as the charge builds
       o[EC.CROUCH] += 0.05 * rise(t, 0.4, 0.8);
       o[EC.PITCH] += 0.06 * rise(t, 0.4, 0.8);
@@ -245,7 +270,12 @@ const meteor: FinSpec = (() => {
       c.aw = t < L0 + 0.22 ? 0 : 1;
       // the jump: off the canvas as the arms go up, a hang at the top, down with the fists
       c.lift = 0.42 * DM.sin(Math.PI * clamp01((t - (L0 + 0.62)) / 0.56));
-      c.range = t < L0 + 0.5 ? 0.82 : 1.06;
+      // set up over their back, so the fists come down on it and not on the canvas
+      c.range = t < L0 + 0.3 ? 0.82 : 0.7;
+      if (t >= L0 + 0.3) c.foot = 'back';
+      // both fists, clasped side by side, driven down onto the back between the shoulders;
+      // they ride it down a beat after the hit, then let go as it hits the canvas
+      c.smash = rise(t, L0 + 1.0, SLAM - (L0 + 1.0)) * (c.landed(1) ? 1 - rise(c.since(1), 0.12, 0.3) : 1);
       c.slow = lerp(1, 0.45, hold(t, L0 + 0.85, L0 + 1.05, 0.12));
       if (t > SLAM) c.slow = t < SLAM + 0.5 ? 0.22 : 0.3;
       c.gaze = t > L0 + 0.5 && t < SLAM + 0.6 ? 'down' : 'opp';
@@ -260,7 +290,7 @@ const meteor: FinSpec = (() => {
         for (let i = 0; i < EC.N; i++) o[i] += (V_FOLD[i] - o[i]) * k;
         o[EC.PITCH] += DM.sin(s * 3.1) * 0.05 + 0.04 * pulse(s, 0, 0.08, 0.3);
       }
-      sway(o, t, 0.6);
+      sway(o, c.rt, 0.6);
       c.vgaze = 'down';
       c.vtone = 0.75;
     },
@@ -305,7 +335,7 @@ const cyclone: FinSpec = (() => {
         const k = rise(s, 0, 0.2) * (1 - 0.35 * rise(s, 0.6, 0.6));
         for (let i = 0; i < EC.N; i++) o[i] += (V_BENT[i] - o[i]) * k;
       }
-      sway(o, t, 0.8);
+      sway(o, c.rt, 0.8);
       c.vgaze = s > 0 && s < 0.7 ? 'down' : 'opp';
       c.vtone = 0.7;
     },
@@ -335,7 +365,7 @@ const overdrive: FinSpec = (() => {
     att(o, c) {
       const t = c.t;
       keys(o, t, [[0, A_SET], [BARRAGE + 0.05, A_SET], [BARRAGE + 0.36, cock, punchy], [99, cock]]);
-      o[armI(0)] += DM.sin(t * 57) * 0.01 * hold(t, BARRAGE + 0.3, FIRE, 0.1);
+      o[armI(0)] += DM.sin(c.rt * 57) * 0.01 * hold(t, BARRAGE + 0.3, FIRE, 0.1);
       c.aw = t > BARRAGE && t < FIRE - 0.03 ? 1 : 0;
       c.glow = rise(t, BARRAGE + 0.1, 0.5) * (t < FIRE + 0.25 ? 1 : 0);
       c.range = t < BARRAGE + 0.1 ? 0.9 : 1.1;
@@ -364,7 +394,7 @@ const overdrive: FinSpec = (() => {
         armTo(o, 1, arm([0.45, -0.18, 0.04], [0.5, -0.3, -1], 0.3), 0.6 * rise(t, 0.2, 0.5));
         o[EC.PITCH] -= 0.12 * rise(t, BARRAGE - 0.2, 0.4);
       }
-      sway(o, t, 0.9);
+      sway(o, c.rt, 0.9);
       c.vtone = 0.65;
     },
   };
@@ -392,7 +422,9 @@ const headhunter: FinSpec = (() => {
       const wag = hold(t, L0 + 0.7, L0 + 1.0, 0.08);
       o[armI(0)] += DM.sin((t - L0) * 14) * 0.08 * wag;
       c.aw = t > L0 + 0.25 && t < KICK - 0.02 ? 1 : 0;
-      c.range = t < L0 + 0.3 ? 0.95 : 1.02;
+      c.range = t < L0 + 0.3 ? 0.95 : 0.98;
+      // the point stops short of the bowed head, a fist's width off it
+      if (t >= L0 + 0.3) c.foot = 'head';
       c.slow = lerp(1, 0.62, hold(t, L0 + 1.0, KICK + 0.2, 0.15));
       c.gaze = 'opp';
       if (c.landed(1)) {
@@ -414,7 +446,7 @@ const headhunter: FinSpec = (() => {
         keys(_s, s, [[0, V_KNEES], [0.6, V_KNEES], [1.2, V_KNEES_SLUMP], [99, V_KNEES_SLUMP]]);
         for (let i = 0; i < EC.N; i++) o[i] += (_s[i] - o[i]) * k;
       }
-      sway(o, t, 0.5);
+      sway(o, c.rt, 0.5);
       c.vgaze = 'down';
       c.vtone = 0.85;
     },
@@ -476,6 +508,32 @@ const _b = new Vector3();
 const _c = new Vector3();
 const _d = new Vector3();
 const _f = new Vector3();
+const _g = new Vector3();
+
+/** How far (root to target point, in the striker's frame size) each scripted strike is thrown from. */
+const REACH: Partial<Record<MoveId, number>> = {
+  jab: 0.84,
+  cross: 0.84,
+  rearHook: 0.6,
+  rearUpper: 0.58,
+  rocketPunch: 1,
+  roundhouse: 0.84,
+  spinKick: 0.92,
+  lowKick: 0.72,
+};
+/** Longest the script waits for a strike that hasn't reached them yet. */
+const STALL_MAX = 0.35;
+/** Longest a strike is held back while the feet close to its range. */
+const WAIT_MAX = 0.3;
+/** A pose blow (the smash) can land this long before its beat, if the fists are already there. */
+const POSE_EARLY = 0.22;
+/** ... and lands on its own this long after, wherever the fists are. */
+const POSE_LATE = 0.14;
+/** Surface radii (in the victim's frame size) of the head, neck, trunk and legs, as the fight's hit test has them. */
+const R_HEAD = 0.17, R_NECK = 0.1, R_TRUNK = 0.25, R_LEG = 0.09;
+/** The striking limbs, and the radius each stands out from its particle (in the attacker's frame size). */
+const LIMBS = [J.HandL, J.HandR, J.FootL, J.FootR, J.KneeL, J.KneeR, J.ElL, J.ElR];
+const limbR = (j: number) => (j === J.HandL || j === J.HandR ? 0.13 : j === J.ElL || j === J.ElR ? 0.09 : 0.12);
 
 export class FinisherRun {
   readonly spec: FinSpec;
@@ -502,6 +560,16 @@ export class FinisherRun {
   private readonly auth = new Float32Array(EC.N);
   private next = 0;
   private pending: { s: StrikeAction; blow: Blow; k: number } | null = null;
+  /** A pose blow waiting for the fists to touch: its blow, index, and when it lands regardless. */
+  private posing: { blow: Blow; k: number; until: number } | null = null;
+  /** How long the script has been held for the strike in flight. */
+  private stall = 0;
+  /** How long the next strike has been held back for its range, and how far off that range is. */
+  private wait = 0;
+  private rangeErr = 0;
+  /** Smoothed footwork target (so a switch of what the range is kept to never jerks the feet). */
+  private readonly stand = new Vector3();
+  private standOn = false;
 
   constructor(id: string, att: Fighter, def: Fighter, host: FinHost, preview = false) {
     this.spec = FINISHERS[id] ?? skyfall;
@@ -544,45 +612,82 @@ export class FinisherRun {
   /** Runs after the brains and showmen, before the fighters move. */
   update(dt: number) {
     const c = this.c, att = this.att, def = this.def;
-    c.prevT = c.t;
-    c.t += dt;
-    // launch scheduled steps
     const steps = this.spec.steps;
-    while (this.next < steps.length && steps[this.next].at <= c.t && !this.struck) {
+    c.prevT = c.t;
+    c.rt += dt;
+    // a scripted strike still on its way holds the script (briefly), so no beat ever
+    // starts before the blow before it has touched
+    const due = this.next < steps.length ? steps[this.next] : null;
+    if (this.pending && due && due.at <= c.t + dt && this.stall < STALL_MAX) this.stall += dt;
+    else c.t += dt;
+    // launch scheduled steps
+    while (this.next < steps.length && !this.struck) {
       const st = steps[this.next];
-      const k = this.next++;
       if ('strike' in st) {
-        const aim = this.target(st.zone, _a);
-        const s = att.forceStrike(st.strike, st.zone, aim, st.speed);
+        if (st.at > c.t) break;
+        // not in range yet (the opener knocked them away, a shove moved them): the script
+        // holds on this beat while the feet close the distance, then throws it
+        if (Math.abs(this.rangeErr) > 0.1 * att.size && this.wait < WAIT_MAX && !this.pending) {
+          this.wait += dt;
+          c.t = st.at;
+          break;
+        }
+        this.wait = 0;
+        const k = this.next++;
+        if (this.pending) this.landPending();
+        const s = att.forceStrike(st.strike, st.zone, this.aim(st.zone, MOVES[st.strike], _a), st.speed);
         this.pending = { s, blow: st.blow, k };
+        this.stall = 0;
       } else {
-        // a pose blow: where the fists come down on them
-        _b.copy(att.body.pos[J.HandL]).add(att.body.pos[J.HandR]).multiplyScalar(0.5);
-        this.target(st.blow.zone, _c);
-        _b.lerp(_c, 0.5);
-        this.land(k, st.blow, _b, J.HandR);
+        if (st.at - POSE_EARLY > c.t) break;
+        this.posing = { blow: st.blow, k: this.next++, until: st.at + POSE_LATE };
       }
     }
     // contact for the strike in flight
     const p = this.pending;
     if (p) {
       const s = p.s;
-      if (att.action !== s) {
-        // replaced or cut short before it reached them: land it anyway, it was scripted
-        this.pending = null;
-        this.land(p.k, p.blow, this.target(p.blow.zone, _b), att.strikerJoint(s));
-      } else if (s.phase !== 'windup' && !s.hasHit) {
-        const j = att.body.pos[att.strikerJoint(s)];
-        const reach = this.contact(p.blow.zone, j);
-        if (reach || s.phase === 'recovery' || s.activeProgress >= 0.85) {
-          this.target(p.blow.zone, _b);
-          _b.lerp(j, 0.5);
-          s.hasHit = true;
-          s.result = 'hit';
-          this.pending = null;
-          att.finishStrike(s);
-          this.land(p.k, p.blow, _b, att.strikerJoint(s));
+      if (att.action !== s || s.hasHit) this.landPending();
+      else {
+        this.track(p.s, p.blow.zone);
+        if (s.phase !== 'windup') {
+          const j = att.strikerJoint(s);
+          // an uppercut rises up the front of the chest to the chin: the chest only stops it
+          // once it is all but spent (anything else that meets the body on the way has hit it)
+          const trunk = p.blow.zone !== 'head' || s.move.path !== 'upper' || s.activeProgress > 0.75;
+          if (this.touch(p.blow.zone, j, _b, trunk) || s.phase === 'recovery') {
+            // stopped on their surface: the fist or foot comes back from where it hit
+            if (s.phase === 'recovery') this.surface(p.blow.zone, att.body.pos[j], _b);
+            else this.stopAt(j);
+            s.hasHit = true;
+            s.result = 'hit';
+            this.pending = null;
+            att.finishStrike(s);
+            this.land(p.k, p.blow, _b, j);
+          }
         }
+      }
+    }
+    // the smash: both fists coming down onto them
+    const ps = this.posing;
+    if (ps) {
+      let hit = -1;
+      for (const j of [J.HandL, J.HandR]) {
+        // only on the way down
+        if (att.body.pos[j].y < att.body.last[j].y && this.touch(ps.blow.zone, j, _b)) {
+          hit = j;
+          this.stopAt(j);
+          break;
+        }
+      }
+      if (hit < 0 && c.t >= ps.until) {
+        hit = this.glowJoint;
+        _b.copy(att.body.pos[J.HandL]).lerp(att.body.pos[J.HandR], 0.5);
+        this.surface(ps.blow.zone, _b, _b);
+      }
+      if (hit >= 0) {
+        this.posing = null;
+        this.land(ps.k, ps.blow, _b, hit);
       }
     }
 
@@ -590,7 +695,7 @@ export class FinisherRun {
     c.reset();
     const a = this.auth;
     this.spec.att(a, c);
-    a[EC.CROUCH] += DM.sin(c.t * 2.6) * 0.006;
+    a[EC.CROUCH] += DM.sin(c.rt * 2.6) * 0.006;
     resolveSides(a, this.attPose.ch, att.stance > 0);
     // the rig owns the body while a strike is out
     const sOut = att.strike && att.strike.phase !== 'recovery';
@@ -601,6 +706,10 @@ export class FinisherRun {
     att.lift = c.lift * (att.strike ? 0 : 1);
     att.bounce = 0.3;
     this.gaze(P0, att, def, c.gaze, dt);
+    // both fists onto the victim's back (the smash): the rig's reach, both hands at once
+    P0.reachSide = 2;
+    P0.reachW += (c.smash - P0.reachW) * (1 - DM.exp(-(c.smash > P0.reachW ? 30 : 8) * dt));
+    if (P0.reachW > 0.001) this.backPoint(P0.reach);
 
     if (def.state === 'held') {
       this.spec.vic(a, c);
@@ -612,26 +721,279 @@ export class FinisherRun {
       this.gaze(V, def, att, c.vgaze, dt);
     }
 
-    // footwork: keep the range the next blow needs
-    if (c.range > 0 && !this.struck) {
-      _d.set(def.root.x - att.root.x, 0, def.root.z - att.root.z);
-      const d = _d.length();
-      if (d > 1e-4) _d.multiplyScalar(1 / d);
-      att.intentVel.copy(_d).multiplyScalar(clamp((d - c.range * rangeScale(att, def)) * 5, -2.4, 3));
-    } else att.intentVel.set(0, 0, 0);
+    // footwork: the range the next blow needs, kept to the point it will land on
+    this.footwork(dt);
 
     this.slowmo += (c.slow - this.slowmo) * (1 - DM.exp(-12 * dt));
     this.glow += (c.glow - this.glow) * (1 - DM.exp(-10 * dt));
     if (this.struck && c.t - this.c.hits[this.c.hits.length - 1] >= this.spec.tail) this.over = true;
   }
 
+  /**
+   * Runs after the fighters have moved: nothing of the attacker's passes through the
+   * victim. Fists, feet, knees and elbows are solid against its head and trunk, and push
+   * it out of the way (a pose that leans on them, a follow-through into a falling body)
+   * rather than sinking in.
+   */
+  settle() {
+    const att = this.att, def = this.def;
+    const b = def.body;
+    const zs = def.size;
+    const held = def.state === 'held';
+    // a held victim is moved as a whole (it gets shoved back a touch, feet and all), so its
+    // pose can't spring back into the limb; a falling one is pushed particle by particle
+    _g.set(0, 0, 0);
+    for (const j of LIMBS) {
+      const p = att.body.pos[j];
+      const r = limbR(j) * att.size * 0.92;
+      // head (and neck)
+      for (const [h, R] of [[J.Head, R_HEAD], [J.Neck, R_NECK]] as const) {
+        if (b.cut[h]) continue;
+        _a.subVectors(b.pos[h], p);
+        const d = _a.length(), lim = r + R * zs;
+        if (d < lim && d > 1e-5) {
+          _a.multiplyScalar(Math.min(lim - d, 0.08 * zs) / d);
+          if (held) this.deeper(_g, _a);
+          else this.shove(h, -1, 0, _a);
+        }
+      }
+      // trunk: the pelvis-chest capsule, shoved at the point it is touched
+      const t = closestOnSegment(p, b.pos[J.Pelvis], b.pos[J.Chest], _c);
+      _a.subVectors(_c, p);
+      const d = _a.length(), lim = r + R_TRUNK * zs;
+      if (d < lim && d > 1e-5) {
+        _a.multiplyScalar(Math.min(lim - d, 0.08 * zs) / d);
+        if (held) this.deeper(_g, _a);
+        else this.shove(J.Pelvis, J.Chest, t, _a);
+      }
+    }
+    if (held && _g.lengthSq() > 1e-10) {
+      // along the ground only (a limb pressing down doesn't sink them into the canvas)
+      _g.y = 0;
+      def.root.add(_g);
+      for (let i = 0; i < b.pos.length; i++) {
+        b.pos[i].add(_g);
+        b.prev[i].add(_g);
+      }
+    }
+  }
+
+  /** Keep the larger of two pushes, per axis (overlapping contacts don't add up). */
+  private deeper(acc: Vector3, d: Vector3) {
+    if (Math.abs(d.x) > Math.abs(acc.x)) acc.x = d.x;
+    if (Math.abs(d.z) > Math.abs(acc.z)) acc.z = d.z;
+  }
+
+  /** Move victim particle a (or a and b split at t) out by d: most of it as position, some as speed. */
+  private shove(a: number, b: number, t: number, d: Vector3) {
+    const body = this.def.body;
+    const one = (i: number, w: number) => {
+      if (w <= 0) return;
+      body.pos[i].addScaledVector(d, w);
+      body.prev[i].addScaledVector(d, w * 0.6);
+    };
+    if (b < 0) {
+      one(a, 1);
+      // the head drags the neck with it, so it doesn't fold over
+      if (a === J.Head && !body.cut[J.Neck]) one(J.Neck, 0.4);
+    } else {
+      // split so the touched point itself moves the full distance
+      const n = 1 / Math.max(0.5, (1 - t) * (1 - t) + t * t);
+      one(a, (1 - t) * n);
+      one(b, t * n);
+    }
+  }
+
   /** Hand the robots back to the fight rig (the knockout, or a preview ending). */
   end() {
     this.att.emote = this.attWas;
     this.def.emote = this.vicWas;
+    this.attPose.reachW = 0;
     this.att.lift = 0;
     this.att.bounce = 1;
     this.att.intentVel.set(0, 0, 0);
+  }
+
+  /** The strike in flight was cut short or replaced before it touched: it lands where the limb got to. */
+  private landPending() {
+    const p = this.pending!;
+    this.pending = null;
+    if (p.s.hasHit && this.c.landed(p.k)) return;
+    const j = this.att.strikerJoint(p.s);
+    this.surface(p.blow.zone, this.att.body.pos[j], _b);
+    this.land(p.k, p.blow, _b, j);
+  }
+
+  /** Steer a strike in flight at the zone as it is now (they reel, fold and sink between blows). */
+  private track(s: StrikeAction, zone: Zone) {
+    const att = this.att;
+    this.aim(zone, s.move, _a);
+    if (s.phase === 'windup') s.aim.copy(_a);
+    else if (s.phase === 'active') {
+      // the end point sits a little inside them so the limb is still moving when it touches
+      // (the touch stops it there): the same punch-through the fight's strikes commit to
+      const m = s.move;
+      const L = s.side === 'L';
+      const o = att.body.pos[m.kind === 'punch' ? (L ? J.ShL : J.ShR) : L ? J.HipL : J.HipR];
+      const through = m.path === 'straight' ? 0.14 : m.path === 'frontKick' || m.path === 'backKick' ? 0.18 : 0.1;
+      _d.subVectors(_a, o).normalize();
+      s.aim.copy(_a);
+      s.endWorld.copy(_a).addScaledVector(_d, through * att.size);
+    }
+  }
+
+  /**
+   * Where a strike at this zone should go: the zone's point, brought down the victim's
+   * centre line if it is higher than the limb can reach (a small bot's kick at a giant's
+   * head finds its jaw, then its chest).
+   */
+  private aim(zone: Zone, m: (typeof MOVES)[MoveId], out: Vector3) {
+    const att = this.att, def = this.def;
+    this.target(zone, out);
+    if (zone === 'legs' || m.extend) return out;
+    const kick = m.kind === 'kick';
+    const side = att.strikeSide(m) === 'L';
+    const o = att.body.pos[kick ? (side ? J.HipL : J.HipR) : side ? J.ShL : J.ShR];
+    const max = (kick ? 0.84 : 0.62) * att.size;
+    if (out.y <= o.y) return out;
+    const h = DM.hypot(out.x - o.x, out.z - o.z);
+    // highest point the limb gets to at this distance (with a little slack for the lunge)
+    const top = o.y + Math.sqrt(Math.max(0, max * max - Math.min(h, max) * Math.min(h, max) * 0.81));
+    if (out.y <= top) return out;
+    const b = def.body.pos;
+    // down the centre line, head → neck → chest
+    for (let i = 1; i <= 8; i++) {
+      _g.copy(b[J.Head]).lerp(b[J.Chest], i / 8);
+      if (_g.y <= top) return out.copy(_g);
+    }
+    return out.copy(b[J.Chest]);
+  }
+
+  /**
+   * Has the striking joint touched them this step? Swept from where it was to where it is,
+   * against the victim's head, neck and trunk (or legs, for a leg kick), with the fight's
+   * own surface radii. Writes the point on their surface where it touched.
+   */
+  private touch(zone: Zone, j: number, out: Vector3, trunk = true) {
+    const att = this.att, def = this.def;
+    const b = def.body.pos;
+    const r = limbR(j) * att.size;
+    const z = def.size;
+    const from = att.body.last[j], to = att.body.pos[j];
+    for (let k = 1; k <= 4; k++) {
+      _f.lerpVectors(from, to, k / 4);
+      this.touchAt.copy(_f);
+      if (zone === 'legs') {
+        for (const [h, kn, ft] of [[J.HipL, J.KneeL, J.FootL], [J.HipR, J.KneeR, J.FootR]]) {
+          for (const [u, v] of [[h, kn], [kn, ft]]) {
+            closestOnSegment(_f, b[u], b[v], _c);
+            if (_c.distanceTo(_f) < r + R_LEG * z) return this.onSurface(_c, _f, R_LEG * z, out);
+          }
+        }
+        continue;
+      }
+      if (!def.body.cut[J.Head] && _f.distanceTo(b[J.Head]) < r + R_HEAD * z) return this.onSurface(b[J.Head], _f, R_HEAD * z, out);
+      if (_f.distanceTo(b[J.Neck]) < r + R_NECK * z) return this.onSurface(b[J.Neck], _f, R_NECK * z, out);
+      if (!trunk) continue;
+      closestOnSegment(_f, b[J.Pelvis], b[J.Chest], _c);
+      if (_c.distanceTo(_f) < r + R_TRUNK * z) return this.onSurface(_c, _f, R_TRUNK * z, out);
+    }
+    return false;
+  }
+
+  /** Where the striking joint was when it touched (set by touch). */
+  private readonly touchAt = new Vector3();
+
+  /**
+   * The limb stops where it touched instead of carrying on inside them for the step it
+   * took to notice (a fast heel covers several centimetres a step), so the impact frame,
+   * frozen by the hitstop, shows it on them.
+   */
+  private stopAt(j: number) {
+    const b = this.att.body;
+    b.pos[j].copy(this.touchAt);
+    b.prev[j].copy(this.touchAt);
+  }
+
+  /** The point on a surface of radius R round centre c, towards p. */
+  private onSurface(c: Vector3, p: Vector3, R: number, out: Vector3) {
+    _d.subVectors(p, c);
+    const d = _d.length();
+    if (d > 1e-5) out.copy(c).addScaledVector(_d, R / d);
+    else out.copy(c);
+    return true;
+  }
+
+  /** The point on the zone's surface nearest p (where a blow that never quite touched is shown). */
+  private surface(zone: Zone, p: Vector3, out: Vector3) {
+    const b = this.def.body.pos;
+    const z = this.def.size;
+    if (zone === 'head') return this.onSurface(b[J.Head], _g.copy(p), R_HEAD * z, out), out;
+    if (zone === 'body') {
+      closestOnSegment(p, b[J.Pelvis], b[J.Chest], _c);
+      return this.onSurface(_c, _g.copy(p), R_TRUNK * z, out), out;
+    }
+    this.target('legs', _c);
+    return this.onSurface(_c, _g.copy(p), R_LEG * z, out), out;
+  }
+
+  /** On top of the victim's back, between the shoulders: where the smash comes down. */
+  private backPoint(out: Vector3) {
+    const b = this.def.body.pos;
+    _d.subVectors(b[J.Neck], b[J.Pelvis]).normalize();
+    out.copy(b[J.Chest]).lerp(b[J.Neck], 0.6);
+    // the back: up and away from the attacker, square to the spine (straight up when
+    // they are folded over, their back to the sky)
+    _g.set(b[J.Chest].x - this.att.root.x, 0, b[J.Chest].z - this.att.root.z).normalize().multiplyScalar(0.6);
+    _g.y += 1;
+    _g.addScaledVector(_d, -_g.dot(_d)).normalize();
+    return out.addScaledVector(_g, (R_TRUNK - 0.03) * this.def.size);
+  }
+
+  /** Keep the range the next blow needs, to the point on them it is going to land on. */
+  private footwork(dt: number) {
+    const c = this.c, att = this.att, def = this.def;
+    let range = c.range, foot = c.foot;
+    // a strike in flight, or one about to be thrown, sets the range from its own reach
+    const st = this.pending ? null : this.next < this.spec.steps.length ? this.spec.steps[this.next] : null;
+    const upcoming = st && 'strike' in st && st.at - c.t < 0.55 ? (st as StrikeStep) : null;
+    let zone: Zone | null = null;
+    if (this.pending) {
+      const m = this.pending.s.move;
+      const step = this.spec.steps[this.pending.k] as StrikeStep;
+      // stand off by what is left of its lunge: the step into the shot closes the rest
+      range = (step.reach ?? REACH[m.id] ?? 0.8) + this.pending.s.lungeLeft / att.size;
+      zone = this.pending.blow.zone;
+    } else if (upcoming) {
+      range = (upcoming.reach ?? REACH[upcoming.strike] ?? 0.8) + MOVES[upcoming.strike].lunge;
+      zone = upcoming.zone;
+    }
+    if (this.struck || (range <= 0 && !zone)) {
+      this.rangeErr = 0;
+      att.intentVel.set(0, 0, 0);
+      this.standOn = false;
+      return;
+    }
+    // the point the range is kept to
+    let scale = rangeScale(att, def);
+    if (zone) {
+      this.target(zone, _f);
+      scale = att.size;
+    } else if (foot === 'head') {
+      _f.copy(def.body.pos[J.Head]);
+      scale = att.size;
+    } else if (foot === 'back') {
+      this.backPoint(_f);
+      scale = att.size;
+    } else _f.copy(def.root);
+    if (!this.standOn) this.stand.copy(_f);
+    this.standOn = true;
+    this.stand.lerp(_f, 1 - DM.exp(-14 * dt));
+    _d.set(this.stand.x - att.root.x, 0, this.stand.z - att.root.z);
+    const d = _d.length();
+    if (d > 1e-4) _d.multiplyScalar(1 / d);
+    this.rangeErr = zone ? d - range * scale : 0;
+    att.intentVel.copy(_d).multiplyScalar(clamp((d - range * scale) * 5, -2.4, 3));
   }
 
   private gaze(P: EmotePose, me: Fighter, opp: Fighter, mode: 'opp' | 'sky' | 'down', dt: number) {
@@ -653,31 +1015,15 @@ export class FinisherRun {
     return out.copy(b[lead ? J.KneeL : J.KneeR]).lerp(b[lead ? J.HipL : J.HipR], 0.3);
   }
 
-  /** Has the striking fist or foot reached the zone? */
-  private contact(zone: Zone, p: Vector3) {
-    const b = this.def.body.pos;
-    const z = (this.att.size + this.def.size) * 0.5;
-    if (zone === 'head') return p.distanceTo(b[J.Head]) < 0.32 * z;
-    if (zone === 'body') {
-      closestOnSegment(p, b[J.Pelvis], b[J.Chest], _c);
-      return _c.distanceTo(p) < 0.38 * z;
-    }
-    for (const [h, k, f] of [[J.HipL, J.KneeL, J.FootL], [J.HipR, J.KneeR, J.FootR]]) {
-      closestOnSegment(p, b[h], b[k], _c);
-      if (_c.distanceTo(p) < 0.22 * z) return true;
-      closestOnSegment(p, b[k], b[f], _c);
-      if (_c.distanceTo(p) < 0.22 * z) return true;
-    }
-    return false;
-  }
-
   private land(k: number, blow: Blow, point: Vector3, joint: number) {
     this.c.hits[k] = this.c.t;
     this.blow(blow, point, joint);
   }
 
   /** A blow lands: damage, the jolt through the body, and the report. */
-  private blow(blow: Blow, point: Vector3, joint: number) {
+  private blow(blow: Blow, at: Vector3, joint: number) {
+    // its own copy: callers pass scratch vectors this reuses below
+    const point = at.clone();
     const att = this.att, def = this.def;
     const last = !!blow.final;
     // direction: the striking limb's travel blended with attacker to victim
@@ -778,7 +1124,7 @@ export class FinisherRun {
     switch (kind) {
       case 'launch':
         // straight up off the uppercut, tumbling back
-        _b.copy(dir).setY(0).normalize().multiplyScalar(1.3 * k);
+        _b.copy(dir).setY(0).normalize().multiplyScalar(2 * k);
         _b.y = 7.2 * k;
         body.addVelocityAll(_b, dt);
         body.addVelocity(J.Head, _c.set(0, 2.5 * k, 0).addScaledVector(dir, 1.2 * k), dt);
