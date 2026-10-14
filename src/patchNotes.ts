@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-14 21:00',
+    title: 'Clearer fight intros',
+    notes: [
+      'The camera, speed and pause buttons now stay out of the way while the bots are introduced, so they no longer sit behind the name cards.',
+    ],
+  },
+  {
     hour: '2026-10-14 20:00',
     title: 'A new ring, heavier hits, arena light show',
     notes: [
