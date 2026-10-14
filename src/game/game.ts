@@ -981,7 +981,7 @@ export class Game {
     else {
       // the stands and crowd are hidden in the workshop, so they don't need updating there
       this.arena.venue.crowd.update(dt, this.crowdMood.excite, crowdState?.phase === 'fight' || crowdState?.phase === 'greet');
-      this.arena.venue.score(dt, m && f ? { names: [f[0].name, f[1].name], hp: [f[0].hpRatio, f[1].hpRatio], clock: m.clock, phase: m.phase } : null);
+      this.arena.venue.score(dt, m && f ? { names: [f[0].name, f[1].name], hp: [f[0].hpRatio, f[1].hpRatio], clock: m.clock, phase: m.phase, presenting: m.presenting } : null);
       this.arena.update(dt, this.time);
     }
     perf.lap('arena');
