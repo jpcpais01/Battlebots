@@ -5,6 +5,7 @@ import { RING_CORNER, ROPE_LINE, ropeSide as sideOf, SIDE_NX, SIDE_NZ } from '..
 import { Venue } from './venue';
 import { contactAO } from './ao';
 import { FLOOR } from './bowl';
+import { beam, canvasTexture, cornerAngle, octBand, octDisc, skirtTexture } from './ring';
 
 export const RING_RADIUS = RING_CORNER; // corner radius of the octagon
 const SIDES = 8;
@@ -18,89 +19,41 @@ const PRESS_RADII = [0.3, 0.36, 0.14, 0.24, 0.2, 0.13, 0.16, 0.2, 0.13, 0.16, 0.
 const ROPE_K = 480;
 const ROPE_C = 5;
 
-function matTexture(): THREE.CanvasTexture {
-  const s = 1024;
-  const c = document.createElement('canvas');
-  c.width = c.height = s;
-  const g = c.getContext('2d')!;
-  const cx = s / 2;
-  const grad = g.createRadialGradient(cx, cx, 40, cx, cx, cx);
-  grad.addColorStop(0, '#2b3448');
-  grad.addColorStop(0.7, '#1c2333');
-  grad.addColorStop(1, '#121722');
-  g.fillStyle = grad;
-  g.fillRect(0, 0, s, s);
-  // subtle canvas weave
-  g.globalAlpha = 0.05;
-  for (let i = 0; i < s; i += 4) {
-    g.fillStyle = i % 8 ? '#000' : '#fff';
-    g.fillRect(0, i, s, 1);
-    g.fillRect(i, 0, 1, s);
-  }
-  g.globalAlpha = 1;
-  // center logo rings
-  g.strokeStyle = 'rgba(255,140,40,0.85)';
-  g.lineWidth = 10;
-  g.beginPath();
-  g.arc(cx, cx, 150, 0, Math.PI * 2);
-  g.stroke();
-  g.strokeStyle = 'rgba(80,220,255,0.6)';
-  g.lineWidth = 4;
-  g.beginPath();
-  g.arc(cx, cx, 172, 0, Math.PI * 2);
-  g.stroke();
-  g.fillStyle = 'rgba(255,255,255,0.9)';
-  g.font = 'bold 92px "Russo One", Impact, sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText('BB', cx, cx + 4);
-  g.font = 'bold 30px "Rajdhani", sans-serif';
-  g.fillStyle = 'rgba(255,255,255,0.45)';
-  g.fillText('BATTLEBOTS ARENA', cx, cx + 92);
-  // outer octagon line and corner marks
-  g.strokeStyle = 'rgba(255,255,255,0.12)';
-  g.lineWidth = 6;
-  g.beginPath();
-  for (let i = 0; i <= SIDES; i++) {
-    const a = (i / SIDES) * Math.PI * 2 + Math.PI / 8;
-    const r = cx * 0.86;
-    const x = cx + Math.cos(a) * r, y = cx + Math.sin(a) * r;
-    if (i === 0) g.moveTo(x, y);
-    else g.lineTo(x, y);
-  }
-  g.stroke();
-  // baked ambient occlusion: the canvas darkens towards the apron and pools around each post base
-  const px = cx / (RING_RADIUS + 0.55); // pixels per metre
-  g.globalCompositeOperation = 'multiply';
-  const rim = g.createRadialGradient(cx, cx, ROPE_LINE * 0.55 * px, cx, cx, cx);
-  rim.addColorStop(0, '#ffffff');
-  rim.addColorStop(0.7, '#c4c4c8');
-  rim.addColorStop(1, '#7a7a82');
-  g.fillStyle = rim;
-  g.fillRect(0, 0, s, s);
-  for (let i = 0; i < SIDES; i++) {
-    const a = (i / SIDES) * Math.PI * 2 + Math.PI / 8;
-    const x = cx + Math.cos(a) * RING_RADIUS * px, y = cx + Math.sin(a) * RING_RADIUS * px;
-    const pool = g.createRadialGradient(x, y, 0.1 * px, x, y, 0.75 * px);
-    pool.addColorStop(0, '#303034');
-    pool.addColorStop(0.35, '#8a8a90');
-    pool.addColorStop(1, '#ffffff');
-    g.fillStyle = pool;
-    g.fillRect(x - px, y - px, 2 * px, 2 * px);
-  }
-  g.globalCompositeOperation = 'source-over';
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
-  return t;
+/** Vertex colours for one piece of a merged emissive mesh. */
+function tint(geo: THREE.BufferGeometry, c: THREE.Color) {
+  const n = geo.attributes.position.count;
+  const a = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) a.set([c.r, c.g, c.b], i * 3);
+  geo.setAttribute('color', new THREE.BufferAttribute(a, 3));
+  return geo;
 }
+
+/** Turns a lathe/cylinder geometry stood at the origin so its axis runs along `dir`, centred on `at`. */
+function aim(geo: THREE.BufferGeometry, at: THREE.Vector3, dir: THREE.Vector3) {
+  return geo.applyMatrix4(
+    new THREE.Matrix4().compose(at, new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir), new THREE.Vector3(1, 1, 1)),
+  );
+}
+
+/** Where the six lamps on the truss hang, and the point on the canvas each one is aimed at. */
+const LAMPS = Array.from({ length: 6 }, (_, i) => {
+  const a = (i / 6) * Math.PI * 2;
+  return {
+    top: new THREE.Vector3(Math.cos(a) * 6.3, 8.4, Math.sin(a) * 6.3),
+    bottom: new THREE.Vector3(Math.cos(a + 0.6) * 1.6, 0, Math.sin(a + 0.6) * 1.6),
+  };
+});
+const TRUSS_Y = 8.75;
 
 export class Arena {
   readonly group = new THREE.Group();
   readonly venue: Venue;
   private ropeMat: THREE.MeshBasicMaterial;
-  private ropeBase = new THREE.Color(0x52e6ff).multiplyScalar(0.9);
+  private ropeBase = new THREE.Color(0x52e6ff).multiplyScalar(RenderSettings.glow(1.15));
   private ropeFlash = 0;
+  /** The post beacons, LED strips and truss lamps: one vertex-coloured draw that pulses with the crowd. */
+  private glowMat: THREE.MeshBasicMaterial;
+  private skirtFlash = { value: 0 };
   /**
    * Per rope (side * 3 + height): where along it the push lands (0..1 post to post),
    * how far it is bowed out, and how much it is swinging free (sine) rather than
@@ -117,163 +70,341 @@ export class Arena {
     const g = this.group;
     // the arena around the ring: stands, crowd, boards, roof (added to the scene beside `group`)
     this.venue = new Venue(quality, this.uniforms);
+    this.buildStage(quality);
+    this.glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
+    const glow: THREE.BufferGeometry[] = [];
+    this.buildPosts(glow);
+    this.ropeMat = this.buildRopes();
+    this.buildTruss(glow);
+    g.add(new THREE.Mesh(mergeGeometries(glow)!, this.glowMat));
 
-    // stage: base + canvas
+    // light beams (fake volumetrics)
+    if (quality !== 'low') g.add(this.buildBeams());
+  }
+
+  /**
+   * The stage: a printed canvas that rolls over a padded bumper at its edge, a steel lip, and a
+   * raked LED skirt down to the arena floor that scrolls the league's name and flares with the
+   * crowd. Footprint matches the sim's `groundAt` (canvas to RING+0.55, lip at -0.12 to RING+0.75).
+   */
+  private buildStage(quality: 'low' | 'med' | 'high') {
+    const g = this.group;
+    const R = RING_RADIUS + 0.55;
+    // the robots' contact shadows land here; the edges and post bases are baked into the texture
+    const canvas = new THREE.Mesh(
+      octDisc(R),
+      contactAO.patch(new THREE.MeshStandardMaterial({ map: canvasTexture(quality === 'high' ? 2048 : 1024, R), roughness: 0.82, metalness: 0.04 }), {
+        spheres: true,
+        floor: true,
+        strength: 2,
+        direct: 0.7,
+      }),
+    );
+    canvas.receiveShadow = true;
+    g.add(canvas);
+    // the canvas wraps over a padded bumper at its edge
+    const bumper = new THREE.Mesh(
+      octBand([
+        [R - 0.11, 0.0005],
+        [R - 0.05, 0.014],
+        [R - 0.005, 0.012],
+        [R + 0.02, -0.02],
+        [R + 0.025, -0.07],
+        [R + 0.01, -0.11],
+        [R - 0.01, -0.125],
+      ]),
+      new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.55, metalness: 0.05 }),
+    );
+    bumper.receiveShadow = true;
+    g.add(bumper);
+    // steel lip and foot of the stage
+    const B = RING_RADIUS + 0.75;
+    const steel = mergeGeometries([
+      octBand([
+        [R - 0.02, -0.118],
+        [B - 0.01, -0.118],
+        [B + 0.015, -0.135],
+        [B + 0.04, -0.17],
+      ]),
+      octBand([
+        [B + 0.11, -0.52],
+        [B + 0.15, -0.56],
+        [B + 0.21, FLOOR],
+      ]),
+    ])!;
     const base = new THREE.Mesh(
-      new THREE.CylinderGeometry(RING_RADIUS + 0.75, RING_RADIUS + 0.95, 0.5, SIDES, 1),
-      contactAO.patch(new THREE.MeshStandardMaterial({ color: 0x1a1e27, metalness: 0.7, roughness: 0.45 }), {
+      steel,
+      contactAO.patch(new THREE.MeshStandardMaterial({ color: 0x1b1f28, metalness: 0.6, roughness: 0.55 }), {
         ground: { y: FLOOR, height: 0.4, k: 0.55 },
       }),
     );
-    base.rotation.y = Math.PI / 8;
-    base.position.y = -0.37;
     base.receiveShadow = true;
     g.add(base);
-    // the robots' contact shadows land here; the edges and post bases are baked into the texture
-    const mat = contactAO.patch(new THREE.MeshStandardMaterial({ map: matTexture(), roughness: 0.78, metalness: 0.05 }), {
-      spheres: true,
-      floor: true,
-      strength: 2,
-      direct: 0.7,
-    });
-    const floorGeo = new THREE.CircleGeometry(RING_RADIUS + 0.55, SIDES);
-    floorGeo.rotateX(-Math.PI / 2);
-    floorGeo.rotateY(Math.PI / 8);
-    // planar UVs
-    const pos = floorGeo.attributes.position;
-    const uv = floorGeo.attributes.uv;
-    const R = RING_RADIUS + 0.55;
-    for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / (2 * R) + 0.5, -pos.getZ(i) / (2 * R) + 0.5);
-    const floor = new THREE.Mesh(floorGeo, mat);
-    floor.receiveShadow = true;
-    floor.position.y = 0.0;
-    g.add(floor);
-    // apron glow edge
-    const edgeGeos: THREE.BufferGeometry[] = [];
-    const edgeR = RING_RADIUS + 0.62;
-    for (let i = 0; i < SIDES; i++) {
-      const a0 = (i / SIDES) * Math.PI * 2 + Math.PI / 8;
-      const a1 = ((i + 1) / SIDES) * Math.PI * 2 + Math.PI / 8;
-      const p0 = new THREE.Vector3(Math.cos(a0) * edgeR, -0.1, Math.sin(a0) * edgeR);
-      const p1 = new THREE.Vector3(Math.cos(a1) * edgeR, -0.1, Math.sin(a1) * edgeR);
-      const len = p0.distanceTo(p1);
-      const box = new THREE.BoxGeometry(len, 0.05, 0.05);
-      box.rotateY(-Math.atan2(p1.z - p0.z, p1.x - p0.x));
-      box.translate((p0.x + p1.x) / 2, -0.12, (p0.z + p1.z) / 2);
-      edgeGeos.push(box);
-    }
-    const edge = new THREE.Mesh(
-      mergeGeometries(edgeGeos)!,
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff8a2a).multiplyScalar(RenderSettings.glow(3)), toneMapped: false }),
+    // LED skirt between them
+    const REPEAT = 6;
+    const skirt = new THREE.Mesh(
+      octBand([
+        [B + 0.04, -0.17],
+        [B + 0.11, -0.52],
+      ]),
+      new THREE.ShaderMaterial({
+        uniforms: {
+          uMap: { value: skirtTexture() },
+          uTime: this.uniforms.uTime,
+          uHype: this.uniforms.uHype,
+          uFlash: this.skirtFlash,
+          uA: { value: new THREE.Color(0xff8a2a).multiplyScalar(RenderSettings.glow(2.4)) },
+          uB: { value: new THREE.Color(0x52e6ff).multiplyScalar(RenderSettings.glow(1.6)) },
+        },
+        vertexShader: /* glsl */ `
+          varying vec2 vUv;
+          void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+        fragmentShader: /* glsl */ `
+          uniform sampler2D uMap; uniform float uTime; uniform float uHype; uniform float uFlash;
+          uniform vec3 uA; uniform vec3 uB; varying vec2 vUv;
+          void main() {
+            // read from outside the ring, the lettering runs against the corner order, top down
+            float u = 1.0 - vUv.x;
+            vec4 t = texture2D(uMap, vec2(u * ${REPEAT}.0 - uTime * 0.04, 1.0 - vUv.y));
+            // two bright sweeps chase round the ring, faster when the crowd is up
+            float chase = smoothstep(0.85, 1.0, fract(u * 2.0 - uTime * (0.12 + 0.2 * uHype)));
+            float k = 0.5 + 0.4 * uHype + uFlash + chase * 0.7;
+            gl_FragColor = vec4((uA * t.r + uB * t.g) * k + vec3(0.018, 0.02, 0.028), 1.0);
+          }`,
+      }),
     );
-    g.add(edge);
+    skirt.name = 'skirt';
+    g.add(skirt);
+  }
 
-    // corner posts + ropes
-    const postGeos: THREE.BufferGeometry[] = [];
-    const capGeos: THREE.BufferGeometry[] = [];
-    const ropeGeos: THREE.BufferGeometry[] = [];
-    const corners: THREE.Vector3[] = [];
+  /**
+   * Corner posts: a bolted flange, a steel column, a tall vinyl pad that swallows the rope ends,
+   * an LED strip down the pad's ring-facing side and a glowing beacon crown on top.
+   */
+  private buildPosts(glow: THREE.BufferGeometry[]) {
+    const steel: THREE.BufferGeometry[] = [];
+    const pads: THREE.BufferGeometry[] = [];
+    const orange = new THREE.Color(0xffa040).multiplyScalar(RenderSettings.glow(3));
+    const strip = new THREE.Color(0xff8a2a).multiplyScalar(RenderSettings.glow(2.2));
+    const padShape = [
+      [0.07, 0.36],
+      [0.14, 0.375],
+      [0.165, 0.41],
+      [0.172, 0.6],
+      [0.172, 1.3],
+      [0.165, 1.48],
+      [0.14, 1.515],
+      [0.07, 1.53],
+    ].map(([r, y]) => new THREE.Vector2(r, y));
     for (let i = 0; i < SIDES; i++) {
-      const a = (i / SIDES) * Math.PI * 2 + Math.PI / 8;
-      corners.push(new THREE.Vector3(Math.cos(a) * RING_RADIUS, 0, Math.sin(a) * RING_RADIUS));
+      const a = cornerAngle(i);
+      const x = Math.cos(a) * RING_RADIUS, z = Math.sin(a) * RING_RADIUS;
+      const flange = new THREE.CylinderGeometry(0.22, 0.25, 0.04, 8);
+      flange.translate(x, 0.02, z);
+      steel.push(flange);
+      for (let b = 0; b < 4; b++) {
+        const ba = a + Math.PI / 4 + (b * Math.PI) / 2;
+        const bolt = new THREE.CylinderGeometry(0.022, 0.022, 0.03, 6);
+        bolt.translate(x + Math.cos(ba) * 0.17, 0.05, z + Math.sin(ba) * 0.17);
+        steel.push(bolt);
+      }
+      const column = new THREE.CylinderGeometry(0.07, 0.08, 1.66, 8);
+      column.translate(x, 0.83, z);
+      steel.push(column);
+      const crown = new THREE.CylinderGeometry(0.13, 0.1, 0.07, 12);
+      crown.translate(x, 1.665, z);
+      steel.push(crown);
+      const pad = new THREE.LatheGeometry(padShape, 12);
+      pad.translate(x, 0, z);
+      pads.push(pad);
+      const beacon = new THREE.CylinderGeometry(0.11, 0.12, 0.04, 12);
+      beacon.translate(x, 1.72, z);
+      glow.push(tint(beacon, orange));
+      // LED strip on the side of the pad that faces the ring
+      const led = new THREE.BoxGeometry(0.035, 0.86, 0.02);
+      led.rotateY(Math.atan2(-x, -z));
+      led.translate(x - Math.cos(a) * 0.168, 0.95, z - Math.sin(a) * 0.168);
+      glow.push(tint(led, strip));
     }
-    for (const c of corners) {
-      const post = new THREE.CylinderGeometry(0.1, 0.13, 1.7, 12);
-      post.translate(c.x, 0.85, c.z);
-      postGeos.push(post);
-      const pad = new THREE.CylinderGeometry(0.16, 0.16, 1.2, 12);
-      pad.translate(c.x, 0.95, c.z);
-      postGeos.push(pad);
-      const cap = new THREE.SphereGeometry(0.11, 12, 8);
-      cap.translate(c.x, 1.76, c.z);
-      capGeos.push(cap);
-    }
-    // ropes: 16 segments each so they can bow; the vertex shader bends them
+    const posts = new THREE.Mesh(
+      mergeGeometries(steel)!,
+      contactAO.patch(new THREE.MeshStandardMaterial({ color: 0x3a404c, metalness: 0.85, roughness: 0.32 }), {
+        ground: { y: 0, height: 0.6, k: 0.6 },
+      }),
+    );
+    posts.castShadow = true;
+    this.group.add(posts);
+    const padMesh = new THREE.Mesh(
+      mergeGeometries(pads)!,
+      contactAO.patch(new THREE.MeshStandardMaterial({ color: 0x1d2029, metalness: 0.1, roughness: 0.42 }), {
+        ground: { y: 0, height: 0.7, k: 0.5 },
+      }),
+    );
+    padMesh.castShadow = true;
+    this.group.add(padMesh);
+  }
+
+  /**
+   * Ropes: armoured cables with a neon core, three per side, tied together by two vinyl straps
+   * per side. 16 segments each so they can bow: the vertex shader bends them, and the straps
+   * follow the ropes they are tied to. The core light ripples along them with the crowd.
+   */
+  private buildRopes() {
+    const geos: THREE.BufferGeometry[] = [];
+    const nH = ROPE_HEIGHTS.length;
+    const H0 = ROPE_HEIGHTS[0], HS = ROPE_HEIGHTS[1] - ROPE_HEIGHTS[0];
     for (let i = 0; i < SIDES; i++) {
-      const p0 = corners[i];
-      const p1 = corners[(i + 1) % SIDES];
+      const a0 = cornerAngle(i - 1), a1 = cornerAngle(i);
+      const p0 = new THREE.Vector3(Math.cos(a0) * RING_RADIUS, 0, Math.sin(a0) * RING_RADIUS);
+      const p1 = new THREE.Vector3(Math.cos(a1) * RING_RADIUS, 0, Math.sin(a1) * RING_RADIUS);
       const len = p0.distanceTo(p1);
-      // side i runs between corners i and i+1, so it faces halfway between them
-      const side = (i + 1) % SIDES;
-      const nx = SIDE_NX[side], nz = SIDE_NZ[side];
-      for (let h = 0; h < ROPE_HEIGHTS.length; h++) {
-        const rope = new THREE.CylinderGeometry(0.016, 0.016, len, 6, 16, true);
-        rope.rotateZ(Math.PI / 2);
-        rope.rotateY(-Math.atan2(p1.z - p0.z, p1.x - p0.x));
-        rope.translate((p0.x + p1.x) / 2, ROPE_HEIGHTS[h], (p0.z + p1.z) / 2);
-        const pos = rope.attributes.position;
+      const yaw = -Math.atan2(p1.z - p0.z, p1.x - p0.x);
+      // side i runs between corners i-1 and i, so it faces halfway between them
+      const nx = SIDE_NX[i], nz = SIDE_NZ[i];
+      const tag = (geo: THREE.BufferGeometry, kind: number, h: number | null) => {
+        const pos = geo.attributes.position;
         const n = pos.count;
-        const idx = new Float32Array(n).fill(side * ROPE_HEIGHTS.length + h);
         const t = new Float32Array(n);
+        const hh = new Float32Array(n);
         const out = new Float32Array(n * 2);
         for (let v = 0; v < n; v++) {
           const u = -pos.getX(v) * nz + pos.getZ(v) * nx;
           t[v] = Math.min(1, Math.max(0, (u + ROPE_HALF) / (2 * ROPE_HALF)));
+          hh[v] = h ?? Math.min(2, Math.max(0, (pos.getY(v) - H0) / HS));
           out[v * 2] = nx;
           out[v * 2 + 1] = nz;
         }
-        rope.setAttribute('aRope', new THREE.BufferAttribute(idx, 1));
-        rope.setAttribute('aT', new THREE.BufferAttribute(t, 1));
-        rope.setAttribute('aOut', new THREE.BufferAttribute(out, 2));
-        ropeGeos.push(rope);
+        geo.setAttribute('aRope', new THREE.BufferAttribute(new Float32Array(n).fill(i * nH), 1));
+        geo.setAttribute('aH', new THREE.BufferAttribute(hh, 1));
+        geo.setAttribute('aKind', new THREE.BufferAttribute(new Float32Array(n).fill(kind), 1));
+        geo.setAttribute('aT', new THREE.BufferAttribute(t, 1));
+        geo.setAttribute('aOut', new THREE.BufferAttribute(out, 2));
+        geos.push(geo);
+      };
+      for (let h = 0; h < nH; h++) {
+        const rope = new THREE.CylinderGeometry(0.026, 0.026, len, 6, 16, true);
+        rope.rotateZ(Math.PI / 2);
+        rope.rotateY(yaw);
+        rope.translate((p0.x + p1.x) / 2, ROPE_HEIGHTS[h], (p0.z + p1.z) / 2);
+        tag(rope, 0, h);
+      }
+      for (const f of [1 / 3, 2 / 3]) {
+        const strap = new THREE.BoxGeometry(0.05, ROPE_HEIGHTS[nH - 1] - H0, 0.034, 1, nH - 1, 1);
+        strap.rotateY(yaw);
+        strap.translate(p0.x + (p1.x - p0.x) * f, (H0 + ROPE_HEIGHTS[nH - 1]) / 2, p0.z + (p1.z - p0.z) * f);
+        tag(strap, 1, null);
       }
     }
     for (let k = 0; k < ROPES; k++) {
       this.ropeU.value[k * 4] = 0.5;
       this.ropeU.value[k * 4 + 2] = 1;
     }
-    const posts = new THREE.Mesh(
-      mergeGeometries(postGeos)!,
-      contactAO.patch(new THREE.MeshStandardMaterial({ color: 0x2b303b, metalness: 0.8, roughness: 0.35 }), {
-        ground: { y: 0, height: 0.6, k: 0.6 },
-      }),
-    );
-    posts.castShadow = true;
-    g.add(posts);
-    g.add(
-      new THREE.Mesh(
-        mergeGeometries(capGeos)!,
-        new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffa040).multiplyScalar(RenderSettings.glow(3.2)), toneMapped: false }),
-      ),
-    );
-    this.ropeMat = new THREE.MeshBasicMaterial({ color: this.ropeBase.clone(), toneMapped: false });
+    const mat = new THREE.MeshBasicMaterial({ color: this.ropeBase.clone(), toneMapped: false });
     const ropeU = this.ropeU;
-    this.ropeMat.onBeforeCompile = (shader) => {
+    const { uTime, uHype } = this.uniforms;
+    mat.onBeforeCompile = (shader) => {
       shader.uniforms.uRope = ropeU;
+      shader.uniforms.uTime = uTime;
+      shader.uniforms.uHype = uHype;
       shader.vertexShader = shader.vertexShader
         .replace(
           '#include <common>',
           `#include <common>
-           attribute float aRope; attribute float aT; attribute vec2 aOut; uniform vec4 uRope[${ROPES}];`,
+           attribute float aRope; attribute float aH; attribute float aKind; attribute float aT; attribute vec2 aOut;
+           uniform vec4 uRope[${ROPES}];
+           varying vec3 vRN; varying vec3 vRV; varying float vRT; varying float vRK;
+           // pressed: straight lines from each post to the contact (a V); free: a swinging arc
+           float ropeBow(vec4 rp, float t) {
+             float s = clamp(rp.x, 0.08, 0.92);
+             float vee = t < s ? t / s : (1.0 - t) / (1.0 - s);
+             return rp.y * mix(vee, sin(3.14159265 * t), rp.z);
+           }`,
         )
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
-           vec4 rp = uRope[int(aRope + 0.5)];
-           // pressed: straight lines from each post to the contact (a V); free: a swinging arc
-           float s = clamp(rp.x, 0.08, 0.92);
-           float vee = aT < s ? aT / s : (1.0 - aT) / (1.0 - s);
-           float shape = mix(vee, sin(3.14159265 * aT), rp.z);
-           transformed.xz += aOut * rp.y * shape;`,
+           // ropes sit on whole heights; a strap between two ropes follows both
+           float fh = clamp(aH, 0.0, 2.0);
+           float i0 = min(floor(fh), 1.0);
+           int k0 = int(aRope + i0 + 0.5);
+           transformed.xz += aOut * mix(ropeBow(uRope[k0], aT), ropeBow(uRope[k0 + 1], aT), fh - i0);`,
+        )
+        .replace(
+          '#include <project_vertex>',
+          `#include <project_vertex>
+           vRN = normalize(normalMatrix * normal); vRV = -mvPosition.xyz; vRT = aT; vRK = aKind;`,
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+           uniform float uTime; uniform float uHype;
+           varying vec3 vRN; varying vec3 vRV; varying float vRT; varying float vRK;`,
+        )
+        .replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+           float rf = abs(dot(normalize(vRN), normalize(vRV)));
+           if (vRK < 0.5) {
+             // a dark sleeve round a neon core, with light rippling along it
+             float core = smoothstep(0.35, 0.9, rf);
+             float ripple = 0.5 + 0.5 * sin(vRT * 18.85 - uTime * 3.0);
+             vec3 lit = diffuseColor.rgb * (0.85 + 0.35 * uHype * ripple);
+             diffuseColor.rgb = mix(vec3(0.03, 0.035, 0.045) + diffuseColor.rgb * 0.05, lit, core);
+           } else {
+             diffuseColor.rgb = vec3(0.55, 0.57, 0.62) * (0.25 + 0.6 * rf);
+           }`,
         );
     };
-    const ropes = new THREE.Mesh(mergeGeometries(ropeGeos)!, this.ropeMat);
+    const ropes = new THREE.Mesh(mergeGeometries(geos)!, mat);
     // bowing ropes reach past the merged bounds; they ring the camera's subject anyway
     ropes.frustumCulled = false;
     ropes.name = 'ropes';
-    g.add(ropes);
+    this.group.add(ropes);
+    return mat;
+  }
 
-    // overhead rig: truss ring + beams
-    const truss = new THREE.Mesh(
-      new THREE.TorusGeometry(6.5, 0.12, 6, 48),
-      new THREE.MeshStandardMaterial({ color: 0x22262f, metalness: 0.8, roughness: 0.4 }),
-    );
-    truss.rotation.x = Math.PI / 2;
-    truss.position.y = 8.5;
-    g.add(truss);
-
-    // light beams (fake volumetrics)
-    if (quality !== 'low') g.add(this.buildBeams());
+  /** An octagonal box truss over the ring, with the six lamps that throw the light shafts. */
+  private buildTruss(glow: THREE.BufferGeometry[]) {
+    const geos: THREE.BufferGeometry[] = [];
+    const H = 0.18; // half the truss section
+    const RT = 6.25 / Math.cos(Math.PI / SIDES); // corner radius, so the sides run through the lamps
+    const at = (i: number, dr: number, dy: number, t = 0) => {
+      const a = cornerAngle(i - 1), b = cornerAngle(i);
+      const r = RT + dr / Math.cos(Math.PI / SIDES);
+      const p = new THREE.Vector3(Math.cos(a) * r, TRUSS_Y + dy, Math.sin(a) * r);
+      return p.lerp(new THREE.Vector3(Math.cos(b) * r, TRUSS_Y + dy, Math.sin(b) * r), t);
+    };
+    const N = 7;
+    for (let i = 0; i < SIDES; i++) {
+      const chords: [number, number][] = [
+        [-H, -H],
+        [H, -H],
+        [H, H],
+        [-H, H],
+      ];
+      for (const [dr, dy] of chords) geos.push(beam(at(i, dr, dy, -0.01), at(i, dr, dy, 1.01), 0.05));
+      // zigzag lacing down each of the four faces
+      for (let f = 0; f < 4; f++) {
+        const [r0, y0] = chords[f], [r1, y1] = chords[(f + 1) % 4];
+        for (let k = 0; k < N; k++) {
+          const ta = k / N, tb = (k + 1) / N;
+          const a = k % 2 ? at(i, r0, y0, ta) : at(i, r1, y1, ta);
+          const b = k % 2 ? at(i, r1, y1, tb) : at(i, r0, y0, tb);
+          geos.push(beam(a, b, 0.022));
+        }
+      }
+    }
+    const lens = new THREE.Color(0xdfefff).multiplyScalar(RenderSettings.glow(2.5));
+    for (const { top, bottom } of LAMPS) {
+      const dir = bottom.clone().sub(top).normalize();
+      geos.push(aim(new THREE.CylinderGeometry(0.14, 0.11, 0.3, 10), top.clone().addScaledVector(dir, -0.12), dir));
+      geos.push(beam(top.clone().addScaledVector(dir, -0.2), new THREE.Vector3(top.x, TRUSS_Y - H, top.z), 0.04));
+      glow.push(tint(aim(new THREE.CylinderGeometry(0.12, 0.12, 0.02, 10), top.clone().addScaledVector(dir, 0.035), dir), lens));
+    }
+    const truss = new THREE.Mesh(mergeGeometries(geos)!, new THREE.MeshStandardMaterial({ color: 0x22262f, metalness: 0.8, roughness: 0.45 }));
+    truss.name = 'truss';
+    this.group.add(truss);
   }
 
   /**
@@ -479,6 +610,8 @@ export class Arena {
     this.venue.update(dt, time, this.hype);
     this.ropeFlash = Math.max(0, this.ropeFlash - dt * 3);
     this.ropeMat.color.copy(this.ropeBase).multiplyScalar(1 + this.ropeFlash * 1.6);
+    this.glowMat.color.setScalar(0.8 + this.hype * 0.35 + this.ropeFlash * 0.4);
+    this.skirtFlash.value = this.ropeFlash * 0.6;
     this.updateRopes(dt);
   }
 }
