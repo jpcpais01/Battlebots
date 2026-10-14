@@ -5,7 +5,7 @@ import { Fx, type Trail } from '../render/fx';
 import { Director } from '../render/director';
 import { ClearView } from '../render/clearView';
 import { Drones } from '../render/drones';
-import { Stretcher, STRETCHER_TIME } from '../render/stretcher';
+import { Stretcher, rideEnd } from '../render/stretcher';
 import { CrowdMood } from '../audio/crowd';
 import { BotModel } from '../render/botModel';
 import { Match, PRESENT, SIM_DT, type DetachInfo, type HitInfo } from '../sim/match';
@@ -693,7 +693,7 @@ export class Game {
     }
     const loser = m.winner.opp;
     if (!st.on) st.begin(m, loser);
-    st.update(m.phaseTime + this.acc, flow, this.models[loser.index], this.debris, this.fx, this.sfx, this.quiet);
+    st.update(m.phaseTime + this.acc, flow, this.models[loser.index], this.debris, this.sfx, this.quiet);
     // carried off: its model goes with the stretcher, and stays gone once that has left
     this.models[loser.index].root.visible = !st.gone;
     // (gone, it keeps the last pose it had, down the tunnel, off the ropes and the canvas)
@@ -704,7 +704,7 @@ export class Game {
   /** The loser's stretcher is still on its way out (the results wait for it). */
   get carrying() {
     const m = this.match;
-    return !!m && m.phase === 'end' && !!m.winner && m.phaseTime < STRETCHER_TIME;
+    return !!m && m.phase === 'end' && !!m.winner && m.phaseTime < rideEnd(m);
   }
 
   // ---------------------------------------------------------------- replays
