@@ -142,6 +142,8 @@ export class Director {
   private pos = new THREE.Vector3(0, 3, 9);
   private look = new THREE.Vector3(0, 1.2, 0);
   private trauma = 0;
+  private joltOff = new THREE.Vector3();
+  private joltVel = new THREE.Vector3();
   private fovKick = 0;
   private baseFov = 38;
   private noise: Noise1;
@@ -259,6 +261,14 @@ export class Director {
   shake(amount: number) {
     this.trauma = Math.min(1, this.trauma + amount);
   }
+  /**
+   * Knocks the camera a few centimetres the way a blow travelled (amount ~0.5 a jab, ~3 a
+   * crushing hit); a stiff spring brings it back. Unlike the trauma shake, which buzzes in
+   * every direction, this tells you which way the hit went.
+   */
+  jolt(dir: THREE.Vector3, amount: number) {
+    this.joltVel.addScaledVector(dir, Math.min(3.5, amount) * 0.9);
+  }
   punch(amount: number) {
     this.fovKick = Math.min(6, this.fovKick + amount);
   }
@@ -359,7 +369,15 @@ export class Director {
     this.trauma = Math.max(0, this.trauma - dt * 1.6);
     const sh = this.trauma * this.trauma;
     const n = (o: number) => this.noise.at(this.t * 28 + o);
-    this.camera.position.set(this.pos.x + n(0) * sh * 0.25, this.pos.y + n(10) * sh * 0.2, this.pos.z + n(20) * sh * 0.25);
+    // jolt spring (semi-implicit, stable at any frame rate we run at)
+    const jdt = Math.min(dt, 1 / 30);
+    this.joltVel.addScaledVector(this.joltOff, -260 * jdt).multiplyScalar(Math.exp(-15 * jdt));
+    this.joltOff.addScaledVector(this.joltVel, jdt);
+    this.camera.position.set(
+      this.pos.x + n(0) * sh * 0.25 + this.joltOff.x,
+      this.pos.y + n(10) * sh * 0.2 + this.joltOff.y,
+      this.pos.z + n(20) * sh * 0.25 + this.joltOff.z,
+    );
     this.camera.lookAt(this.look);
     this.camera.rotateZ(this.roll + n(30) * sh * 0.04);
     this.shift = damp(this.shift, this.shiftX, 4, dt);

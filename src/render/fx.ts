@@ -1,5 +1,7 @@
 import * as THREE from 'three';
+import { Bits } from './bits';
 import { RenderSettings } from './settings';
+import { Sparks } from './sparks';
 
 const MAX_PARTICLES = 700;
 /** Smoke puffs and metal flakes (alpha blended, so they can be dark). */
@@ -27,9 +29,14 @@ interface Flash {
   size: number;
 }
 
-/** Particles, impact flashes, swing trails and electric arcs. (Shockwaves are a screen warp: see ripple.ts.) */
+/**
+ * Particles, streaking sparks, flying nuts and bolts, impact flashes, swing trails and
+ * electric arcs. (Shockwaves are a screen warp: see ripple.ts.)
+ */
 export class Fx {
   readonly group = new THREE.Group();
+  readonly streaks = new Sparks();
+  readonly bits = new Bits();
   // particles (CPU simulated, one draw call)
   private pPos = new Float32Array(MAX_PARTICLES * 3);
   private pVel = new Float32Array(MAX_PARTICLES * 3);
@@ -91,6 +98,8 @@ export class Fx {
     this.points = new THREE.Points(this.geo, mat);
     this.points.frustumCulled = false;
     this.group.add(this.points);
+    this.group.add(this.streaks.mesh);
+    this.group.add(this.bits.group);
 
     this.smokeGeo = new THREE.BufferGeometry();
     this.smokeGeo.setAttribute('position', new THREE.BufferAttribute(this.sPos, 3).setUsage(THREE.DynamicDrawUsage));
@@ -146,6 +155,7 @@ export class Fx {
   setPixelScale(h: number) {
     (this.points.material as THREE.ShaderMaterial).uniforms.uScale.value = h * 0.5;
     (this.smokePts.material as THREE.ShaderMaterial).uniforms.uScale.value = h * 0.5;
+    this.streaks.setPixelScale(h);
   }
 
   private emitSmoke(p: THREE.Vector3, vx: number, vy: number, vz: number, gray: number, life: number, size: number, grow: number, alpha: number, grav: number, drag: number) {
@@ -223,16 +233,44 @@ export class Fx {
     this.pGrav[i] = grav;
   }
 
+  /** Hot sparks thrown along `dir` (spread 0 = a jet, 1 = a wide fan). */
   sparks(p: THREE.Vector3, dir: THREE.Vector3, count: number, color: THREE.ColorRepresentation, speed = 6, spread = 1) {
-    const c = new THREE.Color(color);
-    const hot = new THREE.Color(0xfff2d0);
-    for (let i = 0; i < count; i++) {
-      const s = speed * (0.4 + Math.random() * 0.9);
-      const vx = dir.x * s + (Math.random() - 0.5) * speed * spread;
-      const vy = dir.y * s + (Math.random() - 0.3) * speed * spread;
-      const vz = dir.z * s + (Math.random() - 0.5) * speed * spread;
-      const col = Math.random() < 0.35 ? hot : c;
-      this.emit(p, vx, vy, vz, col.clone().multiplyScalar(RenderSettings.glow(4)), 0.25 + Math.random() * 0.35, 0.05 + Math.random() * 0.05, 1.5, 9);
+    this.streaks.spray(p, dir, count, _c.set(color), speed, spread);
+  }
+
+  /**
+   * The sparks of a blow landing, shaped by which way it travelled (`dir`) and how hard it
+   * was (k 0..1): a jet carried on past the contact in the direction of the blow, a flat
+   * sheet skating off sideways across the plate, a few ricochets kicking back, and a handful
+   * of very fast, short-lived streaks right at the contact that make the hit pop.
+   */
+  impact(p: THREE.Vector3, dir: THREE.Vector3, k: number, color: THREE.ColorRepresentation) {
+    const c = _c.set(color);
+    const sp = this.streaks;
+    sp.spray(p, dir, Math.round(10 + k * 26), c, 6 + k * 6, 0.45, 1 + k * 0.4);
+    // the sheet: perpendicular to the blow, glancing off the surface
+    _t.set(-dir.z, 0, dir.x);
+    if (_t.lengthSq() < 1e-4) _t.set(1, 0, 0);
+    _t.normalize();
+    _b.crossVectors(dir, _t).normalize();
+    const sheet = Math.round(6 + k * 16);
+    for (let i = 0; i < sheet; i++) {
+      const a = Math.random() * Math.PI * 2;
+      _v.copy(_t).multiplyScalar(Math.cos(a)).addScaledVector(_b, Math.sin(a)).addScaledVector(dir, 0.35).normalize();
+      const s = (3.5 + k * 4) * (0.4 + Math.random() * 0.8);
+      sp.emit(p, _v.x * s, _v.y * s + 0.6, _v.z * s, c, 0.18 + Math.random() * 0.3, 0.006 + Math.random() * 0.006);
+    }
+    // ricochets
+    for (let i = 0, n = 2 + Math.round(k * 4); i < n; i++) {
+      _v.set(Math.random() - 0.5, 0.5 + Math.random() * 0.5, Math.random() - 0.5).addScaledVector(dir, -0.9).normalize();
+      const s = 2.5 + Math.random() * 2.5;
+      sp.emit(p, _v.x * s, _v.y * s, _v.z * s, c, 0.4 + Math.random() * 0.4, 0.008);
+    }
+    // the pop: a star of very fast, very short streaks
+    for (let i = 0, n = 4 + Math.round(k * 5); i < n; i++) {
+      _v.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).multiplyScalar(0.8).add(dir).normalize();
+      const s = 16 + Math.random() * 10 + k * 8;
+      sp.emit(p, _v.x * s, _v.y * s, _v.z * s, _cw.setRGB(1, 0.96, 0.88), 0.05 + Math.random() * 0.04, 0.014 + k * 0.01, 6, 0);
     }
   }
 
@@ -304,6 +342,8 @@ export class Fx {
   }
 
   update(dt: number, camera: THREE.Camera) {
+    this.streaks.update(dt, camera);
+    this.bits.update(dt);
     // particles
     for (let i = 0; i < MAX_PARTICLES; i++) {
       if (this.pLife[i] <= 0) {
@@ -396,6 +436,10 @@ export class Fx {
 const _v = new THREE.Vector3();
 const _u = new THREE.Vector3();
 const _w = new THREE.Vector3();
+const _t = new THREE.Vector3();
+const _b = new THREE.Vector3();
+const _c = new THREE.Color();
+const _cw = new THREE.Color();
 const _q = new THREE.Quaternion();
 const _up = new THREE.Vector3(0, 1, 0);
 
