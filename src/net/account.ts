@@ -75,6 +75,8 @@ export interface AccountHooks {
   load: (bot: BotSpec, record: Record_) => void;
   /** Signed in or out, or the sync state changed. */
   changed: () => void;
+  /** This device first matched the account's cloud copy (after signing in or launching). */
+  synced?: () => void;
 }
 
 export class Account {
@@ -91,6 +93,8 @@ export class Account {
    * a phone that logs in while offline mustn't overwrite the account's bot with its own.
    */
   private synced = false;
+  /** `hooks.synced` has run for this session. */
+  private announced = false;
 
   constructor(private hooks: AccountHooks) {
     this.session = readSession();
@@ -174,6 +178,7 @@ export class Account {
     if (this.session && this.synced && this.dirty) void this.push(true);
     this.session = null;
     this.synced = false;
+    this.announced = false;
     this.sync = 'idle';
     this.syncedAt = 0;
     writeSession(null);
@@ -197,6 +202,7 @@ export class Account {
   private begin(s: Session) {
     this.session = s;
     writeSession(s);
+    this.announced = false;
     this.dirty = false;
     this.hooks.changed();
   }
@@ -205,6 +211,25 @@ export class Account {
     if (s === 'saved') this.syncedAt = Date.now();
     this.sync = s;
     this.hooks.changed();
+    if (s === 'saved' && this.synced && !this.announced) {
+      this.announced = true;
+      this.hooks.synced?.();
+    }
+  }
+
+  /**
+   * Run `fn` against the account's cloud storage (other documents than the save, such as
+   * replays). Null when signed out, not matched up yet, or the call failed.
+   */
+  async cloud<T>(fn: (t: Tokens) => Promise<T>): Promise<T | null> {
+    const s = this.session;
+    if (!s || !this.synced || !this.available) return null;
+    try {
+      const t = await this.token(s);
+      return this.is(s) ? await fn(t) : null;
+    } catch {
+      return null;
+    }
   }
 
   /** `s` is still the signed-in account (its tokens may have been renewed since). */

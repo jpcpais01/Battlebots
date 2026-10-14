@@ -185,6 +185,24 @@ export class Director {
   private wantLook = new THREE.Vector3();
 
   // ---- fight camera state (polar around a framing centre)
+  /**
+   * The fight camera is directed on the match clock: it steps with the sim (see step), draws
+   * from an Rng seeded by the match, and starts from a fixed state, so a replay (or a seek)
+   * films the fight with exactly the same shots and cuts. Frames in between ease from the
+   * last step's lens to this one's.
+   */
+  private rng = new Rng(1);
+  private r = () => this.rng.next();
+  /** Fight time on the director's own clock (match time, at real speed through slow motion). */
+  private ft = 0;
+  private prevPos = new THREE.Vector3();
+  private prevLook = new THREE.Vector3();
+  private prevFov = 38;
+  private prevRoll = 0;
+  private outPos = new THREE.Vector3();
+  private outLook = new THREE.Vector3();
+  /** Filming from someone else's shot (the stretcher's) last frame. */
+  private wasExt = false;
   private fresh = true;
   private shot: Shot = makeShot('wide', Math.random);
   /** Side of the fight line the lens is on: +1 puts fighter 0 screen-left, -1 fighter 1. */
@@ -306,7 +324,63 @@ export class Director {
     this.beat = '';
     this.povBy = -1;
     this.povGap = 0;
-    if (this.shot.kind === 'pov') this.shot = makeShot('wide', Math.random);
+    if (this.shot.kind === 'pov') this.shot = makeShot('wide', this.r);
+  }
+
+  /**
+   * A fight starts: everything the fight camera decides with goes back to one fixed state,
+   * seeded from the match, and the first step frames it.
+   */
+  begin(match: Match) {
+    this.rng = new Rng((match.seed ^ 0x5ca1ab1e) >>> 0);
+    this.koFocus = null;
+    this.reset();
+    this.ft = 0;
+    this.pos.set(0, 3, 9);
+    this.look.set(0, 1.2, 0);
+    this.shot = makeShot('wide', this.r);
+    this.side = 1;
+    this.axisAng = 0;
+    this.rawAxis = 0;
+    this.yaw = Math.PI / 2;
+    this.el = 0.3;
+    this.dist = 7;
+    this.fov = this.baseFov;
+    this.roll = 0;
+    this.center.set(0, 1, 0);
+    this.kick.set(0, 0, 0);
+    this.koAng = 0;
+    this.koSnap = false;
+    this.sep = 1;
+    this.crampedFor = 0;
+    this.alignedFor = 0;
+    this.downIndex = 0;
+    this.finBy = 0;
+    this.filler = { n: 0, kind: 0, t: 0, dur: 0, a: 0, dir: 1 };
+    this.wasExt = false;
+    this.step(match, 0);
+  }
+
+  /** One sim step of the fight camera: `dt` is the real time it covers (longer in slow motion). */
+  step(match: Match, dt: number) {
+    if (this.mode !== 'match') return;
+    this.prevPos.copy(this.pos);
+    this.prevLook.copy(this.look);
+    this.prevFov = this.fov;
+    this.prevRoll = this.roll;
+    const cuts = this.cuts;
+    this.ft += dt;
+    this.fight(dt, match);
+    // a cut doesn't ease from the old setup
+    if (this.cuts !== cuts) this.settle();
+  }
+
+  /** Start easing from where the lens is now. */
+  private settle() {
+    this.prevPos.copy(this.pos);
+    this.prevLook.copy(this.look);
+    this.prevFov = this.fov;
+    this.prevRoll = this.roll;
   }
 
   /**
@@ -337,11 +411,13 @@ export class Director {
     this.kick.subVectors(h.point, this.center).multiplyScalar(big ? 0.35 : h.blocked ? 0.08 : 0.15);
     if (this.kick.length() > 0.4) this.kick.setLength(0.4);
     // big shots often get a cut to a fresh angle once the impact has landed
-    if (big && !h.knockdown && this.shot.t > (this.shot.kind === 'pov' ? POV_MIN : 1.2) && this.cutIn < 0 && Math.random() < 0.4) this.cutIn = 0.35 + Math.random() * 0.2;
+    if (big && !h.knockdown && this.shot.t > (this.shot.kind === 'pov' ? POV_MIN : 1.2) && this.cutIn < 0 && this.r() < 0.4) this.cutIn = 0.35 + this.r() * 0.2;
   }
 
-  update(dt: number, match: Match | null) {
+  /** Move the lens for this frame. In a fight `alpha` is how far the sim is towards its next step. */
+  update(dt: number, match: Match | null, alpha = 1) {
     this.t += dt;
+    let lensPos = this.pos, lensLook = this.look, lensFov = this.fov, lensRoll = this.roll;
     const wantPos = this.wantPos.set(0, 0, 0);
     const wantLook = this.wantLook.set(0, 0, 0);
     let posLambda = 2.6;
@@ -349,19 +425,24 @@ export class Director {
     const ext = this.ext;
     this.ext = null;
     if (this.mode === 'match' && match && ext) {
-      // the director picks up on the winner afterwards
-      if (this.shot.kind !== 'win' && match.winner) {
-        this.endPov();
-        this.shot = makeShot('win', Math.random);
-        this.shot.subject = match.winner.index;
-      }
-      if (ext.cut) this.cuts++;
-      this.pos.copy(ext.pos);
-      this.look.copy(ext.look);
-      this.fov = this.baseFov * ext.fovK * ZOOM[this.zoom].fov;
-      this.roll = damp(this.roll, 0, 3, dt);
+      // (the director keeps directing underneath, and picks up on the winner afterwards)
+      if (ext.cut || !this.wasExt) this.cuts++;
+      this.wasExt = true;
+      lensPos = this.outPos.copy(ext.pos);
+      lensLook = this.outLook.copy(ext.look);
+      lensFov = this.baseFov * ext.fovK * ZOOM[this.zoom].fov;
+      lensRoll = 0;
     } else if (this.mode === 'match' && match) {
-      this.fight(dt, match);
+      if (this.wasExt) {
+        this.wasExt = false;
+        this.cuts++;
+        this.settle();
+      }
+      const k = clamp(alpha, 0, 1);
+      lensPos = this.outPos.lerpVectors(this.prevPos, this.pos, k);
+      lensLook = this.outLook.lerpVectors(this.prevLook, this.look, k);
+      lensFov = this.prevFov + (this.fov - this.prevFov) * k;
+      lensRoll = this.prevRoll + (this.roll - this.prevRoll) * k;
     } else {
       this.fresh = true;
       if (this.mode === 'garage') {
@@ -414,6 +495,8 @@ export class Director {
       const fovTo = scene ? this.baseFov * this.sceneFov : this.baseFov;
       this.fov = exact ? fovTo : damp(this.fov, fovTo, scene ? this.sceneLambda : 3, dt);
       this.roll = exact ? this.sceneRoll : damp(this.roll, scene ? this.sceneRoll : 0, 3, dt);
+      lensFov = this.fov;
+      lensRoll = this.roll;
     }
 
     this.snapNext = false;
@@ -426,19 +509,19 @@ export class Director {
     this.joltVel.addScaledVector(this.joltOff, -260 * jdt).multiplyScalar(Math.exp(-15 * jdt));
     this.joltOff.addScaledVector(this.joltVel, jdt);
     this.camera.position.set(
-      this.pos.x + n(0) * sh * 0.25 + this.joltOff.x,
-      this.pos.y + n(10) * sh * 0.2 + this.joltOff.y,
-      this.pos.z + n(20) * sh * 0.25 + this.joltOff.z,
+      lensPos.x + n(0) * sh * 0.25 + this.joltOff.x,
+      lensPos.y + n(10) * sh * 0.2 + this.joltOff.y,
+      lensPos.z + n(20) * sh * 0.25 + this.joltOff.z,
     );
-    this.camera.lookAt(this.look);
-    this.camera.rotateZ(this.roll + n(30) * sh * 0.04);
+    this.camera.lookAt(lensLook);
+    this.camera.rotateZ(lensRoll + n(30) * sh * 0.04);
     this.shift = damp(this.shift, this.shiftX, 4, dt);
     if (Math.abs(this.shift) > 0.002) {
       const h = 1000, w = h * this.camera.aspect;
       this.camera.setViewOffset(w, h, this.shift * w, 0, w, h);
     } else if (this.camera.view?.enabled) this.camera.clearViewOffset();
     this.fovKick = damp(this.fovKick, 0, 5, dt);
-    const fov = this.fov - this.fovKick;
+    const fov = lensFov - this.fovKick;
     // behind a bot's eyes, its own guard comes right up to the lens: clip what is nearer than a visor
     const near = this.pov >= 0 ? 0.2 : 0.1;
     if (Math.abs(this.camera.fov - fov) > 0.01 || this.camera.near !== near) {
@@ -466,8 +549,7 @@ export class Director {
       this.side = this.homeSide;
       this.dist = Math.max(2, this.rel.length());
       this.el = Math.asin(clamp(this.rel.y / this.dist, -0.5, 0.95));
-      this.fov = this.camera.fov;
-      this.shot = makeShot('intro', Math.random);
+      this.shot = makeShot('intro', this.r);
     }
     // the fight line turns slowly so circling fighters don't whip the camera around
     if (sep > 0.3) {
@@ -510,13 +592,13 @@ export class Director {
     else if (ph === 'intro') this.presentShot(match, cut);
     else if (ph === 'countdown') this.introShot(dt, match, cut);
     else if (ph === 'greet') {
-      if (sh.kind !== 'greet') this.shot = makeShot('greet', Math.random);
+      if (sh.kind !== 'greet') this.shot = makeShot('greet', this.r);
     } else if (ph === 'ko') {
       if (sh.kind !== 'ko' && this.koFocus !== null && (!held || sh.kind === 'pov')) this.cut(match, 'ko');
     } else if (ph === 'end' && match.winner) {
       if (sh.kind !== 'win') {
         this.endPov();
-        this.shot = makeShot('win', Math.random);
+        this.shot = makeShot('win', this.r);
         this.shot.subject = match.winner.index;
       }
     } else if (match.fin) {
@@ -528,8 +610,8 @@ export class Director {
     } else {
       if (sh.kind === 'intro') {
         // the intro crane settles into a wide establishing shot without a cut
-        this.shot = makeShot('wide', Math.random);
-        this.shot.dur = 3 + Math.random() * 2;
+        this.shot = makeShot('wide', this.r);
+        this.shot.dur = 3 + this.r() * 2;
       } else if (sh.kind === 'greet') {
         // the touch-gloves shot holds into the first exchange, then the director takes over
         sh.kind = 'medium';
@@ -597,10 +679,10 @@ export class Director {
   private cut(match: Match, kind?: ShotKind) {
     const wasPov = this.shot.kind === 'pov';
     this.endPov();
-    if (!kind && !wasPov && this.povGap > POV_GAP && Math.random() < POV_CHANCE && this.startPov(match)) return;
+    if (!kind && !wasPov && this.povGap > POV_GAP && this.r() < POV_CHANCE && this.startPov(match)) return;
     const prevYaw = this.yaw, prevDist = this.dist, prevKind = this.shot.kind, prevSide = this.side;
     const home = this.homeSide;
-    const r = Math.random;
+    const r = this.r;
     let best: Shot | null = null;
     let bestSide = prevSide;
     // a cut starts from where the fighters really are
@@ -675,7 +757,7 @@ export class Director {
 
   /** Event shots: knockdown, KO and celebration. */
   private special(s: Shot): Shot {
-    const r = Math.random;
+    const r = this.r;
     if (s.kind === 'down') {
       const i = this.downIndex;
       const toward = (i === 0 ? 1 : -1) * (r() < 0.65 ? 1 : -1);
@@ -707,10 +789,10 @@ export class Director {
    * player's own bot. Returns false when neither fighter can carry the shot.
    */
   private startPov(match: Match) {
-    const first = Math.random() < 0.6 ? this.player : 1 - this.player;
+    const first = this.r() < 0.6 ? this.player : 1 - this.player;
     const by = this.povOk(match, first) ? first : this.povOk(match, 1 - first) ? 1 - first : -1;
     if (by < 0) return false;
-    const r = Math.random;
+    const r = this.r;
     const s = makeShot('pov', r);
     Object.assign(s, { dur: POV_MIN + 0.5 + r() * (POV_MAX - POV_MIN - 0.5), subject: 1 - by, wobble: 0 });
     this.shot = s;
@@ -804,7 +886,7 @@ export class Director {
       if (s.kind === 'orbit' && Math.abs(s.az) > 0.85 && s.az * s.orbit > 0) s.orbit = -s.orbit;
       if ((s.kind === 'ko' || s.kind === 'fin') && Math.abs(s.az) > 1 && s.az * s.orbit > 0) s.orbit = -s.orbit;
       if (s.kind === 'ko') wantEl = 0.02 + Math.min(0.26, s.t * 0.06);
-      wantYaw = this.shotYaw(s) + this.noise.at(this.t * 0.07 + 40) * 0.1;
+      wantYaw = this.shotYaw(s) + this.noise.at(this.ft * 0.07 + 40) * 0.1;
       // keep off the fight line so neither fighter hides behind the other
       if (this.sep > 0.6 && s.kind !== 'ko') {
         const min = s.kind === 'ots' ? 0.42 : 0.62;
@@ -841,9 +923,9 @@ export class Director {
     this.pos.y = Math.max(0.35, this.pos.y);
     const wob = s.wobble;
     this.look.set(
-      this.center.x + this.kick.x + this.noise.at(this.t * 0.6 + 3) * wob,
-      this.center.y + this.kick.y * 0.5 + this.noise.at(this.t * 0.5 + 9) * wob,
-      this.center.z + this.kick.z + this.noise.at(this.t * 0.6 + 17) * wob,
+      this.center.x + this.kick.x + this.noise.at(this.ft * 0.6 + 3) * wob,
+      this.center.y + this.kick.y * 0.5 + this.noise.at(this.ft * 0.5 + 9) * wob,
+      this.center.z + this.kick.z + this.noise.at(this.ft * 0.6 + 17) * wob,
     );
     // looking straight down the fight line, one fighter hides the other
     const along = Math.abs(Math.cos(this.yaw - this.rawAxis));
@@ -884,14 +966,15 @@ export class Director {
 
   private nextFiller() {
     const fl = this.filler;
-    let kind = (Math.random() * 4) | 0;
+    const r = this.r;
+    let kind = (r() * 4) | 0;
     if (fl.n && kind === fl.kind) kind = (kind + 1) % 4;
     fl.n++;
     fl.kind = kind;
     fl.t = 0;
-    fl.dur = 2.6 + Math.random() * 1.4;
-    fl.a = Math.random() * Math.PI * 2;
-    fl.dir = Math.random() < 0.5 ? -1 : 1;
+    fl.dur = 2.6 + r() * 1.4;
+    fl.a = r() * Math.PI * 2;
+    fl.dir = r() < 0.5 ? -1 : 1;
   }
 
   /**

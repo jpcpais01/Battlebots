@@ -38,6 +38,7 @@ import { OnlineScreen } from './online';
 import type { OnlineSession } from '../net/session';
 import { loadPlayer, loadQuality, loadRecord, loadSaves, loadZoom, MAX_SAVES, savePlayer, saveSaves, saveQuality, saveRecord, saveZoom, setOnSaved, type Record_, type Zoom } from './store';
 import { bytesOf, canVoiceToday, isVoiced, voicedNames, voiceName } from '../audio/nameVoice';
+import { MAX_REPLAYS, ReplayShelf, isSaved, outdated, type SavedReplay } from './replays';
 import { Account, PASSWORD_MIN, USERNAME_MAX, type SyncState } from '../net/account';
 import { WALK_ONS, walkOnFor } from '../audio/walkOn';
 
@@ -58,12 +59,12 @@ const PAINT_HINT: Record<'primary' | 'secondary' | 'accent', string> = {
 type ScreenId = 'home' | 'garage' | 'fight' | 'online';
 
 /** Where the home screen happens: an animated place, or the arena as before. */
-type HomePlace = 'beach' | 'gym' | 'arena';
-const HOME_PLACE_NAME: Record<HomePlace, string> = { beach: 'Beach', gym: 'Gym', arena: 'Arena' };
+type HomePlace = 'beach' | 'gym' | 'lounge' | 'arena';
+const HOME_PLACE_NAME: Record<HomePlace, string> = { beach: 'Beach', gym: 'Gym', lounge: 'Lounge', arena: 'Arena' };
 function loadHomePlace(): HomePlace {
   try {
     const v = localStorage.getItem('bb.homeScene');
-    if (v === 'beach' || v === 'gym' || v === 'arena') return v;
+    if (v === 'beach' || v === 'gym' || v === 'lounge' || v === 'arena') return v;
   } catch {
     /* ignore */
   }
@@ -151,6 +152,9 @@ export class App {
   private resultsAt = 0;
   private skipBtn: HTMLElement | null = null;
   private account: Account;
+  /** The player's saved replays, and a redraw of their list while it's open. */
+  private replays: ReplayShelf;
+  private replaysView: (() => void) | null = null;
   private accountBtn: HTMLButtonElement | null = null;
   /** Redraws the account popup while it's open. */
   private accountView: (() => void) | null = null;
@@ -173,7 +177,10 @@ export class App {
         this.refreshAccount();
         this.accountView?.();
       },
+      synced: () => void this.replays.sync(),
     });
+    this.replays = new ReplayShelf(this.account);
+    this.replays.onChange = () => this.replaysView?.();
     setOnSaved(() => this.account.saved());
     this.hud = new Hud(game, this.ui);
     this.perf = new PerfOverlay(game);
@@ -347,6 +354,9 @@ export class App {
   private tap(kind: 'tap' | 'select' | 'back' | 'start' = 'tap') {
     this.game.sfx?.unlock();
     this.game.sfx?.ui(kind);
+    // the player's walk-on theme renders in the background from the first tap, so it is
+    // ready for the first fight's entrance
+    this.game.sfx?.primeWalkOn(walkOnFor(this.player));
   }
 
   // ------------------------------------------------------------ home
@@ -398,6 +408,7 @@ export class App {
       this.tap('select');
       this.go('online');
     }, sub);
+    button('btn small wide', `${ICON.replay}Replays`, () => this.replaysMenu(), sub);
     button('btn primary big', `${ICON.swords}Fight`, () => this.fight(), right);
     return s;
   }
@@ -413,11 +424,11 @@ export class App {
     b.innerHTML = `${ICON.scene}<span>${HOME_PLACE_NAME[this.homePlace]}</span>`;
   }
 
-  /** The scene button: beach, gym, arena, round again. */
+  /** The scene button: beach, gym, lounge, arena, round again. */
   private cycleHomePlace() {
     if (this.leaving) return;
     this.tap('select');
-    const order: HomePlace[] = ['beach', 'gym', 'arena'];
+    const order: HomePlace[] = ['beach', 'gym', 'lounge', 'arena'];
     this.homePlace = order[(order.indexOf(this.homePlace) + 1) % order.length];
     try {
       localStorage.setItem('bb.homeScene', this.homePlace);
@@ -1043,10 +1054,12 @@ export class App {
     const box = el('div', 'walkons', '', into);
     el('div', 'walkons-h', `<b>Walk-on music</b><span>${p.walkOn ? 'Your pick' : 'Goes with its name'}</span>`, box);
     const row = el('div', 'walkons-row', '', box);
+    // render them all now, so a tap plays at once instead of a second or two later
+    this.game.sfx?.primeWalkOn(now, ...WALK_ONS.map((w) => w.id));
     for (const w of WALK_ONS) {
       button(`walkon${w.id === now ? ' on' : ''}`, `${ICON.sound}<b>${esc(w.name)}</b><span>${esc(w.blurb)}</span>`, () => {
         this.tap('select');
-        this.game.sfx?.walkOn(w.id, 0, 0.8);
+        this.game.sfx?.walkOn(w.id, 0, 0.8, true);
         if (p.walkOn === w.id) return;
         p.walkOn = w.id;
         // (redraws the tab with the new pick)
@@ -1302,6 +1315,64 @@ export class App {
     this.hud.resetSpeed();
     this.hud.attach(m, null, true);
     this.go('fight');
+  }
+
+  /** The saved replays: watch one again, or delete it. */
+  private replaysMenu() {
+    this.tap();
+    void this.replays.sync();
+    const draw = (box: HTMLElement) => {
+      box.replaceChildren();
+      box.classList.add('saves');
+      const backdrop = box.parentElement!;
+      backdrop.onclick = (e) => e.target === backdrop && this.closeModal();
+      const top = el('div', 'set-head', '<h2>Replays</h2>', box);
+      button('icon-btn', ICON.close, () => this.closeModal(), top);
+      const list = this.replays.list;
+      const rows = el('div', 'save-list scroll', '', box);
+      if (!list.length) el('p', 'muted', 'No saved replays yet. After a fight, tap Save replay on the results to keep it here.', rows);
+      for (const r of list) {
+        const t = r.tape;
+        const row = el('div', 'save-row replay-row', '', rows);
+        row.style.setProperty('--paint', paintOf(t.a));
+        const verdict = r.winner < 0 ? 'Draw' : r.winner === 0 ? 'Win' : 'Loss';
+        const how = r.kind && r.kind !== 'Draw' ? ` by ${r.kind === 'Decision' ? 'decision' : r.kind}` : '';
+        const date = new Date(r.saved).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        const old = outdated(r) ? '<em class="old">Older version</em>' : '';
+        el('div', 'save-name', `<b>${esc(t.a.name)} vs ${esc(t.b.name)}</b><span class="${r.winner < 0 ? '' : r.winner === 0 ? 'win' : 'loss'}">${verdict}${how} · ${r.secs}s · ${date}${old}</span>`, row);
+        button('btn small primary', `${ICON.play}Watch`, () => void this.watchSaved(r), row);
+        const del = button('icon-btn small', ICON.close, () => {
+          if (!del.classList.contains('armed')) {
+            del.classList.add('armed');
+            del.title = 'Tap again to delete';
+            return;
+          }
+          this.replays.remove(r.id);
+          draw(box);
+        }, row);
+        del.title = 'Delete';
+      }
+      el('p', 'muted small', `${list.length} of ${MAX_REPLAYS} kept${this.account.username ? ', saved to your account' : ''}.`, box);
+    };
+    this.openModal('Replays', (box) => {
+      draw(box);
+      this.replaysView = () => draw(box);
+    }, () => {
+      this.replaysView = null;
+    });
+  }
+
+  /** Watch a saved replay (asking first when an older version of the game recorded it). */
+  private async watchSaved(r: SavedReplay) {
+    this.closeModal();
+    if (outdated(r)) {
+      const go = await this.ask('Older replay', 'This fight was saved on an older version of the game. The bots have changed since, so it may not play out the way it did.', [['cyan', 'Cancel'], ['primary', 'Watch anyway']]);
+      if (go !== 1) return;
+    }
+    this.lastFight = structuredClone(r.tape);
+    // Rematch on its results fights the same opponent
+    this.opponent = structuredClone(r.tape.b);
+    this.replay();
   }
 
   /** The replay's results: run it to the end first (it's quick), then show them. */
@@ -1720,6 +1791,7 @@ export class App {
       if (this.lastFight) {
         this.lastFight.cut = m.introCut;
         this.lastFight.coach = m.coachLog.slice();
+        this.lastFight.talk = this.game.sfx?.booth.said ?? [];
         // the replay runs to here
         this.lastFight.end = m.frame;
       }
@@ -1769,6 +1841,24 @@ export class App {
     button('btn primary', `${ICON.swords}Next fight`, () => this.fight(), actions);
     button('btn', `${ICON.refresh}Rematch`, () => this.fight(true), actions);
     if (this.lastFight) button('btn', `${ICON.replay}Replay`, () => this.replay(), actions);
+    const tape = this.lastFight;
+    if (tape && tape.end > 0) {
+      const keep = button('btn small', '', () => {
+        if (keep.disabled) return;
+        this.tap('select');
+        if (!this.replays.save(tape, { winner: out.winner, kind: out.kind ?? '', secs: m.fightTime })) {
+          void this.ask('Replays full', `You can keep ${MAX_REPLAYS} replays. Delete one from Replays on the home screen to save this fight.`, [['cyan', 'OK']]);
+          return;
+        }
+        mark();
+      }, actions);
+      const mark = () => {
+        const saved = isSaved(tape);
+        keep.innerHTML = saved ? `${ICON.check}Saved` : `${ICON.star}Save replay`;
+        keep.disabled = saved;
+      };
+      mark();
+    }
     button('btn', `${ICON.wrench}Garage`, () => {
       this.tap('select');
       this.closeResults();

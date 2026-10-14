@@ -1,24 +1,24 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { J, ROPE_LINE } from '../sim/body';
+import { J } from '../sim/body';
 import type { Fighter } from '../sim/fighter';
 import type { Match } from '../sim/match';
 import { FRAMES } from '../game/paint';
 import type { Sfx } from '../audio/sfx';
-import { AX } from './bowl';
+import { AX, FLOOR, TUNNEL_GATE, TUNNEL_OPEN_HW } from './bowl';
 import { groundAt, type Debris, type HeldPiece } from './debris';
-import type { Fx } from './fx';
 import { RenderSettings } from './settings';
 import type { BotModel, PoseSource } from './botModel';
 
 /**
- * The loser's ride home. Once the fight is over a hover stretcher swoops in from the tunnel on
- * the loser's side, parks beside it, and a lift beam floats it up onto the deck (with every part
- * that was torn off it, wherever those landed, the stands included). The loser perks up and,
- * all smiles, does one of five bits for the camera while the stretcher hums there: a peace
- * sign, double thumbs up, a wave to the crowd, a lie-back with its hands behind its head, or
- * disco pointing to a beat. Then it lifts off over the ropes and away into the tunnel.
+ * The loser's ride home. The victory plays out first, with the loser left lying in the ring;
+ * then, about twelve seconds after the winner was decided, the show cuts to a new scene: the
+ * loser already aboard a hover stretcher (with every part that was torn off it), gliding down
+ * the walkout carpet on its side, between the crew and security, and into the tunnel. All
+ * smiles, it does one of five bits for the camera that follows it: a peace sign, double thumbs
+ * up, a wave to the crowd, a lie-back with its hands behind its head, or disco pointing to a
+ * beat. Nearing the tunnel it waves goodbye, and the energy gate in there swallows it up.
  *
  * The ride is picked from the match seed, and the whole thing is timed off the match clock
  * after the final bell, so it plays the same on both phones online and in replays. Render
@@ -29,21 +29,23 @@ export const RIDES = ['peace', 'thumbs', 'wave', 'chill', 'disco'] as const;
 export type Ride = (typeof RIDES)[number];
 
 // Timeline, in match seconds after the fight ends ('end' phase).
-/** Swooping in from the tunnel to park beside the loser. */
-const ARRIVE = 1.7;
-/** The beam floating the loser onto the deck. */
-const LIFT = 1.0;
-/** The loser perks up and starts its bit. */
-const PARTY = ARRIVE + LIFT - 0.25;
-/** Taking off for the tunnel... */
-const DEPART = 6.0;
-/** ...and gone. */
-const GONE = 8.8;
-/** How long the ride takes, from the end of the fight (the results come up after it). */
-export const STRETCHER_TIME = GONE;
+/** The victory, before the cut. A KO's slow-mo already took ~8 s; a decision ends quicker. */
+const HOLD_KO = 4.0;
+const HOLD_DECISION = 9.0;
+/** The ride itself, from the cut to gone through the gate. */
+const RIDE = 10.0;
+/** The second shot: watching it go, from back down the carpet. */
+const WIDE = 4.6;
+/** Waving goodbye, from this far into the ride. */
+const BYE = RIDE - 4.2;
+/** Hover height of the deck over the arena floor. */
+const HOVER = 0.62;
 
-/** Deck height while parked. */
-const DECK_Y = 0.78;
+/** When the ride is over, in 'end' phase time (the results come up after it). */
+export function rideEnd(m: Match) {
+  return (m.result === 'Decision' ? HOLD_DECISION : HOLD_KO) + RIDE;
+}
+
 /** Pelvis position along the deck (unit space: the stretcher is built for a size-1 bot). */
 const ZP = -0.12;
 
@@ -93,22 +95,6 @@ function setV(v: [number, number, number], x: number, y: number, z: number) {
   v[0] = x;
   v[1] = y;
   v[2] = z;
-}
-
-/** Out cold: flat on its back, arms down its sides. */
-function limpPose(o: Pose) {
-  o.th = 0.06;
-  o.nod = 0.05;
-  o.tilt = 0.12;
-  for (let s = 0; s < 2; s++) {
-    setV(o.hand[s], 0.1, -0.5, 0.07);
-    setV(o.pole[s], 1, 0.2, 0.4);
-  }
-  o.knee[0] = 0.12;
-  o.knee[1] = 0.2;
-  o.cross = 0;
-  o.ankles = 0;
-  o.tap = 0;
 }
 
 /** Each bit, authored for a right-handed performer; τ is seconds into it. */
@@ -231,8 +217,6 @@ const smooth = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
 };
-const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
-const lerpAngle = (a: number, b: number, k: number) => a + wrap(b - a) * k;
 const damp = (a: number, b: number, lambda: number, dt: number) => b + (a - b) * Math.exp(-lambda * dt);
 
 const _v = new THREE.Vector3();
@@ -398,16 +382,10 @@ interface Bubble {
 
 interface Ridden {
   p: HeldPiece;
-  /** Where it was picked up from, and its turn then. */
-  from: THREE.Vector3;
-  q0: THREE.Quaternion;
   /** Its turn relative to the deck once aboard. */
   ql: THREE.Quaternion;
   /** Slot on the deck (unit space, on the deck's surface). */
   slot: THREE.Vector3;
-  t0: number;
-  dur: number;
-  landed: boolean;
 }
 
 /** Spots for torn parts: beside the legs, then the foot end, then by the shoulders. */
@@ -428,8 +406,6 @@ export class Stretcher {
   /** The stretcher (deck frame: deck surface at y 0, head end +Z, built for a size-1 bot). */
   private rig = new THREE.Group();
   private back = new THREE.Group();
-  private beam: THREE.Mesh;
-  private beamMat: THREE.ShaderMaterial;
   private pool: THREE.Mesh;
   private poolMat: THREE.MeshBasicMaterial;
   private glowMat: THREE.MeshBasicMaterial;
@@ -438,7 +414,7 @@ export class Stretcher {
   private bubbles: Bubble[] = [];
   private glyphs: THREE.Texture;
 
-  /** Riding now (from the end of the fight until it's gone). */
+  /** Set up for this match's ride (from the end of the fight until it's gone). */
   on = false;
   /** Fighter on it. */
   loser = -1;
@@ -449,19 +425,18 @@ export class Stretcher {
   puppet!: Puppet;
   /** The camera's wishes this frame (null: leave it to the director). */
   shot: { pos: THREE.Vector3; look: THREE.Vector3; fovK: number; cut: boolean } | null = null;
-  /** The model is posed from `joints` this frame (false before the beam picks it up). */
+  /** The model is posed from `joints` this frame (false until the ride's scene cuts in). */
   posed = false;
 
   private f: Fighter | null = null;
   private size = 1;
-  private side = 1;
   private len = { ua: 0.28, fa: 0.27, th: 0.4, sh: 0.4 };
-  private park = new THREE.Vector3();
-  private parkYaw = 0;
-  private parkM = new THREE.Matrix4();
-  private arrive: THREE.CatmullRomCurve3 | null = null;
-  private leave: THREE.CatmullRomCurve3 | null = null;
-  private from: THREE.Vector3[] = Array.from({ length: 16 }, () => new THREE.Vector3());
+  /** Along the carpet: its side (1 east, -1 west), and where it starts and ends (|x|). */
+  private side = 1;
+  private x0 = 8;
+  private x1 = 17;
+  private wide = new THREE.Vector3();
+  private hold = HOLD_KO;
   private took = false;
   private pieces: Ridden[] = [];
   private mirrored = false;
@@ -478,11 +453,8 @@ export class Stretcher {
   private a = pose();
   private b = pose();
   private cur = pose();
-  private mid = new THREE.Vector3();
-  private n = new THREE.Vector3();
-  private beamAt = new THREE.Vector3();
   /** Where the stretcher is this frame. */
-  private at = new THREE.Vector3();
+  readonly at = new THREE.Vector3();
 
   constructor() {
     this.group.name = 'stretcher';
@@ -496,30 +468,6 @@ export class Stretcher {
     this.rig.add(shell, glow, this.back);
     for (const o of [shell, glow, backMesh]) o.frustumCulled = false;
     this.group.add(this.rig);
-
-    // the lift beam: a column of light from the canvas round the loser, rings running up it
-    this.beamMat = new THREE.ShaderMaterial({
-      uniforms: { uTime: { value: 0 }, uA: { value: 0 }, uColor: { value: new THREE.Color(CYAN).multiplyScalar(RenderSettings.glow(1.6)) } },
-      vertexShader: /* glsl */ `
-        varying vec2 vUv; varying vec3 vN; varying vec3 vV;
-        void main(){ vUv = uv; vec4 mv = modelViewMatrix*vec4(position,1.); vN = normalize(normalMatrix*normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }`,
-      fragmentShader: /* glsl */ `
-        uniform float uTime; uniform float uA; uniform vec3 uColor;
-        varying vec2 vUv; varying vec3 vN; varying vec3 vV;
-        void main(){
-          float rim = pow(1.0 - abs(dot(vN, vV)), 1.6);
-          float rings = smoothstep(0.55, 1.0, sin((vUv.y * 9.0 - uTime * 3.2) * 6.2831) * 0.5 + 0.5);
-          float fade = (1.0 - vUv.y) * smoothstep(0.0, 0.08, vUv.y);
-          gl_FragColor = vec4(uColor * (0.25 + rim * 0.9 + rings * 0.7) * fade * uA, 1.0);
-        }`,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-    });
-    this.beam = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 24, 1, true).translate(0, 0.5, 0), this.beamMat);
-    this.beam.frustumCulled = false;
-    this.group.add(this.beam);
 
     // a pool of light on whatever is under it
     const c = document.createElement('canvas');
@@ -604,46 +552,15 @@ export class Stretcher {
       footFlex: [0.25, 0.25],
     };
 
-    // park beside it, along its body, on the side away from the winner
-    const pos = loser.body.pos;
-    const pel = pos[J.Pelvis];
-    _d.subVectors(pos[J.Head], pel).setY(0);
-    const lying = _d.length() > 0.25 * s;
-    if (lying) _d.normalize();
-    else _d.set(Math.sin(loser.faceYaw), 0, Math.cos(loser.faceYaw));
-    this.parkYaw = Math.atan2(_d.x, _d.z);
-    this.mid.copy(pel).addScaledVector(_d, lying ? 0.25 * s : 0).setY(0);
-    this.n.set(_d.z, 0, -_d.x);
-    const w = loser.opp.body.pos[J.Pelvis];
-    if ((w.x - this.mid.x) * this.n.x + (w.z - this.mid.z) * this.n.z > 0) this.n.negate();
-    const off = 1.05 * s;
-    this.park.copy(this.mid).addScaledVector(this.n, off);
-    if (Math.hypot(this.park.x, this.park.z) > 3.5) {
-      _v.copy(this.mid).addScaledVector(this.n, -off);
-      if (Math.hypot(_v.x, _v.z) < Math.hypot(this.park.x, this.park.z)) {
-        this.park.copy(_v);
-        this.n.negate();
-      }
-      const r = Math.hypot(this.park.x, this.park.z);
-      if (r > 3.5) this.park.multiplyScalar(3.5 / r);
-    }
-    this.park.y = DECK_Y;
-    this.parkM.compose(this.park, _q.setFromAxisAngle(_Y, this.parkYaw), _s.setScalar(s));
-
-    // in from the tunnel on the loser's side, out the same way: up over the ropes and down to the floor
-    const sx = (this.side = this.mid.x >= 0 ? 1 : -1);
-    const zc = Math.max(-1.2, Math.min(1.2, this.park.z * 0.5));
-    const pts = [
-      this.park.clone(),
-      this.park.clone().add(_v.set(sx * 0.4, 0.95, 0)),
-      new THREE.Vector3(sx * (ROPE_LINE + 0.4), 2.35, zc),
-      new THREE.Vector3(sx * (ROPE_LINE + 3.0), 1.25, zc * 0.4),
-      new THREE.Vector3(sx * (AX - 1.8), 0.5, 0),
-      new THREE.Vector3(sx * (AX + 3.2), 0.42, 0),
-    ];
-    this.leave = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
-    this.arrive = new THREE.CatmullRomCurve3(pts.slice().reverse(), false, 'centripetal');
-    this.group.visible = true;
+    // straight down the walkout carpet on the loser's side, and through the gate in its tunnel
+    const sx = (this.side = loser.body.pos[J.Pelvis].x >= 0 ? 1 : -1);
+    this.x0 = 8.0;
+    // (done once its foot end is through the gate)
+    this.x1 = AX + TUNNEL_GATE + 1.5 * s;
+    // the wide shot: from back down the carpet, a little off to one side and up
+    this.wide.set(sx * 8.6, FLOOR + 1.9, -0.6);
+    this.hold = m.result === 'Decision' ? HOLD_DECISION : HOLD_KO;
+    this.group.visible = false;
     this.posed = false;
     this.took = false;
     this.shotNo = -1;
@@ -663,61 +580,49 @@ export class Stretcher {
 
   /** Still on its way (the results wait for it). */
   get busy() {
-    return this.on && this.t < GONE;
+    return this.on && this.t < this.hold + RIDE;
   }
 
   /** Gone down the tunnel: the loser's model stays hidden from here on. */
   get gone() {
-    return this.on && this.t >= GONE;
+    return this.on && this.t >= this.hold + RIDE;
   }
 
   /**
    * Move everything to match time `t` (seconds since the fight ended). `dt` is how much match
    * time passed this frame (0 while paused), for the bits that just drift.
    */
-  update(t: number, dt: number, model: BotModel, debris: Debris, fx: Fx, sfx: Sfx | null, quiet: boolean) {
+  update(t: number, dt: number, model: BotModel, debris: Debris, sfx: Sfx | null, quiet: boolean) {
     const f = this.f;
     if (!this.on || !f) return;
     const prev = this.t;
     this.t = t;
     const crossed = (x: number) => !quiet && prev >= 0 && prev < x && t >= x;
-    if (t >= GONE) {
+    const rt = t - this.hold;
+    if (rt < 0 || rt >= RIDE) {
+      // the victory still playing (the loser lies where it fell), or the ride's over
       this.group.visible = false;
       this.posed = false;
       this.shot = null;
-      for (const r of this.pieces) r.p.obj.visible = false;
+      if (rt >= RIDE) {
+        for (const r of this.pieces) r.p.obj.visible = false;
+        for (const b of this.bubbles) b.s.visible = false;
+      }
       return;
     }
     this.group.visible = true;
     const s = this.size;
 
-    // ---- where the stretcher is
-    let yaw = this.parkYaw, pitch = 0;
-    const bob = Math.sin(t * 2.3) * 0.025;
-    if (t < ARRIVE) {
-      const k = t / ARRIVE;
-      const u = 1 - (1 - k) * (1 - k) * (1 - k);
-      this.arrive!.getPointAt(u, _p);
-      this.arrive!.getTangentAt(Math.min(0.999, u), _v);
-      const wy = smooth(0.55, 1, k);
-      yaw = lerpAngle(Math.atan2(_v.x, _v.z), this.parkYaw, wy);
-      pitch = -Math.asin(Math.max(-1, Math.min(1, _v.y))) * 0.5 * (1 - wy);
-      _p.y += bob * wy;
-    } else if (t < DEPART) {
-      _p.copy(this.park);
-      _p.y += bob;
-      yaw += Math.sin(t * 0.8) * 0.03;
-    } else {
-      const k = (t - DEPART) / (GONE - DEPART);
-      const u = k * k * (2 - k);
-      this.leave!.getPointAt(u, _p);
-      this.leave!.getTangentAt(Math.max(0.001, u), _v);
-      const wy = smooth(0, 0.3, k);
-      yaw = lerpAngle(this.parkYaw, Math.atan2(_v.x, _v.z), wy);
-      pitch = -Math.asin(Math.max(-1, Math.min(1, _v.y))) * 0.5 * wy;
-      _p.y += bob * (1 - wy);
-    }
-    const roll = Math.sin(t * 1.7) * 0.02;
+    // ---- where the stretcher is: already under way when the scene cuts in, gathering speed
+    const k = rt / RIDE;
+    const u = k * (0.72 + 0.28 * k);
+    const sx = this.side;
+    _p.set(sx * (this.x0 + (this.x1 - this.x0) * u), FLOOR + HOVER * s + Math.sin(t * 2.3) * 0.025, 0);
+    // a lazy sway down the carpet
+    _p.z = Math.sin(t * 0.7) * 0.12 * (1 - smooth(this.x1 - 4, this.x1 - 2.5, sx * _p.x));
+    const yaw = (sx > 0 ? Math.PI / 2 : -Math.PI / 2) + Math.cos(t * 0.7) * 0.06;
+    const pitch = Math.sin(t * 1.3) * 0.015;
+    const roll = Math.sin(t * 1.7) * 0.025;
     this.at.copy(_p);
     this.rig.position.copy(_p);
     this.rig.rotation.set(pitch, yaw, roll, 'YXZ');
@@ -726,72 +631,45 @@ export class Stretcher {
     this.rig.matrixWorldNeedsUpdate = true;
     this.puppet.faceYaw = yaw;
 
-    // hover pool on the canvas or floor below, glow pulse
-    const ground = groundAt(_p.x, _p.z);
+    // hover pool on the floor below (the hall's floor too), glow pulse, thrusters up at the end
+    const inHall = Math.abs(_p.x) > AX - 0.7 && Math.abs(_p.z) < TUNNEL_OPEN_HW;
+    const ground = inHall ? FLOOR : groundAt(_p.x, _p.z);
     this.pool.position.set(_p.x, ground + 0.012, _p.z);
     this.pool.scale.setScalar(2.2 * s);
-    // (none in the tunnel, where the "ground" is the roof block over it)
-    this.poolMat.opacity = ground > _p.y ? 0 : 0.55 * Math.max(0, 1 - (_p.y - ground) / 3.2);
-    this.glowMat.color.setScalar(RenderSettings.glow(2.2 + 0.4 * Math.sin(t * 9)));
+    this.poolMat.opacity = 0.55 * Math.max(0, 1 - (_p.y - ground) / 3.2);
+    this.glowMat.color.setScalar(RenderSettings.glow(2.2 + 0.4 * Math.sin(t * 9) + 1.2 * smooth(RIDE - 3, RIDE - 1, rt)));
 
-    // ---- the pose on the deck: out cold, then perking up into the bit
-    const tp = t - PARTY;
-    limpPose(this.a);
-    ridePose(this.ride, Math.max(0, tp), this.b);
-    if (this.mirrored) mirrorPose(this.b);
-    lerpPose(this.a, this.b, smooth(0, 0.7, tp), this.cur);
+    // ---- the loser, already into its bit (with its torn parts aboard), then waving goodbye
+    ridePose(this.ride, rt + 1, this.a);
+    ridePose('wave', rt - BYE, this.b);
+    if (this.mirrored) {
+      mirrorPose(this.a);
+      mirrorPose(this.b);
+    }
+    lerpPose(this.a, this.b, this.ride === 'wave' ? 0 : smooth(BYE, BYE + 0.8, rt), this.cur);
     this.back.rotation.x = -this.cur.th;
-    this.puppet.state = tp > 0.15 ? 'ready' : 'ko';
-    if (crossed(ARRIVE - 1.2)) sfx?.stretcher('arrive');
-    if (crossed(ARRIVE)) sfx?.stretcher('lift');
-    if (crossed(PARTY + 0.15)) {
+    this.puppet.state = 'ready';
+    if (crossed(this.hold)) sfx?.stretcher('depart');
+    if (crossed(this.hold + 0.3)) {
       sfx?.stretcher('cheer');
       this.puff = 0;
     }
-    if (crossed(DEPART)) sfx?.stretcher('depart');
-
-    // ---- the loser: picked up by the beam, then posed on the deck
-    if (t >= ARRIVE) {
-      if (!this.took) {
-        // where it lies now: the beam lifts it from here
-        for (let i = 0; i < 16; i++) this.from[i].copy(f.body.pos[i]);
-        this.took = true;
-        this.holdPieces(debris);
-      }
-      this.deckPose(this.cur);
-      const lt = t - ARRIVE;
-      for (let i = 0; i < 16; i++) {
-        // the trunk goes first, the limbs trail after it
-        const lag = i <= J.Head ? i * 0.04 : 0.12 + (i % 3) * 0.05;
-        const k = smooth(lag, LIFT * 0.85 + lag, lt);
-        if (k >= 1) continue;
-        _v.lerpVectors(this.from[i], this.joints[i], k);
-        _v.y += Math.sin(Math.PI * k) * 0.4 * s;
-        this.joints[i].copy(_v);
-      }
-      this.posed = true;
-    } else this.posed = false;
-
-    // ---- the beam
-    const beamA = smooth(ARRIVE - 0.3, ARRIVE + 0.1, t) * (1 - smooth(ARRIVE + LIFT - 0.1, ARRIVE + LIFT + 0.4, t));
-    this.beam.visible = beamA > 0.01;
-    if (this.beam.visible) {
-      if (t < ARRIVE + 0.05) this.beamAt.copy(this.mid);
-      this.beamAt.lerp(_v.set(_p.x, 0, _p.z), Math.min(1, dt * 1.5));
-      this.beam.position.set(this.beamAt.x, groundAt(this.beamAt.x, this.beamAt.z), this.beamAt.z);
-      this.beam.scale.set(0.75 * s, DECK_Y + 1.4 * s, 0.75 * s);
-      this.beamMat.uniforms.uA.value = beamA;
-      this.beamMat.uniforms.uTime.value = t;
+    // a chime as it goes through the gate
+    const gateAt = (AX + TUNNEL_GATE - this.x0) / (this.x1 - this.x0);
+    if (crossed(this.hold + RIDE * ((-0.72 + Math.sqrt(0.72 * 0.72 + 4 * 0.28 * gateAt)) / (2 * 0.28)))) sfx?.stretcher('arrive');
+    this.deckPose(this.cur);
+    this.posed = true;
+    if (!this.took) {
+      this.took = true;
+      this.holdPieces(debris);
     }
-
-    // ---- torn parts fly over and ride along
-    this.movePieces(t, fx, quiet);
+    this.movePieces();
 
     // ---- happy bubbles
-    this.bubbleUp(t, dt, model);
+    this.bubbleUp(rt, dt, model);
 
     // ---- the camera
-    this.film(t, dt, this.at);
+    this.film(rt, dt, yaw);
   }
 
   /** Joints for pose `p` on the deck, in world space. */
@@ -845,46 +723,25 @@ export class Stretcher {
 
   private holdPieces(debris: Debris) {
     const held = debris.hold(this.loser);
-    _q2.setFromAxisAngle(_Y, this.parkYaw).invert();
+    // aboard, each keeps the way up it lay in, turned with the deck
+    _q2.setFromRotationMatrix(_m.extractRotation(this.rig.matrix)).invert();
     held.forEach((p, i) => {
       const [x, z] = SLOTS[i % SLOTS.length];
-      const from = p.obj.position.clone();
-      const far = from.distanceTo(this.park);
       this.pieces.push({
         p,
-        from,
-        q0: p.obj.quaternion.clone(),
-        // aboard it keeps the way up it lay in, turned with the deck
         ql: _q2.clone().multiply(p.obj.quaternion),
         slot: new THREE.Vector3(x, (p.lift / this.size) * 0.9, z + (i >= SLOTS.length ? 0.1 : 0)),
-        t0: ARRIVE + 0.15 + i * 0.16,
-        dur: 0.9 + Math.min(1.2, far * 0.07),
-        landed: false,
       });
     });
   }
 
-  private movePieces(t: number, fx: Fx, quiet: boolean) {
+  private movePieces() {
     _q.setFromRotationMatrix(_m.extractRotation(this.rig.matrix));
     for (const r of this.pieces) {
       const o = r.p.obj;
       o.visible = true;
-      _w.copy(r.slot).applyMatrix4(this.rig.matrix);
-      _q2.copy(_q).multiply(r.ql);
-      const k = smooth(r.t0, r.t0 + r.dur, t);
-      if (k <= 0) continue;
-      if (k >= 1) {
-        o.position.copy(_w);
-        o.quaternion.copy(_q2);
-        if (!r.landed) {
-          r.landed = true;
-          if (!quiet) fx.sparks(_w, _Y, 6, 0x9ef6ff, 1.6, 1.2);
-        }
-      } else {
-        o.position.lerpVectors(r.from, _w, k);
-        o.position.y += Math.sin(Math.PI * k) * (0.7 + r.from.distanceTo(_w) * 0.12);
-        o.quaternion.slerpQuaternions(r.q0, _q2, smooth(0.2, 1, k));
-      }
+      o.position.copy(r.slot).applyMatrix4(this.rig.matrix);
+      o.quaternion.copy(_q).multiply(r.ql);
       r.p.anchor.copy(o.position);
     }
   }
@@ -892,16 +749,16 @@ export class Stretcher {
   /** Lay the finger signs on the model's hands (after it's posed: contacts move the hands). */
   dress(model: BotModel) {
     let n = 0;
-    const live = this.posed && this.t >= PARTY;
-    const grow = smooth(PARTY + 0.2, PARTY + 0.6, this.t);
-    if (live && grow > 0) {
+    if (this.posed) {
       const P = model.joints;
-      const s = this.size * grow;
+      const s = this.size;
       // the bot's right and up, from its shoulders and spine
       _r.subVectors(P[J.ShR], P[J.ShL]).normalize();
       _u.subVectors(P[J.Neck], P[J.Pelvis]).normalize();
       for (let side = 0; side < 2; side++) {
-        const sign = this.signs[side];
+        // waving goodbye at the end: an open hand
+        const bye = this.ride !== 'wave' && this.t - this.hold > BYE + 0.4;
+        const sign = bye ? (side === (this.mirrored ? 0 : 1) ? 'open' : 'none') : this.signs[side];
         if (sign === 'none' || !this.hasHand[side]) continue;
         const hand = P[side === 0 ? J.HandL : J.HandR];
         _f.subVectors(hand, P[side === 0 ? J.ElL : J.ElR]).normalize();
@@ -952,8 +809,8 @@ export class Stretcher {
   }
 
   /** Hearts (or notes, or stars) drifting up off its head while it's happy. */
-  private bubbleUp(t: number, dt: number, model: BotModel) {
-    const happy = t > PARTY + 0.3 && t < GONE - 0.6;
+  private bubbleUp(rt: number, dt: number, model: BotModel) {
+    const happy = rt > 0.3 && rt < RIDE - 0.6;
     if (happy && dt > 0) {
       this.puff -= dt;
       if (this.puff <= 0) {
@@ -990,49 +847,40 @@ export class Stretcher {
     }
   }
 
-  /** The three shots: the loser as the stretcher swoops in, its bit up close, and the send-off. */
-  private film(t: number, dt: number, at: THREE.Vector3) {
+  /**
+   * Two shots: following it down the carpet from just behind (it rides head first, facing back
+   * down the deck at us), then from back down the carpet, watching it go into the tunnel.
+   */
+  private film(rt: number, dt: number, yaw: number) {
     const s = this.size;
-    const shot = t < PARTY - 0.15 ? 0 : t < DEPART + 0.15 ? 1 : 2;
-    const cut = shot !== this.shotNo;
+    const shot = rt < WIDE ? 0 : 1;
+    const cut = this.shotNo !== shot;
     this.shotNo = shot;
     const pos = this.camOut.pos, look = this.camOut.look;
-    let fovK = 1;
-    let lookLag = 5;
+    let fovK: number;
     if (shot === 0) {
-      // low, from past the loser's feet, the stretcher swooping in alongside it
-      _d.set(Math.sin(this.parkYaw), 0, Math.cos(this.parkYaw));
-      pos.copy(this.mid).addScaledVector(_d, -2.5 * s).addScaledVector(this.n, 0.5 * s);
-      pos.y = 1.05 * s;
-      look.copy(this.mid).setY(0.35).lerp(at, 0.45);
-      fovK = 0.95;
-    } else if (shot === 1) {
-      // from the foot end, pushing in slowly on its face
-      const u = smooth(PARTY - 0.15, DEPART, t);
-      pos.set(0.55, 1.25 - 0.12 * u, -2.75 + 0.45 * u).applyMatrix4(this.parkM);
-      look.set(0, 0.5, 0.1).applyMatrix4(this.parkM);
-      fovK = 0.8;
-      lookLag = 3;
+      const cy = Math.cos(yaw), sy = Math.sin(yaw);
+      // (x across, z along the way it's going)
+      const local = (x: number, y: number, z: number, out: THREE.Vector3) => out.set(this.at.x + x * cy + z * sy, this.at.y + y, this.at.z - x * sy + z * cy);
+      const push = smooth(0, WIDE, rt);
+      local((0.8 - 0.25 * push) * s, (0.85 - 0.1 * push) * s, (-2.55 + 0.45 * push) * s, pos);
+      local(0, 0.48 * s, 0.15 * s, look);
+      fovK = 0.85;
     } else {
-      // the send-off: from the ring, watching it fly away to the tunnel
-      const k = smooth(DEPART, GONE, t);
-      pos.copy(this.park).add(_v.set(-this.side * 2.4 * s, 1.5, 0)).addScaledVector(this.n, 0.9 * s);
-      look.copy(at).add(_v.set(0, 0.45 * s, 0));
-      fovK = 0.95 - 0.35 * k;
-      lookLag = 6;
+      pos.copy(this.wide);
+      look.copy(this.at).add(_v.set(0, 0.45 * s, 0));
+      fovK = 0.8 - 0.32 * smooth(WIDE, RIDE, rt);
     }
-    if (cut || dt <= 0) {
-      if (cut) {
-        this.camPos.copy(pos);
-        this.camLook.copy(look);
-      }
-    } else {
-      this.camPos.x = damp(this.camPos.x, pos.x, 4, dt);
-      this.camPos.y = damp(this.camPos.y, pos.y, 4, dt);
-      this.camPos.z = damp(this.camPos.z, pos.z, 4, dt);
-      this.camLook.x = damp(this.camLook.x, look.x, lookLag, dt);
-      this.camLook.y = damp(this.camLook.y, look.y, lookLag, dt);
-      this.camLook.z = damp(this.camLook.z, look.z, lookLag, dt);
+    if (cut) {
+      this.camPos.copy(pos);
+      this.camLook.copy(look);
+    } else if (dt > 0) {
+      this.camPos.x = damp(this.camPos.x, pos.x, 5, dt);
+      this.camPos.y = damp(this.camPos.y, pos.y, 5, dt);
+      this.camPos.z = damp(this.camPos.z, pos.z, 5, dt);
+      this.camLook.x = damp(this.camLook.x, look.x, 6, dt);
+      this.camLook.y = damp(this.camLook.y, look.y, 6, dt);
+      this.camLook.z = damp(this.camLook.z, look.z, 6, dt);
     }
     this.shot = this.camOut;
     this.camOut.cut = cut;
@@ -1040,4 +888,5 @@ export class Stretcher {
     pos.copy(this.camPos);
     look.copy(this.camLook);
   }
+
 }

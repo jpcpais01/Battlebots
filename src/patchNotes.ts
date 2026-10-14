@@ -16,9 +16,54 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
-    hour: "2026-10-14 21:00",
-    title: "Steadier entrances, finishers that connect",
+    hour: "2026-10-14 22:00",
+    title: "A rainy night in, and a smoother, lighter arena",
     notes: [
+      "Hits feel smooth: instead of freezing for a few frames on impact, the fight dips into a split second of slow motion and eases straight back.",
+      "No more hitch the first time a fight throws sparks, rips a part off or calls the stretcher: every effect is ready before the bell.",
+      "The arena is much lighter to run, especially on phones: the stands, crowd and ring take a fraction of the work to draw and look the same.",
+      "Glow and shockwaves cost less on phones, so big exchanges hold a steadier frame rate.",
+      "New home scene, the Lounge: your bot slumps on a velvet sofa with its feet up and a steaming coffee, watching a fireplace on TV while rain runs down a big window over the city at night. Lightning flickers, a record turns, candles and fairy lights glow and a robot vacuum does its rounds. Hit Fight and the TV cuts to the news: you're up. Cue the spit-take.",
+    ],
+  },
+  {
+    hour: "2026-10-14 22:00",
+    title: "Walk-on music, remastered",
+    notes: [
+      "All six entrance songs are new, full productions: real chord progressions, melodies and a proper build into the drop, with layered drums, bass that carries on phone speakers, reverb and a mastered mix.",
+      "Steel Anthem brings double-tracked guitars and a screaming lead, Neon Drive a gated pad and a singing synth over a racing arpeggio, and Iron Forge anvils, a klaxon and a gated bass riff.",
+      "Bass Drop is now a trap tune with a tightening snare roll, a breath, then sliding 808s and rattling hats. Champion's Call is a full brass fanfare with timpani, strings and chimes, and Arcade Boss a fast chiptune boss theme.",
+      "Each theme is about twelve seconds long now, so a bot that waits longer to come out still has music, and the garage previews play the whole tune.",
+      "The music starts in time with the entrance even when it has to be prepared at the last moment, instead of staying silent.",
+    ],
+  },
+  {
+    hour: "2026-10-14 21:00",
+    title: "A proper exit for the loser",
+    notes: [
+      "The beach is clearer: the pier, the overwater houses, the lighthouse and the rocks are gone, leaving open sand and sea.",
+      "The stretcher ride waits a little longer, then glides down the walkout carpet past the crew and security, waves goodbye and disappears through a glowing gate in the tunnel.",
+      "The entrance tunnels are real now: open halls lit by rings of team-coloured light, with a gap in the ad boards to walk through.",
+    ],
+  },
+  {
+    hour: "2026-10-14 21:00",
+    title: "No more floor fighting, tidier performance stats",
+    notes: [
+      "The gym got a makeover: brick walls with real relief, a polished concrete floor that catches the light, dusty sunbeams through windows that look out over the city, a pink TRAIN HARD neon, a TV showing a fight, ceiling fans, championship banners, battle ropes, trophies and a training dummy.",
+      "The beach is now a golden-hour paradise: a low sun with a glowing halo, lit clouds and lens flare, a sea that sparkles, rolls and foams over the sand, wet sand that shines, plus a pier, overwater bungalows, a lighthouse, kayaks, buoys and a crab. The first shot now looks out to sea over your bot's shoulder.",
+      "The loser's stretcher ride no longer crashes the winner's celebration. The victory plays out first, then the show cuts to the loser already aboard, waving and grinning as it glides off to the tunnel.",
+      "No more fighting on the floor: after a takedown or a slam the bot stays on its feet, steps back and lets the other one get up, instead of kneeling over it to punch.",
+      "Performance stats now start as just the FPS counter. Tap it to open the full panel.",
+    ],
+  },
+  {
+    hour: "2026-10-14 21:00",
+    title: "Saved replays, steadier entrances, finishers that connect",
+    notes: [
+      "Save your favourite fights: tap Save replay on the results, then watch them again any time from Replays on the home screen. You can keep 30, and they follow your account to other devices.",
+      "Replays now show the fight exactly as you saw it: the same camera shots and cuts, and the same commentary lines at the same moments, even when you skip around with the replay controls.",
+      "Replays saved before a game update still play, marked as an older version, since the bots may not fight it out exactly the same way.",
       "Finishers connect for real: every punch, kick and smash lands on the robot instead of passing through it or hitting thin air, whatever size either bot is.",
       "Finisher blows follow the opponent as it reels, folds over or drops to its knees, and your bot steps to the right range before each shot, so nothing whiffs or gets cut short. Overdrive's crosses all land now.",
       "Meteor's double-fisted smash comes down on the opponent's back, fists and feet shove the opponent instead of sinking into it, and finisher impact sparks fly from where the blow actually lands.",
@@ -40,7 +85,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: "2026-10-14 21:00",
     title: "Living home screens, MMA fighting, maker makeovers (part 2)",
     notes: [
-      "Takedowns: bots shoot double legs, trip each other from the clinch and lift and slam from a body lock. On top, they drop punches before the other bot scrambles back up.",
+      "Takedowns: bots shoot double legs, trip each other from the clinch and lift and slam from a body lock.",
       "Bots defend against it too: they sprawl on shots, push off out of the clinch, and the referee breaks up a clinch that goes quiet.",
       "Bots also shove each other. A bot that is off balance, or caught standing on one leg mid-kick, goes over. Takedowns now show on the results screen.",
       "Pressure fighters and heavy, planted builds like to wrestle; out-fighters would rather keep it standing. Your coach calls change how much your bot grapples too.",

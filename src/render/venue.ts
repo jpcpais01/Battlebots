@@ -11,6 +11,9 @@ import {
   SUITE_D,
   TOP_Y,
   RC,
+  TUNNEL_GATE,
+  TUNNEL_OPEN_H,
+  TUNNEL_OPEN_HW,
   TUNNEL_ROWS,
   TUNNEL_W,
   UPPER_Y,
@@ -19,6 +22,7 @@ import {
   aisleLights,
   aislesAt,
   aisleRails,
+  gapRuns,
   outline,
   seats,
   towards,
@@ -72,6 +76,12 @@ class Strips {
         this.idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3);
       }
     }
+  }
+  /** `strip`, with the tunnel mouths cut out of it (when `cut`). */
+  cutStrip(cut: boolean, a: OutlinePt[], ya: number, b: OutlinePt[], yb: number, colour: (x: number, y: number, z: number, v: number) => Rgb) {
+    if (!cut) return this.strip(a, ya, b, yb, colour);
+    const ra = gapRuns(a), rb = gapRuns(b);
+    ra.forEach((r, k) => this.strip(r, ya, rb[k], yb, colour));
   }
   geometry() {
     const g = new THREE.BufferGeometry();
@@ -476,29 +486,61 @@ function bannerTexture(): THREE.CanvasTexture {
   return sign(c);
 }
 
-function tunnelTexture(colour: string, label: string): THREE.CanvasTexture {
+function tunnelTexture(colour: string, label: string, tunnelH: number): THREE.CanvasTexture {
   const [c, g] = canvas(256, 256);
   g.fillStyle = '#07090f';
   g.fillRect(0, 0, 256, 256);
-  // depth fades into the dark
-  const gr = g.createLinearGradient(0, 40, 0, 256);
-  gr.addColorStop(0, '#000000');
-  gr.addColorStop(1, '#141824');
-  g.fillStyle = gr;
-  g.fillRect(28, 40, 200, 216);
+  // the mouth, in pixels
+  const x0 = Math.round(128 - (TUNNEL_OPEN_HW / TUNNEL_W) * 256);
+  const x1 = 256 - x0;
+  const top = Math.round(256 - (TUNNEL_OPEN_H / tunnelH) * 256);
   g.strokeStyle = colour;
   g.lineWidth = 10;
   g.beginPath();
-  g.moveTo(28, 256);
-  g.lineTo(28, 40);
-  g.lineTo(228, 40);
-  g.lineTo(228, 256);
+  g.moveTo(x0, 256);
+  g.lineTo(x0, top);
+  g.lineTo(x1, top);
+  g.lineTo(x1, 256);
   g.stroke();
   g.fillStyle = colour;
   g.font = 'bold 22px "Russo One", Impact, sans-serif';
   g.textAlign = 'center';
-  g.fillText(label, 128, 28);
-  return sign(c);
+  g.fillText(label, 128, Math.min(28, top - 8));
+  // open: the hall is behind it
+  g.clearRect(x0 + 5, top + 5, x1 - x0 - 10, 256 - top - 5);
+  return tex(c, false);
+}
+
+/**
+ * The energy gate across a tunnel: dark, with scan lines and a glowing rim in the team colour.
+ * It hides whatever is behind it, and ripples where something passes through (`uHit`: world
+ * point, strength).
+ */
+function gateMaterial(colour: THREE.Color, time: { value: number }, hw: number, h: number) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: time,
+      uColor: { value: colour.clone().multiplyScalar(RenderSettings.glow(1.2)) },
+      uSize: { value: new THREE.Vector2(2 * hw, h) },
+      uHit: { value: new THREE.Vector4(0, -100, 0, 0) },
+    },
+    vertexShader: /* glsl */ `
+      varying vec2 vUv; varying vec3 vW;
+      void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+    fragmentShader: /* glsl */ `
+      uniform float uTime; uniform vec3 uColor; uniform vec2 uSize; uniform vec4 uHit;
+      varying vec2 vUv; varying vec3 vW;
+      void main(){
+        vec2 m = vUv * uSize;
+        float rim = smoothstep(0.12, 0.0, min(min(m.x, uSize.x - m.x), uSize.y - m.y));
+        float scan = smoothstep(0.75, 1.0, sin(m.y * 18.0 - uTime * 3.0) * 0.5 + 0.5);
+        float sheen = 0.5 + 0.5 * sin(m.x * 4.0 + uTime * 1.3 + sin(m.y * 3.0 - uTime * 2.1) * 1.5);
+        float d = distance(vW, uHit.xyz);
+        float hit = uHit.w * exp(-d * d * 1.2) * (0.65 + 0.35 * sin(d * 16.0 - uTime * 12.0));
+        float k = rim * 1.1 + scan * 0.22 + sheen * 0.12 + hit * 1.6;
+        gl_FragColor = vec4(vec3(0.006, 0.008, 0.014) + uColor * k, 1.0);
+      }`,
+  });
 }
 
 /**
@@ -602,6 +644,8 @@ export class Venue {
   private steady: THREE.ShaderMaterial;
   private flash = 0;
   private board = new Scoreboard();
+  /** The tunnels' energy gates (west, east). */
+  private gates: THREE.ShaderMaterial[] = [];
 
   constructor(quality: 'low' | 'med' | 'high', u: Uniforms) {
     const g = this.group;
@@ -681,14 +725,16 @@ export class Venue {
     const upperSeat = seatRow(new THREE.Color(0x16233e));
     const riser = (x: number, y: number, z: number, v: number) => wash(x, y, z, 0.035 * (0.55 + 0.45 * v));
     const wall = (x: number, y: number, z: number) => wash(x, y, z, 0.03, 0.5);
-    stands.strip(outline(0), FLOOR, outline(0), ROWS[0].y, riser);
+    // (the rows the tunnels run under are open where they go through)
+    stands.cutStrip(true, outline(0), FLOOR, outline(0), ROWS[0].y, riser);
     ROWS.forEach((r, i) => {
       const a = outline(r.d), m = outline(r.d + r.depth * 0.38), b = outline(r.d + r.depth);
-      stands.strip(a, r.y, m, r.y, tread);
-      stands.strip(m, r.y, m, r.y + 0.12, r.upper ? upperSeat : lowerSeat);
-      stands.strip(m, r.y + 0.12, b, r.y + 0.12, r.upper ? upperSeat : lowerSeat);
+      const cut = i < TUNNEL_ROWS;
+      stands.cutStrip(cut, a, r.y, m, r.y, tread);
+      stands.cutStrip(cut, m, r.y, m, r.y + 0.12, r.upper ? upperSeat : lowerSeat);
+      stands.cutStrip(cut, m, r.y + 0.12, b, r.y + 0.12, r.upper ? upperSeat : lowerSeat);
       if (i === LOWER_ROWS - 1 || i === ROWS.length - 1) return;
-      stands.strip(b, r.y, b, r.y + r.rise, riser);
+      stands.cutStrip(cut, b, r.y, b, r.y + r.rise, riser);
     });
     // suite level between the tiers, around the windows and the ribbon board
     const suite = outline(SUITE_D);
@@ -745,10 +791,10 @@ export class Venue {
     // ---------------------------------------------------------------- LED boards
     const adsTex = adAtlas();
     const ribbonTex = ledTexture();
-    const ledStrip = (d: number, y0: number, y1: number, speed: number, glow: number) => {
+    const ledStrip = (d: number, y0: number, y1: number, speed: number, glow: number, cut = false) => {
       const s = new Strips();
       const o = outline(d);
-      s.strip(o, y0, o, y1, () => [1, 1, 1]);
+      s.cutStrip(cut, o, y0, o, y1, () => [1, 1, 1]);
       const total = o[o.length - 1].s;
       const len = (y1 - y0) * AD_ASPECT;
       const geo = s.geometry();
@@ -761,7 +807,8 @@ export class Venue {
       new THREE.Mesh(
         mergeGeometries([
           // ringside boards on the barrier, the suite-level ribbon, and a ring of lights at the top
-          ledStrip(-0.6, FLOOR + 0.05, 0.42, 0, 0.9),
+          // (open at the tunnel mouths, so the way out is clear)
+          ledStrip(-0.6, FLOOR + 0.05, 0.42, 0, 0.9, true),
           ledStrip(SUITE_D - 0.02, UPPER_Y - 1.15, UPPER_Y - 0.2, -0.04, 1.3),
           // and a crown of boards round the top of the bowl, above the concourse openings
           ledStrip(BACK_D - 0.04, TOP_Y + 3.0, TOP_Y + 4.1, 0.05, 1.1),
@@ -770,7 +817,7 @@ export class Venue {
       ),
     );
     const cap = new Strips();
-    cap.strip(outline(-0.6), 0.42, outline(-0.35), 0.42, () => [0.05, 0.055, 0.07]);
+    cap.cutStrip(true, outline(-0.6), 0.42, outline(-0.35), 0.42, () => [0.05, 0.055, 0.07]);
     g.add(new THREE.Mesh(cap.geometry(), new THREE.MeshBasicMaterial({ vertexColors: true })));
     // suite windows
     const win = new Strips();
@@ -780,21 +827,73 @@ export class Venue {
     g.add(new THREE.Mesh(win.geometry(), new THREE.MeshBasicMaterial({ map: winTex, side: THREE.DoubleSide })));
 
     // ---------------------------------------------------------------- entrance tunnels
+    // a hall into the stands on each end: dark walls lit by rings of team-coloured light,
+    // and an energy gate across it a little way in (whatever goes through is gone)
     const tunnelD = ROWS[TUNNEL_ROWS].d;
     const tunnelH = ROWS[TUNNEL_ROWS].y - FLOOR;
-    const portalMat = new THREE.MeshBasicMaterial({ color: 0x0b0e15 });
+    const HW = TUNNEL_OPEN_HW, OH = TUNNEL_OPEN_H;
+    const sideW = TUNNEL_W / 2 - HW;
+    const blocks: THREE.BufferGeometry[] = [];
+    const hall: THREE.BufferGeometry[] = [];
+    const lights: THREE.BufferGeometry[] = [];
+    // darker the deeper in
+    const shade = (geo: THREE.BufferGeometry, base: number) => {
+      const P = geo.attributes.position;
+      const col = new Float32Array(P.count * 3);
+      for (let k = 0; k < P.count; k++) {
+        const deep = Math.min(1, Math.abs(Math.abs(P.getX(k)) - AX) / tunnelD);
+        col.fill(base * (1 - 0.8 * deep), k * 3, k * 3 + 3);
+      }
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      return geo;
+    };
+    const glowCol = (geo: THREE.BufferGeometry, c: THREE.Color, k: number) => {
+      const n = geo.attributes.position.count;
+      const col = new Float32Array(n * 3);
+      for (let v = 0; v < n; v++) col.set([c.r * k, c.g * k, c.b * k], v * 3);
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      return geo.toNonIndexed();
+    };
     for (const sx of [-1, 1]) {
-      const box = new THREE.Mesh(new THREE.BoxGeometry(tunnelD, tunnelH, TUNNEL_W), portalMat);
-      box.position.set(sx * (AX + tunnelD / 2), FLOOR + tunnelH / 2, 0);
-      g.add(box);
+      const cx = sx * (AX + tunnelD / 2);
+      const team = new THREE.Color(sx < 0 ? 0xff7a1f : 0x3fe0ff);
+      // the walls either side of the mouth and the lintel over it (they hide the cut stands)
+      for (const sz of [-1, 1]) blocks.push(new THREE.BoxGeometry(tunnelD, tunnelH, sideW).translate(cx, FLOOR + tunnelH / 2, sz * (HW + sideW / 2)));
+      blocks.push(new THREE.BoxGeometry(tunnelD, tunnelH - OH, 2 * HW).translate(cx, FLOOR + OH + (tunnelH - OH) / 2, 0));
+      // posts where the ad boards stop at the mouth
+      for (const sz of [-1, 1]) blocks.push(new THREE.BoxGeometry(0.25, 0.42 - FLOOR + 0.04, 0.1).translate(sx * (AX - 0.475), (0.42 + FLOOR) / 2 + 0.02, sz * (HW + 0.05)));
+      // the hall: floor (from the boards in), walls, ceiling, the far end
+      const len = tunnelD + 0.62;
+      const x0 = sx * (AX - 0.62 + len / 2);
+      hall.push(shade(new THREE.PlaneGeometry(len, 2 * HW).rotateX(-Math.PI / 2).translate(x0, FLOOR + 0.002, 0), 0.05));
+      hall.push(shade(new THREE.PlaneGeometry(tunnelD, 2 * HW).rotateX(Math.PI / 2).translate(cx, FLOOR + OH - 0.004, 0), 0.03));
+      for (const sz of [-1, 1]) hall.push(shade(new THREE.PlaneGeometry(tunnelD, OH).rotateY(sz > 0 ? Math.PI : 0).translate(cx, FLOOR + OH / 2, sz * (HW - 0.004)), 0.045));
+      hall.push(shade(new THREE.PlaneGeometry(2 * HW, OH).rotateY(-sx * (Math.PI / 2)).translate(sx * (AX + tunnelD - 0.01), FLOOR + OH / 2, 0), 0.01));
+      // rings of light round the hall, fading in (the carpet runs in to the gate)
+      for (let x = 0.5; x < TUNNEL_GATE; x += 0.6) {
+        const k = RenderSettings.glow(1.3) * (1 - (0.55 * x) / TUNNEL_GATE);
+        const px = sx * (AX + x);
+        lights.push(glowCol(new THREE.BoxGeometry(0.06, 0.03, 2 * HW - 0.02).translate(px, FLOOR + OH - 0.02, 0), team, k));
+        for (const sz of [-1, 1]) lights.push(glowCol(new THREE.BoxGeometry(0.06, OH - 0.02, 0.03).translate(px, FLOOR + OH / 2, sz * (HW - 0.02)), team, k * 0.8));
+      }
+      // the front: the painted portal, open in the middle
       const face = new THREE.Mesh(
         new THREE.PlaneGeometry(TUNNEL_W, tunnelH),
-        new THREE.MeshBasicMaterial({ map: tunnelTexture(sx < 0 ? '#ff7a1f' : '#3fe0ff', sx < 0 ? 'ORANGE CORNER' : 'BLUE CORNER'), toneMapped: false }),
+        new THREE.MeshBasicMaterial({ map: tunnelTexture(sx < 0 ? '#ff7a1f' : '#3fe0ff', sx < 0 ? 'ORANGE CORNER' : 'BLUE CORNER', tunnelH), toneMapped: false, alphaTest: 0.5 }),
       );
       face.position.set(sx * (AX - 0.01), FLOOR + tunnelH / 2, 0);
       face.rotation.y = -sx * (Math.PI / 2);
       g.add(face);
+      // the gate
+      const gate = new THREE.Mesh(new THREE.PlaneGeometry(2 * HW, OH), gateMaterial(team, U.uTime, HW, OH));
+      gate.position.set(sx * (AX + TUNNEL_GATE), FLOOR + OH / 2, 0);
+      gate.rotation.y = -sx * (Math.PI / 2);
+      this.gates.push(gate.material as THREE.ShaderMaterial);
+      g.add(gate);
     }
+    g.add(new THREE.Mesh(mergeGeometries(blocks)!, new THREE.MeshBasicMaterial({ color: 0x0b0e15 })));
+    g.add(new THREE.Mesh(mergeGeometries(hall)!, new THREE.MeshBasicMaterial({ vertexColors: true })));
+    g.add(new THREE.Mesh(mergeGeometries(lights)!, new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false })));
 
     // ---------------------------------------------------------------- roof rig
     const steel = new THREE.MeshBasicMaterial({ color: 0x2c3444 });
@@ -1155,6 +1254,17 @@ export class Venue {
   score(dt: number, s: ScoreState | null) {
     this.board.update(dt, s);
     this.show.setPhase(s ? s.phase : 'menu', s?.presenting ?? -1);
+  }
+
+  /** Something passing through a tunnel's gate at `p` (null: nothing) makes it ripple there. */
+  gateHit(p: THREE.Vector3 | null) {
+    for (let i = 0; i < this.gates.length; i++) {
+      const u = this.gates[i].uniforms.uHit.value as THREE.Vector4;
+      const gx = (i === 0 ? -1 : 1) * (AX + TUNNEL_GATE);
+      const near = p && Math.sign(p.x) === Math.sign(gx) ? Math.max(0, 1 - Math.abs(p.x - gx) / 1.8) : 0;
+      if (p && near > 0) u.set(gx, p.y + 0.3, p.z, near);
+      else u.w = 0;
+    }
   }
 
   /** Strobe the boards (knockdowns, KOs). */

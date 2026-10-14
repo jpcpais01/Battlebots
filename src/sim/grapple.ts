@@ -8,7 +8,8 @@ import { P } from './damage';
 import { DM } from './dmath';
 
 /**
- * Grappling: the clinch, takedowns, the sprawl and strikes on the ground.
+ * Grappling: the clinch, takedowns and the sprawl. Nobody fights on the floor: a bot
+ * that takes the other down stays on its feet and lets them get up.
  *
  * A grapple is a two-body state the match runs alongside the fight, the way a finisher
  * is, except that nothing in it is scripted to happen: the two brains keep deciding what
@@ -16,7 +17,7 @@ import { DM } from './dmath';
  * the outcome of every exchange comes from the bodies (strength, balance, stamina, how
  * hurt each one is) and the fighters' own random streams. Only the motions themselves
  * are authored: the over-under, the plum, the body lock, the reap, the lift and slam, the
- * double-leg drive, the stuffed shot, kneeling over a downed opponent.
+ * double-leg drive, the stuffed shot.
  *
  * Both robots' hands hold onto real points of each other's bodies (EmotePose.grip), so
  * a clinch stays a clinch however the two of them move, sway or get pushed about.
@@ -25,14 +26,14 @@ import { DM } from './dmath';
  * replays come out the same.
  */
 
-export type GrapplePhase = 'clinch' | 'trip' | 'throw' | 'drive' | 'stuffed' | 'ground';
+export type GrapplePhase = 'clinch' | 'trip' | 'throw' | 'drive' | 'stuffed';
 export type Tie = 'plum' | 'lock';
 export type TakedownKind = 'trip' | 'throw' | 'double';
-type Grip = 'neck' | 'under' | 'over' | 'waist' | 'bicep' | 'frame' | 'head' | 'thigh' | 'back' | 'post';
+type Grip = 'neck' | 'under' | 'over' | 'waist' | 'bicep' | 'frame' | 'head' | 'thigh' | 'back';
 
-/** A grappling blow: a body slammed into the canvas, or a punch from on top. */
+/** A grappling blow: a body slammed into the canvas. */
 export interface GrappleBlow {
-  kind: 'slam' | 'ground';
+  kind: 'slam';
   zone: Zone;
   part: number;
   /** Damage before armour. */
@@ -49,8 +50,6 @@ export interface GrappleHost {
   hitstop(s: number): void;
   /** A grappling blow lands: damage, wear, the report (and a stoppage if it's over). */
   blow(att: Fighter, def: Fighter, b: GrappleBlow): void;
-  /** How many punches this fighter will throw on a downed opponent after a takedown (0: stands up). */
-  groundBlows(att: Fighter): number;
 }
 
 /**
@@ -90,9 +89,6 @@ const FADE = 0.32;
 /** The referee breaks a clinch where nothing happens for this long, and any clinch at CLINCH_MAX. */
 const CLINCH_QUIET = 1.8;
 const CLINCH_MAX = 4.8;
-/** Ground punches: first one, then one every GROUND_GAP. */
-const GROUND_FIRST = 0.5;
-const GROUND_GAP = 0.55;
 
 const _a = new Vector3();
 const _b = new Vector3();
@@ -121,8 +117,6 @@ class Body {
   roll2 = [0.2, 0.2];
   grip: [Grip, Grip] = ['under', 'over'];
   gw = [1, 1];
-  /** Rear-knee-down kneel (ground and pound), 0..1. */
-  kneel = 0;
   reset() {
     this.crouch = 0.1;
     this.pitch = 0.25;
@@ -132,7 +126,6 @@ class Body {
     this.aw[0] = this.aw[1] = 1;
     this.roll2[0] = this.roll2[1] = 0.2;
     this.gw[0] = this.gw[1] = 1;
-    this.kneel = 0;
   }
 }
 
@@ -143,7 +136,7 @@ export class Grapple {
   total = 0;
   /** The two fighters in match order. */
   readonly f: [Fighter, Fighter];
-  /** Who is doing the work in a takedown, throw, shot or ground phase (and to whom). */
+  /** Who is doing the work in a takedown, throw or shot (and to whom). */
   att: Fighter;
   def: Fighter;
   /** Clinch control from fighter 0's side: +1, fighter 0 has it all. */
@@ -194,10 +187,6 @@ export class Grapple {
   private fell = false;
   private slammed = false;
   private fellAt = 0;
-  // ground and pound
-  private blows = 0;
-  private landed = 0;
-  private side = 1;
   /** Seed for the clinch's sway (from the step it began, so it's the same everywhere). */
   private readonly sway: number;
 
@@ -395,9 +384,6 @@ export class Grapple {
       case 'stuffed':
         this.stuffedStep();
         break;
-      case 'ground':
-        this.groundStep(dt);
-        break;
     }
     if (this.live) this.writePoses(dt);
   }
@@ -589,9 +575,8 @@ export class Grapple {
     this.fellAt = this.t;
     def.lift = 0;
     def.knockDown(dir, power, false, false);
-    this.blows = def.hp > 0 ? this.host.groundBlows(this.att) : 0;
-    // stays down for the punches, then scrambles up
-    def.downTime = this.blows > 0 ? GROUND_FIRST + this.blows * GROUND_GAP + 0.75 : 1.1 + 0.35 * (1 - def.hpRatio);
+    // a moment on the canvas, then back up: the fight carries on standing
+    def.downTime = 1.1 + 0.35 * (1 - def.hpRatio);
     this.host.emit('takedown', { f: this.att, opp: def, kind: this.kind });
   }
 
@@ -609,59 +594,14 @@ export class Grapple {
     this.host.blow(att, def, { kind: 'slam', zone, part: this.kind === 'throw' ? P.Chest : P.Torso, damage: dmg, point: _b.clone(), dir: _c.clone(), jolt: 3 });
   }
 
-  /** The takedown is done: punches from on top, or get up and let them up. */
+  /** The takedown is done: let go, straighten up and step back while they get up. */
   private afterTakedown() {
-    if (this.def.state === 'ko' || this.blows <= 0 || !this.def.isDown) {
-      this.release();
-      return;
+    const att = this.att, d = this.def.body.pos;
+    if (att.state === 'fight') {
+      _n.set(att.root.x - d[J.Pelvis].x, 0, att.root.z - d[J.Pelvis].z);
+      if (_n.lengthSq() > 1e-6) att.rootVel.addScaledVector(_n.normalize(), 0.9);
     }
-    this.setPhase('ground');
-    this.landed = 0;
-    // kneel on the side of them we're already on
-    const d = this.def.body.pos;
-    _a.subVectors(d[J.Neck], d[J.Pelvis]).setY(0);
-    _b.set(this.att.root.x - d[J.Chest].x, 0, this.att.root.z - d[J.Chest].z);
-    this.side = _a.x * _b.z - _a.z * _b.x > 0 ? 1 : -1;
-    this.t = 0;
-  }
-
-  /** On top of a downed opponent: drop punches, then stand up and step off before they rise. */
-  private groundStep(dt: number) {
-    const att = this.att, def = this.def;
-    if (!def.isDown || def.state === 'getup' || att.state !== 'fight') {
-      this.release();
-      return;
-    }
-    const d = def.body.pos;
-    // kneel beside the chest
-    _a.subVectors(d[J.Neck], d[J.Pelvis]).setY(0);
-    if (_a.lengthSq() < 1e-6) _a.set(1, 0, 0);
-    _a.normalize();
-    _b.set(-_a.z * this.side, 0, _a.x * this.side);
-    const pair = (att.size + def.size) * 0.5;
-    _c.copy(d[J.Chest]).addScaledVector(_a, 0.12 * pair).addScaledVector(_b, 0.5 * pair).setY(0);
-    att.intentVel.set(_c.x - att.root.x, 0, _c.z - att.root.z).multiplyScalar(3);
-    if (att.intentVel.length() > 1.6) att.intentVel.setLength(1.6);
-    const t = this.t;
-    const k = this.landed;
-    if (k < this.blows) {
-      const at = GROUND_FIRST + k * GROUND_GAP;
-      if (t >= at) {
-        this.landed++;
-        const head = k % 3 !== 1 || def.parts.cond[P.Head] < 0.3;
-        const target = head ? d[J.Head] : d[J.Chest];
-        const st = att.build.stats;
-        _f.subVectors(target, att.body.pos[J.Chest]).normalize();
-        const dmg = (20 + 16 * st.punchPower) * (0.85 + 0.3 * this.wobble(k));
-        this.host.blow(att, def, { kind: 'ground', zone: head ? 'head' : 'body', part: head ? P.Head : P.Chest, damage: dmg, point: target.clone(), dir: _f.clone(), jolt: 5 });
-      }
-    } else if (t >= GROUND_FIRST + (this.blows - 1) * GROUND_GAP + 0.38) {
-      // up and away: they're about to scramble back to their feet
-      _n.set(att.root.x - d[J.Pelvis].x, 0, att.root.z - d[J.Pelvis].z).normalize();
-      att.rootVel.addScaledVector(_n, 1.2);
-      this.release();
-    }
-    void dt;
+    this.release();
   }
 
   // ------------------------------------------------------------------ poses
@@ -698,17 +638,15 @@ export class Grapple {
         set(o + 5, B.pole[s].z);
         set(o + 6, B.roll2[s]);
         set(o + 7, B.aw[s]);
-        // the feet stay the fighter's own, except a knee to the canvas
+        // the feet stay the fighter's own
         const fo = footI(s);
         ch[fo] = 0;
         ch[fo + 1] = 0;
-        const rear = (s === 0) === (me.stance > 0);
-        const kn = rear ? B.kneel : 0;
         set(fo + 2, 0);
-        set(fo + 3, 0.02 * kn);
-        set(fo + 4, -0.2 * kn);
-        set(fo + 5, lerp(0.1, -0.6, kn));
-        set(fo + 6, kn);
+        set(fo + 3, 0);
+        set(fo + 4, 0);
+        set(fo + 5, 0.1);
+        set(fo + 6, 0);
       }
       // weight: in quickly; the rig shows through while this fighter throws something
       const sOut = me.strike && me.strike.phase !== 'recovery';
@@ -716,15 +654,8 @@ export class Grapple {
       P0.w += (want - P0.w) * (1 - DM.exp(-(want > P0.w ? 9 : 20) * dt));
       if (P0.w < 0.002) P0.w = 0;
       P0.gazeOn = true;
-      const onTop = this.phase === 'ground' && me === this.att;
-      P0.gaze.lerp(onTop ? opp.body.pos[J.Chest] : opp.body.pos[J.Head], 1 - DM.exp(-8 * dt));
-      // kneeling over them: face the body on the canvas, not where its feet were
-      P0.faceOn = onTop;
-      if (onTop) {
-        const c = opp.body.pos[J.Chest];
-        P0.face = DM.atan2(c.x - me.root.x, c.z - me.root.z);
-        P0.turn = 4;
-      }
+      P0.gaze.lerp(opp.body.pos[J.Head], 1 - DM.exp(-8 * dt));
+      P0.faceOn = false;
       this.grips(i, me, opp, B, dt);
     }
   }
@@ -770,9 +701,6 @@ export class Grapple {
           break;
         case 'back':
           tgt.copy(o[J.Chest]).addScaledVector(UP, 0.1 * z).addScaledVector(_f, -0.12 * z).addScaledVector(_r, os * 0.12 * z);
-          break;
-        case 'post':
-          tgt.copy(o[J.Chest]).addScaledVector(UP, 0.08 * z);
           break;
       }
       const gp = this.gp[i][s];
@@ -884,8 +812,8 @@ export class Grapple {
     void opp;
   }
 
-  /** The one taking them down (or kneeling over them). */
-  private attShape(me: Fighter, opp: Fighter, B: Body) {
+  /** The one taking them down. */
+  private attShape(_me: Fighter, opp: Fighter, B: Body) {
     const t = this.t;
     B.heel = 0.3;
     switch (this.phase) {
@@ -897,8 +825,6 @@ export class Grapple {
         B.twist = 0.35 * k;
         B.grip = ['frame', 'waist'];
         B.gw = this.fell ? [1 - minJerk(clamp01((t - 0.3) / 0.2)), 1 - minJerk(clamp01((t - 0.3) / 0.2))] : [1, 1];
-        // the reap: the lead leg goes behind theirs and sweeps
-        B.kneel = 0;
         break;
       }
       case 'throw': {
@@ -934,35 +860,9 @@ export class Grapple {
         B.grip = ['thigh', 'thigh'];
         B.gw = [0.55, 0.55];
         break;
-      case 'ground': {
-        // on one knee beside them: the rear hand rises and drops, the lead hand posts on the chest
-        B.crouch = 0.46;
-        B.pitch = 1.0;
-        B.kneel = 1;
-        B.heel = 0.1;
-        const rear = me.rearSide === 'L' ? 0 : 1;
-        B.grip = rear === 0 ? ['head', 'post'] : ['post', 'head'];
-        B.gw[1 - rear] = 0.85;
-        // the punch: lifted between blows, slammed down onto the target for each one
-        let down = 0;
-        for (let k = 0; k < this.blows; k++) {
-          const at = GROUND_FIRST + k * GROUND_GAP;
-          const d = t - (at - 0.13);
-          if (d >= 0 && d < 0.4) down = Math.max(down, d < 0.13 ? minJerk(d / 0.13) : 1 - minJerk((d - 0.13) / 0.27));
-        }
-        B.gw[rear] = down;
-        B.pole[rear].set(0.8, 0.3, -0.5);
-        B.aw[rear] = 1;
-        B.twist = (rear === 1 ? 1 : -1) * 0.25 * down;
-        // the cocked fist between blows: up by the shoulder
-        B.pole[1 - rear].set(0.5, -1, -0.2);
-        break;
-      }
     }
-    if (this.phase !== 'ground') {
-      B.pole[0].set(0.7, -0.6, -0.4);
-      B.pole[1].set(0.7, -0.6, -0.4);
-    }
+    B.pole[0].set(0.7, -0.6, -0.4);
+    B.pole[1].set(0.7, -0.6, -0.4);
     void opp;
   }
 
@@ -1003,10 +903,6 @@ export class Grapple {
         B.pz = -0.12;
         B.heel = 0.5;
         B.grip = ['head', 'back'];
-        break;
-      case 'ground':
-        B.gw = [0, 0];
-        B.aw = [0, 0];
         break;
     }
     void opp;

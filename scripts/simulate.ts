@@ -43,7 +43,7 @@ const moveUse = new Map<string, { n: number; hit: number; blk: number; dodge: nu
 const respUse = new Map<string, number>();
 const plans = new Map<string, number>();
 const distHist = [0, 0, 0, 0, 0];
-/** Grappling: clinches, breaks, takedowns, sprawls, shoves to the floor, punches from on top. */
+/** Grappling: clinches, breaks, takedowns, sprawls, shoves to the floor. */
 const grap = new Map<string, number>();
 const tally = (k: string) => grap.set(k, (grap.get(k) ?? 0) + 1);
 let clinchSteps = 0;
@@ -83,7 +83,6 @@ for (let i = 0; i < N; i++) {
     if (type === 'takedownStuffed') tally(`stuffed(${d.kind})`);
     if (type === 'sprawl') tally('sprawl');
     if (type === 'knockdown' && d.move.path === 'push') tally('shoved down');
-    if (type === 'hit' && d.move.id === 'cross' && d.defender.isDown) tally('ground punch');
     if (type === 'ko' && m.grapple) tally(`ko in grapple(${m.grapple.phase})`);
   });
   let steps = 0;
