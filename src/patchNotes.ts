@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-14 04:00',
     title: 'Slow bots fight back',
     notes: [
+      'Bots no longer pull their own punch halfway through to dodge. Once a punch is on its way they let it go and trade, unless the other shot will clearly land first. Slower bots commit hardest.',
       'Slower, heavier bots no longer turtle up against quick ones. They commit once they are set, meet opponents as they step in and fire straight back when hit, trading speed for power.',
     ],
   },
