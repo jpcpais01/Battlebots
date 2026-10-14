@@ -7,7 +7,7 @@ import { entryTime, hatchXZ, LIFT_DEPTH, liftUp } from '../sim/entrance';
 import { clamp, damp, Noise1, Rng, smoothstep } from '../sim/math';
 import { AX, AZ, SUITE_D, UPPER_Y } from './bowl';
 
-export type CamMode = 'menu' | 'garage' | 'match';
+export type CamMode = 'menu' | 'garage' | 'match' | 'scene';
 export type CamZoom = 'close' | 'normal' | 'wide';
 
 /**
@@ -159,6 +159,16 @@ export class Director {
   menuTurn = 0;
   /** The player is steering the home camera (drag, fling or easing back): follow it tightly. */
   menuLive = false;
+  /**
+   * 'scene' mode (the home screen scenes): where the lens is, what it looks at, the lens (a
+   * multiple of the base field of view), its roll, and how quickly it follows (100 or more:
+   * exactly). The player's swipe turns the lens round the look point.
+   */
+  readonly scenePos = new THREE.Vector3(3, 1.6, 4);
+  readonly sceneLook = new THREE.Vector3(0, 1, 0);
+  sceneFov = 1;
+  sceneRoll = 0;
+  sceneLambda = 3;
   private snapNext = false;
   private narrow = false;
   /** Horizontal framing offset as a fraction of the view width (positive puts the subject left of center). */
@@ -363,6 +373,14 @@ export class Director {
         );
         wantLook.copy(this.garageTarget);
         posLambda = 4;
+      } else if (this.mode === 'scene') {
+        const a = this.menuTurn;
+        const c = Math.cos(a), sn = Math.sin(a);
+        const lk = this.sceneLook;
+        const dx = this.scenePos.x - lk.x, dz = this.scenePos.z - lk.z;
+        wantPos.set(lk.x + dx * c + dz * sn, this.scenePos.y, lk.z - dx * sn + dz * c);
+        wantLook.copy(lk);
+        posLambda = this.menuLive ? Math.max(14, this.sceneLambda) : this.sceneLambda;
       } else {
         this.orbit += dt * 0.1;
         const r = this.narrow ? 6.2 : 5;
@@ -375,17 +393,27 @@ export class Director {
       if (this.snapNext) {
         this.pos.copy(wantPos);
         this.look.copy(wantLook);
-        this.fov = this.baseFov;
+        this.fov = this.mode === 'scene' ? this.baseFov * this.sceneFov : this.baseFov;
         this.shift = this.shiftX;
       }
-      this.pos.x = damp(this.pos.x, wantPos.x, posLambda, dt);
-      this.pos.y = damp(this.pos.y, wantPos.y, posLambda, dt);
-      this.pos.z = damp(this.pos.z, wantPos.z, posLambda, dt);
-      this.look.x = damp(this.look.x, wantLook.x, lookLambda, dt);
-      this.look.y = damp(this.look.y, wantLook.y, lookLambda, dt);
-      this.look.z = damp(this.look.z, wantLook.z, lookLambda, dt);
-      this.fov = damp(this.fov, this.baseFov, 3, dt);
-      this.roll = damp(this.roll, 0, 3, dt);
+      const scene = this.mode === 'scene';
+      // a scene's camera moves are authored: follow them as tightly as they ask (100+: exactly)
+      const exact = scene && this.sceneLambda >= 100;
+      const ll = scene ? this.sceneLambda * 1.6 : lookLambda;
+      if (exact) {
+        this.pos.copy(wantPos);
+        this.look.copy(wantLook);
+      } else {
+        this.pos.x = damp(this.pos.x, wantPos.x, posLambda, dt);
+        this.pos.y = damp(this.pos.y, wantPos.y, posLambda, dt);
+        this.pos.z = damp(this.pos.z, wantPos.z, posLambda, dt);
+        this.look.x = damp(this.look.x, wantLook.x, ll, dt);
+        this.look.y = damp(this.look.y, wantLook.y, ll, dt);
+        this.look.z = damp(this.look.z, wantLook.z, ll, dt);
+      }
+      const fovTo = scene ? this.baseFov * this.sceneFov : this.baseFov;
+      this.fov = exact ? fovTo : damp(this.fov, fovTo, scene ? this.sceneLambda : 3, dt);
+      this.roll = exact ? this.sceneRoll : damp(this.roll, scene ? this.sceneRoll : 0, 3, dt);
     }
 
     this.snapNext = false;

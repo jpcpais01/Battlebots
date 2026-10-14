@@ -24,7 +24,7 @@ import {
   type MatKey,
 } from './parts';
 import { RenderSettings } from './settings';
-import { surf, vertexPBR, type GlowKey, type Surfaces } from './bake';
+import { makerSurfaces, surf, vertexPBR, type GlowKey, type Surfaces } from './bake';
 import { CH_CORE, CH_GLOW, CH_RARITY, rigid, rigidDepth, SkinBuilder, type DetailLod } from './skin';
 import { contactAO } from './ao';
 import { contactStats, Hull, partRadius, pushOut, samplePB, tally, type PlacedHull } from './contact';
@@ -40,8 +40,8 @@ export type PoseSource = Pick<
   'faceYaw' | 'stance' | 'parts' | 'state' | 'strike' | 'dodge' | 'isDown' | 'shield' | 'overdrive' | 'index' | 'shockTime' | 'handRoll' | 'footYaw' | 'footHeel' | 'footAir' | 'footFlex'
 >;
 
-/** Core light per core look: the five originals, then Bastion amber, Kestrel ice, Vulkan molten, Halcyon violet, Kensei crimson. */
-const CORE_COLORS = [0x49c6ff, 0xff4a2a, 0x3cffd8, 0x52ff6a, 0xc77dff, 0xffa820, 0x8ff4ff, 0xff6200, 0xb48dff, 0xff2d55];
+/** Core light per maker: diesel ember, Lumen white, Longwei cyan, Martelli gold, Kensei crimson, Strix afterburner green. */
+const CORE_COLORS = [0xff7a12, 0xd6ecff, 0x22dcff, 0xffbf3c, 0xff2d55, 0x6dff8e];
 
 /** Bones of the rigid skin. Every bone is a direct child of the model root. */
 const enum B {
@@ -198,6 +198,7 @@ export function botSurfaces(paint: Paint): Surfaces {
     chrome: surf(0xd9dee6, 1, 0.14),
     dark: surf(fr.dark, 0.45, 0.58),
     joint: surf(fr.joint, Math.min(fr.m, 0.8), fr.r + 0.04),
+    ...makerSurfaces(),
   };
 }
 
@@ -361,6 +362,8 @@ export class BotModel {
   readonly anchors: (THREE.Vector3 | null)[] = Array.from({ length: 16 }, () => null);
   private sockets = 0;
   private oilNext = SOCKET_SLOTS;
+  /** Brightens the accent and core lights (the home scenes flare them when the robot gets the call). */
+  glowBoost = 1;
 
   constructor(loadout: Loadout, paint: Paint, size = 1) {
     this.loadout = loadout;
@@ -722,9 +725,9 @@ export class BotModel {
     }
     // overdrive: glow runs hot
     const od = f.overdrive > 0 ? 0.5 + 0.5 * Math.sin(time * 14) : 0;
-    this.cols[CH_GLOW].copy(this.baseGlow).lerp(_hotScaled(), od * 0.6);
+    this.cols[CH_GLOW].copy(this.baseGlow).lerp(_hotScaled(), od * 0.6).multiplyScalar(this.glowBoost);
     const pulse = 1 + Math.sin(time * 3 + f.index) * 0.15 + (f.shockTime > 0 ? 1.5 : 0);
-    this.cols[CH_CORE].copy(this.baseCore).multiplyScalar(f.state === 'ko' ? 0.15 : pulse);
+    this.cols[CH_CORE].copy(this.baseCore).multiplyScalar((f.state === 'ko' ? 0.15 : pulse) * this.glowBoost);
     // mythic items shimmer
     for (let i = 0; i < SLOTS.length; i++) {
       if (this.loadout[SLOTS[i]].rarity === 4) {

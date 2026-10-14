@@ -3,6 +3,7 @@ import { Crowd, type CrowdState } from './crowd';
 import { Booth, nameKey, type Clip, type NameCut } from './booth';
 import { Voice } from './voice';
 import { renderWalkOn } from './walkOn';
+import { HomeSound, type HomeSoundKind } from './homeSound';
 
 const MASTER = 0.7;
 
@@ -47,6 +48,9 @@ export class Sfx {
   /** The theme playing now (and a token so a late render never starts a stale one). */
   private walkOnNow: { src: AudioBufferSourceNode; g: GainNode } | null = null;
   private walkOnToken = 0;
+  /** The animated home screen's place: surf and a tune, or the gym's radio. */
+  private home: HomeSound | null = null;
+  private homeKind: HomeSoundKind | null = null;
   /** Commentary volume: 1 on, 0.5 quiet, 0 off. */
   commentary = 1;
   /** The commentators. Silent until audio starts and the voice list has loaded. */
@@ -159,6 +163,8 @@ export class Sfx {
     this.buildBank();
     this.crowd = new Crowd(ctx, this.master);
     this.crowd.ambience(this.crowdLevel);
+    this.home = new HomeSound(ctx, this.master, this.noiseBuf);
+    this.home.set(this.homeKind);
     const crowd = this.crowd;
     const voice = new Voice(ctx, this.out, this.commentary, (g) => crowd.duck(g));
     this.voice = voice;
@@ -697,6 +703,61 @@ export class Sfx {
     } else if (kind === 'select') this.tone('triangle', 720, 980, 0.08, 0.09);
     else if (kind === 'back') this.tone('triangle', 600, 380, 0.08, 0.08);
     else this.tone('triangle', 880, 900, 0.05, 0.07);
+  }
+
+  // ------------------------------------------------------------------ home scenes
+  /** The home screen's place sounds (null when the home screen isn't showing one). */
+  homeScene(kind: HomeSoundKind | null) {
+    this.homeKind = kind;
+    this.home?.set(kind);
+  }
+
+  /** The place's tune on or off. */
+  homeMusic(on: boolean) {
+    this.home?.setMusic(on);
+  }
+
+  /** The place's sounds as a whole, louder or quieter. */
+  homeLevel(v: number, tau = 0.3) {
+    this.home?.level(v, tau);
+  }
+
+  /** The phone ringing on the side table. */
+  ring() {
+    if (!this.ok) return;
+    this.home?.ring(this.master!);
+  }
+
+  /** Picking up: two short beeps. */
+  phoneBeep() {
+    if (!this.ok) return;
+    this.tone('sine', 1400, 1400, 0.07, 0.05);
+    this.tone('sine', 1760, 1760, 0.09, 0.05, 0.09);
+  }
+
+  /** A strike landing on the heavy bag (k: 0..1 power). */
+  bagHit(k: number, pan = 0) {
+    if (!this.ok) return;
+    this.impact('thud', 0.25 + 0.45 * k, 1.35 - 0.3 * k, pan);
+    this.tone('sine', 110, 45, 0.18 + 0.2 * k, 0.12 + 0.3 * k);
+    this.noise(0.08 + 0.1 * k, 'lowpass', 1400, 0.7, 0.08 + 0.18 * k, 0, 300);
+  }
+
+  /** The bag's chain rattling. */
+  chain(k = 1) {
+    if (!this.ok) return;
+    for (let i = 0; i < 4; i++) {
+      const f = 2600 + Math.random() * 2400;
+      this.tone('triangle', f, f * 0.98, 0.07, 0.012 * k, i * (0.035 + Math.random() * 0.03));
+    }
+  }
+
+  /** The heavy arena door: the latch, a groan, and a rush of air and light. */
+  doorOpen() {
+    if (!this.ok) return;
+    this.impact('block', 0.5, 0.65);
+    this.tone('sawtooth', 70, 52, 0.9, 0.03, 0.08, 500, 300);
+    this.noise(1.6, 'lowpass', 250, 0.6, 0.22, 0.15, 5000);
   }
 
   // ------------------------------------------------------------------ crowd

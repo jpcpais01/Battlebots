@@ -302,7 +302,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'A headlamp, a cowcatcher and no fear.',
     stats: { hp: 130, headGuard: 0.12, stability: 0.06, toughness: 0.2, reaction: -0.05 },
     passive: { id: 'ironChin', name: 'Cast Jaw', value: 0.15, text: 'Takes {v} less damage to the head.' },
-    look: 5,
+    look: 0,
   },
   {
     id: 'piledriver',
@@ -313,7 +313,7 @@ export const ITEMS: ItemDef[] = [
     stats: { punchPower: 0.2, stability: 0.06, toughness: 0.2, punchSpeed: -0.07 },
     passive: { id: 'heavyStrike', name: 'Piledriver', value: 0.2, text: 'Power punches break poise {v} faster.' },
     ability: 'hammer',
-    look: 5,
+    look: 0,
   },
   {
     id: 'turbodiesel',
@@ -323,7 +323,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'Cold start, then it never stops pulling.',
     stats: { punchPower: 0.05, kickPower: 0.05, hp: 50, staminaRegen: -0.04 },
     passive: { id: 'torque', name: 'Warm Engine', value: 0.22, text: 'Hits deal up to {v} more as the engine warms over the first 30s.' },
-    look: 5,
+    look: 0,
   },
   {
     id: 'radiator',
@@ -333,7 +333,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'A tractor grille with a grudge.',
     stats: { hp: 230, armor: 0.08, toughness: 0.25, moveSpeed: -0.07, agility: -0.05 },
     passive: { id: 'unstoppable', name: 'Torque Frame', value: 0.25, text: 'Hit-stun is {v} shorter.' },
-    look: 5,
+    look: 0,
     bulky: true,
   },
   {
@@ -344,7 +344,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'Built on excavator pistons.',
     stats: { stability: 0.3, hp: 60, kickPower: 0.06, toughness: 0.25, moveSpeed: -0.05 },
     passive: { id: 'rooted', name: 'Dead Weight', value: 0.3, text: 'Knockback reduced by {v}.' },
-    look: 5,
+    look: 0,
     rams: true,
   },
   {
@@ -356,7 +356,7 @@ export const ITEMS: ItemDef[] = [
     stats: { kickPower: 0.14, stability: 0.06, toughness: 0.2 },
     passive: { id: 'trip', name: 'Dozer Blade', value: 0.3, text: 'Sweeps are {v} more likely to drop.' },
     ability: 'sweep',
-    look: 5,
+    look: 0,
   },
   // ---------------- LUMEN: one seamless shell, glass faces, a single line of light ----------------
   {
@@ -367,7 +367,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'A sheet of black glass that sees everything.',
     stats: { reaction: 0.2, accuracy: 0.04, stamina: 10 },
     passive: { id: 'precog', name: 'Foresight', value: 0.12, text: '{v} chance to read an attack the instant it starts.' },
-    look: 8,
+    look: 1,
   },
   {
     id: 'touch',
@@ -378,7 +378,7 @@ export const ITEMS: ItemDef[] = [
     stats: { punchPower: 0.06, punchSpeed: 0.07, staminaRegen: 0.06 },
     passive: { id: 'siphon', name: 'Energy Return', value: 0.08, text: 'Heals {v} of damage dealt.' },
     ability: 'shockUpper',
-    look: 8,
+    look: 1,
   },
   {
     id: 'cell',
@@ -388,7 +388,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'All-day battery. All-fight repairs.',
     stats: { staminaRegen: 0.14, hp: 30 },
     passive: { id: 'nanoRepair', name: 'Self Repair', value: 5, text: 'Repairs {v} health a second after 3s without being hit.', flat: true },
-    look: 8,
+    look: 1,
   },
   {
     id: 'unibody',
@@ -398,7 +398,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'Milled from a single block. No seams to crack.',
     stats: { hp: 90, armor: 0.05, stamina: 10 },
     passive: { id: 'aegis', name: 'Glass Shield', value: 14, text: 'Every {v}s a shield absorbs the next hit.', flat: true, inverse: true },
-    look: 8,
+    look: 1,
   },
   {
     id: 'glide',
@@ -408,7 +408,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'Silent steps on magnetic bearings.',
     stats: { agility: 0.14, moveSpeed: 0.07, staminaRegen: 0.05 },
     passive: { id: 'afterimage', name: 'Phase Step', value: 0.2, text: 'After a dodge, the next hit deals +{v}.' },
-    look: 8,
+    look: 1,
   },
   {
     id: 'curve',
@@ -419,7 +419,7 @@ export const ITEMS: ItemDef[] = [
     stats: { kickPower: 0.09, reaction: 0.05, agility: 0.03 },
     passive: { id: 'secondWind', name: 'Fast Charge', value: 0.4, text: 'Stamina regen +{v} when below 30%.' },
     ability: 'roundhouse',
-    look: 8,
+    look: 1,
   },
   // ---------------- LONGWEI ROBOTICS: precise panel lines, lidar, actuator drums, armoured graphite ----------------
   {
@@ -430,7 +430,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'Lidar, stereo cameras and a steel brow.',
     stats: { accuracy: 0.08, reaction: 0.08, hp: 50, toughness: 0.1 },
     passive: { id: 'weakSpot', name: 'Lidar Lock', value: 0.25, text: 'Critical hits deal {v} extra damage.' },
-    look: 1,
+    look: 2,
   },
   {
     id: 'jingang',
@@ -441,7 +441,7 @@ export const ITEMS: ItemDef[] = [
     stats: { punchSpeed: 0.12, punchPower: 0.03, toughness: 0.15 },
     passive: { id: 'whiplash', name: 'Servo Burst', value: 0.12, text: 'Combo punches are {v} faster.' },
     ability: 'flurry',
-    look: 1,
+    look: 2,
   },
   {
     id: 'qilin',
@@ -461,7 +461,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'Layered armour, every plate replaceable.',
     stats: { hp: 150, armor: 0.07, toughness: 0.2, moveSpeed: -0.03 },
     passive: { id: 'plating', name: 'Layered Alloy', value: 0.35, text: 'Blocked hits deal {v} less chip damage.' },
-    look: 1,
+    look: 2,
   },
   {
     id: 'longma',
@@ -471,7 +471,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'Quasi-direct drives. They never miss a step.',
     stats: { moveSpeed: 0.07, agility: 0.07, stability: 0.1, toughness: 0.15 },
     passive: { id: 'footwork', name: 'Gait Control', value: 0.08, text: '+{v} movement speed while circling.' },
-    look: 0,
+    look: 2,
   },
   {
     id: 'xuanfeng',
@@ -482,7 +482,7 @@ export const ITEMS: ItemDef[] = [
     stats: { kickPower: 0.1, stability: 0.04, toughness: 0.1 },
     passive: { id: 'meteor', name: 'Whirlwind', value: 0.15, text: 'Spinning strikes deal {v} more damage.' },
     ability: 'spinKick',
-    look: 3,
+    look: 2,
   },
   // ---------------- OFFICINE MARTELLI: sculpted cuirass, polished brass, crests and lion faces ----------------
   {
@@ -493,7 +493,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'A crest of brass and a face that does not blink.',
     stats: { hp: 60, crit: 0.05, punchPower: 0.04, headGuard: 0.05 },
     passive: { id: 'composure', name: 'Gloria', value: 0.3, text: '{v} more likely to beat the count.' },
-    look: 7,
+    look: 3,
   },
   {
     id: 'colosseo',
@@ -504,7 +504,7 @@ export const ITEMS: ItemDef[] = [
     stats: { punchPower: 0.12, crit: 0.03, punchSpeed: -0.06 },
     passive: { id: 'rage', name: 'Furia', value: 0.04, text: '+{v} damage per hit taken (stacks 5x).' },
     ability: 'haymaker',
-    look: 7,
+    look: 3,
   },
   {
     id: 'soledoro',
@@ -514,7 +514,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'A golden sun behind a lion medallion.',
     stats: { punchPower: 0.04, kickPower: 0.04, hp: 30 },
     passive: { id: 'overdrive', name: 'Ultimo Round', value: 0.18, text: 'Below 35% health: +{v} speed and damage.' },
-    look: 7,
+    look: 3,
   },
   {
     id: 'corazza',
@@ -524,7 +524,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'Sculpted like marble, cast like a bell.',
     stats: { hp: 120, armor: 0.05, punchPower: 0.03, moveSpeed: -0.04 },
     passive: { id: 'heavyStrike', name: 'Bronze Weight', value: 0.12, text: 'Power strikes break poise {v} faster.' },
-    look: 7,
+    look: 3,
   },
   {
     id: 'legionario',
@@ -534,7 +534,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'Twin rams under polished greaves.',
     stats: { kickPower: 0.12, stability: 0.1, moveSpeed: -0.02 },
     passive: { id: 'pistonDrive', name: 'Charge', value: 0.2, text: 'Lunging attacks travel {v} farther.' },
-    look: 7,
+    look: 3,
     rams: true,
   },
   {
@@ -546,7 +546,7 @@ export const ITEMS: ItemDef[] = [
     stats: { kickPower: 0.12, stability: 0.04, crit: 0.02 },
     passive: { id: 'trip', name: 'Spartan Shove', value: 0.3, text: 'Kick knockback +{v}.' },
     ability: 'pushKick',
-    look: 7,
+    look: 3,
   },
   // ---------------- KENSEI PRECISION: laced lamellar, lacquer, crests, clean edges ----------------
   {
@@ -557,7 +557,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'A crescent crest and a patient stare.',
     stats: { accuracy: 0.08, reaction: 0.08, crit: 0.03, hp: 40 },
     passive: { id: 'iaido', name: 'Iaido', value: 0.25, text: 'The first strike after 2s without attacking deals +{v}.' },
-    look: 9,
+    look: 4,
   },
   {
     id: 'kote',
@@ -568,7 +568,7 @@ export const ITEMS: ItemDef[] = [
     stats: { accuracy: 0.07, punchPower: 0.1, crit: 0.05 },
     passive: { id: 'retaliate', name: 'Counter Cut', value: 0.15, text: 'Counter hits deal {v} more damage.' },
     ability: 'haymaker',
-    look: 9,
+    look: 4,
   },
   {
     id: 'zen',
@@ -578,7 +578,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'Breathe. Then strike.',
     stats: { reaction: 0.08, staminaRegen: 0.08, punchPower: 0.03 },
     passive: { id: 'precog', name: 'Mushin', value: 0.1, text: '{v} chance to read an attack the instant it starts.' },
-    look: 9,
+    look: 4,
   },
   {
     id: 'lamellar',
@@ -588,7 +588,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'A hundred plates, each laced by hand.',
     stats: { hp: 120, armor: 0.06, agility: 0.04 },
     passive: { id: 'plating', name: 'Laced Plates', value: 0.3, text: 'Blocked hits deal {v} less chip damage.' },
-    look: 9,
+    look: 4,
   },
   {
     id: 'hakama',
@@ -598,7 +598,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'Low stance, long reach.',
     stats: { agility: 0.1, stability: 0.1, kickPower: 0.07 },
     passive: { id: 'lightFeet', name: 'Suriashi', value: 0.12, text: 'Dodges are {v} quicker.' },
-    look: 9,
+    look: 4,
   },
   {
     id: 'kama',
@@ -609,7 +609,7 @@ export const ITEMS: ItemDef[] = [
     stats: { kickPower: 0.1, accuracy: 0.05, agility: 0.04 },
     passive: { id: 'trip', name: 'Reaping Cut', value: 0.25, text: 'Sweeps are {v} more likely to drop.' },
     ability: 'sweep',
-    look: 9,
+    look: 4,
   },
   // ---------------- STRIX AEROSPACE: flat stealth facets, chines, gold canopies, sawtooth edges ----------------
   {
@@ -620,7 +620,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'All facets, no reflection, one gold slit.',
     stats: { reaction: 0.16, agility: 0.06, accuracy: 0.05, toughness: -0.05 },
     passive: { id: 'precog', name: 'Radar Warning', value: 0.1, text: '{v} chance to read an attack the instant it starts.' },
-    look: 6,
+    look: 5,
   },
   {
     id: 'sidewinder',
@@ -631,7 +631,7 @@ export const ITEMS: ItemDef[] = [
     stats: { reach: 0.1, punchPower: 0.08, punchSpeed: 0.06, accuracy: 0.03 },
     passive: { id: 'afterburner', name: 'Boost Phase', value: 0.12, text: 'Straight punches deal {v} more damage.' },
     ability: 'rocketPunch',
-    look: 6,
+    look: 5,
   },
   {
     id: 'scramjet',
@@ -641,7 +641,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'Breathes air at Mach five.',
     stats: { staminaRegen: 0.14, moveSpeed: 0.04, hp: 30 },
     passive: { id: 'slipstream', name: 'Bypass Flow', value: 0.4, text: 'Dodges cost {v} less stamina.' },
-    look: 6,
+    look: 5,
   },
   {
     id: 'wraith',
@@ -651,7 +651,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'Radar sees a bird. The bird hits back.',
     stats: { hp: 80, armor: 0.03, moveSpeed: 0.08, agility: 0.08, punchSpeed: 0.05, toughness: -0.05 },
     passive: { id: 'lightFeet', name: 'Low Observable', value: 0.12, text: 'Dodges are {v} quicker.' },
-    look: 6,
+    look: 5,
   },
   {
     id: 'raptor',
@@ -661,7 +661,7 @@ export const ITEMS: ItemDef[] = [
     tagline: 'Thrust vectoring in every stride.',
     stats: { moveSpeed: 0.12, agility: 0.12, kickPower: 0.04, stability: -0.03 },
     passive: { id: 'footwork', name: 'Vector Thrust', value: 0.1, text: '+{v} movement speed while circling.' },
-    look: 6,
+    look: 5,
   },
   {
     id: 'afterburner',
@@ -672,7 +672,7 @@ export const ITEMS: ItemDef[] = [
     stats: { kickPower: 0.1, moveSpeed: 0.03, agility: 0.04 },
     passive: { id: 'tailwind', name: 'Supercruise', value: 0.15, text: 'Kicks come out {v} faster.' },
     ability: 'flyingKnee',
-    look: 6,
+    look: 5,
   },
 ];
 
