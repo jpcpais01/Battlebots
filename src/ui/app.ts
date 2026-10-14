@@ -354,6 +354,9 @@ export class App {
   private tap(kind: 'tap' | 'select' | 'back' | 'start' = 'tap') {
     this.game.sfx?.unlock();
     this.game.sfx?.ui(kind);
+    // the player's walk-on theme renders in the background from the first tap, so it is
+    // ready for the first fight's entrance
+    this.game.sfx?.primeWalkOn(walkOnFor(this.player));
   }
 
   // ------------------------------------------------------------ home
@@ -1051,10 +1054,12 @@ export class App {
     const box = el('div', 'walkons', '', into);
     el('div', 'walkons-h', `<b>Walk-on music</b><span>${p.walkOn ? 'Your pick' : 'Goes with its name'}</span>`, box);
     const row = el('div', 'walkons-row', '', box);
+    // render them all now, so a tap plays at once instead of a second or two later
+    this.game.sfx?.primeWalkOn(now, ...WALK_ONS.map((w) => w.id));
     for (const w of WALK_ONS) {
       button(`walkon${w.id === now ? ' on' : ''}`, `${ICON.sound}<b>${esc(w.name)}</b><span>${esc(w.blurb)}</span>`, () => {
         this.tap('select');
-        this.game.sfx?.walkOn(w.id, 0, 0.8);
+        this.game.sfx?.walkOn(w.id, 0, 0.8, true);
         if (p.walkOn === w.id) return;
         p.walkOn = w.id;
         // (redraws the tab with the new pick)

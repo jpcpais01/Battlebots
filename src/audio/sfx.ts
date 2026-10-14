@@ -45,6 +45,8 @@ export class Sfx {
   private userClips = new Map<string, ArrayBuffer>();
   /** Walk-on themes, rendered once each the first time they're needed. */
   private walkOns = new Map<string, Promise<AudioBuffer | null>>();
+  /** Renders run one at a time, so the theme asked for first is ready first. */
+  private walkOnQueue: Promise<unknown> = Promise.resolve();
   /** The theme playing now (and a token so a late render never starts a stale one). */
   private walkOnNow: { src: AudioBufferSourceNode; g: GainNode } | null = null;
   private walkOnToken = 0;
@@ -323,18 +325,27 @@ export class Sfx {
     if (!sung && n > 0) this.tone('square', 660, 660, 0.06, 0.04, 0.02);
   }
 
-  /** Render walk-on themes ahead of when they play (at the start of a fight). */
+  /**
+   * Render walk-on themes ahead of when they play: the player's as soon as audio starts, both
+   * fighters' at the start of a fight. Each takes a second or two of a background thread.
+   */
   primeWalkOn(...ids: string[]) {
     const ctx = this.ctx;
     if (!ctx) return;
-    for (const id of ids) if (!this.walkOns.has(id)) this.walkOns.set(id, renderWalkOn(id, ctx.sampleRate).catch(() => null));
+    for (const id of ids) {
+      if (this.walkOns.has(id)) continue;
+      const p = this.walkOnQueue.then(() => renderWalkOn(id, ctx.sampleRate)).catch(() => null);
+      this.walkOns.set(id, p);
+      this.walkOnQueue = p;
+    }
   }
 
   /**
    * A bot's walk-on theme, from `offset` seconds in (it was asked for that long ago). Fades
-   * out whatever theme was already playing.
+   * out whatever theme was already playing. A theme still rendering starts when it is done,
+   * in time with the entrance; `wait` plays it whenever it is ready (the garage preview).
    */
-  walkOn(id: string, offset = 0, gain = 0.62) {
+  walkOn(id: string, offset = 0, gain = 0.62, wait = false) {
     if (!this.ok) return;
     this.walkOnStop(0.3);
     this.primeWalkOn(id);
@@ -343,9 +354,10 @@ export class Sfx {
     const token = ++this.walkOnToken;
     void this.walkOns.get(id)!.then((buf) => {
       if (!buf || token !== this.walkOnToken || !this.master) return;
-      // a slow render starts it late, in time with the entrance (but never past the drop)
-      const at = offset + ctx.currentTime - asked;
-      if (at > 1.6) return;
+      // a slow render starts it late, still in time with the entrance: the drop lands on the
+      // reveal even if the build is cut short, and a bar later is too late to bother
+      const at = wait ? 0 : offset + ctx.currentTime - asked;
+      if (at > 3.6) return;
       const src = ctx.createBufferSource();
       src.buffer = buf;
       const g = ctx.createGain();
