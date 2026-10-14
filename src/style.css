@@ -1225,6 +1225,13 @@ button {
   color: #b9c4da;
   line-height: 1.25;
 }
+.passive > svg {
+  width: 1.35em;
+  height: 1.35em;
+  vertical-align: -0.35em;
+  margin-right: 0.3em;
+  color: var(--cyan);
+}
 .passive em {
   color: var(--cyan);
   font-style: normal;
