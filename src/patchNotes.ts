@@ -17,8 +17,9 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-14 20:00',
-    title: 'Arena touch-ups',
+    title: 'Arena touch-ups, sharper icons',
     notes: [
+      'New icons for every special move, and every passive now has its own icon in the garage and on the fight HUD.',
       'The back arrow in the garage and online screens is now a proper Home button with a house icon, and the results screen\'s Home button says what it does.',
       'The arena floor around the ring is now matte black, no more shiny glare.',
     ],

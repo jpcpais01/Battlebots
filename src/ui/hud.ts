@@ -9,7 +9,7 @@ import { J } from '../sim/body';
 import { ITEM_BY_ID } from '../game/items';
 import type { Paint } from '../game/paint';
 import { button, el, esc } from './dom';
-import { ABILITY_ICON, ICON, SLOT_ICON } from './icons';
+import { ABILITY_ICON, ICON, PASSIVE_ICON, SLOT_ICON } from './icons';
 import { saveZoom, type Zoom } from './store';
 import { botCardHtml, paintOf } from './botCard';
 import { ReplayBar } from './replayBar';
@@ -312,7 +312,7 @@ export class Hud {
       addAb(ABILITY_ICON[fa] ?? SLOT_ICON.fist, MOVES[fa].name, fa);
       addAb(ABILITY_ICON[ka] ?? SLOT_ICON.kick, MOVES[ka].name, ka);
       const core = ITEM_BY_ID.get(spec.loadout.core.id)!;
-      addAb(SLOT_ICON.core, core.passive.name, undefined, true);
+      addAb(PASSIVE_ICON[core.passive.id] ?? SLOT_ICON.core, core.passive.name, undefined, true);
       if (right) abil.style.flexDirection = 'row-reverse';
       const hp0 = Math.max(0, f.hpRatio);
       this.bars.push({ root, hp, chip, fill, flash, num, chipN, ready, readyOn: false, st, abs, chipV: hp0, chipVel: 0, shownHp: hp0, lastNum: Math.round(f.hp), lastChipN: 0 });

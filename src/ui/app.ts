@@ -36,7 +36,7 @@ import { button, el, esc } from './dom';
 import { Hud } from './hud';
 import { botCardInner, paintOf } from './botCard';
 import { PerfOverlay } from './perfOverlay';
-import { ABILITY_ICON, COMPANY_ICON, ICON, SLOT_ICON } from './icons';
+import { ABILITY_ICON, COMPANY_ICON, ICON, PASSIVE_ICON, SLOT_ICON } from './icons';
 import { forceUpdate } from '../update';
 import { OnlineScreen } from './online';
 import type { OnlineSession } from '../net/session';
@@ -973,7 +973,7 @@ export class App {
       <div class="t"><b>${esc(item.name)}</b>${tag}</div>
       <div class="tag">${esc(item.tagline)}</div>
       <div class="chips">${ab}${chips}</div>
-      <div class="passive"><em>${esc(item.passive.name)}</em> · ${esc(formatPassive(item.passive, rarity))}</div>`;
+      <div class="passive">${PASSIVE_ICON[item.passive.id] ?? ''}<em>${esc(item.passive.name)}</em> · ${esc(formatPassive(item.passive, rarity))}</div>`;
   }
 
   private renderStats() {
