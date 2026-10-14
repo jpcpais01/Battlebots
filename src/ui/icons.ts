@@ -15,16 +15,18 @@ export const SLOT_ICON: Record<Slot, string> = {
 
 /** Maker logos, drawn in the brand colour (currentColor). */
 export const COMPANY_ICON: Record<CompanyId, string> = {
-  // a riveted blast shield
-  bastion: svg('<path d="M4 4.5h16v7.5c0 4.6-3.6 7.6-8 9.5-4.4-1.9-8-4.9-8-9.5z" fill="currentColor" fill-opacity=".18"/><path d="M8 9h8M8 12.5h8M9.5 16h5"/>'),
-  // a stooping falcon, wings swept back
-  kestrel: svg('<path d="M2 7.5c4.2.2 7.4 1.8 10 5 2.6-3.2 5.8-4.8 10-5-2.9 2.4-4.8 5.6-5.7 9.8L12 14.6l-4.3 2.7C6.8 13.1 4.9 9.9 2 7.5z" fill="currentColor" fill-opacity=".18"/><path d="M12 12.5V21"/>'),
-  // a forge flame
-  vulkan: svg('<path d="M12 2.5c.6 3.8 6 6 6 11.3a6 6 0 0 1-12 0c0-2.9 1.6-4.4 3-6.3.2 2 1 3.2 2.4 3.4-.2-3.2-.6-5.6.6-8.4z" fill="currentColor" fill-opacity=".18"/><path d="M12 20.5a2.6 2.6 0 0 1-2.6-2.6c0-1.6 1.4-2.4 2.6-4 1.2 1.6 2.6 2.4 2.6 4a2.6 2.6 0 0 1-2.6 2.6z"/>'),
-  // a small star on its orbit
-  halcyon: svg('<circle cx="12" cy="12" r="3.4" fill="currentColor" fill-opacity=".45"/><ellipse cx="12" cy="12" rx="10" ry="4.2" transform="rotate(-24 12 12)"/><path d="M12 2v2M12 20v2"/>'),
+  // a horseshoe nailed on with rivets, an exhaust stack rising through it
+  ironhorse: svg('<path d="M5.5 3.5v7.5a6.5 6.5 0 0 0 13 0V3.5" stroke-width="3"/><path d="M12 2v9"/><circle cx="5.5" cy="7" r=".9" fill="currentColor"/><circle cx="18.5" cy="7" r=".9" fill="currentColor"/><circle cx="7" cy="13.5" r=".9" fill="currentColor"/><circle cx="17" cy="13.5" r=".9" fill="currentColor"/>'),
+  // one clean disc and the light inside it
+  lumen: svg('<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.6" fill="currentColor"/>'),
+  // an engineered hexagon round a rising chevron
+  longwei: svg('<path d="M12 2.5l8.2 4.75v9.5L12 21.5l-8.2-4.75v-9.5z" fill="currentColor" fill-opacity=".18"/><path d="M7.5 14.5L12 10l4.5 4.5M9.5 18L12 15.5l2.5 2.5"/>'),
+  // a forging hammer inside a laurel
+  martelli: svg('<path d="M4.5 9.5c-1.2 4.4.6 8.6 4.8 10.8M19.5 9.5c1.2 4.4-.6 8.6-4.8 10.8"/><path d="M8 5.5h8v4H8z" fill="currentColor" fill-opacity=".45"/><path d="M12 9.5v10"/>'),
   // a crescent crest over a blade
   kensei: svg('<path d="M3.5 3.5c1.8 5.6 15.2 5.6 17 0"/><path d="M12 8.5V21.5"/><path d="M8 12.5h8"/><path d="M12 8.5l-1.6 2.4h3.2z" fill="currentColor"/>'),
+  // a sawtooth flying wing seen from above
+  strix: svg('<path d="M12 5l10 6.5-2.6 3-2.4-1.8-2.5 2.6L12 13l-2.5 2.3L7 12.7l-2.4 1.8L2 11.5z" fill="currentColor" fill-opacity=".18"/><path d="M12 5v8"/>'),
 };
 
 export const ICON = {
@@ -134,4 +136,6 @@ export const PASSIVE_ICON: Record<PassiveId, string> = {
   shatter: svg(`<path d="M4 4h16v16H4z" ${T}/><path d="M12 4l-1 5 4 2-3 4 1 5M4 11l7-2M15 11l5 3"/>`),
   nanoRepair: svg(`<circle cx="12" cy="12" r="9" ${T}/><path d="M12 7.5v9M7.5 12h9" stroke-width="2.4"/><circle cx="5" cy="5" r="1" ${F}/><circle cx="19.5" cy="6" r=".9" ${F}/><circle cx="18" cy="19" r="1" ${F}/>`),
   iaido: svg(`<path d="M4 20L18 6c1.5-1.5 3-2 3.5-2.5-.5.5-1 2-2.5 3.5L5 21z" ${T}/><path d="M6.5 15.5l2 2M4 17.5l2.5 2.5"/><path d="M12 2.5v3M16.5 13.5h3" stroke-dasharray="1.5 1.5"/>`),
+  // an engine block warming up: heat rising off it
+  torque: svg(`<path d="M4 12h3l1.5-2h7l1.5 2h3v8H4z" ${T}/><path d="M8 15.5h8"/><path d="M8.5 7c-1-1.2 1-2.3 0-3.5M12 7c-1-1.2 1-2.3 0-3.5M15.5 7c-1-1.2 1-2.3 0-3.5"/>`),
 };

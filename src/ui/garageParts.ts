@@ -1,6 +1,7 @@
 import { MOVES, type MoveId } from '../sim/moves';
 import {
   COMPANIES,
+  COMPANY_BY_ID,
   computeBuild,
   formatPassive,
   ITEM_BY_ID,
@@ -269,6 +270,22 @@ export class PartsMenu {
       `<span class="ic">${PASSIVE_ICON[item.passive.id] ?? ICON.shield}</span><div><small>Passive</small><b>${esc(item.passive.name)}</b><span>${esc(formatPassive(item.passive, r))}</span></div>`,
       box,
     );
+
+    // diesel: the parts only run on a bot built entirely from them
+    const co = COMPANY_BY_ID.get(item.maker)!;
+    if (co.needsFull) {
+      const lo = { ...p.loadout, [slot]: { id: item.id, rarity: r } };
+      const n = SLOTS.filter((sl) => ITEM_BY_ID.get(lo[sl].id)?.maker === co.id).length;
+      const runs = n === SLOTS.length;
+      el(
+        'div',
+        `dt-rule${runs ? ' on' : ''}`,
+        `<b>${runs ? 'Engine runs' : 'Stalled'} · ${n}/${SLOTS.length}</b><span>${
+          runs ? 'A full diesel bot: every part runs at full power.' : `Diesel parts only run on a bot built entirely from ${esc(co.short)} parts. Until then they do nothing.`
+        }</span>`,
+        box,
+      );
+    }
 
     const foot = el('div', 'dt-foot', '', box);
     if (isFit) el('div', 'dt-on', `${ICON.check}<span>Fitted to your bot</span>`, foot);

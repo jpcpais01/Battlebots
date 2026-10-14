@@ -19,6 +19,8 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-14 20:00',
     title: 'A new ring, heavier hits, arena light show',
     notes: [
+      'Six new robot makers: Ironhorse Diesel Works, Lumen, Longwei Robotics, Officine Martelli, Kensei Precision and Strix Aerospace. Each builds one part for every slot, with its own set bonuses. Your saved bots move over to the maker that took over each old part.',
+      'Ironhorse diesel parts are the strongest in the game, but they only run on a full diesel bot. Fit all six or they stall and do nothing. Their engine also warms up, hitting harder over the first 30 seconds.',
       'Bots now make a real entrance: each one rides a lift up through a glowing hatch in its corner, with fog pouring out, a spotlight, sparks and CO2 cannons firing as it locks into place. They wait in their corners for the countdown, then walk out to touch gloves.',
       'Six entrances to pick from in the garage (Emotes > Entrances): Power Up, Hero Landing, Cold Stare, Crowd Pleaser, Shadow Boxer and Earthquake. Equip none and your bot picks one to suit its style.',
       'Every bot has its own walk-on music, with the drop landing the moment it arrives: Steel Anthem, Neon Drive, Iron Forge, Bass Drop, Champion\'s Call or Arcade Boss. Pick yours in the Entrances tab and tap to hear it.',

@@ -1051,7 +1051,10 @@ export class App {
         .map((st) => {
           const next = st.company.sets.find((x) => st.count < x.at);
           const live = st.company.sets.filter((x) => st.count >= x.at).map((x) => esc(x.text)).join(' · ');
-          const hint = live || (next ? `${next.at - st.count} more for ${esc(next.text)}` : '');
+          const stalled = st.company.needsFull && st.count < SLOTS.length;
+          const hint = stalled
+            ? `Stalled: fit all six ${esc(st.company.short)} parts to start the engine`
+            : live || (next ? `${next.at - st.count} more for ${esc(next.text)}` : '');
           return `<span class="set${st.active ? ' on' : ''}" style="--mc:${st.company.color}" title="${esc(st.company.name)}">${makerLogo(st.company)}<b>${st.count}</b><span>${hint}</span></span>`;
         })
         .join('')}</div>`;

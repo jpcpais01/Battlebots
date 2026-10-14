@@ -623,3 +623,31 @@
     height: 2.2em;
   }
 }
+/* diesel parts: whether the bot is full diesel, so they run */
+.dt-rule {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+  padding: 0.45em 0.6em;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 194, 26, 0.45);
+  background: rgba(255, 194, 26, 0.08);
+}
+.dt-rule b {
+  font-weight: 750;
+  font-size: 0.8em;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #ffc21a;
+}
+.dt-rule span {
+  font-size: 0.76em;
+  color: var(--muted);
+}
+.dt-rule.on {
+  border-color: rgba(125, 255, 176, 0.45);
+  background: rgba(125, 255, 176, 0.08);
+}
+.dt-rule.on b {
+  color: var(--green);
+}

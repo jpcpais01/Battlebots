@@ -139,7 +139,8 @@ export type PassiveId =
   | 'furnace'
   | 'shatter'
   | 'nanoRepair'
-  | 'iaido';
+  | 'iaido'
+  | 'torque';
 
 export interface PassiveDef {
   id: PassiveId;
@@ -154,7 +155,7 @@ export interface PassiveDef {
 }
 
 // ======================================================================= COMPANIES
-export type CompanyId = 'bastion' | 'kestrel' | 'vulkan' | 'halcyon' | 'kensei';
+export type CompanyId = 'ironhorse' | 'lumen' | 'longwei' | 'martelli' | 'kensei' | 'strix';
 
 /** A bonus for wearing several parts from one maker (the 6-piece bonus comes on top of the 3-piece one). */
 export interface SetBonus {
@@ -169,79 +170,105 @@ export interface CompanyDef {
   name: string;
   /** Badge name. */
   short: string;
+  /** Where the maker is from, for the brand card. */
+  origin: string;
   motto: string;
   /** What the maker's parts are good at, in a few words. */
   focus: string;
   /** Brand colour (CSS). */
   color: string;
-  sets: [SetBonus, SetBonus];
+  sets: SetBonus[];
+  /**
+   * The parts only run on a bot built entirely from this maker's parts: anything less and every
+   * one of them stalls (no stats, no passive, no move). Set bonuses still count pieces as usual.
+   */
+  needsFull?: boolean;
 }
 
 /**
- * The five robot makers. Every part comes from one of them, and each builds to its own idea of a
- * fighter: you can see it in the shapes (Bastion bolts slabs on, Kestrel sweeps them back, Vulkan
- * leaves the pistons out, Halcyon lights everything up, Kensei laces plates together) and feel it
- * in the stats. Wearing three or six parts from one maker unlocks its set bonus.
+ * The six robot makers. Every part comes from one of them, and each builds to its own idea of a
+ * fighter you can see from across the arena: Ironhorse bolts a diesel engine into a bot, Lumen
+ * machines it from one seamless piece, Longwei engineers it to survive anything, Martelli
+ * sculpts it like a gladiator, Kensei laces it like a samurai and Strix shapes it like a stealth
+ * jet. Wearing three or six parts from one maker unlocks its set bonus.
  */
 export const COMPANIES: CompanyDef[] = [
   {
-    id: 'bastion',
-    name: 'Bastion Heavy Industries',
-    short: 'Bastion',
-    motto: 'Built like a bunker.',
-    focus: 'Armour and staying power',
-    color: '#ffb020',
+    id: 'ironhorse',
+    name: 'Ironhorse Diesel Works',
+    short: 'Ironhorse',
+    origin: 'Pittsburgh, USA',
+    motto: 'Turn the key. Hold on.',
+    focus: 'Brute diesel power, full diesel bots only',
+    color: '#ffc21a',
+    needsFull: true,
     sets: [
-      { at: 3, stats: { hp: 80, armor: 0.03 }, text: '+80 Health, +3% Armor' },
-      { at: 6, stats: { toughness: 0.15 }, passives: [['unstoppable', 0.15]], text: '+15% Durability, hit-stun 15% shorter' },
+      { at: 6, stats: { hp: 120, armor: 0.03 }, passives: [['unstoppable', 0.1], ['torque', 0.08]], text: '+120 Health, +3% Armor, hit-stun 10% shorter, warm engine +8%' },
     ],
   },
   {
-    id: 'kestrel',
-    name: 'Kestrel Dynamics',
-    short: 'Kestrel',
-    motto: 'Gone before you swing.',
-    focus: 'Speed and footwork',
-    color: '#46d5ff',
-    sets: [
-      { at: 3, stats: { moveSpeed: 0.05, agility: 0.05 }, text: '+5% Move Speed, +5% Agility' },
-      { at: 6, stats: { punchSpeed: 0.06, reaction: 0.1 }, text: '+6% Punch Speed, +10% Reflexes' },
-    ],
-  },
-  {
-    id: 'vulkan',
-    name: 'Vulkan Forgeworks',
-    short: 'Vulkan',
-    motto: 'Forged to hit.',
-    focus: 'Raw striking power',
-    color: '#ff6a2a',
-    sets: [
-      { at: 3, stats: { punchPower: 0.05, kickPower: 0.05 }, text: '+5% Punch and Kick Power' },
-      { at: 6, passives: [['heavyStrike', 0.15], ['furnace', 0.02]], text: 'Power strikes break poise 15% faster, and every clean hit in a row adds 2% damage' },
-    ],
-  },
-  {
-    id: 'halcyon',
-    name: 'Halcyon Voltaics',
-    short: 'Halcyon',
-    motto: 'Power that never runs dry.',
+    id: 'lumen',
+    name: 'Lumen',
+    short: 'Lumen',
+    origin: 'Cupertino, USA',
+    motto: 'Nothing extra.',
     focus: 'Energy, shields and self-repair',
-    color: '#a98bff',
+    color: '#e6edf7',
     sets: [
       { at: 3, stats: { staminaRegen: 0.15, stamina: 10 }, text: '+15% Stamina Regen, +10 Stamina' },
       { at: 6, passives: [['nanoRepair', 3]], text: 'Self-repair: +3 health a second after 3s untouched' },
     ],
   },
   {
+    id: 'longwei',
+    name: 'Longwei Robotics',
+    short: 'Longwei',
+    origin: 'Shenzhen, China',
+    motto: 'Engineered to outlast.',
+    focus: 'Durability and steady pressure',
+    color: '#29d3c2',
+    sets: [
+      { at: 3, stats: { toughness: 0.1, armor: 0.03 }, text: '+10% Durability, +3% Armor' },
+      { at: 6, stats: { hp: 100, accuracy: 0.04 }, passives: [['plating', 0.15]], text: '+100 Health, +4% Accuracy, blocked hits chip 15% less' },
+    ],
+  },
+  {
+    id: 'martelli',
+    name: 'Officine Martelli',
+    short: 'Martelli',
+    origin: 'Modena, Italy',
+    motto: 'Forza e bellezza.',
+    focus: 'Heavy power strikes',
+    color: '#ff4b3e',
+    sets: [
+      { at: 3, stats: { punchPower: 0.05, kickPower: 0.05 }, text: '+5% Punch and Kick Power' },
+      { at: 6, stats: { crit: 0.03 }, passives: [['heavyStrike', 0.15], ['furnace', 0.02]], text: '+3% Crit, power strikes break poise 15% faster, every clean hit in a row adds 2%' },
+    ],
+  },
+  {
     id: 'kensei',
     name: 'Kensei Precision',
     short: 'Kensei',
+    origin: 'Kyoto, Japan',
     motto: 'One clean cut.',
     focus: 'Precision and counters',
-    color: '#ff3d5e',
+    color: '#b18bff',
     sets: [
       { at: 3, stats: { accuracy: 0.06, crit: 0.04 }, text: '+6% Accuracy, +4% Crit Chance' },
       { at: 6, stats: { punchPower: 0.05 }, passives: [['retaliate', 0.15], ['iaido', 0.15]], text: '+5% Punch Power; counter hits and the first strike after a pause deal 15% more' },
+    ],
+  },
+  {
+    id: 'strix',
+    name: 'Strix Aerospace',
+    short: 'Strix',
+    origin: 'Mojave, USA',
+    motto: 'You never saw it.',
+    focus: 'Speed and footwork',
+    color: '#7fb2ff',
+    sets: [
+      { at: 3, stats: { moveSpeed: 0.05, agility: 0.05 }, text: '+5% Move Speed, +5% Agility' },
+      { at: 6, stats: { punchSpeed: 0.06, reaction: 0.1 }, passives: [['afterimage', 0.15]], text: '+6% Punch Speed, +10% Reflexes, the hit after a dodge deals 15% more' },
     ],
   },
 ];
@@ -266,583 +293,262 @@ export interface ItemDef {
 }
 
 export const ITEMS: ItemDef[] = [
-  // ---------------- HEAD ----------------
+  // ---------------- IRONHORSE DIESEL WORKS: engine blocks, exhaust stacks, radiators, rubber hose ----------------
   {
-    id: 'sentinel',
+    id: 'locomotive',
     slot: 'head',
-    name: 'Sentinel Visor',
-    maker: 'kensei',
-    tagline: 'Balanced sensor suite with a calm mind.',
-    stats: { reaction: 0.1, accuracy: 0.05, hp: 40 },
-    passive: { id: 'composure', name: 'Composure', value: 0.25, text: '{v} more likely to beat the count.' },
-    look: 0,
+    name: 'Locomotive Helm',
+    maker: 'ironhorse',
+    tagline: 'A headlamp, a cowcatcher and no fear.',
+    stats: { hp: 130, headGuard: 0.12, stability: 0.06, toughness: 0.2, reaction: -0.05 },
+    passive: { id: 'ironChin', name: 'Cast Jaw', value: 0.15, text: 'Takes {v} less damage to the head.' },
+    look: 5,
   },
   {
-    id: 'hawkeye',
-    slot: 'head',
-    name: 'Hawkeye Optic',
-    maker: 'kestrel',
-    tagline: 'Precision targeting finds the gaps.',
-    stats: { accuracy: 0.12, crit: 0.05 },
-    passive: { id: 'weakSpot', name: 'Weak Spot', value: 0.3, text: 'Critical hits deal {v} extra damage.' },
-    look: 1,
-  },
-  {
-    id: 'oracle',
-    slot: 'head',
-    name: 'Oracle Dome',
-    maker: 'halcyon',
-    tagline: 'Sees punches before they are thrown.',
-    stats: { reaction: 0.22, accuracy: 0.02 },
-    passive: { id: 'precog', name: 'Precog', value: 0.14, text: '{v} chance to read an attack the instant it starts.' },
-    look: 2,
-  },
-  {
-    id: 'bulwark',
-    slot: 'head',
-    name: 'Bulwark Helm',
-    maker: 'bastion',
-    tagline: 'Heavy plating for a granite chin.',
-    stats: { hp: 90, headGuard: 0.1, stability: 0.06 },
-    passive: { id: 'ironChin', name: 'Iron Chin', value: 0.12, text: 'Takes {v} less damage to the head.' },
-    look: 3,
-  },
-  {
-    id: 'berserker',
-    slot: 'head',
-    name: 'Berserker Crest',
-    maker: 'vulkan',
-    tagline: 'Every hit taken fuels the fire.',
-    stats: { crit: 0.04, punchPower: 0.05 },
-    passive: { id: 'rage', name: 'Rage', value: 0.04, text: '+{v} damage per hit taken (stacks 5x).' },
-    look: 4,
-  },
-  // ---------------- FIST ----------------
-  {
-    id: 'brawler',
+    id: 'piledriver',
     slot: 'fist',
-    name: 'Brawler Knuckles',
-    maker: 'vulkan',
-    tagline: 'Honest iron for honest violence.',
-    stats: { punchPower: 0.08, punchSpeed: 0.04 },
-    passive: { id: 'heavyStrike', name: 'Heavy Hands', value: 0.1, text: 'Power punches break poise {v} faster.' },
-    ability: 'haymaker',
-    look: 0,
-  },
-  {
-    id: 'piston',
-    slot: 'fist',
-    name: 'Piston Jabbers',
-    maker: 'kensei',
-    tagline: 'Pneumatic speed, relentless volume.',
-    stats: { punchSpeed: 0.14, punchPower: -0.04 },
-    passive: { id: 'whiplash', name: 'Whiplash', value: 0.12, text: 'Combo punches are {v} faster.' },
-    ability: 'flurry',
-    look: 1,
-  },
-  {
-    id: 'thunder',
-    slot: 'fist',
-    name: 'Thunder Gauntlets',
-    maker: 'halcyon',
-    tagline: 'Capacitors charged for a jolt.',
-    stats: { punchPower: 0.06, punchSpeed: 0.06 },
-    passive: { id: 'heavyStrike', name: 'Conductive', value: 0.08, text: 'Power punches break poise {v} faster.' },
-    ability: 'shockUpper',
-    look: 2,
-  },
-  {
-    id: 'rocket',
-    slot: 'fist',
-    name: 'Rocket Fists',
-    maker: 'kestrel',
-    tagline: 'Telescoping forearms with boosters.',
-    stats: { reach: 0.08, punchPower: 0.04 },
-    passive: { id: 'afterburner', name: 'Afterburner', value: 0.1, text: 'Straight punches deal {v} more damage.' },
-    ability: 'rocketPunch',
-    look: 3,
-  },
-  {
-    id: 'titan',
-    slot: 'fist',
-    name: 'Titan Hammers',
-    maker: 'bastion',
-    tagline: 'Slow. Enormous. Final.',
-    stats: { punchPower: 0.18, punchSpeed: -0.08 },
-    passive: { id: 'heavyStrike', name: 'Crusher', value: 0.18, text: 'Power punches break poise {v} faster.' },
+    name: 'Piledriver Fists',
+    maker: 'ironhorse',
+    tagline: 'Each punch is a fence post going in.',
+    stats: { punchPower: 0.2, stability: 0.06, toughness: 0.2, punchSpeed: -0.07 },
+    passive: { id: 'heavyStrike', name: 'Piledriver', value: 0.2, text: 'Power punches break poise {v} faster.' },
     ability: 'hammer',
-    look: 4,
+    look: 5,
   },
-  // ---------------- CORE ----------------
   {
-    id: 'fusion',
+    id: 'turbodiesel',
     slot: 'core',
-    name: 'Fusion Core',
-    maker: 'kestrel',
-    tagline: 'Endless clean energy.',
-    stats: { staminaRegen: 0.18, stamina: 10 },
-    passive: { id: 'secondWind', name: 'Second Wind', value: 0.5, text: 'Stamina regen +{v} when below 30%.' },
-    look: 0,
+    name: 'Twin-Turbo V12',
+    maker: 'ironhorse',
+    tagline: 'Cold start, then it never stops pulling.',
+    stats: { punchPower: 0.05, kickPower: 0.05, hp: 50, staminaRegen: -0.04 },
+    passive: { id: 'torque', name: 'Warm Engine', value: 0.22, text: 'Hits deal up to {v} more as the engine warms over the first 30s.' },
+    look: 5,
   },
   {
-    id: 'overdrive',
-    slot: 'core',
-    name: 'Overdrive Core',
-    maker: 'vulkan',
-    tagline: 'Redlines when the fight turns ugly.',
-    stats: { punchPower: 0.03 },
-    passive: { id: 'overdrive', name: 'Overdrive', value: 0.18, text: 'Below 35% health: +{v} speed and damage.' },
-    look: 1,
-  },
-  {
-    id: 'aegis',
-    slot: 'core',
-    name: 'Aegis Core',
-    maker: 'bastion',
-    tagline: 'A hard-light barrier on a timer.',
-    stats: { hp: 30 },
-    passive: { id: 'aegis', name: 'Aegis Shield', value: 13, text: 'Every {v}s a shield absorbs the next hit.', flat: true, inverse: true },
-    look: 2,
-  },
-  {
-    id: 'leech',
-    slot: 'core',
-    name: 'Leech Core',
-    maker: 'kensei',
-    tagline: 'Drinks the sparks of its enemies.',
-    stats: { hp: 20 },
-    passive: { id: 'siphon', name: 'Siphon', value: 0.12, text: 'Heals {v} of damage dealt.' },
-    look: 3,
-  },
-  {
-    id: 'static',
-    slot: 'core',
-    name: 'Static Core',
-    maker: 'halcyon',
-    tagline: 'Touch it and regret it.',
-    stats: { armor: 0.03 },
-    passive: { id: 'static', name: 'Static Charge', value: 14, text: 'Attackers that land a hit take {v} shock damage.', flat: true },
-    look: 4,
-  },
-  // ---------------- CHEST ----------------
-  {
-    id: 'plated',
+    id: 'radiator',
     slot: 'chest',
-    name: 'Plated Torso',
-    maker: 'vulkan',
-    tagline: 'Layered steel, no surprises.',
-    stats: { hp: 120, armor: 0.07 },
-    passive: { id: 'plating', name: 'Deflection', value: 0.35, text: 'Blocked hits deal {v} less chip damage.' },
-    look: 0,
-  },
-  {
-    id: 'reactive',
-    slot: 'chest',
-    name: 'Reactive Frame',
-    maker: 'halcyon',
-    tagline: 'Blocks feed the machine.',
-    stats: { hp: 60, armor: 0.05 },
-    passive: { id: 'reactiveGuard', name: 'Reactive Guard', value: 6, text: 'Blocking restores {v} stamina.', flat: true },
-    look: 1,
-  },
-  {
-    id: 'juggernaut',
-    slot: 'chest',
-    name: 'Juggernaut Hull',
-    maker: 'bastion',
-    tagline: 'A walking bank vault.',
-    stats: { hp: 220, armor: 0.05, stability: 0.18, moveSpeed: -0.06 },
-    passive: { id: 'unstoppable', name: 'Unstoppable', value: 0.25, text: 'Hit-stun is {v} shorter.' },
-    look: 2,
+    name: 'Radiator Hull',
+    maker: 'ironhorse',
+    tagline: 'A tractor grille with a grudge.',
+    stats: { hp: 230, armor: 0.08, toughness: 0.25, moveSpeed: -0.07, agility: -0.05 },
+    passive: { id: 'unstoppable', name: 'Torque Frame', value: 0.25, text: 'Hit-stun is {v} shorter.' },
+    look: 5,
     bulky: true,
   },
   {
-    id: 'aero',
-    slot: 'chest',
-    name: 'Aero Shell',
-    maker: 'kestrel',
-    tagline: 'Light alloy, built to move.',
-    stats: { hp: 40, punchSpeed: 0.05, moveSpeed: 0.06, agility: 0.06 },
-    passive: { id: 'slipstream', name: 'Slipstream', value: 0.5, text: 'Dodges cost {v} less stamina.' },
-    look: 3,
-  },
-  {
-    id: 'counter',
-    slot: 'chest',
-    name: 'Counter Plate',
-    maker: 'kensei',
-    tagline: 'Built for the exchange.',
-    stats: { hp: 80, armor: 0.04 },
-    passive: { id: 'retaliate', name: 'Retaliate', value: 0.18, text: 'Counter hits deal {v} more damage.' },
-    look: 4,
-  },
-  // ---------------- LEGS ----------------
-  {
-    id: 'strider',
+    id: 'crawler',
     slot: 'legs',
-    name: 'Strider Legs',
-    maker: 'kensei',
-    tagline: 'Dependable all-terrain stride.',
-    stats: { moveSpeed: 0.07, agility: 0.07, stability: 0.07 },
-    passive: { id: 'footwork', name: 'Footwork', value: 0.06, text: '+{v} movement speed while circling.' },
-    look: 0,
-  },
-  {
-    id: 'hopper',
-    slot: 'legs',
-    name: 'Hopper Struts',
-    maker: 'kestrel',
-    tagline: 'Spring-loaded and twitchy.',
-    stats: { moveSpeed: 0.15, agility: 0.16, stability: -0.08 },
-    passive: { id: 'lightFeet', name: 'Light Feet', value: 0.15, text: 'Dodges are {v} quicker.' },
-    look: 1,
-  },
-  {
-    id: 'anchor',
-    slot: 'legs',
-    name: 'Anchor Pillars',
-    maker: 'bastion',
-    tagline: 'Plant. Never fall.',
-    stats: { stability: 0.28, moveSpeed: -0.06, hp: 40 },
-    passive: { id: 'rooted', name: 'Rooted', value: 0.3, text: 'Knockback reduced by {v}.' },
-    look: 2,
-  },
-  {
-    id: 'hydraulic',
-    slot: 'legs',
-    name: 'Hydraulic Legs',
-    maker: 'vulkan',
-    tagline: 'Pressure lines straight to the hips.',
-    stats: { kickPower: 0.14, moveSpeed: 0.04, stability: 0.05 },
-    passive: { id: 'pistonDrive', name: 'Piston Drive', value: 0.2, text: 'Lunging attacks travel {v} farther.' },
-    look: 3,
+    name: 'Crawler Legs',
+    maker: 'ironhorse',
+    tagline: 'Built on excavator pistons.',
+    stats: { stability: 0.3, hp: 60, kickPower: 0.06, toughness: 0.25, moveSpeed: -0.05 },
+    passive: { id: 'rooted', name: 'Dead Weight', value: 0.3, text: 'Knockback reduced by {v}.' },
+    look: 5,
     rams: true,
   },
   {
-    id: 'phantom',
-    slot: 'legs',
-    name: 'Phantom Stride',
-    maker: 'halcyon',
-    tagline: 'There, then not there.',
-    stats: { agility: 0.22, moveSpeed: 0.09 },
-    passive: { id: 'afterimage', name: 'Afterimage', value: 0.25, text: 'After a dodge, the next hit deals +{v}.' },
-    look: 4,
-  },
-  // ---------------- KICK ----------------
-  {
-    id: 'snap',
+    id: 'dozer',
     slot: 'kick',
-    name: 'Snap Boots',
-    maker: 'kensei',
-    tagline: 'A teep that ends arguments.',
-    stats: { kickPower: 0.06, stability: 0.04 },
-    passive: { id: 'trip', name: 'Shove', value: 0.25, text: 'Kick knockback +{v}.' },
-    ability: 'pushKick',
-    look: 0,
-  },
-  {
-    id: 'whip',
-    slot: 'kick',
-    name: 'Whip Shins',
-    maker: 'kestrel',
-    tagline: 'Head-height, out of nowhere.',
-    stats: { kickPower: 0.1 },
-    passive: { id: 'heavyStrike', name: 'Whip Crack', value: 0.12, text: 'Power strikes break poise {v} faster.' },
-    ability: 'roundhouse',
-    look: 1,
-  },
-  {
-    id: 'sweeper',
-    slot: 'kick',
-    name: 'Sweeper Greaves',
-    maker: 'bastion',
-    tagline: 'Takes the floor out from under you.',
-    stats: { kickPower: 0.06, agility: 0.04 },
-    passive: { id: 'trip', name: 'Trip Wire', value: 0.25, text: 'Sweeps are {v} more likely to drop.' },
+    name: 'Dozer Boots',
+    maker: 'ironhorse',
+    tagline: 'Clears the ring at ankle height.',
+    stats: { kickPower: 0.14, stability: 0.06, toughness: 0.2 },
+    passive: { id: 'trip', name: 'Dozer Blade', value: 0.3, text: 'Sweeps are {v} more likely to drop.' },
     ability: 'sweep',
-    look: 2,
+    look: 5,
   },
+  // ---------------- LUMEN: one seamless shell, glass faces, a single line of light ----------------
   {
-    id: 'comet',
-    slot: 'kick',
-    name: 'Comet Heels',
-    maker: 'halcyon',
-    tagline: 'A full turn of pure momentum.',
-    stats: { kickPower: 0.12, stability: -0.03 },
-    passive: { id: 'meteor', name: 'Meteor', value: 0.15, text: 'Spinning strikes deal {v} more damage.' },
-    ability: 'spinKick',
-    look: 3,
-  },
-  {
-    id: 'jet',
-    slot: 'kick',
-    name: 'Jet Knees',
-    maker: 'vulkan',
-    tagline: 'Thrusters for closing distance.',
-    stats: { kickPower: 0.08, moveSpeed: 0.03 },
-    passive: { id: 'pistonDrive', name: 'Jet Assist', value: 0.2, text: 'Lunging attacks travel {v} farther.' },
-    ability: 'flyingKnee',
-    look: 4,
-  },
-  // ======================================================= THE NEW LINES
-  // Each maker's signature range, one part per slot. Look 5 + the maker's index picks the model.
-
-  // ---------------- BASTION HEAVY INDUSTRIES: slabs, rivets, hazard stripes ----------------
-  {
-    id: 'rampart',
+    id: 'vision',
     slot: 'head',
-    name: 'Rampart Helm',
-    maker: 'bastion',
-    tagline: 'A pillbox with a viewing slit.',
-    stats: { hp: 110, headGuard: 0.12, stability: 0.05, reaction: -0.06 },
-    passive: { id: 'ironChin', name: 'Blast Visor', value: 0.1, text: 'Takes {v} less damage to the head.' },
-    look: 5,
-  },
-  {
-    id: 'breaker',
-    slot: 'fist',
-    name: 'Breaker Mauls',
-    maker: 'bastion',
-    tagline: 'Demolition-grade knuckles.',
-    stats: { punchPower: 0.12, stability: 0.06, toughness: 0.2, punchSpeed: -0.07 },
-    passive: { id: 'heavyStrike', name: 'Wrecking Weight', value: 0.14, text: 'Power punches break poise {v} faster.' },
-    ability: 'hammer',
-    look: 5,
-  },
-  {
-    id: 'bunker',
-    slot: 'core',
-    name: 'Bunker Core',
-    maker: 'bastion',
-    tagline: 'An armoured heart behind a blast shutter.',
-    stats: { hp: 60, armor: 0.03, staminaRegen: -0.05 },
-    passive: { id: 'bulwark', name: 'Blast Shield', value: 0.12, text: 'Body hits deal {v} less damage.' },
-    look: 5,
-  },
-  {
-    id: 'citadel',
-    slot: 'chest',
-    name: 'Citadel Hull',
-    maker: 'bastion',
-    tagline: 'Twelve tons of opinion.',
-    stats: { hp: 180, armor: 0.07, toughness: 0.25, moveSpeed: -0.07, agility: -0.05 },
-    passive: { id: 'unstoppable', name: 'Immovable', value: 0.2, text: 'Hit-stun is {v} shorter.' },
-    look: 5,
-    bulky: true,
-  },
-  {
-    id: 'pylon',
-    slot: 'legs',
-    name: 'Pylon Legs',
-    maker: 'bastion',
-    tagline: 'Driven into the floor like piles.',
-    stats: { stability: 0.24, hp: 50, toughness: 0.25, moveSpeed: -0.06 },
-    passive: { id: 'rooted', name: 'Pile Driver', value: 0.25, text: 'Knockback reduced by {v}.' },
-    look: 5,
-    rams: true,
-  },
-  {
-    id: 'battering',
-    slot: 'kick',
-    name: 'Battering Boots',
-    maker: 'bastion',
-    tagline: 'Opens doors. And robots.',
-    stats: { kickPower: 0.1, stability: 0.06, toughness: 0.2 },
-    passive: { id: 'trip', name: 'Ram', value: 0.3, text: 'Kick knockback +{v}.' },
-    ability: 'pushKick',
-    look: 5,
-  },
-  // ---------------- KESTREL DYNAMICS: swept fins, slim shells, intakes ----------------
-  {
-    id: 'peregrine',
-    slot: 'head',
-    name: 'Peregrine Canopy',
-    maker: 'kestrel',
-    tagline: 'A cockpit with a hooked beak.',
-    stats: { reaction: 0.16, agility: 0.06, toughness: -0.1 },
-    passive: { id: 'precog', name: 'Raptor Eye', value: 0.1, text: '{v} chance to read an attack the instant it starts.' },
-    look: 6,
-  },
-  {
-    id: 'talon',
-    slot: 'fist',
-    name: 'Talon Strikers',
-    maker: 'kestrel',
-    tagline: 'Three hits before the first one lands.',
-    stats: { punchSpeed: 0.16, accuracy: 0.04, punchPower: -0.02, toughness: -0.1 },
-    passive: { id: 'whiplash', name: 'Wingbeat', value: 0.12, text: 'Combo punches are {v} faster.' },
-    ability: 'flurry',
-    look: 6,
-  },
-  {
-    id: 'turbine',
-    slot: 'core',
-    name: 'Turbine Core',
-    maker: 'kestrel',
-    tagline: 'Spins up, never winds down.',
-    stats: { staminaRegen: 0.12, moveSpeed: 0.04 },
-    passive: { id: 'slipstream', name: 'Bypass Flow', value: 0.4, text: 'Dodges cost {v} less stamina.' },
-    look: 6,
-  },
-  {
-    id: 'skyframe',
-    slot: 'chest',
-    name: 'Skyframe Shell',
-    maker: 'kestrel',
-    tagline: 'Carbon ribs and not much else.',
-    stats: { hp: 50, moveSpeed: 0.08, agility: 0.08, punchSpeed: 0.05, toughness: -0.1 },
-    passive: { id: 'lightFeet', name: 'Airframe', value: 0.12, text: 'Dodges are {v} quicker.' },
-    look: 6,
-  },
-  {
-    id: 'swift',
-    slot: 'legs',
-    name: 'Swift Runners',
-    maker: 'kestrel',
-    tagline: 'Built for the long way round.',
-    stats: { moveSpeed: 0.14, agility: 0.12, stability: -0.06, toughness: -0.1 },
-    passive: { id: 'footwork', name: 'Crosswind', value: 0.1, text: '+{v} movement speed while circling.' },
-    look: 6,
-  },
-  {
-    id: 'gale',
-    slot: 'kick',
-    name: 'Gale Blades',
-    maker: 'kestrel',
-    tagline: 'You hear it after it lands.',
-    stats: { kickPower: 0.09, agility: 0.05 },
-    passive: { id: 'tailwind', name: 'Tailwind', value: 0.15, text: 'Kicks come out {v} faster.' },
-    ability: 'roundhouse',
-    look: 6,
-  },
-  // ---------------- VULKAN FORGEWORKS: open pistons, cooling fins, furnace glow ----------------
-  {
-    id: 'crucible',
-    slot: 'head',
-    name: 'Crucible Mask',
-    maker: 'vulkan',
-    tagline: 'Stares like an open furnace.',
-    stats: { punchPower: 0.03, crit: 0.04, hp: 30 },
-    passive: { id: 'weakSpot', name: "Smelter's Eye", value: 0.25, text: 'Critical hits deal {v} extra damage.' },
-    look: 7,
-  },
-  {
-    id: 'anvil',
-    slot: 'fist',
-    name: 'Anvil Breakers',
-    maker: 'vulkan',
-    tagline: 'Forged hot, swung hotter.',
-    stats: { punchPower: 0.12, crit: 0.02, punchSpeed: -0.07 },
-    passive: { id: 'furnace', name: 'Furnace', value: 0.04, text: '+{v} damage for each clean hit in a row (up to 5). Getting hit cools it.' },
-    ability: 'haymaker',
-    look: 7,
-  },
-  {
-    id: 'magma',
-    slot: 'core',
-    name: 'Magma Core',
-    maker: 'vulkan',
-    tagline: 'Runs hot. Hits hotter.',
-    stats: { punchPower: 0.04, kickPower: 0.04, staminaRegen: -0.08 },
-    passive: { id: 'shatter', name: 'Slag Edge', value: 0.2, text: 'Strikes wear down parts {v} faster.' },
-    look: 7,
-  },
-  {
-    id: 'foundry',
-    slot: 'chest',
-    name: 'Foundry Plate',
-    maker: 'vulkan',
-    tagline: 'Cast in a single pour.',
-    stats: { hp: 90, armor: 0.03, punchPower: 0.03, moveSpeed: -0.04 },
-    passive: { id: 'heavyStrike', name: 'Cast Iron', value: 0.12, text: 'Power strikes break poise {v} faster.' },
-    look: 7,
-  },
-  {
-    id: 'steamhammer',
-    slot: 'legs',
-    name: 'Steamhammer Legs',
-    maker: 'vulkan',
-    tagline: 'Every step a stamp.',
-    stats: { kickPower: 0.13, stability: 0.08, moveSpeed: -0.04 },
-    passive: { id: 'pistonDrive', name: 'Steam Drive', value: 0.2, text: 'Lunging attacks travel {v} farther.' },
-    look: 7,
-    rams: true,
-  },
-  {
-    id: 'firebrand',
-    slot: 'kick',
-    name: 'Firebrand Greaves',
-    maker: 'vulkan',
-    tagline: 'Leaves scorch marks at head height.',
-    stats: { kickPower: 0.1, crit: 0.03, stability: -0.04 },
-    passive: { id: 'meteor', name: 'Ember Spin', value: 0.15, text: 'Spinning strikes deal {v} more damage.' },
-    ability: 'spinKick',
-    look: 7,
-  },
-  // ---------------- HALCYON VOLTAICS: smooth shells, halos, hex light ----------------
-  {
-    id: 'seraph',
-    slot: 'head',
-    name: 'Seraph Halo',
-    maker: 'halcyon',
-    tagline: 'A calm mind under a ring of light.',
-    stats: { reaction: 0.14, stamina: 10, accuracy: 0.03 },
-    passive: { id: 'composure', name: 'Reboot', value: 0.3, text: '{v} more likely to beat the count.' },
+    name: 'Lumen Vision',
+    maker: 'lumen',
+    tagline: 'A sheet of black glass that sees everything.',
+    stats: { reaction: 0.2, accuracy: 0.04, stamina: 10 },
+    passive: { id: 'precog', name: 'Foresight', value: 0.12, text: '{v} chance to read an attack the instant it starts.' },
     look: 8,
   },
   {
-    id: 'arc',
+    id: 'touch',
     slot: 'fist',
-    name: 'Arc Emitters',
-    maker: 'halcyon',
-    tagline: 'Plasma knuckles, cold to the touch.',
-    stats: { punchPower: 0.06, punchSpeed: 0.06, staminaRegen: 0.06 },
-    passive: { id: 'siphon', name: 'Drain Field', value: 0.08, text: 'Heals {v} of damage dealt.' },
+    name: 'Lumen Touch',
+    maker: 'lumen',
+    tagline: 'Haptic knuckles. The haptics are electric.',
+    stats: { punchPower: 0.06, punchSpeed: 0.07, staminaRegen: 0.06 },
+    passive: { id: 'siphon', name: 'Energy Return', value: 0.08, text: 'Heals {v} of damage dealt.' },
     ability: 'shockUpper',
     look: 8,
   },
   {
-    id: 'zenith',
+    id: 'cell',
     slot: 'core',
-    name: 'Zenith Cell',
-    maker: 'halcyon',
-    tagline: 'A small star in a gimbal.',
-    stats: { staminaRegen: 0.12, hp: 30 },
-    passive: { id: 'nanoRepair', name: 'Nanite Bloom', value: 5, text: 'Repairs {v} health a second after 3s without being hit.', flat: true },
+    name: 'Lumen Cell',
+    maker: 'lumen',
+    tagline: 'All-day battery. All-fight repairs.',
+    stats: { staminaRegen: 0.14, hp: 30 },
+    passive: { id: 'nanoRepair', name: 'Self Repair', value: 5, text: 'Repairs {v} health a second after 3s without being hit.', flat: true },
     look: 8,
   },
   {
-    id: 'lattice',
+    id: 'unibody',
     slot: 'chest',
-    name: 'Lattice Frame',
-    maker: 'halcyon',
-    tagline: 'Hard-light hex plating.',
-    stats: { hp: 80, armor: 0.05, stamina: 10 },
-    passive: { id: 'static', name: 'Charged Lattice', value: 10, text: 'Attackers that land a hit take {v} shock damage.', flat: true },
+    name: 'Lumen Unibody',
+    maker: 'lumen',
+    tagline: 'Milled from a single block. No seams to crack.',
+    stats: { hp: 90, armor: 0.05, stamina: 10 },
+    passive: { id: 'aegis', name: 'Glass Shield', value: 14, text: 'Every {v}s a shield absorbs the next hit.', flat: true, inverse: true },
     look: 8,
   },
   {
-    id: 'drift',
+    id: 'glide',
     slot: 'legs',
-    name: 'Drift Glides',
-    maker: 'halcyon',
-    tagline: 'Hover jets in the heels.',
+    name: 'Lumen Glide',
+    maker: 'lumen',
+    tagline: 'Silent steps on magnetic bearings.',
     stats: { agility: 0.14, moveSpeed: 0.07, staminaRegen: 0.05 },
     passive: { id: 'afterimage', name: 'Phase Step', value: 0.2, text: 'After a dodge, the next hit deals +{v}.' },
     look: 8,
   },
   {
-    id: 'nova',
+    id: 'curve',
     slot: 'kick',
-    name: 'Nova Spurs',
-    maker: 'halcyon',
-    tagline: 'Lands with a flash.',
-    stats: { kickPower: 0.08, reaction: 0.05 },
-    passive: { id: 'secondWind', name: 'Flash Charge', value: 0.4, text: 'Stamina regen +{v} when below 30%.' },
-    ability: 'flyingKnee',
+    name: 'Lumen Curve',
+    maker: 'lumen',
+    tagline: 'One perfect arc.',
+    stats: { kickPower: 0.09, reaction: 0.05, agility: 0.03 },
+    passive: { id: 'secondWind', name: 'Fast Charge', value: 0.4, text: 'Stamina regen +{v} when below 30%.' },
+    ability: 'roundhouse',
     look: 8,
   },
-  // ---------------- KENSEI PRECISION: laced lamellar, crests, clean edges ----------------
+  // ---------------- LONGWEI ROBOTICS: precise panel lines, lidar, actuator drums, armoured graphite ----------------
+  {
+    id: 'tianyan',
+    slot: 'head',
+    name: 'Tianyan Sensor Head',
+    maker: 'longwei',
+    tagline: 'Lidar, stereo cameras and a steel brow.',
+    stats: { accuracy: 0.08, reaction: 0.08, hp: 50, toughness: 0.1 },
+    passive: { id: 'weakSpot', name: 'Lidar Lock', value: 0.25, text: 'Critical hits deal {v} extra damage.' },
+    look: 1,
+  },
+  {
+    id: 'jingang',
+    slot: 'fist',
+    name: 'Jingang Fists',
+    maker: 'longwei',
+    tagline: 'Servo-driven, rated for ten million punches.',
+    stats: { punchSpeed: 0.12, punchPower: 0.03, toughness: 0.15 },
+    passive: { id: 'whiplash', name: 'Servo Burst', value: 0.12, text: 'Combo punches are {v} faster.' },
+    ability: 'flurry',
+    look: 1,
+  },
+  {
+    id: 'qilin',
+    slot: 'core',
+    name: 'Qilin Battery',
+    maker: 'longwei',
+    tagline: 'Solid-state cells in an armoured cradle.',
+    stats: { staminaRegen: 0.1, stamina: 10, hp: 40 },
+    passive: { id: 'secondWind', name: 'Reserve Cells', value: 0.5, text: 'Stamina regen +{v} when below 30%.' },
+    look: 2,
+  },
+  {
+    id: 'greatwall',
+    slot: 'chest',
+    name: 'Great Wall Chassis',
+    maker: 'longwei',
+    tagline: 'Layered armour, every plate replaceable.',
+    stats: { hp: 150, armor: 0.07, toughness: 0.2, moveSpeed: -0.03 },
+    passive: { id: 'plating', name: 'Layered Alloy', value: 0.35, text: 'Blocked hits deal {v} less chip damage.' },
+    look: 1,
+  },
+  {
+    id: 'longma',
+    slot: 'legs',
+    name: 'Longma Actuators',
+    maker: 'longwei',
+    tagline: 'Quasi-direct drives. They never miss a step.',
+    stats: { moveSpeed: 0.07, agility: 0.07, stability: 0.1, toughness: 0.15 },
+    passive: { id: 'footwork', name: 'Gait Control', value: 0.08, text: '+{v} movement speed while circling.' },
+    look: 0,
+  },
+  {
+    id: 'xuanfeng',
+    slot: 'kick',
+    name: 'Xuanfeng Boots',
+    maker: 'longwei',
+    tagline: 'A whirlwind kick with a gyro in the heel.',
+    stats: { kickPower: 0.1, stability: 0.04, toughness: 0.1 },
+    passive: { id: 'meteor', name: 'Whirlwind', value: 0.15, text: 'Spinning strikes deal {v} more damage.' },
+    ability: 'spinKick',
+    look: 3,
+  },
+  // ---------------- OFFICINE MARTELLI: sculpted cuirass, polished brass, crests and lion faces ----------------
+  {
+    id: 'centurione',
+    slot: 'head',
+    name: 'Centurione Helm',
+    maker: 'martelli',
+    tagline: 'A crest of brass and a face that does not blink.',
+    stats: { hp: 60, crit: 0.05, punchPower: 0.04, headGuard: 0.05 },
+    passive: { id: 'composure', name: 'Gloria', value: 0.3, text: '{v} more likely to beat the count.' },
+    look: 7,
+  },
+  {
+    id: 'colosseo',
+    slot: 'fist',
+    name: 'Colosseo Gauntlets',
+    maker: 'martelli',
+    tagline: 'Brass-banded, hand-finished, fight-ending.',
+    stats: { punchPower: 0.12, crit: 0.03, punchSpeed: -0.06 },
+    passive: { id: 'rage', name: 'Furia', value: 0.04, text: '+{v} damage per hit taken (stacks 5x).' },
+    ability: 'haymaker',
+    look: 7,
+  },
+  {
+    id: 'soledoro',
+    slot: 'core',
+    name: "Sole d'Oro Core",
+    maker: 'martelli',
+    tagline: 'A golden sun behind a lion medallion.',
+    stats: { punchPower: 0.04, kickPower: 0.04, hp: 30 },
+    passive: { id: 'overdrive', name: 'Ultimo Round', value: 0.18, text: 'Below 35% health: +{v} speed and damage.' },
+    look: 7,
+  },
+  {
+    id: 'corazza',
+    slot: 'chest',
+    name: 'Corazza Cuirass',
+    maker: 'martelli',
+    tagline: 'Sculpted like marble, cast like a bell.',
+    stats: { hp: 120, armor: 0.05, punchPower: 0.03, moveSpeed: -0.04 },
+    passive: { id: 'heavyStrike', name: 'Bronze Weight', value: 0.12, text: 'Power strikes break poise {v} faster.' },
+    look: 7,
+  },
+  {
+    id: 'legionario',
+    slot: 'legs',
+    name: 'Legionario Greaves',
+    maker: 'martelli',
+    tagline: 'Twin rams under polished greaves.',
+    stats: { kickPower: 0.12, stability: 0.1, moveSpeed: -0.02 },
+    passive: { id: 'pistonDrive', name: 'Charge', value: 0.2, text: 'Lunging attacks travel {v} farther.' },
+    look: 7,
+    rams: true,
+  },
+  {
+    id: 'spartano',
+    slot: 'kick',
+    name: 'Spartano Boots',
+    maker: 'martelli',
+    tagline: 'The kick that ends at the ropes.',
+    stats: { kickPower: 0.12, stability: 0.04, crit: 0.02 },
+    passive: { id: 'trip', name: 'Spartan Shove', value: 0.3, text: 'Kick knockback +{v}.' },
+    ability: 'pushKick',
+    look: 7,
+  },
+  // ---------------- KENSEI PRECISION: laced lamellar, lacquer, crests, clean edges ----------------
   {
     id: 'kabuto',
     slot: 'head',
@@ -858,10 +564,10 @@ export const ITEMS: ItemDef[] = [
     slot: 'fist',
     name: 'Kote Gauntlets',
     maker: 'kensei',
-    tagline: 'Lacquered splints for a clean thrust.',
+    tagline: 'Lacquered splints for one committed cut.',
     stats: { accuracy: 0.07, punchPower: 0.1, crit: 0.05 },
     passive: { id: 'retaliate', name: 'Counter Cut', value: 0.15, text: 'Counter hits deal {v} more damage.' },
-    ability: 'rocketPunch',
+    ability: 'haymaker',
     look: 9,
   },
   {
@@ -905,10 +611,96 @@ export const ITEMS: ItemDef[] = [
     ability: 'sweep',
     look: 9,
   },
+  // ---------------- STRIX AEROSPACE: flat stealth facets, chines, gold canopies, sawtooth edges ----------------
+  {
+    id: 'nighthawk',
+    slot: 'head',
+    name: 'Nighthawk Canopy',
+    maker: 'strix',
+    tagline: 'All facets, no reflection, one gold slit.',
+    stats: { reaction: 0.16, agility: 0.06, accuracy: 0.05, toughness: -0.05 },
+    passive: { id: 'precog', name: 'Radar Warning', value: 0.1, text: '{v} chance to read an attack the instant it starts.' },
+    look: 6,
+  },
+  {
+    id: 'sidewinder',
+    slot: 'fist',
+    name: 'Sidewinder Fists',
+    maker: 'strix',
+    tagline: 'Fire and forget.',
+    stats: { reach: 0.1, punchPower: 0.08, punchSpeed: 0.06, accuracy: 0.03 },
+    passive: { id: 'afterburner', name: 'Boost Phase', value: 0.12, text: 'Straight punches deal {v} more damage.' },
+    ability: 'rocketPunch',
+    look: 6,
+  },
+  {
+    id: 'scramjet',
+    slot: 'core',
+    name: 'Scramjet Core',
+    maker: 'strix',
+    tagline: 'Breathes air at Mach five.',
+    stats: { staminaRegen: 0.14, moveSpeed: 0.04, hp: 30 },
+    passive: { id: 'slipstream', name: 'Bypass Flow', value: 0.4, text: 'Dodges cost {v} less stamina.' },
+    look: 6,
+  },
+  {
+    id: 'wraith',
+    slot: 'chest',
+    name: 'Wraith Airframe',
+    maker: 'strix',
+    tagline: 'Radar sees a bird. The bird hits back.',
+    stats: { hp: 80, armor: 0.03, moveSpeed: 0.08, agility: 0.08, punchSpeed: 0.05, toughness: -0.05 },
+    passive: { id: 'lightFeet', name: 'Low Observable', value: 0.12, text: 'Dodges are {v} quicker.' },
+    look: 6,
+  },
+  {
+    id: 'raptor',
+    slot: 'legs',
+    name: 'Raptor Legs',
+    maker: 'strix',
+    tagline: 'Thrust vectoring in every stride.',
+    stats: { moveSpeed: 0.12, agility: 0.12, kickPower: 0.04, stability: -0.03 },
+    passive: { id: 'footwork', name: 'Vector Thrust', value: 0.1, text: '+{v} movement speed while circling.' },
+    look: 6,
+  },
+  {
+    id: 'afterburner',
+    slot: 'kick',
+    name: 'Afterburner Knees',
+    maker: 'strix',
+    tagline: 'Lights up, closes in, lands.',
+    stats: { kickPower: 0.1, moveSpeed: 0.03, agility: 0.04 },
+    passive: { id: 'tailwind', name: 'Supercruise', value: 0.15, text: 'Kicks come out {v} faster.' },
+    ability: 'flyingKnee',
+    look: 6,
+  },
 ];
+
+/**
+ * Parts from before the makers were reworked, and the part of the new maker that took over
+ * each line (Bastion went to Longwei, Kestrel to Strix, Vulkan to Martelli, Halcyon to Lumen).
+ * Saved bots, cloud saves and bots from other players are moved over with this.
+ */
+export const LEGACY_ITEMS: Record<string, string> = Object.fromEntries(
+  (
+    'sentinel:kabuto piston:kote leech:zen counter:lamellar strider:hakama snap:kama ' +
+    'hawkeye:nighthawk peregrine:nighthawk rocket:sidewinder talon:sidewinder fusion:scramjet turbine:scramjet ' +
+    'aero:wraith skyframe:wraith hopper:raptor swift:raptor whip:afterburner gale:afterburner ' +
+    'oracle:vision seraph:vision thunder:touch arc:touch static:cell zenith:cell ' +
+    'reactive:unibody lattice:unibody phantom:glide drift:glide comet:curve nova:curve ' +
+    'bulwark:tianyan rampart:tianyan titan:jingang breaker:jingang aegis:qilin bunker:qilin ' +
+    'juggernaut:greatwall citadel:greatwall anchor:longma pylon:longma sweeper:xuanfeng battering:xuanfeng ' +
+    'berserker:centurione crucible:centurione brawler:colosseo anvil:colosseo overdrive:soledoro magma:soledoro ' +
+    'plated:corazza foundry:corazza hydraulic:legionario steamhammer:legionario jet:spartano firebrand:spartano'
+  )
+    .split(' ')
+    .map((p) => p.split(':')),
+);
 
 export const ITEM_BY_ID = new Map(ITEMS.map((i) => [i.id, i]));
 export const itemsForSlot = (slot: Slot) => ITEMS.filter((i) => i.slot === slot);
+/** A part id from any version of the game: today's id, or the part that replaced an old one. */
+export const currentItemId = (id: string): string | undefined => (ITEM_BY_ID.has(id) ? id : LEGACY_ITEMS[id]);
 
 export interface Equipped {
   id: string;
@@ -984,6 +776,8 @@ export interface FighterBuild {
   tough: Record<Slot, number>;
   /** Makers in the loadout, most parts first. */
   sets: SetState[];
+  /** Slots whose part is stalled: it needs a whole bot from its maker (diesel) and doesn't have one. */
+  stalled: Slot[];
   /** Rough power rating for UI. */
   rating: number;
   /** Frame size (1 = standard): scales the whole body, its reach and how big a target it is. */
@@ -1034,21 +828,30 @@ export function computeBuild(loadout: Loadout, size = 1): FighterBuild {
   let kickAbility: MoveId = 'pushKick';
   let rating = 0;
   const addPassive = (id: PassiveId, v: number) => passives.set(id, (passives.get(id) ?? 0) + v);
+  const sets = setsOf(loadout).sort((a, b) => b.count - a.count);
+  const stalled: Slot[] = [];
   for (const slot of SLOTS) {
     const eq = loadout[slot];
     const item = ITEM_BY_ID.get(eq.id)!;
+    tough[slot] = 0;
+    // a diesel part on a bot that isn't all diesel just sits there: dead weight, no engine
+    const co = COMPANY_BY_ID.get(item.maker)!;
+    if (co.needsFull && sets.find((st) => st.company === co)!.count < SLOTS.length) {
+      stalled.push(slot);
+      rating += 30;
+      continue;
+    }
     rating += 100 * RARITIES[eq.rarity].mult;
     for (const [k, v] of Object.entries(item.stats) as [StatKey, number][]) {
       if (k === 'toughness') continue;
       pct[k] = (pct[k] ?? 0) + scaledStat(v, eq.rarity);
     }
-    tough[slot] = item.stats.toughness ? scaledStat(item.stats.toughness, eq.rarity) : 0;
+    if (item.stats.toughness) tough[slot] = scaledStat(item.stats.toughness, eq.rarity);
     addPassive(item.passive.id, scaledPassive(item.passive, eq.rarity));
     if (item.slot === 'fist' && item.ability) fistAbility = item.ability;
     if (item.slot === 'kick' && item.ability) kickAbility = item.ability;
   }
   // set bonuses: flat, whatever the rarity
-  const sets = setsOf(loadout).sort((a, b) => b.count - a.count);
   for (const st of sets)
     for (const bonus of st.company.sets.slice(0, st.active)) {
       rating += 20;
@@ -1090,5 +893,5 @@ export function computeBuild(loadout: Loadout, size = 1): FighterBuild {
     s.staminaRegen *= 1 + E.staminaRegen * d;
     for (const slot of SLOTS) tough[slot] += E.tough * d;
   }
-  return { stats: s, passives, fistAbility, kickAbility, loadout, tough, sets, rating: Math.round(rating), size };
+  return { stats: s, passives, fistAbility, kickAbility, loadout, tough, sets, stalled, rating: Math.round(rating), size };
 }
