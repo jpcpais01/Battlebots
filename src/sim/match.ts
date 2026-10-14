@@ -535,13 +535,15 @@ export class Match {
   }
 
   // ---------------------------------------------------------------- finishers
-  /** Would this fighter's next strike that connects start a finisher? */
+  /** Would this fighter's next strike that connects start a finisher? (Needs all its own parts.) */
   canFinish(att: Fighter) {
     const def = att.opp;
     return (
       this.phase === 'fight' &&
       !this.fin &&
       att.state === 'fight' &&
+      // only a bot that still has every part can pull one off
+      att.parts.lost.length === 0 &&
       (def.state === 'fight' || def.state === 'stun' || def.state === 'stagger') &&
       def.hp > 0 &&
       def.hpRatio <= FINISH_AT &&
