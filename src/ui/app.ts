@@ -1417,7 +1417,7 @@ export class App {
     this.closeModal();
     this.closeResults();
     this.leaveNetFight();
-    const m = this.game.startMatch(a, b, seed, true);
+    const m = this.game.startMatch(a, b, seed, true, s.me);
     this.netFight = s;
     s.watch(this.game, m);
     this.hud.resetSpeed();
