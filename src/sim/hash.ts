@@ -41,6 +41,10 @@ export function matchHash(m: Match): number {
       num(p.z);
     }
   }
-  for (const b of m.brains) int(b.rng.state);
+  for (const b of m.brains) {
+    int(b.rng.state);
+    int(b.coach ? b.coach.charCodeAt(0) + b.coach.length : 0);
+    num(b.coachUntil);
+  }
   return h >>> 0;
 }

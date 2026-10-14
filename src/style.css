@@ -4062,3 +4062,122 @@ button {
     opacity: 0.25;
   }
 }
+
+/* ------------------------------------------------------------ coach calls */
+/* four calls from the corner along the bottom, one shared cooldown swept across them */
+.coach-bar {
+  position: absolute;
+  left: 50%;
+  bottom: max(10px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  gap: 0.4em;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.coach-bar.off {
+  opacity: 0;
+  transform: translate(-50%, 0.8em);
+  pointer-events: none;
+}
+.coach-btn {
+  --kc: var(--amber);
+  position: relative;
+  overflow: hidden;
+  min-width: 6.4em;
+  height: 3.25em;
+  padding: 0 0.85em;
+  border-radius: 12px;
+  background: rgba(18, 23, 37, 0.85);
+  border: 1px solid color-mix(in srgb, var(--kc) 45%, transparent);
+  color: var(--text);
+  font-family: var(--display);
+  font-size: 0.8em;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  touch-action: manipulation;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
+}
+.coach-btn[data-k='allIn'] {
+  --kc: var(--red);
+}
+.coach-btn[data-k='defend'] {
+  --kc: var(--cyan);
+}
+.coach-btn[data-k='head'] {
+  --kc: var(--orange);
+}
+.coach-btn span {
+  position: relative;
+  z-index: 1;
+}
+.coach-bar.ready .coach-btn {
+  border-color: var(--kc);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--kc) 35%, transparent);
+}
+.coach-bar.ready .coach-btn:active {
+  transform: scale(0.93);
+}
+/* cooldown: a dark sweep that unwinds clockwise until the corner can call again */
+.coach-btn::after {
+  content: '';
+  position: absolute;
+  inset: -50%;
+  background: conic-gradient(rgba(4, 6, 12, 0.72) calc(var(--cd, 0) * 360deg), transparent 0);
+  pointer-events: none;
+}
+.coach-btn:disabled {
+  color: var(--muted);
+}
+/* the call that's on: lit in its colour, with what's left of its 10 seconds draining underneath */
+.coach-btn.on {
+  color: #fff;
+  border-color: var(--kc);
+  background: color-mix(in srgb, var(--kc) 30%, rgba(18, 23, 37, 0.9));
+  box-shadow: 0 0 14px color-mix(in srgb, var(--kc) 55%, transparent);
+}
+.coach-btn .cb-left {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 100%;
+  background: var(--kc);
+  transform-origin: left;
+  transform: scaleX(var(--left, 0));
+  opacity: 0;
+  z-index: 1;
+}
+.coach-btn.on .cb-left {
+  opacity: 1;
+}
+.coach-btn.pending {
+  color: #fff;
+  border-color: var(--kc);
+  animation: coachPulse 0.45s ease-in-out infinite alternate;
+}
+@keyframes coachPulse {
+  to {
+    background: color-mix(in srgb, var(--kc) 35%, rgba(18, 23, 37, 0.9));
+  }
+}
+/* the commentary line moves up over the buttons */
+.hud:has(.coach-bar:not(.off)) .commentary {
+  bottom: calc(max(10px, env(safe-area-inset-bottom)) + 3.1em);
+}
+/* the call shouted over the bot's head */
+.dmg.coach {
+  color: var(--amber);
+  font-size: 1.3em;
+  letter-spacing: 0.04em;
+  animation-duration: 1.4s;
+}
+.dmg.coach.allIn {
+  color: var(--red);
+  font-size: 1.5em;
+}
+.dmg.coach.defend {
+  color: var(--cyan);
+}
+.dmg.coach.head {
+  color: var(--orange);
+}

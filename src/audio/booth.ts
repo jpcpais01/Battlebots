@@ -454,6 +454,12 @@ export class Booth {
         if (t && chance(e.kind === 'taunt' ? 0.75 : 0.5)) this.say({ chain: [t], prio: p, about: e.f, name: 0.5 }, 0.8);
         break;
       }
+      case 'coach': {
+        // the corner sends their bot forward: the booth picks up on the charge
+        const d = data as { f: Fighter; kind: string };
+        if (m.phase === 'fight' && d.kind !== 'defend' && chance(d.kind === 'allIn' ? 0.7 : 0.4)) this.say({ chain: ['brain.rally'], prio: 38, about: d.f, name: 0.5 }, 0.6);
+        break;
+      }
       case 'ko':
         // the finishing hit is reported right after this, so the call waits for it
         this.koPending = data as Booth['koPending'];

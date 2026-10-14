@@ -5,6 +5,7 @@ import { clamp, clamp01, lerp, Rng, smoothstep, sigmoid, softmaxPick } from './m
 import { J, ropeGap } from './body';
 import { armPart, LOOSE, P } from './damage';
 import { DM } from './dmath';
+import { COACH_FX, NO_COACH, type CoachFx, type CoachKind } from './coach';
 
 /**
  * The fight brain.
@@ -180,6 +181,8 @@ export class Brain {
   private oppAvgHit = ema(45);
   private oppAttackRate = ema(0.6);
   private oppAttackRange = ema(1.15);
+  /** How much of what they throw goes to the body (sets a defending guard's shape). */
+  private oppBody = ema(0.4);
   /** When the guard last changed shape on its own (not a block). */
   private guardSetAt = -10;
   private bandDealt = [0, 0, 0];
@@ -195,6 +198,10 @@ export class Brain {
   private aimNoise = new Vector3();
   private aimUid = -1;
   private lastEventT = -10;
+
+  // coach: the call shouted from my corner, and when it wears off
+  coach: CoachKind | null = null;
+  coachUntil = 0;
 
   onEvent: ((e: BrainEvent) => void) | null = null;
   /** The opponent's brain (so it can learn whether my feints draw reactions). */
@@ -261,6 +268,30 @@ export class Brain {
   }
 
   // ------------------------------------------------------------------ helpers
+  /** How the coach's call is shifting me right now (neutral when there isn't one). */
+  private get fx(): CoachFx {
+    return this.coach && this.time < this.coachUntil ? COACH_FX[this.coach] : NO_COACH;
+  }
+
+  /** My corner shouts an instruction: lean that way from now until `until`. */
+  setCoach(kind: CoachKind, until: number) {
+    this.coach = kind;
+    this.coachUntil = until;
+    // act on it at once: rethink the plan, and drop or pick up the urge to go
+    this.planTime = this.planDur;
+    this.thinkTimer = 0;
+    if (kind === 'defend') {
+      this.tempo *= 0.3;
+      this.stayUntil = 0;
+      if (!this.inBurst) this.coverUntil = this.time + 0.6;
+    } else {
+      this.calmUntil = 0;
+      this.coverUntil = 0;
+      this.exitUntil = 0;
+      this.tempo = Math.max(this.tempo, kind === 'allIn' ? 1 : this.trigger * 0.85);
+    }
+  }
+
   private get tired() {
     return 1 - this.me.staminaRatio;
   }
@@ -270,12 +301,12 @@ export class Brain {
     // desperation: losing late and badly → swing for the fences
     if (this.me.hpRatio < 0.25 && hpAdv < -0.15) a += 0.2;
     a -= this.tired * 0.3;
-    return clamp(a, 0.05, 1);
+    return clamp(a + this.fx.agg, 0.05, 1);
   }
   private effCaution() {
     // a cracked head makes anyone careful: one more big shot could take it off
     const head = this.me.parts.wear(P.Head);
-    return clamp(this.traits.caution + this.fear * 0.5 - this.anger * 0.35 + this.tired * 0.25 + Math.max(0, head - 0.35) * 0.5, 0.05, 1);
+    return clamp(this.traits.caution + this.fear * 0.5 - this.anger * 0.35 + this.tired * 0.25 + Math.max(0, head - 0.35) * 0.5 + this.fx.cau, 0.05, 1);
   }
   /**
    * How much quicker they are than me (0 when I'm as quick or quicker). A slower bot can't
@@ -479,6 +510,8 @@ export class Brain {
       oppStunned * 3 - (1 - stam) * 0.5,
       p.state === 'down' ? 5 : -5,
     ];
+    const cp = this.fx.plan;
+    for (let i = 0; i < 6; i++) u[i] += cp[i];
     // hysteresis: keep doing what we are doing a little
     const cur = kinds.indexOf(this.plan);
     u[cur] += 0.25;
@@ -548,7 +581,7 @@ export class Brain {
         if (p.stamina < 0.3) rate += 0.08;
       }
       if (ropeGap(this.predPos.x, this.predPos.z) < 0.8) rate += 0.1;
-      this.tempo = clamp01(this.tempo + rate * dt);
+      this.tempo = clamp01(this.tempo + rate * this.fx.tempo * dt);
     }
     // ready and in range, but nothing thrown yet
     const primed = !this.inBurst && oppUp && this.tempo >= this.trigger && d < this.myPunchRange() + 0.3;
@@ -590,7 +623,7 @@ export class Brain {
     const agg = this.effAggression();
     const u = [
       // commit: let the hands go
-      agg * 1.2 + me.staminaRatio * 0.8 + t.pocketLove * 0.4 - this.fear + this.speedGap() * 1.5,
+      agg * 1.2 + me.staminaRatio * 0.8 + t.pocketLove * 0.4 - this.fear + this.speedGap() * 1.5 + this.fx.commit,
       // shove: a push kick moves them off and resets the range
       me.build.kickAbility === 'pushKick' && me.cooldownLeft('pushKick') <= 0 ? 0.5 + t.skill * 0.3 : -5,
       // step out and reset
@@ -622,7 +655,7 @@ export class Brain {
     const kinds: OppEntryReact[] = ['meet', 'back', 'pivot', 'hold'];
     const gap = this.speedGap();
     const u = [
-      t.skill * 0.5 + agg * 0.4 + (this.plan === 'counter' ? 0.6 : 0) + (me.staminaRatio < 0.25 ? -0.5 : 0) + gap * 2.5,
+      t.skill * 0.5 + agg * 0.4 + (this.plan === 'counter' ? 0.6 : 0) + (me.staminaRatio < 0.25 ? -0.5 : 0) + gap * 2.5 + this.fx.meet,
       t.footwork * 0.8 + cau * 0.4 + Math.max(0, t.rangeBias) * 3 - nearRope * 1.2 - gap * 1.5,
       t.footwork * 0.5 + t.skill * 0.4 + nearRope * 0.5,
       (1 - t.footwork) * 0.6 + cau * 0.3 + t.pocketLove * 0.4 - me.staminaRatio * 0.4,
@@ -673,7 +706,8 @@ export class Brain {
       this.traits.comboAppetite +
       oppRocked * 0.4 +
       (this.time < this.stayUntil ? 0.15 : 0) +
-      (this.time < this.returnFireUntil ? 0.25 : 0) -
+      (this.time < this.returnFireUntil ? 0.25 : 0) +
+      this.fx.combo -
       this.tired * 0.4;
     const w = [Math.max(0.3, 1.3 - r), 1, 0.15 + r * 0.7, 0.03 + r * 0.3];
     let x = this.rng.next() * (w[0] + w[1] + w[2] + w[3]);
@@ -697,7 +731,7 @@ export class Brain {
     this.tempo = this.rng.range(0, 0.15);
     this.trigger = this.sampleTrigger();
     this.entryUntil = 0;
-    this.calmUntil = this.time + this.rng.range(0.6, 2) * (1.2 - this.traits.pocketLove * 0.6) * (1 + this.tired);
+    this.calmUntil = this.time + this.rng.range(0.6, 2) * (1.2 - this.traits.pocketLove * 0.6) * (1 + this.tired) * this.fx.calm;
     if (!choose) return;
     const me = this.me;
     const t = this.traits;
@@ -725,6 +759,8 @@ export class Brain {
       t.footwork * 0.6 + t.skill * 0.4 + nearRope * 0.6,
       0.15 + cau * 0.3 + (1 - t.footwork) * 0.3 + this.tired * 0.4,
     ];
+    const ca = this.fx.after;
+    for (let i = 0; i < 4; i++) u[i] += ca[i];
     const k = kinds[softmaxPick(u, 0.3, this.rng)];
     const now = this.time;
     this.stayUntil = 0;
@@ -948,6 +984,9 @@ export class Brain {
     // shell up over a head that is about to come off
     if (inThreat && me.parts.cond[P.Head] < LOOSE + 0.1 && this.plan !== 'swarm') mode = 'high';
     if (this.time < this.coverUntil && inThreat) mode = 'high';
+    // told to defend: guard up whenever they're close, shaped to where they've been hitting
+    // (a high guard alone just sends everything to the body)
+    if (this.fx.guard && inThreat && !me.strike) mode = this.oppBody.v > 0.5 ? 'body' : 'high';
     // a guard settles into a shape and holds it a moment: flicking between shapes as the
     // range breathes in and out reads as twitching hands
     if (mode !== me.guardMode && this.time - this.guardSetAt < 0.5) mode = me.guardMode;
@@ -1064,6 +1103,7 @@ export class Brain {
       // a fighter who stays ready too long lets go anyway: a slower bot can't wait for a
       // perfect read against a quicker one, it has to commit and make its power count
       if (ready) wait -= Math.min(this.readyFor, 1.2) * 18;
+      wait += this.fx.wait;
       // not ready, nothing given: paw out a single jab now and then to find the range
       if (!ready && !gift && now > this.exitUntil && now > this.coverUntil) {
         const jab = opts.find((o) => o.id === 'jab' && !o.feint && o.u > 0);
@@ -1208,6 +1248,9 @@ export class Brain {
     if (!last && me.lastAction && me.lastAction.move.id === m.id) flow -= 3;
     if (m.ability) flow += 2 + (this.opp.hpRatio < 0.3 ? 6 : 0);
     flow += this.partValue(m, zone, side, power, def);
+    // the corner wants the head
+    const hh = this.fx.head;
+    if (hh) flow += zone === 'head' ? hh : -hh * 0.6;
 
     const noise = this.rng.gauss() * (2 + this.traits.creativity * 10);
     return ev * (0.6 + agg * 0.8) - risk * (0.4 + cau * 0.9) - cost + learned + flow + noise;
@@ -1289,6 +1332,7 @@ export class Brain {
       return;
     }
     const cls = classify(move, p.zone ?? 'head');
+    if (p.zone !== 'legs') learn(this.oppBody, p.zone === 'body' ? 1 : 0, 0.15);
     this.chooseResponse(move, cls, p.zone ?? 'head', timeLeft, p.uid, d);
   }
 
@@ -1347,6 +1391,11 @@ export class Brain {
       if (r === 'slip' || r === 'duck' || r === 'sway') v *= 0.8 + t.headMovement * 0.6;
       if (r === 'backstep' || r === 'sidestep') v *= 0.8 + t.footwork * 0.5;
       if (r === 'block') v *= (1.15 - t.headMovement * 0.3) * (this.time < this.coverUntil ? 1.4 : 1);
+      // the corner's call: shell up and move, or stand in and trade
+      const fx = this.fx;
+      if (r === 'block') v *= fx.block;
+      else if (r === 'backstep' || r === 'sidestep') v *= fx.feet;
+      else if (r === 'absorb' || r === 'counter') v *= fx.trade;
       utils.push(v * 10);
     }
     const temp = lerp(3.5, 1.2, this.traits.skill);

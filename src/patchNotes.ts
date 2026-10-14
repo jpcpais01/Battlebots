@@ -16,6 +16,14 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-14 15:00',
+    title: 'Coach your bot',
+    notes: [
+      'Coach from the corner! Four buttons along the bottom of a fight: "Go in!" makes your bot attack more, "All in!!!" sends it in non-stop, "Defend" gets its hands up and makes it careful, and "For the head!" has it hunt the head. Each call lasts 10 seconds, then the corner needs 15 seconds before the next one.',
+      'Coach calls work in online fights too (both players must update), and replays repeat the calls you made.',
+    ],
+  },
+  {
     hour: '2026-10-14 14:00',
     title: "Bot's-eye camera",
     notes: [
