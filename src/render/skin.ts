@@ -123,7 +123,7 @@ export class SkinBuilder {
 
   build() {
     // biggest first (stable, so equal sizes keep their build order)
-    const sorted = this.pieces.slice().sort((a, b) => b.r - a.r);
+    const sorted = this.pieces.slice().sort((a, b) => (a.r === b.r ? 0 : a.r < b.r ? 1 : -1));
     const opaque = this.family(sorted.filter((p) => p.ch < 0), true);
     const emissive = this.family(sorted.filter((p) => p.ch >= 0), false);
     this.pieces = [];
