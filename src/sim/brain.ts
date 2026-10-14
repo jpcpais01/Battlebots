@@ -450,10 +450,10 @@ export class Brain {
     if (this.wasGripped) {
       // out of it: step away and reset before going again
       this.wasGripped = false;
-      this.exitUntil = time + this.rng.range(0.4, 0.8);
+      this.exitUntil = time + this.rng.range(0.3, 0.6);
       this.exitLat = this.rng.range(-0.6, 0.6);
-      this.calmUntil = time + this.rng.range(0.5, 1.2);
-      this.tempo *= 0.5;
+      this.calmUntil = time + this.rng.range(0.2, 0.7);
+      this.tempo *= 0.7;
       this.standoff = 0;
     }
 
@@ -597,7 +597,7 @@ export class Brain {
     if (g.phase !== 'clinch' || me.state !== 'fight') return;
     this.clinchTimer -= dt;
     if (this.clinchTimer > 0 || me.action) return;
-    this.clinchTimer = this.rng.range(0.3, 0.65) * lerp(1.25, 0.8, this.traits.skill) * (1 + this.tired * 0.5);
+    this.clinchTimer = this.rng.range(0.22, 0.5) * lerp(1.25, 0.8, this.traits.skill) * (1 + this.tired * 0.5);
     this.clinchThink(g);
   }
 
@@ -619,7 +619,7 @@ export class Brain {
     const kneeUp = me.cooldownLeft('clinchKnee') <= 0 && me.stamina > 10;
     const u = [
       // knee: best with their head pulled down in the plum
-      kneeUp ? 0.5 + agg * 0.8 + Math.max(0, ctl) * (tie === 'plum' ? 1.8 : 0.8) + fx.grab * 0.5 + (fx.head ? 0.4 : 0) : -9,
+      kneeUp ? 0.7 + agg * 0.9 + Math.max(0, ctl) * (tie === 'plum' ? 1.8 : 0.8) + fx.grab * 0.5 + (fx.head ? 0.4 : 0) : -9,
       // a short uppercut or hook with a hand off the tie
       me.stamina > 8 ? 0.25 + agg * 0.6 + t.pocketLove * 0.4 - Math.max(0, -ctl) * 0.4 : -9,
       // fight for the underhooks
@@ -633,7 +633,7 @@ export class Brain {
       // frame and push off
       0.1 + (1 - t.grappling) * 0.8 + Math.max(0, t.rangeBias) * 3 + Math.max(0, -ctl) * 0.8 + cau * 0.4 + this.fear * 0.5 - fx.grab,
       // lean on them and breathe (the referee is watching)
-      0.1 + (1 - stam) * 1.2 + Math.max(0, ctl) * 0.2 - g.quiet * 0.3,
+      (1 - stam) * 1.1 + Math.max(0, ctl) * 0.2 - g.quiet * 0.3,
     ];
     const k = softmaxPick(u, 0.35, this.rng);
     const p = this.perceived;

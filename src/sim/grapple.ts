@@ -88,8 +88,8 @@ const SWIM = 0.3;
 /** Seconds the grapple's poses take to hand the bodies back. */
 const FADE = 0.32;
 /** The referee breaks a clinch where nothing happens for this long, and any clinch at CLINCH_MAX. */
-const CLINCH_QUIET = 2.2;
-const CLINCH_MAX = 5.5;
+const CLINCH_QUIET = 1.8;
+const CLINCH_MAX = 4.8;
 /** Ground punches: first one, then one every GROUND_GAP. */
 const GROUND_FIRST = 0.5;
 const GROUND_GAP = 0.55;
@@ -652,7 +652,7 @@ export class Grapple {
         const target = head ? d[J.Head] : d[J.Chest];
         const st = att.build.stats;
         _f.subVectors(target, att.body.pos[J.Chest]).normalize();
-        const dmg = (16 + 14 * st.punchPower) * (0.85 + 0.3 * this.wobble(k));
+        const dmg = (20 + 16 * st.punchPower) * (0.85 + 0.3 * this.wobble(k));
         this.host.blow(att, def, { kind: 'ground', zone: head ? 'head' : 'body', part: head ? P.Head : P.Chest, damage: dmg, point: target.clone(), dir: _f.clone(), jolt: 5 });
       }
     } else if (t >= GROUND_FIRST + (this.blows - 1) * GROUND_GAP + 0.38) {
