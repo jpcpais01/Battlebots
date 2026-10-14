@@ -131,6 +131,8 @@ export class Brain {
   tempo = 0;
   /** Tempo at which this cycle's attack starts (resampled every burst). */
   private trigger = 0.6;
+  /** How long I've been ready to go without letting anything go: nerve runs out, the hands go. */
+  private readyFor = 0;
   /** How fast tempo builds this cycle: some lulls drag on, some don't. */
   private tempoPace = 1;
   /** Catching my breath after an exchange: the urge builds slowly. */
@@ -273,6 +275,17 @@ export class Brain {
     // a cracked head makes anyone careful: one more big shot could take it off
     const head = this.me.parts.wear(P.Head);
     return clamp(this.traits.caution + this.fear * 0.5 - this.anger * 0.35 + this.tired * 0.25 + Math.max(0, head - 0.35) * 0.5, 0.05, 1);
+  }
+  /**
+   * How much quicker they are than me (0 when I'm as quick or quicker). A slower bot can't
+   * out-move or out-wait a quick one: its answer is to stand its ground, meet them as they
+   * come in and fire back, trading its timing for power.
+   */
+  private speedGap() {
+    const a = this.me.build.stats, b = this.opp.build.stats;
+    const mine = this.me.speedMult() + a.moveSpeed / 2.1;
+    const theirs = this.opp.speedMult() + b.moveSpeed / 2.1;
+    return clamp(theirs / mine - 1, 0, 0.6);
   }
   private band(d: number) {
     return d < 0.95 ? 0 : d < 1.45 ? 1 : 2;
@@ -536,6 +549,9 @@ export class Brain {
       if (ropeGap(this.predPos.x, this.predPos.z) < 0.8) rate += 0.1;
       this.tempo = clamp01(this.tempo + rate * dt);
     }
+    // ready and in range, but nothing thrown yet
+    const primed = !this.inBurst && oppUp && this.tempo >= this.trigger && d < this.myPunchRange() + 0.3;
+    this.readyFor = primed ? this.readyFor + dt : 0;
 
     // a stand-off in range: nobody is throwing. Something has to give.
     const quiet = !me.strike && p.actKind !== 'strike' && d < this.myPunchRange() + 0.15 && oppUp && me.state === 'fight';
@@ -573,7 +589,7 @@ export class Brain {
     const agg = this.effAggression();
     const u = [
       // commit: let the hands go
-      agg * 1.2 + me.staminaRatio * 0.8 + t.pocketLove * 0.4 - this.fear,
+      agg * 1.2 + me.staminaRatio * 0.8 + t.pocketLove * 0.4 - this.fear + this.speedGap() * 1.5,
       // shove: a push kick moves them off and resets the range
       me.build.kickAbility === 'pushKick' && me.cooldownLeft('pushKick') <= 0 ? 0.5 + t.skill * 0.3 : -5,
       // step out and reset
@@ -603,9 +619,10 @@ export class Brain {
     const agg = this.effAggression();
     const nearRope = clamp01((1.1 - ropeGap(me.root.x, me.root.z)) / 0.8);
     const kinds: OppEntryReact[] = ['meet', 'back', 'pivot', 'hold'];
+    const gap = this.speedGap();
     const u = [
-      t.skill * 0.5 + agg * 0.4 + (this.plan === 'counter' ? 0.6 : 0) + (me.staminaRatio < 0.25 ? -0.5 : 0),
-      t.footwork * 0.8 + cau * 0.4 + Math.max(0, t.rangeBias) * 3 - nearRope * 1.2,
+      t.skill * 0.5 + agg * 0.4 + (this.plan === 'counter' ? 0.6 : 0) + (me.staminaRatio < 0.25 ? -0.5 : 0) + gap * 2.5,
+      t.footwork * 0.8 + cau * 0.4 + Math.max(0, t.rangeBias) * 3 - nearRope * 1.2 - gap * 1.5,
       t.footwork * 0.5 + t.skill * 0.4 + nearRope * 0.5,
       (1 - t.footwork) * 0.6 + cau * 0.3 + t.pocketLove * 0.4 - me.staminaRatio * 0.4,
     ];
@@ -1043,6 +1060,9 @@ export class Brain {
       if (now < this.coverUntil) wait += 14;
       if (this.plan === 'retreat') wait += 12;
       if (this.plan === 'counter' && !oppCommitted) wait += 6;
+      // a fighter who stays ready too long lets go anyway: a slower bot can't wait for a
+      // perfect read against a quicker one, it has to commit and make its power count
+      if (ready) wait -= Math.min(this.readyFor, 1.2) * 18;
       // not ready, nothing given: paw out a single jab now and then to find the range
       if (!ready && !gift && now > this.exitUntil && now > this.coverUntil) {
         const jab = opts.find((o) => o.id === 'jab' && !o.feint && o.u > 0);
@@ -1126,7 +1146,10 @@ export class Brain {
     if (punish) def *= 0.5;
     def *= 1 - oppRocked * 0.85;
     if (p.actKind === 'dodge') def *= 0.7;
-    def *= clamp(0.55 + windup * 2.6, 0.55, 1.5);
+    // a long wind-up is easier to read than a short one. Only the shape of the move counts here:
+    // how fast I am against them is already in what I've learned (defRate, counterRate), and
+    // counting it twice made slow bots too scared to throw at all
+    def *= clamp(0.55 + m.windup * 2.6, 0.55, 1.5);
     if (zone === 'head' && p.guard === 'high') def *= 1.3;
     if (zone === 'body' && p.guard === 'body') def *= 1.35;
     if (zone === 'body' && p.guard === 'high') def *= 0.65;
@@ -1150,7 +1173,7 @@ export class Brain {
     let ev = pHit * dmg + pReach * (1 - pHit) * dmg * 0.1;
 
     // risk of being countered when it misses or is blocked
-    const exposure = (m.active + m.recovery) / speed;
+    const exposure = m.active + m.recovery;
     const oppCanAct = p.state === 'fight' && !oppCommitted ? 1 : 0.15;
     const pCounter = clamp(this.counterRate.v * (1 - pHit) * (exposure / 0.4) * oppCanAct, 0, 0.9);
     const risk = pCounter * this.oppAvgHit.v * (m.kind === 'kick' ? 1.3 : 1);
@@ -1470,7 +1493,7 @@ export class Brain {
     const now = this.time;
     this.pain *= 0.5;
     this.stayUntil = 0;
-    if (this.me.staminaRatio > 0.3 && this.rng.chance(this.traits.temper * 0.6 + this.effAggression() * 0.25)) {
+    if (this.me.staminaRatio > 0.3 && this.rng.chance(this.traits.temper * 0.6 + this.effAggression() * 0.25 + this.speedGap() * 0.8)) {
       this.returnFireUntil = now + 0.9;
       this.tempo = 1;
       this.trigger = 0.2;

@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-14 04:00',
+    title: 'Slow bots fight back',
+    notes: [
+      'Slower, heavier bots no longer turtle up against quick ones. They commit once they are set, meet opponents as they step in and fire straight back when hit, trading speed for power.',
+    ],
+  },
+  {
     hour: '2026-10-14 03:00',
     title: 'Bot sizes, beat the count, camera drones and real oil',
     notes: [
