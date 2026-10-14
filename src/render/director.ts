@@ -37,6 +37,9 @@ const JOINT_ROOM = [0.94, 1, 1, 1.08, 1.08, 1, 1, 1.1, 1.1];
 const POV_GAP = 16;
 /** Chance a cut that may go to a bot's eye does. */
 const POV_CHANCE = 0.3;
+/** A bot's-eye shot holds at least this long, whatever happens (s), and never longer than POV_MAX. */
+const POV_MIN = 3;
+const POV_MAX = 7;
 /** How far apart the fighters may be for a bot's-eye shot (m): too close fills the lens with chest, too far loses them. */
 const POV_SEP = [0.8, 4] as const;
 
@@ -304,7 +307,7 @@ export class Director {
     this.kick.subVectors(h.point, this.center).multiplyScalar(big ? 0.35 : h.blocked ? 0.08 : 0.15);
     if (this.kick.length() > 0.4) this.kick.setLength(0.4);
     // big shots often get a cut to a fresh angle once the impact has landed
-    if (big && !h.knockdown && this.shot.t > (this.shot.kind === 'pov' ? 2 : 1.2) && this.cutIn < 0 && Math.random() < 0.4) this.cutIn = 0.35 + Math.random() * 0.2;
+    if (big && !h.knockdown && this.shot.t > (this.shot.kind === 'pov' ? POV_MIN : 1.2) && this.cutIn < 0 && Math.random() < 0.4) this.cutIn = 0.35 + Math.random() * 0.2;
   }
 
   update(dt: number, match: Match | null) {
@@ -429,7 +432,11 @@ export class Director {
     const beat = fill ? `f${this.filler.n}` : ph === 'intro' ? `p${match.presenting}` : ph === 'countdown' ? 'count' : '';
     const cut = beat !== this.beat;
     this.beat = beat;
-    if (fill) this.fillerShot(cut);
+    // a fresh bot's-eye shot is locked in: no knockdown, KO, finisher or final bell cuts it short
+    const locked = sh.kind === 'pov' && sh.t < POV_MIN;
+    if (locked) {
+      // hold
+    } else if (fill) this.fillerShot(cut);
     else if (ph === 'intro') this.presentShot(match, cut);
     else if (ph === 'countdown') this.introShot(dt, match, cut);
     else if (ph === 'greet') {
@@ -496,9 +503,9 @@ export class Director {
       }
     }
     if (sh.kind === 'pov') {
-      // a bot's-eye shot is short, and cuts the moment it stops working
-      // (a knockdown's own shot already waiting on the cutIn above goes first)
-      if (this.cutIn < 0 && (sh.t > sh.dur || !this.povOk(match, this.povBy))) this.cut(match);
+      // past its locked-in first seconds, a bot's-eye shot cuts the moment it stops working, and
+      // never outstays POV_MAX (a knockdown's own shot already waiting on the cutIn above goes first)
+      if (this.cutIn < 0 && (sh.t > Math.min(sh.dur, POV_MAX) || !this.povOk(match, this.povBy))) this.cut(match);
       return;
     }
     const busy = (f: Fighter) => !!f.strike && f.strike.phase !== 'recovery';
@@ -635,7 +642,7 @@ export class Director {
     if (by < 0) return false;
     const r = Math.random;
     const s = makeShot('pov', r);
-    Object.assign(s, { dur: 2.2 + r() * 1.6, subject: 1 - by, wobble: 0 });
+    Object.assign(s, { dur: POV_MIN + 0.5 + r() * (POV_MAX - POV_MIN - 0.5), subject: 1 - by, wobble: 0 });
     this.shot = s;
     this.povBy = by;
     this.cuts++;

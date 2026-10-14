@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-14 17:00',
     title: 'Cleaner fights, whole-bot finishers',
     notes: [
+      "The bot's-eye camera now always stays on for at least 3 seconds, even through knockdowns and KOs, and can run for up to 7 seconds.",
       'Knocked-down bots get back up a bit more often: their odds of beating the count each second are higher.',
       'Finishers now need a whole bot: if any of your parts has been torn off, you can no longer pull off a finisher.',
       'The little text line at the bottom of fights that narrated every move is gone, so the action and the coach buttons have the screen to themselves.',
