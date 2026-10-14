@@ -649,6 +649,28 @@ export class Sfx {
     this.tone('sine', 1300, 520, 0.09, 0.05);
   }
 
+  /**
+   * The hover stretcher: a two-note medic chime as it swoops in, a rising hum as its beam
+   * lifts the loser on, a cheerful little arpeggio when the loser perks up, and a jet whoosh
+   * as it takes off for the tunnel.
+   */
+  stretcher(kind: 'arrive' | 'lift' | 'cheer' | 'depart') {
+    if (!this.ok) return;
+    if (kind === 'arrive') {
+      this.tone('sine', 988, 988, 0.22, 0.05);
+      this.tone('sine', 1319, 1319, 0.3, 0.05, 0.16);
+      this.noise(0.7, 'bandpass', 700, 0.8, 0.07, 0, 300);
+    } else if (kind === 'lift') {
+      this.tone('sine', 220, 660, 1.1, 0.05);
+      this.tone('triangle', 330, 990, 1.1, 0.025, 0.05);
+    } else if (kind === 'cheer') {
+      [784, 988, 1175, 1568].forEach((f, i) => this.tone('triangle', f, f, 0.16, 0.04, i * 0.07));
+    } else {
+      this.noise(1.1, 'bandpass', 380, 1, 0.12, 0, 1800);
+      this.tone('sawtooth', 90, 260, 0.9, 0.025, 0, 900, 2400);
+    }
+  }
+
   bell(times = 1) {
     if (!this.ok) return;
     for (let i = 0; i < times; i++) {

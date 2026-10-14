@@ -299,6 +299,15 @@ export class Director {
     if (this.shot.kind === 'pov') this.shot = makeShot('wide', Math.random);
   }
 
+  /**
+   * Film this frame from a shot worked out elsewhere (the stretcher's), instead of directing.
+   * `fovK` scales the base lens; `cut` marks a hard cut. Holds for one update.
+   */
+  film(pos: THREE.Vector3, look: THREE.Vector3, fovK: number, cut: boolean) {
+    this.ext = { pos, look, fovK, cut };
+  }
+  private ext: { pos: THREE.Vector3; look: THREE.Vector3; fovK: number; cut: boolean } | null = null;
+
   /** Match events the camera reacts to. */
   cue(type: string, data: unknown) {
     if (this.mode !== 'match') return;
@@ -327,7 +336,21 @@ export class Director {
     const wantLook = this.wantLook.set(0, 0, 0);
     let posLambda = 2.6;
     const lookLambda = 5;
-    if (this.mode === 'match' && match) {
+    const ext = this.ext;
+    this.ext = null;
+    if (this.mode === 'match' && match && ext) {
+      // the director picks up on the winner afterwards
+      if (this.shot.kind !== 'win' && match.winner) {
+        this.endPov();
+        this.shot = makeShot('win', Math.random);
+        this.shot.subject = match.winner.index;
+      }
+      if (ext.cut) this.cuts++;
+      this.pos.copy(ext.pos);
+      this.look.copy(ext.look);
+      this.fov = this.baseFov * ext.fovK * ZOOM[this.zoom].fov;
+      this.roll = damp(this.roll, 0, 3, dt);
+    } else if (this.mode === 'match' && match) {
       this.fight(dt, match);
     } else {
       this.fresh = true;

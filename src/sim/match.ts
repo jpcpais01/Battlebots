@@ -148,7 +148,11 @@ export class Match {
   /** Match time each side's corner can make its next call. */
   readonly coachReadyAt = [0, 0];
 
+  /** The seed it was started from (the end-of-fight show picks from it too). */
+  readonly seed: number;
+
   constructor(a: BotSpec, b: BotSpec, seed: number) {
+    this.seed = seed >>> 0;
     this.rng = new Rng(seed);
     this.specs = [a, b];
     resetUids();
