@@ -2616,12 +2616,21 @@ button:focus-visible {
   }
 }
 /* the bars wait for the countdown */
-.hud .hud-top {
+.hud .hud-top,
+.hud .hud-bl,
+.hud .hud-br {
   transition: opacity 0.4s ease, transform 0.5s cubic-bezier(0.2, 1, 0.3, 1);
 }
 .hud.intro .hud-top {
   opacity: 0;
   transform: translateY(-1.5em);
+  pointer-events: none;
+}
+/* the camera, speed and pause buttons would sit behind the name cards */
+.hud.intro .hud-bl,
+.hud.intro .hud-br {
+  opacity: 0;
+  transform: translateY(1.5em);
   pointer-events: none;
 }
 @keyframes slideL {
