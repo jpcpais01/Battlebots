@@ -17,10 +17,11 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-14 19:00',
-    title: 'Replay controls',
+    title: 'Thrown out of the ring, replay controls',
     notes: [
       'Replays now have media-player controls: play and pause, jump back or ahead 5 seconds, step frame by frame while paused, and drag the timeline to any moment. Knockdowns, torn-off parts and the KO are marked on it.',
       'Watch replays at any speed from 0.25x slow motion up to 4x. On a keyboard: space pauses, the arrow keys jump, [ and ] change speed.',
+      'Big knockout blows can now send a bot flying over the top rope and out of the ring, crashing down onto the arena floor. The ropes still catch anything lower, and the corner posts are solid all the way up. A bot knocked down outside the ring can\'t climb back in before ten.',
     ],
   },
   {
