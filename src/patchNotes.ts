@@ -17,8 +17,11 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-14 20:00',
-    title: 'A new ring, heavier hits, sharper icons',
+    title: 'A new ring, heavier hits, arena light show',
     notes: [
+      'The arena puts on a proper show: 20 moving-head lights on the roof sweep beams through the stands, wheel round as the bots walk out, lock onto the ring for the countdown and strobe in the winner\'s colour on a KO.',
+      'Pyro round the stage: spark fountains as each bot is introduced, flame cannons on FIGHT!, finishers and knockouts, and confetti in the winner\'s colour rains down from the roof at the end.',
+      'The big screen now shows each bot\'s name in its corner colour as it is introduced, and a new ring of ad boards crowns the top of the stands.',
       'The garage parts menu is rebuilt around the makers: pick a maker from the logo tabs to see what they build for, how close you are to their set bonus, and their parts as big tiles.',
       'Tap a part to try it on before fitting it: your bot wears it, the diagnostics show what it adds or takes away, and any set bonus it unlocks or loses lights up. Press Equip, or tap it again, to fit it. On a keyboard the arrows browse and Enter fits.',
       'Knocked-down bots get back up a bit more often before the count runs out.',

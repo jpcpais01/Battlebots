@@ -32,6 +32,7 @@ import { RenderSettings } from './settings';
 import { contactAO } from './ao';
 import { house, HOUSE_GLSL } from './house';
 import { FloorShow } from './floor';
+import { ArenaShow } from './show';
 
 /**
  * The indoor arena around the ring: a two-tier seating bowl with a suite level, LED ribbon
@@ -279,17 +280,44 @@ class Scoreboard {
     this.finish();
   }
 
+  /** Intro: the bot walking out, big, in its corner's colour. */
+  private present(name: string, side: number) {
+    const g = this.g;
+    this.frame();
+    const col = side === 0 ? ['#ffd08a', '#ff6a12'] : ['#d8fbff', '#22b8f0'];
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillStyle = col[1];
+    g.fillRect(40, 70, 432, 4);
+    g.fillRect(40, 226, 432, 4);
+    g.font = 'bold 24px "Russo One", Impact, sans-serif';
+    g.fillStyle = '#d8dde6';
+    g.fillText(side === 0 ? 'IN THE ORANGE CORNER' : 'IN THE BLUE CORNER', 256, 44);
+    const n = name.toUpperCase();
+    g.font = `bold ${n.length > 10 ? 58 : 82}px "Russo One", Impact, sans-serif`;
+    const tg = g.createLinearGradient(0, 100, 0, 200);
+    tg.addColorStop(0, col[0]);
+    tg.addColorStop(1, col[1]);
+    g.fillStyle = tg;
+    g.fillText(n, 256, 150, 460);
+    g.font = 'bold 20px "Russo One", Impact, sans-serif';
+    g.fillStyle = '#8f9bb3';
+    g.fillText('MAIN EVENT', 256, 256);
+    this.finish();
+  }
+
   /** Redraws only when what it shows changes, a few times a second at most. */
   update(dt: number, s: ScoreState | null) {
     this.wait -= dt;
     if (this.wait > 0) return;
     this.wait = 0.2;
-    const key = s ? `${s.names.join()}|${s.hp.map((h) => Math.ceil(h * 50)).join()}|${Math.ceil(s.clock)}|${s.phase}` : 'logo';
+    const key = s ? `${s.names.join()}|${s.hp.map((h) => Math.ceil(h * 50)).join()}|${Math.ceil(s.clock)}|${s.phase}|${s.presenting ?? -1}` : 'logo';
     if (key === this.key) return;
     // the fonts may not have loaded for the first logo
     if (key === 'logo' && this.key === '') this.key = 'x';
     else this.key = key;
     if (!s) return this.logo();
+    if (s.phase === 'intro' && (s.presenting ?? -1) >= 0) return this.present(s.names[s.presenting!], s.presenting!);
     const g = this.g;
     this.frame();
     g.textBaseline = 'middle';
@@ -332,6 +360,8 @@ export interface ScoreState {
   hp: [number, number];
   clock: number;
   phase: string;
+  /** The bot being presented in the intro, or -1. */
+  presenting?: number;
 }
 
 /** Scrolling LED strip of arena graphics on a black panel (scoreboard rings). */
@@ -535,6 +565,8 @@ export class Venue {
   readonly group = new THREE.Group();
   readonly crowd: Crowd;
   readonly floor: FloorShow;
+  /** Moving-head beams, pyro and confetti. */
+  readonly show: ArenaShow;
   readonly uniforms: Uniforms & { uFlash: { value: number } };
   private spots: THREE.Vector4[];
   private steady: THREE.ShaderMaterial;
@@ -548,6 +580,8 @@ export class Venue {
     const desks = ringsideDesks();
     this.floor = new FloorShow(u);
     g.add(this.floor.group);
+    this.show = new ArenaShow(quality, u);
+    g.add(this.show.group);
     const bowlSeats = seats();
     // broadcast cameras on the platforms over the north and south lower vomitories
     const platforms = vomitories().filter((v) => v.row0 === VOM_ROW0 && v.nz !== 0);
@@ -684,6 +718,8 @@ export class Venue {
     // ringside boards on the barrier, the suite-level ribbon, and a ring of lights at the top
     ledStrip(-0.6, FLOOR + 0.05, 0.42, adsTex, 0, 0.9);
     ledStrip(SUITE_D - 0.02, UPPER_Y - 1.15, UPPER_Y - 0.2, adsTex, -0.04, 1.3);
+    // and a crown of boards round the top of the bowl, above the concourse openings
+    ledStrip(BACK_D - 0.04, TOP_Y + 3.0, TOP_Y + 4.1, adsTex, 0.05, 1.1);
     const cap = new Strips();
     cap.strip(outline(-0.6), 0.42, outline(-0.35), 0.42, () => [0.05, 0.055, 0.07]);
     g.add(new THREE.Mesh(cap.geometry(), new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })));
@@ -1052,6 +1088,7 @@ export class Venue {
 
   setPixelScale(h: number) {
     this.crowd.setPixelScale(h);
+    this.show.setPixelScale(h);
     this.floor.setPixelScale(h);
     this.steady.uniforms.uScale.value = h;
   }
@@ -1060,11 +1097,13 @@ export class Venue {
   event(type: string, data?: unknown) {
     this.crowd.event(type, data);
     this.floor.event(type, data);
+    this.show.event(type, data);
   }
 
   /** What the centre-hung screens show: the live fight, or the arena logo (null). */
   score(dt: number, s: ScoreState | null) {
     this.board.update(dt, s);
+    this.show.setPhase(s ? s.phase : 'menu', s?.presenting ?? -1);
   }
 
   /** Strobe the boards (knockdowns, KOs). */
@@ -1074,6 +1113,7 @@ export class Venue {
 
   update(dt: number, time: number, hype: number) {
     this.floor.update(dt);
+    this.show.update(dt, time, hype);
     this.flash = Math.max(0, this.flash - dt * 0.8);
     this.uniforms.uFlash.value = this.flash;
     // follow spots roaming the stands, livelier with the crowd
