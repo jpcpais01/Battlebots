@@ -905,7 +905,7 @@ export class Game {
         const model = this.models[i];
         model.end(f, this.time, this.models[1 - i]);
         // riding the corner lift up in the intro
-        const lift = this.arena.corners.drop(i);
+        const lift = this.arena.corners.drop(m, i);
         if (m.hitstop > 0) {
           // tiny vibration while frozen on impact
           const k = Math.min(1, m.hitstop * 20) * 0.012;
@@ -1000,7 +1000,7 @@ export class Game {
     // contact occlusion follows whichever robots are on screen
     const shown = m && this.models.length === 2 ? this.models : this.showcase ? (this.spar ? [this.showcase.model, this.spar.model] : [this.showcase.model]) : [];
     // (a robot still down in its lift shaft casts nothing on the canvas)
-    for (let i = 0; i < 2; i++) contactAO.set(i, m && this.arena.corners.drop(i) < -0.3 ? null : (shown[i]?.joints ?? null), shown[i]?.size);
+    for (let i = 0; i < 2; i++) contactAO.set(i, m && this.arena.corners.drop(m, i) < -0.3 ? null : (shown[i]?.joints ?? null), shown[i]?.size);
     this.fx.update(still ? 0 : dt, this.stage.camera);
     this.stage.ripples.update(still ? 0 : dt);
     perf.lap('fx');

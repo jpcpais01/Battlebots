@@ -56,3 +56,10 @@ export function liftUp(t: number) {
   // a heavy machine: eases off the stops, quickest through the middle, slows into the lock
   return u * u * u * (u * (u * 6 - 15) + 10);
 }
+
+/** How far below the canvas the lift deck is at entry time t (0 = flush), with the clunk as it locks. */
+export function liftDrop(t: number) {
+  const s = t - ENTRY.arrive;
+  const clunk = s > 0 && s < 0.6 ? -0.028 * DM.exp(-s * 9) * DM.sin(s * 34) : 0;
+  return -(1 - liftUp(t)) * LIFT_DEPTH + clunk;
+}

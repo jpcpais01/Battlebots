@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RING_CORNER } from '../sim/body';
-import { CORNER_OF, ENTRY, entryTime, HATCH_R, hatchXZ, LIFT_DEPTH, liftUp } from '../sim/entrance';
+import { CORNER_OF, ENTRY, entryTime, HATCH_R, hatchXZ, LIFT_DEPTH, liftDrop, liftUp } from '../sim/entrance';
 import type { Match } from '../sim/match';
 import { contactAO } from './ao';
 import type { Fx } from './fx';
@@ -421,9 +421,10 @@ export class Corners {
     this.accents[1].setHex(b);
   }
 
-  /** How far below the canvas fighter i's lift deck is (the robot rides on it; 0 = flush). */
-  drop(i: number) {
-    return this.corners[i].drop;
+  /** How far below the canvas fighter i's lift deck is at this moment of the match (the robot rides on it; 0 = flush). */
+  drop(m: Match | null, i: number) {
+    const t = m ? entryTime(m.phase, m.phaseTime, i) : Infinity;
+    return t === Infinity ? 0 : liftDrop(t);
   }
 
   /** How hard fighter i's corner is lit up right now (0..1): the house lights follow it. */
@@ -438,10 +439,7 @@ export class Corners {
       const done = t === Infinity;
       const open = done ? 1 : ease((t - ENTRY.open) / (ENTRY.opened - ENTRY.open));
       const up = done ? 1 : liftUp(t);
-      // the lift locks with a heavy clunk
-      const s = t - ENTRY.arrive;
-      const clunk = s > 0 && s < 0.6 ? -0.028 * Math.exp(-s * 9) * Math.sin(s * 34) : 0;
-      c.drop = -(1 - up) * LIFT_DEPTH + clunk;
+      c.drop = done ? 0 : liftDrop(t);
       c.deck.position.y = c.drop;
       for (let k = 0; k < 2; k++) {
         const door = c.doors[k];
