@@ -18,7 +18,7 @@ export const SIM_DT = 1 / 120;
 /** Seconds on the canvas before a bot that stays down is counted out. */
 export const COUNT_OUT = 9.6;
 /** Chance a downed bot gets up on each second of the count, at full health (scales with HP). */
-export const GETUP_PER_SECOND = 0.28;
+export const GETUP_PER_SECOND = 0.36;
 /** Seconds between failed tries to rise during a count (one collapses and settles first). */
 const TRY_GAP = 2;
 export const ROUND_TIME = 99;

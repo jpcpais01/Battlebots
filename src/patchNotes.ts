@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-14 20:00',
     title: 'A new ring, heavier hits, sharper icons',
     notes: [
+      'Knocked-down bots get back up a bit more often before the count runs out.',
       'The ring has been rebuilt: a new printed canvas with a gear emblem, hazard-striped corners and skid marks from old fights, a padded edge, and an LED skirt round the stage that scrolls the league name and flares when the crowd goes wild. New padded corner posts with glowing beacons and LED strips, thicker neon-core ropes tied with straps that bend with them, and a steel truss overhead with the spotlights hanging from it.',
       'Hits sound like real armour now: every blow rings the plate it lands on, big shots leave the panel clanging, and battered parts crunch and rattle instead of ringing clean.',
       'Sparks streak off in the direction of the blow, skate across the plating and bounce along the canvas, cooling from white hot to red.',
