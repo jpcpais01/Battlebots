@@ -113,7 +113,7 @@ function oilLeak(part: number, cond: number) {
 }
 
 /** A part's hinge starts blowing high-pressure vapour below this condition. */
-const VENT_BELOW = 0.3;
+const VENT_BELOW = 0.2;
 type Radius = 'upper' | 'fore' | 'thigh' | 'shin';
 /**
  * The hinge each part vents from: joint a (t = 0) on the segment toward b, which the jet
