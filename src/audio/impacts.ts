@@ -168,30 +168,49 @@ function strikePlate(out: Float32Array, sr: number, rnd: () => number, R: Recipe
   }
 }
 
-/** A small hard part (a nut, a chip of plating) hitting the canvas and skittering to a stop. */
+/**
+ * A lump of steel (a nut, a bolt, a torn chunk of plate) landing on the canvas: a heavy, dead
+ * "tok" that thuds into the padded deck, not a bright ting. A short low body thump, a mid
+ * knock of a thick part (low, close modes that die almost at once), a dull scuff of contact
+ * noise, and at most one low skip after it.
+ */
 function renderTink(rnd: () => number, sr: number): Float32Array {
-  const n = Math.ceil(0.5 * sr);
+  const n = Math.ceil(0.35 * sr);
   const out = new Float32Array(n);
-  // free-bar mode ratios, a little bent: small parts ring high and short
-  const ratios = [1, 2.76, 5.4, 8.93];
-  const f0 = 1700 + rnd() * 1900;
-  const bounces = 2 + Math.floor(rnd() * 3);
+  // thick, stubby parts: low modes packed close, heavily damped
+  const ratios = [1, 1.62, 2.43, 3.3];
+  const f0 = 420 + rnd() * 380;
+  const bounces = rnd() < 0.55 ? 2 : 1;
   let t = 0;
-  let gap = 0.06 + rnd() * 0.08;
   let g = 1;
   for (let b = 0; b < bounces; b++) {
     const at = Math.floor(t * sr);
     for (let k = 0; k < ratios.length; k++) {
-      addMode(out, sr, at, f0 * ratios[k] * (0.96 + rnd() * 0.08), g * (0.9 - k * 0.18) * (0.6 + rnd() * 0.4), (0.012 + rnd() * 0.03) / (1 + k * 0.6));
+      addMode(out, sr, at, f0 * ratios[k] * (0.94 + rnd() * 0.12), g * (0.8 - k * 0.17) * (0.6 + rnd() * 0.4), (0.008 + rnd() * 0.01) / (1 + k * 0.5));
     }
-    // the tick of the contact itself
-    for (let s = 0; s < 24 && at + s < n; s++) out[at + s] += g * 0.5 * (rnd() * 2 - 1) * Math.exp(-s / 5);
-    t += gap;
-    gap *= 0.55 + rnd() * 0.15;
-    g *= 0.45 + rnd() * 0.2;
+    // the deck taking the weight: a low thump that drops in pitch
+    const bodyHz = 110 + rnd() * 70;
+    let ph = 0;
+    for (let s = 0; s < Math.floor(0.06 * sr) && at + s < n; s++) {
+      const ts = s / sr;
+      ph += (2 * Math.PI * bodyHz * (1 + 0.8 * Math.exp(-ts / 0.006))) / sr;
+      out[at + s] += g * 1.1 * Math.sin(ph) * (1 - Math.exp(-ts / 0.0008)) * Math.exp(-ts / 0.018);
+    }
+    // dull scuff: lowpassed contact noise, no click
+    let lp = 0;
+    for (let s = 0; s < 220 && at + s < n; s++) {
+      lp += 0.18 * (rnd() * 2 - 1 - lp);
+      out[at + s] += g * 1.4 * lp * Math.exp(-s / 45);
+    }
+    t += 0.05 + rnd() * 0.06;
+    g *= 0.3 + rnd() * 0.15;
   }
+  // a touch of grit, then normalise
   let peak = 0;
-  for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(out[i]));
+  for (let i = 0; i < n; i++) {
+    out[i] = Math.tanh(out[i] * 1.8);
+    peak = Math.max(peak, Math.abs(out[i]));
+  }
   const norm = peak > 0 ? 0.9 / peak : 0;
   const fade = Math.floor(sr * 0.02);
   for (let i = 0; i < n; i++) out[i] *= norm * (i > n - fade ? (n - i) / fade : 1);
