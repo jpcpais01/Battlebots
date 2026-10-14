@@ -18,7 +18,7 @@ export const SIM_DT = 1 / 120;
 /** Seconds on the canvas before a bot that stays down is counted out. */
 export const COUNT_OUT = 9.6;
 /** Chance a downed bot gets up on each second of the count, at full health (scales with HP). */
-export const GETUP_PER_SECOND = 0.2;
+export const GETUP_PER_SECOND = 0.28;
 /** Seconds between failed tries to rise during a count (one collapses and settles first). */
 const TRY_GAP = 2;
 export const ROUND_TIME = 99;
@@ -897,7 +897,7 @@ export class Match {
 
   /**
    * The count. On each of the referee's numbers from two to nine the downed bot rolls to
-   * get up, at odds set by the health it has left (about 10% a second at half health, 5%
+   * get up, at odds set by the health it has left (about 14% a second at half health, 6%
    * at a fifth). A failed roll is often a visible try that gives out partway, more often
    * and further up the healthier it is. Health can't change while it lies there, so every
    * roll is made now, on the match Rng, and handed to the fighter as its plan for the
