@@ -1,0 +1,632 @@
+/* ------------------------------------------------------------ garage part picker
+   One maker at a time: logo tabs, the maker's banner, its parts as tiles and the
+   highlighted part in full. --mc is the open maker's brand colour. */
+.items.parts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* maker tabs: a row of logos; the open one opens out to show its name */
+.pm-makers {
+  flex: none;
+  display: flex;
+  gap: 0.35em;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  padding: 0.15em 0.1em 0.2em;
+}
+.pm-makers::-webkit-scrollbar {
+  display: none;
+}
+.pm-mk {
+  flex: none;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  height: 2.5em;
+  padding: 0 0.3em;
+  border-radius: 999px;
+  color: #c3cbdb;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.12s ease;
+}
+.pm-mk:active {
+  transform: scale(0.95);
+}
+.pm-mk .lg {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 1.9em;
+  height: 1.9em;
+  border-radius: 50%;
+  color: var(--mc);
+  background: color-mix(in srgb, var(--mc) 12%, #0a0e16);
+}
+.pm-mk .lg svg {
+  width: 1.3em;
+  height: 1.3em;
+}
+/* how many of the bot's parts this maker built */
+.pm-mk .lg i {
+  position: absolute;
+  right: -0.35em;
+  top: -0.3em;
+  min-width: 1.35em;
+  height: 1.35em;
+  padding: 0 0.25em;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-style: normal;
+  font-family: var(--display);
+  font-size: 0.62em;
+  color: #071018;
+  background: var(--mc);
+  box-shadow: 0 0 0 2px #0d111b;
+}
+.pm-mk b {
+  display: none;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 0.78em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  padding-right: 0.6em;
+}
+/* the maker of the part fitted in this slot: a small mark under its logo */
+.pm-mk.here::after {
+  content: '';
+  position: absolute;
+  left: calc(0.3em + 0.95em - 0.18em);
+  bottom: 0.12em;
+  width: 0.36em;
+  height: 0.36em;
+  border-radius: 50%;
+  background: #fff;
+}
+.pm-mk.on {
+  color: #fff;
+  background: color-mix(in srgb, var(--mc) 22%, rgba(255, 255, 255, 0.06));
+  border-color: color-mix(in srgb, var(--mc) 75%, white 10%);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--mc) 30%, transparent);
+}
+.pm-mk.on b {
+  display: block;
+}
+
+/* the maker's banner */
+.pm-brand {
+  flex: none;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 0.25em 0.6em;
+  align-items: center;
+  padding: 0.5em 0.7em 0.55em 0.5em;
+  border-radius: 14px;
+  background: radial-gradient(120% 160% at 0% 0%, color-mix(in srgb, var(--mc) 20%, transparent), transparent 60%), rgba(255, 255, 255, 0.03);
+  border: 1px solid color-mix(in srgb, var(--mc) 22%, rgba(255, 255, 255, 0.05));
+}
+.pm-brand .lg {
+  grid-row: 1 / -1;
+  display: grid;
+  place-items: center;
+  width: 2.5em;
+  height: 2.5em;
+  border-radius: 12px;
+  color: var(--mc);
+  background: color-mix(in srgb, var(--mc) 14%, #0a0e16);
+}
+.pm-brand .lg svg {
+  width: 1.7em;
+  height: 1.7em;
+}
+.mono {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.1em;
+}
+.pm-brand .nm {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pm-brand .nm b {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 0.95em;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pm-brand .nm span {
+  font-size: 0.74em;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pm-brand .nm em {
+  font-style: normal;
+  color: color-mix(in srgb, var(--mc) 55%, white);
+}
+.pm-brand .nm em::before {
+  content: '· ';
+  color: var(--muted);
+}
+/* parts from this maker: one segment per slot, a notch where a set bonus starts */
+.pm-brand .meter {
+  display: flex;
+  gap: 0.16em;
+}
+.pm-brand .meter i {
+  width: 0.5em;
+  height: 0.95em;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.pm-brand .meter i.notch {
+  margin-right: 0.3em;
+}
+.pm-brand .meter i:last-child {
+  margin-right: 0;
+}
+.pm-brand .meter i.on {
+  background: var(--mc);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--mc) 60%, transparent);
+}
+.pm-brand .meter i.gain {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--mc);
+  animation: pm-blink 1.1s ease-in-out infinite;
+}
+.pm-brand .meter i.lose {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px #ff6b80;
+}
+@keyframes pm-blink {
+  50% {
+    background: color-mix(in srgb, var(--mc) 55%, transparent);
+  }
+}
+.pm-brand .bon {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2em 0.8em;
+  font-size: 0.72em;
+  color: #7c879f;
+}
+.pm-brand .bon span {
+  display: inline-flex;
+  align-items: center;
+}
+.pm-brand .bon b {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 1.45em;
+  height: 1.45em;
+  margin-right: 0.4em;
+  border-radius: 50%;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 0.88em;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+.pm-brand .bon span.on {
+  color: #eef2fb;
+}
+.pm-brand .bon span.on b {
+  color: #071018;
+  background: var(--mc);
+  border-color: var(--mc);
+}
+.pm-brand .bon span.gain {
+  color: #fff;
+}
+.pm-brand .bon span.gain b {
+  border-color: var(--mc);
+  color: var(--mc);
+}
+.pm-brand .bon span.lose {
+  color: #ff9aa8;
+  text-decoration: line-through;
+  text-decoration-color: rgba(255, 107, 128, 0.6);
+}
+.pm-brand .bon em {
+  font-style: normal;
+  margin-left: 0.45em;
+  padding: 0 0.45em;
+  border-radius: 999px;
+  font-size: 0.85em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #071018;
+  background: var(--mc);
+}
+.pm-brand .bon span.lose em {
+  background: #ff6b80;
+}
+
+/* the parts, and the highlighted one beside them */
+.pm-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: clamp(7.6em, 24%, 10.5em) 1fr;
+  gap: 0.6em;
+}
+.pm-tiles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55em;
+  overflow-y: auto;
+  scrollbar-width: none;
+  /* room for the focus ring */
+  padding: 4px;
+}
+.pm-tiles::-webkit-scrollbar {
+  display: none;
+}
+.pm-tile {
+  flex: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+  padding: 0.3em 0.3em 0.4em;
+  border-radius: 14px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+.pm-tile .pic {
+  aspect-ratio: 1;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--mc);
+  background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--mc) 26%, transparent), transparent 70%), linear-gradient(180deg, #1b2232, #0b0f17);
+}
+.pm-tile .pic img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 5px rgba(0, 0, 0, 0.45));
+  transition: transform 0.2s ease;
+}
+.pm-tile .pic svg {
+  width: 2em;
+  height: 2em;
+}
+.pm-tile > b {
+  padding: 0 0.2em;
+  font-weight: 700;
+  font-size: 0.78em;
+  line-height: 1.15;
+  color: #c9d1e1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* focus: the white ring and a little lift */
+.pm-tile.on {
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: 0 0 0 2px #fff, 0 0 18px color-mix(in srgb, var(--mc) 45%, transparent), 0 8px 18px rgba(0, 0, 0, 0.4);
+  transform: scale(1.02);
+}
+.pm-tile.on > b {
+  color: #fff;
+}
+.pm-tile.on .pic img {
+  transform: scale(1.06);
+}
+.pm-tile:active {
+  transform: scale(0.97);
+}
+.pm-tile .fit,
+.pm-tile .dl {
+  position: absolute;
+  top: 0.5em;
+  right: 0.5em;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+}
+.pm-tile .fit {
+  width: 1.45em;
+  height: 1.45em;
+  color: #071018;
+  background: var(--cyan);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+.pm-tile .fit svg {
+  width: 0.95em;
+  height: 0.95em;
+}
+.pm-tile .dl {
+  padding: 0.05em 0.45em;
+  font-family: var(--display);
+  font-size: 0.68em;
+  background: rgba(6, 9, 15, 0.8);
+}
+.pm-tile .dl.up {
+  color: var(--green);
+}
+.pm-tile .dl.down {
+  color: #ff8b9b;
+}
+
+.pm-detail {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  padding: 0.65em 0.8em 0.7em;
+  border-radius: 14px;
+  overflow-y: auto;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.dt-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  min-width: 0;
+}
+.dt-head > b {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.25em;
+  line-height: 1.1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dt-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0.12em 0.6em;
+  border-radius: 999px;
+  font-size: 0.68em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.08);
+}
+.dt-badge svg {
+  width: 1.1em;
+  height: 1.1em;
+}
+.dt-badge.fit {
+  color: #071018;
+  background: var(--cyan);
+}
+.dt-badge.up {
+  color: var(--green);
+}
+.dt-badge.down {
+  color: #ff8b9b;
+}
+.dt-tag {
+  margin-top: -0.3em;
+  font-size: 0.8em;
+  color: var(--muted);
+  line-height: 1.25;
+}
+/* stat lines: label, the part's value, and the change against the fitted part */
+.dt-stats {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.15em 0.8em;
+  align-items: baseline;
+  font-size: 0.82em;
+}
+.dt-stats .sr {
+  display: contents;
+}
+.dt-stats span {
+  color: #aeb8cc;
+}
+.dt-stats b {
+  font-family: var(--display);
+  font-weight: 400;
+  text-align: right;
+}
+.dt-stats i {
+  grid-column: 3;
+  font-style: normal;
+  font-size: 0.85em;
+  text-align: right;
+  min-width: 3.6em;
+}
+.dt-stats .sr:not(:has(i)) b {
+  grid-column: 2 / -1;
+}
+.dt-stats .sr.up i {
+  color: var(--green);
+}
+.dt-stats .sr.down i,
+.dt-stats .sr.neg b {
+  color: #ff8b9b;
+}
+.dt-move,
+.dt-pass {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.45em 0.55em;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.dt-move small,
+.dt-pass small {
+  display: block;
+  font-size: 0.62em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.dt-move .ic,
+.dt-pass .ic {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2em;
+  height: 2em;
+  border-radius: 9px;
+  color: var(--amber);
+  background: rgba(255, 150, 40, 0.14);
+}
+.dt-pass .ic {
+  color: var(--cyan);
+  background: rgba(42, 216, 255, 0.12);
+}
+.dt-move .ic svg,
+.dt-pass .ic svg {
+  width: 1.3em;
+  height: 1.3em;
+}
+.dt-move > div {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.5em;
+}
+.dt-move > div small {
+  flex-basis: 100%;
+}
+.dt-move b {
+  font-family: var(--display);
+  font-weight: 400;
+  color: var(--amber);
+}
+.dt-move span {
+  font-size: 0.74em;
+  color: var(--muted);
+}
+.dt-watch {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.35em 0.8em 0.35em 0.6em;
+  border-radius: 999px;
+  font-size: 0.72em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+.dt-watch svg {
+  width: 1em;
+  height: 1em;
+}
+.dt-watch:active {
+  transform: scale(0.95);
+}
+.dt-pass {
+  font-size: 0.82em;
+  line-height: 1.3;
+  color: #c3cddf;
+}
+.dt-pass b {
+  color: var(--cyan);
+  font-weight: 700;
+  margin-right: 0.4em;
+}
+.dt-foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  padding-top: 0.15em;
+}
+.dt-eq {
+  flex: none;
+  font-size: 0.85em;
+  padding: 0.6em 1.5em;
+}
+.dt-hint {
+  font-size: 0.72em;
+  color: var(--muted);
+  line-height: 1.2;
+  min-width: 0;
+}
+.dt-on {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  font-size: 0.78em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cyan);
+}
+.dt-on svg {
+  width: 1.2em;
+  height: 1.2em;
+}
+
+/* diagnostics while a part is on trial: what it adds or takes away */
+.bar {
+  position: relative;
+}
+.bar > u {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 9px;
+  text-decoration: none;
+}
+.bar > u.up {
+  background: var(--green);
+  box-shadow: 0 0 8px rgba(62, 224, 143, 0.6);
+}
+.bar > u.down {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px #ff6b80;
+}
+.statbox .val.up {
+  color: var(--green);
+}
+.statbox .val.down {
+  color: #ff8b9b;
+}
+.statbox .sh .trial {
+  color: var(--amber);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+@media (max-height: 420px) {
+  .pm-body {
+    grid-template-columns: 6.6em 1fr;
+  }
+  .pm-mk {
+    height: 2.3em;
+  }
+  .pm-brand {
+    padding: 0.4em 0.6em 0.45em 0.45em;
+  }
+  .pm-brand .lg {
+    width: 2.2em;
+    height: 2.2em;
+  }
+}

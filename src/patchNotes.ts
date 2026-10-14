@@ -19,6 +19,8 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-14 20:00',
     title: 'A new ring, heavier hits, sharper icons',
     notes: [
+      'The garage parts menu is rebuilt around the makers: pick a maker from the logo tabs to see what they build for, how close you are to their set bonus, and their parts as big tiles.',
+      'Tap a part to try it on before fitting it: your bot wears it, the diagnostics show what it adds or takes away, and any set bonus it unlocks or loses lights up. Press Equip, or tap it again, to fit it. On a keyboard the arrows browse and Enter fits.',
       'Knocked-down bots get back up a bit more often before the count runs out.',
       'The ring has been rebuilt: a new printed canvas with a gear emblem, hazard-striped corners and skid marks from old fights, a padded edge, and an LED skirt round the stage that scrolls the league name and flares when the crowd goes wild. New padded corner posts with glowing beacons and LED strips, thicker neon-core ropes tied with straps that bend with them, and a steel truss overhead with the spotlights hanging from it.',
       'Hits sound like real armour now: every blow rings the plate it lands on, big shots leave the panel clanging, and battered parts crunch and rattle instead of ringing clean.',
