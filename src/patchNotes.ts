@@ -17,11 +17,13 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-14 03:00',
-    title: 'Beat the count',
+    title: 'Beat the count, and camera drones',
     notes: [
       'Downed bots now really try to get up during the count: sometimes their legs give out halfway and they slump back to the canvas.',
       'Knocked-down bots now get a chance to rise on every second of the count, and the more health they have left the better their odds. A badly hurt bot can stay down for ten.',
       'Composure and Reboot now make a bot more likely to beat the count.',
+      'The fight camera now keeps your bot on the left of the screen, online too. It only swaps sides when it really has to, like a KO shot or being squeezed against the stands, and comes back on the next cut.',
+      'Three little camera drones now fly the arena. Each camera angle is one of them filming: when the shot cuts, the drone that just filmed hangs where the camera was and climbs away, and you can spot the others hovering past the ring with their red tally lights on.',
     ],
   },
   {
