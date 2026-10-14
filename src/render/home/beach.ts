@@ -23,11 +23,7 @@ function sandH(x: number, z: number) {
   return h;
 }
 
-/** The pier: out from the beach at `x`, from z0 to z1, then along to x1 past the overwater bungalows. */
-const PIER = { x: -9, z0: -1.0, z1: -21, x1: -22.5, y: 0.78, hw: 0.9 };
-/** The lighthouse lamp, on the rocky point out to the left. */
 const GULLS = 6;
-const LIGHTHOUSE = new THREE.Vector3(-37, 3.2 + 8.7, -31);
 
 const LOOK: LightLook = {
   background: 0xbfd3e0,
@@ -511,8 +507,6 @@ export class Beach implements HomeScene {
   private gullBody: THREE.InstancedMesh;
   private gullWing: THREE.InstancedMesh;
   private boat = new THREE.Group();
-  private rowboat = new THREE.Group();
-  private beam = new THREE.Group();
   private crab = new THREE.Group();
   private crabLegs: THREE.Mesh[] = [];
   private buoys: THREE.InstancedMesh;
@@ -682,9 +676,6 @@ export class Beach implements HomeScene {
     this.dunes(far);
     this.shoreBits(far);
     this.islands(far);
-    this.pier(far);
-    [-12.5, -16.5, -20.5].forEach((x, i) => this.bungalow(far, x, -24.2, i));
-    this.headland(far);
     this.hammock(far);
     this.beachBits(far);
     this.volleyball(far, 12.6, 3.8);
@@ -815,18 +806,6 @@ export class Beach implements HomeScene {
     this.boat.rotation.y = 1.1;
     g.add(this.boat);
 
-    // a rowboat tied up by the pier
-    const rb = new Baker();
-    putS(rb, G.sphere(1, 14, 8), 0, 0.05, 0, S.white, 0.55, 0.3, 1.5);
-    putS(rb, G.sphere(1, 14, 8), 0, 0.07, 0, S.blue, 0.57, 0.12, 1.52);
-    box(rb, 0.9, 0.05, 0.25, 0, 0.27, 0.2, S.wood);
-    box(rb, 0.8, 0.05, 0.25, 0, 0.27, -0.7, S.wood);
-    for (const s of [-1, 1]) seg(rb, new THREE.Vector3(s * 0.2, 0.3, -0.2), new THREE.Vector3(s * 0.75, 0.15, 0.9), 0.02, 0.02, S.woodDark, 5);
-    this.rowboat.add(new THREE.Mesh(rb.build().opaque!, vertexPBR(new THREE.MeshStandardMaterial(), 'beach-rowboat')));
-    this.rowboat.position.set(PIER.x + PIER.hw + 1.25, SEA, -15);
-    this.rowboat.rotation.y = 0.12;
-    g.add(this.rowboat);
-
     // swim-zone buoys bobbing in a line, big orange markers at the ends
     for (let i = 0; i < 15; i++) this.buoyAt.push([-6 + i, -12.2 - 0.9 * Math.sin((i / 14) * Math.PI), i === 0 || i === 14 ? 2.2 : 1]);
     this.buoys = new THREE.InstancedMesh(new THREE.SphereGeometry(0.16, 10, 8), new THREE.MeshStandardMaterial({ roughness: 0.45 }), this.buoyAt.length);
@@ -834,26 +813,6 @@ export class Beach implements HomeScene {
     this.buoyAt.forEach(([, , sz], i) => this.buoys.setColorAt(i, bc.setHex(sz > 1 ? 0xff7a1f : [0xe2342c, 0xf4f1ea, 0xffc93c][i % 3])));
     this.buoys.frustumCulled = false;
     g.add(this.buoys);
-
-    // the lighthouse's beam sweeping round
-    const beamGeo = new THREE.ConeGeometry(2.2, 38, 16, 1, true);
-    beamGeo.translate(0, -19, 0);
-    beamGeo.rotateZ(Math.PI / 2);
-    const bp = beamGeo.attributes.position as THREE.BufferAttribute;
-    const fade: number[] = [];
-    for (let i = 0; i < bp.count; i++) {
-      const k = Math.max(0, 1 - Math.abs(bp.getX(i)) / 38) * 0.22;
-      fade.push(k, k * 0.92, k * 0.75);
-    }
-    beamGeo.setAttribute('color', new THREE.Float32BufferAttribute(fade, 3));
-    const beamMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
-    for (const r of [0, Math.PI]) {
-      const m = new THREE.Mesh(beamGeo, beamMat);
-      m.rotation.y = r;
-      this.beam.add(m);
-    }
-    this.beam.position.copy(LIGHTHOUSE);
-    g.add(this.beam);
 
     // a crab scuttling along the tide line
     const cr = new Baker();
@@ -1061,12 +1020,8 @@ export class Beach implements HomeScene {
     }
   }
 
-  /** Rocks, shells, a sandcastle with its bucket and spade. */
+  /** Shells, a sandcastle with its bucket and spade. */
   private shoreBits(b: Baker) {
-    for (let i = 0; i < 9; i++) {
-      const x = -14 - hash(i) * 8, z = -2 - hash(i * 3) * 5;
-      putS(b, G.ico(1), x, sandH(x, z), z, S.rock, 0.5 + hash(i * 5) * 0.9, 0.35 + hash(i * 7) * 0.5, 0.5 + hash(i * 9) * 0.8, hash(i) * 3, hash(i * 2) * 3, 0);
-    }
     for (let i = 0; i < 30; i++) {
       const x = (hash(i * 9.1) - 0.5) * 18, z = -2.4 - hash(i * 4.3) * 2.2;
       putS(b, G.sphere(0.035, 6, 4), x, sandH(x, z) + 0.01, z, i % 3 ? S.white : S.pink, 1, 0.45, 1.2, 0, hash(i) * 6, 0);
@@ -1091,124 +1046,6 @@ export class Beach implements HomeScene {
     putS(b, G.sphere(1, 16, 8), 82, -2, -98, S.island, 12, 4.5, 8);
   }
 
-  /** A wooden pier out across the shallows, turning along the overwater bungalows at its end. */
-  private pier(b: Baker) {
-    const { x: X, z0: Z0, z1: Z1, x1: X1, y: Y, hw: HW } = PIER;
-    const V = THREE.Vector3;
-    const planks = [S.wood, S.weathered, S.woodDark, S.wood];
-    // planks across, stringers under
-    let i = 0;
-    for (let z = Z0; z > Z1 - HW; z -= 0.3, i++) box(b, HW * 2, 0.05, 0.27, X, Y, z, planks[Math.floor(hash(i * 3.7) * 4)], 0, (hash(i) - 0.5) * 0.03, 0);
-    for (const s of [-1, 1]) box(b, 0.12, 0.16, Z0 - Z1 + HW, X + s * (HW - 0.2), Y - 0.11, (Z0 + Z1 - HW) / 2, S.woodDark);
-    i = 0;
-    for (let x = X - HW - 0.15; x > X1 - HW; x -= 0.3, i++) box(b, 0.27, 0.05, HW * 2, x, Y, Z1, planks[Math.floor(hash(i * 5.1 + 2) * 4)], 0, (hash(i + 9) - 0.5) * 0.03, 0);
-    for (const s of [-1, 1]) box(b, X - X1, 0.16, 0.12, (X + X1) / 2 - HW, Y - 0.11, Z1 + s * (HW - 0.2), S.woodDark);
-    // steps up from the sand
-    for (let k = 0; k < 3; k++) box(b, HW * 2, (3 - k) * 0.25, 0.3, X, ((3 - k) * 0.25) / 2 - 0.05, Z0 + 0.3 + k * 0.3, S.weathered);
-    // piles down into the sand, rising into the railing posts
-    const post = (x: number, z: number) => seg(b, new V(x, sandH(x, z) - 0.3, z), new V(x, Y + 0.95, z), 0.1, 0.085, S.woodDark, 7);
-    for (let z = Z0 - 0.2; z > Z1 + HW; z -= 2.4) for (const s of [-1, 1]) post(X + s * HW, z);
-    post(X + HW, Z1 - HW);
-    post(X - HW, Z1 + HW);
-    post(X - HW, Z1 - HW);
-    for (let x = X - HW - 2.2; x > X1 - HW; x -= 2.4) for (const s of [-1, 1]) post(x, Z1 + s * HW);
-    post(X1 - HW, Z1 + HW);
-    post(X1 - HW, Z1 - HW);
-    // rails, with a rope slung under each
-    const rail = (ax: number, az: number, ex: number, ez: number) => {
-      seg(b, new V(ax, Y + 0.92, az), new V(ex, Y + 0.92, ez), 0.035, 0.035, S.wood, 5);
-      seg(b, new V(ax, Y + 0.5, az), new V(ex, Y + 0.5, ez), 0.014, 0.014, S.rope, 4);
-    };
-    rail(X + HW, Z0 - 0.2, X + HW, Z1 - HW);
-    rail(X - HW, Z0 - 0.2, X - HW, Z1 + HW);
-    rail(X + HW, Z1 - HW, X - HW, Z1 - HW);
-    rail(X - HW, Z1 + HW, X1 - HW, Z1 + HW);
-    rail(X1 - HW, Z1 + HW, X1 - HW, Z1 - HW);
-    // lanterns, lit for the evening
-    const lamp = (x: number, z: number) => {
-      seg(b, new V(x, Y + 0.9, z), new V(x, Y + 2.3, z), 0.04, 0.035, S.black, 6);
-      box(b, 0.2, 0.04, 0.2, x, Y + 2.3, z, S.black);
-      glowAt(b, G.box(0.15, 0.22, 0.15), x, Y + 2.43, z, glow(0xffc27a, 1.5));
-      put(b, G.cone(0.17, 0.14, 4), x, Y + 2.61, z, S.black, 0, Math.PI / 4, 0);
-    };
-    lamp(X + HW, Z0 - 5);
-    lamp(X - HW, Z0 - 12.2);
-    lamp(X + HW, Z1 - HW);
-    lamp(X1 - HW, Z1 + HW);
-    // a life ring on the rail, a bench along the boardwalk
-    for (let k = 0; k < 4; k++) put(b, G.torus(0.26, 0.065, 8, 8, Math.PI / 2), X + HW + 0.07, Y + 0.6, Z0 - 8.6, k % 2 ? S.white : S.red, 0, Math.PI / 2, (k * Math.PI) / 2);
-    const bx = X - 3.3, bz = Z1 + HW - 0.32;
-    box(b, 1.5, 0.06, 0.4, bx, Y + 0.45, bz, S.wood);
-    box(b, 1.5, 0.36, 0.05, bx, Y + 0.72, bz + 0.2, S.wood, -0.15, 0, 0);
-    for (const s of [-1, 1]) box(b, 0.06, 0.45, 0.36, bx + s * 0.65, Y + 0.22, bz, S.woodDark);
-  }
-
-  /** An overwater bungalow: stilts, a deck over the sea, a lit room under a thatched roof. */
-  private bungalow(b: Baker, x: number, z: number, seed: number) {
-    const V = THREE.Vector3;
-    const Y = PIER.y + 0.05;
-    const warm = glow(seed % 2 ? 0xffc27a : 0xffb46a, 1.25);
-    for (const sx of [-1.7, 0, 1.7]) for (const sz of [-1.7, 0, 1.7]) seg(b, new V(x + sx, sandH(x + sx, z + sz) - 0.3, z + sz), new V(x + sx, Y, z + sz), 0.11, 0.1, S.woodDark, 7);
-    box(b, 4.2, 0.14, 4.2, x, Y - 0.04, z, S.wood);
-    // the walkway in from the boardwalk
-    const w0 = PIER.z1 - PIER.hw, w1 = z + 2.1;
-    box(b, 1.0, 0.05, w0 - w1, x, Y - 0.01, (w0 + w1) / 2, S.weathered);
-    // the room: posts, a door, windows glowing warm
-    const rz = z + 0.35;
-    box(b, 3.0, 2.0, 2.6, x, Y + 1.0, rz, S.cream);
-    for (const [cx, cz] of [[-1.52, -1.32], [1.52, -1.32], [-1.52, 1.32], [1.52, 1.32]]) box(b, 0.12, 2.05, 0.12, x + cx, Y + 1.02, rz + cz, S.woodDark);
-    box(b, 0.8, 1.7, 0.04, x - 0.55, Y + 0.85, rz + 1.31, S.woodDark);
-    glowAt(b, G.box(0.62, 0.62, 0.03), x + 0.7, Y + 1.25, rz + 1.31, warm);
-    for (const wx of [-0.75, 0.75]) glowAt(b, G.box(0.7, 0.9, 0.03), x + wx, Y + 1.15, rz - 1.31, warm);
-    for (const s of [-1, 1]) glowAt(b, G.box(0.03, 0.6, 0.7), x + s * 1.51, Y + 1.2, rz, warm);
-    // two tiers of thatch and a finial
-    put(b, G.cone(2.85, 1.6, 4), x, Y + 2.8, rz, S.straw, 0, Math.PI / 4, 0);
-    put(b, G.cone(2.2, 1.25, 4), x, Y + 3.2, rz, S.strawDark, 0, Math.PI / 4, 0);
-    put(b, G.cone(0.12, 0.5, 6), x, Y + 4.05, rz, S.woodDark);
-    // a railing on the sea side, two loungers, a ladder into the water
-    box(b, 4.2, 0.06, 0.06, x, Y + 0.85, z - 2.05, S.wood);
-    for (let k = 0; k <= 4; k++) box(b, 0.06, 0.85, 0.06, x - 2.05 + k * 1.025, Y + 0.42, z - 2.05, S.wood);
-    for (const s of [-1, 1]) {
-      box(b, 0.5, 0.07, 0.9, x + s * 0.75, Y + 0.24, z - 1.45, S.white);
-      box(b, 0.5, 0.07, 0.45, x + s * 0.75, Y + 0.4, z - 0.98, S.white, -0.7, 0, 0);
-      box(b, 0.48, 0.05, 0.86, x + s * 0.75, Y + 0.3, z - 1.45, seed % 2 ? S.teal : S.coral);
-    }
-    for (const lz of [-0.95, -0.55]) seg(b, new V(x + 2.14, SEA - 0.6, z + lz), new V(x + 2.14, Y + 0.6, z + lz), 0.02, 0.02, S.chrome, 5);
-    for (let k = 0; k < 5; k++) seg(b, new V(x + 2.14, SEA - 0.3 + k * 0.28, z - 0.95), new V(x + 2.14, SEA - 0.3 + k * 0.28, z - 0.55), 0.012, 0.012, S.chrome, 4);
-  }
-
-  /** A rocky point running out to the left, a lighthouse at its tip. */
-  private headland(b: Baker) {
-    for (let i = 0; i < 18; i++) {
-      const u = i / 17;
-      const x = -21 - u * 15 + (hash(i * 4.1) - 0.5) * 3;
-      const z = -5 - u * 24 + (hash(i * 2.9) - 0.5) * 3;
-      const s = 1.6 + 4.2 * Math.sin(Math.PI * Math.min(1, u * 1.15)) * (0.6 + 0.4 * hash(i * 1.3));
-      const y = sandH(x, z);
-      putS(b, G.ico(1), x, y + s * 0.15, z, i % 3 ? S.rock : S.rockDark, s * (1.1 + hash(i) * 0.4), s * (0.7 + hash(i * 7) * 0.4), s * (1.0 + hash(i * 5) * 0.4), hash(i * 3) * 3, hash(i * 9) * 6, hash(i * 11) * 0.4);
-      if (s > 3) putS(b, G.sphere(1, 10, 6), x, y + s * 0.55, z, S.green, s * 0.75, s * 0.3, s * 0.7);
-    }
-    // the lighthouse on its own rock
-    const lx = LIGHTHOUSE.x, lz = LIGHTHOUSE.z, ly = LIGHTHOUSE.y - 8.7;
-    putS(b, G.ico(1), lx, sandH(lx, lz) + 1.5, lz, S.rock, 5.5, 4.6, 5.0);
-    put(b, G.cyl(1.6, 2.0, 1.8, 14), lx, ly - 0.9, lz, S.weathered);
-    put(b, G.cyl(0.85, 1.25, 8, 16), lx, ly + 4, lz, S.white);
-    for (const h of [1.6, 4.6]) put(b, G.cyl(1.25 - 0.05 * (h + 0.55) + 0.03, 1.25 - 0.05 * (h - 0.55) + 0.03, 1.1, 16), lx, ly + h, lz, S.red);
-    put(b, G.cyl(1.3, 1.05, 0.2, 16), lx, ly + 8.05, lz, S.black);
-    put(b, G.torus(1.25, 0.03, 4, 24), lx, ly + 8.65, lz, S.black, Math.PI / 2, 0, 0);
-    for (let k = 0; k < 12; k++) {
-      const a = (k / 12) * Math.PI * 2;
-      seg(b, new THREE.Vector3(lx + Math.cos(a) * 1.25, ly + 8.1, lz + Math.sin(a) * 1.25), new THREE.Vector3(lx + Math.cos(a) * 1.25, ly + 8.65, lz + Math.sin(a) * 1.25), 0.02, 0.02, S.black, 4);
-    }
-    for (let k = 0; k < 6; k++) {
-      const a = (k / 6) * Math.PI * 2;
-      seg(b, new THREE.Vector3(lx + Math.cos(a) * 0.62, ly + 8.15, lz + Math.sin(a) * 0.62), new THREE.Vector3(lx + Math.cos(a) * 0.62, ly + 9.25, lz + Math.sin(a) * 0.62), 0.035, 0.035, S.black, 4);
-    }
-    glowAt(b, G.sphere(0.4, 12, 8), lx, ly + 8.7, lz, glow(0xfff0c0, 3));
-    put(b, G.cone(0.82, 0.75, 14), lx, ly + 9.62, lz, S.red);
-    put(b, G.sphere(0.12, 8, 6), lx, ly + 10.05, lz, S.black);
-  }
-
   /** A hammock slung between two palms. */
   private hammock(b: Baker) {
     const V = THREE.Vector3;
@@ -1229,7 +1066,7 @@ export class Beach implements HomeScene {
     seg(b, e, new V(-7.38, 1.55, 6.73), 0.014, 0.014, S.rope, 4);
   }
 
-  /** Kayaks, a towel and cooler, a beach ball, driftwood, seaweed and starfish; torches at the pier. */
+  /** Kayaks, a towel and cooler, a beach ball, driftwood, seaweed and starfish. */
   private beachBits(b: Baker) {
     const V = THREE.Vector3;
     // kayaks pulled up at the water's edge, paddles across them
@@ -1277,13 +1114,6 @@ export class Beach implements HomeScene {
         const a = (k / 5) * Math.PI * 2 + x;
         putS(b, G.cone(0.035, 0.11, 5), x + Math.cos(a) * 0.06, y, z + Math.sin(a) * 0.06, s, 0.45, 1, 1, 0, -a, -Math.PI / 2);
       }
-    }
-    // tiki torches at the foot of the pier
-    for (const s of [-1, 1]) {
-      const x = PIER.x + s * (PIER.hw + 0.35), z = PIER.z0 + 0.4, y = sandH(x, z);
-      seg(b, new V(x, y - 0.1, z), new V(x, y + 1.6, z), 0.03, 0.025, S.bamboo, 6);
-      put(b, G.cyl(0.07, 0.05, 0.16, 8), x, y + 1.68, z, S.strawDark);
-      glowAt(b, G.cone(0.06, 0.2, 6), x, y + 1.86, z, glow(0xff8a2a, 2.6));
     }
   }
 
@@ -1757,10 +1587,6 @@ export class Beach implements HomeScene {
     this.boat.position.y = SEA + Math.sin(time * 0.8) * 0.12;
     this.boat.rotation.z = Math.sin(time * 0.6) * 0.06;
     this.boat.rotation.x = Math.sin(time * 0.5 + 1) * 0.04;
-    this.rowboat.position.y = SEA + 0.04 * Math.sin(time * 1.1);
-    this.rowboat.rotation.z = 0.05 * Math.sin(time * 0.9);
-    this.rowboat.rotation.x = 0.03 * Math.sin(time * 0.7 + 2);
-    this.beam.rotation.y = time * 0.7;
     // buoys riding the swell
     const sc = new THREE.Vector3();
     this.buoyAt.forEach(([x, z, sz], i) => {
