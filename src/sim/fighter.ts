@@ -28,7 +28,8 @@ import { EC, type EmotePose } from './emote';
 /** 'held': caught in an opponent's finisher; the finisher moves and poses it. */
 export type FState = 'ready' | 'fight' | 'stun' | 'stagger' | 'down' | 'getup' | 'ko' | 'win' | 'held';
 export type GuardMode = 'normal' | 'high' | 'body' | 'low';
-export type DodgeType = 'slip' | 'duck' | 'sway' | 'backstep' | 'sidestep';
+/** sprawl: legs shot back and hips down onto a takedown shot. */
+export type DodgeType = 'slip' | 'duck' | 'sway' | 'backstep' | 'sidestep' | 'sprawl';
 export type StrikeResult = 'pending' | 'hit' | 'blocked' | 'whiff' | 'dodged' | 'interrupted' | 'feint';
 
 export interface StrikeAction {
@@ -134,6 +135,7 @@ export interface FighterStats {
   blocked: number;
   dodged: number;
   knockdowns: number;
+  takedowns: number;
   biggest: number;
   biggestMove: string;
   counters: number;
@@ -355,6 +357,8 @@ export class Fighter {
 
   // brain-controlled intent
   intentVel = new Vector3();
+  /** Tied up in a clinch (see grapple.ts): clinch knees open up, footwork and dodges close. */
+  clinched = false;
   guardMode: GuardMode = 'normal';
   /** Additional lowering of the hands, 0..1 (fatigue, showboating). */
   guardDrop = 0;
@@ -388,6 +392,8 @@ export class Fighter {
   private _c = new Vector3();
   private _c1 = new Vector3();
   private _c2 = new Vector3();
+  private _g2 = new Vector3();
+  private _e2 = new Vector3();
   private headOff = new Vector3();
   /** 1 for a bulky chest (Juggernaut, Citadel: its armour sits further out). */
   private bulk = 0;
@@ -448,6 +454,7 @@ export class Fighter {
     blocked: 0,
     dodged: 0,
     knockdowns: 0,
+    takedowns: 0,
     biggest: 0,
     biggestMove: '',
     counters: 0,
@@ -604,6 +611,8 @@ export class Fighter {
   strikeSpeed(move: MoveDef, side = this.strikeSide(move)) {
     const i = side === 'L' ? 0 : 1;
     if (move.kind === 'kick') return (this.build.stats.punchSpeed * 0.5 + 0.5) * (1 + this.overdrive) * (1 + this.passive('tailwind')) * this.parts.legSpeed(i);
+    // a grab is the whole body going in: half the hands, half the legs
+    if (move.kind === 'grab') return (this.speedMult() * 0.4 + 0.6) * (move.path === 'shoot' ? this.parts.mobility() : this.parts.armSpeed(i));
     return this.speedMult() * this.parts.armSpeed(i);
   }
 
@@ -627,6 +636,9 @@ export class Fighter {
     const prev = this.strike;
     const side = this.strikeSide(move);
     if (move.kind === 'punch' && this.parts.armOut(side === 'L' ? 0 : 1)) return false;
+    // clinch knees only from the clinch; and nobody shoots or ties up from inside one
+    if (!!move.clinch !== this.clinched && (move.clinch || move.kind === 'grab')) return false;
+    if (move.kind === 'grab' && this.parts.armsLost >= 2) return false;
     let speed = this.strikeSpeed(move, side);
     let windupMul = 1;
     if (prev) {
@@ -698,7 +710,7 @@ export class Fighter {
   }
 
   tryDodge(type: DodgeType, dir: number): boolean {
-    if (this.state !== 'fight') return false;
+    if (this.state !== 'fight' || this.clinched) return false;
     const s = this.strike;
     if (s) {
       // Only abort a strike that is still winding up (and not by much).
@@ -709,7 +721,7 @@ export class Fighter {
     const cost = 5 * (1 - this.passive('slipstream'));
     if (this.stamina < cost) return false;
     this.stamina -= cost;
-    const baseDur = type === 'backstep' || type === 'sidestep' ? 0.38 : type === 'duck' ? 0.48 : 0.44;
+    const baseDur = type === 'backstep' || type === 'sidestep' ? 0.38 : type === 'duck' ? 0.48 : type === 'sprawl' ? 0.62 : 0.44;
     const d: DodgeAction = { kind: 'dodge', type, dir, t: 0, dur: baseDur / agility, uid: UID++ };
     this.action = d;
     this.lastActTime = this.hooksTime;
@@ -718,6 +730,8 @@ export class Fighter {
     const imp = 3.1 * agility;
     if (type === 'backstep') this.rootVel.addScaledVector(fwd, -imp);
     if (type === 'sidestep') this.rootVel.addScaledVector(rt, imp * dir);
+    // the legs fly back: the hips go back with them
+    if (type === 'sprawl') this.rootVel.addScaledVector(fwd, -imp * 0.4);
     this.hooks?.emit('dodgeStart', { f: this, d });
     return true;
   }
@@ -749,7 +763,7 @@ export class Fighter {
       s.t = 0;
       // the limb's end (a knee strike still recovers the foot)
       const L = s.side === 'L';
-      this.toLocal(this.body.pos[s.move.kind === 'punch' ? (L ? J.HandL : J.HandR) : L ? J.FootL : J.FootR], s.recoverFrom);
+      this.toLocal(this.body.pos[s.move.kind !== 'kick' ? (L ? J.HandL : J.HandR) : L ? J.FootL : J.FootR], s.recoverFrom);
     }
     if (replaced || result === 'interrupted') {
       this.releaseLimb(s);
@@ -1076,7 +1090,7 @@ export class Fighter {
   private lockEnd(s: StrikeAction) {
     const m = s.move;
     // origin: shoulder or hip of the striking limb
-    const originIdx = m.kind === 'punch' ? (s.side === 'L' ? J.ShL : J.ShR) : s.side === 'L' ? J.HipL : J.HipR;
+    const originIdx = m.kind !== 'kick' ? (s.side === 'L' ? J.ShL : J.ShR) : s.side === 'L' ? J.HipL : J.HipR;
     _v.subVectors(s.aim, this.body.pos[originIdx]).normalize();
     const through = m.path === 'straight' ? 0.14 : m.path === 'frontKick' || m.path === 'backKick' ? 0.18 : 0.1;
     s.endWorld.copy(s.aim).addScaledVector(_v, through * this.size);
@@ -1127,14 +1141,16 @@ export class Fighter {
     this.rootVel.add(_w);
 
     // strike lunges
-    if (s && s.lungeLeft > 0 && s.phase !== 'recovery') {
-      const total = s.windup + s.active;
+    // (a shot drops its level first, then drives: all of its travel is in the active phase)
+    const shot = !!s && s.move.path === 'shoot';
+    if (s && s.lungeLeft > 0 && s.phase !== 'recovery' && (!shot || s.phase === 'active')) {
+      const total = shot ? s.active * 0.8 : s.windup + s.active;
       const rate = (s.move.lunge * (1 + this.passive('pistonDrive')) * this.size) / Math.max(0.05, total);
       const step = Math.min(s.lungeLeft, rate * dt);
       s.lungeLeft -= step;
       const fwd = this.forward(_u, this.yaw);
       // do not lunge through the opponent (a flying knee stops short so the thigh doesn't sink in)
-      const gap = this.distTo(this.opp) - (s.move.striker === 'knee' ? 0.8 : 0.66) * (this.size + this.opp.size) * 0.5;
+      const gap = this.distTo(this.opp) - (s.move.striker === 'knee' ? 0.8 : shot ? 0.6 : 0.66) * (this.size + this.opp.size) * 0.5;
       this.root.addScaledVector(fwd, Math.min(step, Math.max(0, gap)));
     }
 
@@ -1201,12 +1217,26 @@ export class Fighter {
     if (isLead) out.set(sx * 0.15 * wide, FOOT_Y, 0.2 * wide);
     else out.set(sx * 0.17 * wide, FOOT_Y, -0.22 * wide);
     if (this.state === 'win') out.set(sx * 0.2, FOOT_Y, 0);
+    // sprawling: both feet thrown back and wide, the hips dropped over them
+    const sp = this.sprawlK();
+    if (sp > 0) {
+      out.x *= 1 + 0.5 * sp;
+      out.z -= (isLead ? 0.42 : 0.3) * sp;
+    }
     const em = this.emote;
     if (em && em.w > 0.3 && em.ch[EC.STANCE] > 0.5) {
       const o = EC.FOOT + i * 7;
       out.set(sx * em.ch[o], FOOT_Y, em.ch[o + 1]);
     }
     return out;
+  }
+
+  /** How far into a sprawl (0 when not sprawling): the dodge's in, hold and out envelope. */
+  private sprawlK() {
+    const d = this.dodge;
+    if (!d || d.type !== 'sprawl') return 0;
+    const k = d.t / d.dur;
+    return k < 0.2 ? easeOutQuad(k / 0.2) : k < 0.65 ? 1 : 1 - easeInOut((k - 0.65) / 0.35);
   }
 
   /** Planted toe direction relative to the body: lead toes slightly in, rear foot turned out. */
@@ -1270,7 +1300,8 @@ export class Fighter {
     }
     if (best < 0) return;
     let thresh = moving > 0.4 ? 0.16 : 0.26;
-    if (s && s.phase !== 'recovery') thresh = kick ? 0.12 : 0.45;
+    if (s && s.phase !== 'recovery') thresh = kick ? 0.12 : s.move.kind === 'grab' ? 0.14 : 0.45;
+    if (this.sprawlK() > 0) thresh = 0.1;
     // bouncy footwork: re-plant even when settled
     else if (this.bounce > 0.5 && moving < 0.3 && this.rng.chance(dt * 0.9 * this.bounce)) thresh = 0.02;
     // emoting: set the feet exactly (a power stance, back to the stance after)
@@ -1368,6 +1399,11 @@ export class Fighter {
             pitch += 0.12 * w - 0.16 * prog.load;
             pd.z += 0.07 * w;
             break;
+          case 'push':
+            // sit the hips under it and drive both arms out from the legs
+            pd.z += 0.09 * w - 0.03 * prog.load;
+            heel[rearI] = Math.max(heel[rearI], 0.55 * w);
+            break;
           default:
             break;
         }
@@ -1391,6 +1427,24 @@ export class Fighter {
           heel[1 - rearI] = Math.max(heel[1 - rearI], 0.45 * w);
           pivot[1 - rearI] = st * 0.6 * w;
         } else if (lead && m.path === 'upper') heel[1 - rearI] = Math.max(heel[1 - rearI], 0.25 * w);
+      } else if (m.kind === 'grab') {
+        const w = Math.max(prog.load, prog.sh, 0);
+        if (m.path === 'shoot') {
+          // the level change: knees bend, chest drops over them, head up and in front;
+          // then the drive, low through the hips, and on a miss the body keeps falling forward
+          const drop = Math.max(prog.load, prog.ext * (1 - prog.ret * 0.8));
+          crouch += 0.36 * drop + 0.06 * prog.ext * (1 - prog.ret);
+          pitch += 0.22 * drop + 0.38 * prog.ext * (1 - prog.ret);
+          pd.z += 0.14 * prog.ext * (1 - prog.ret) - 0.04 * prog.load;
+          hd.y -= 0.03 * drop;
+          hd.z += 0.06 * drop;
+          heel[rearI] = Math.max(heel[rearI], 0.7 * prog.ext * (1 - prog.ret));
+        } else {
+          // reaching for the neck: chest in, chin tucked
+          crouch += m.crouch * w;
+          pd.z += 0.06 * w;
+          hd.y -= 0.02 * w;
+        }
       } else {
         const k = this.kickBody(s, prog, pivot, heel);
         roll += k.roll;
@@ -1431,6 +1485,16 @@ export class Fighter {
           roll -= d.dir * 0.12 * env;
           crouch += 0.05 * env;
           break;
+        case 'sprawl': {
+          // hips down and back, chest over the shot, the weight on whoever is down there
+          const sk = this.sprawlK();
+          crouch += 0.34 * sk;
+          pitch += 0.72 * sk;
+          pd.z -= 0.16 * sk;
+          hd.y -= 0.03 * sk;
+          heel[0] = heel[1] = 0.5 * sk;
+          break;
+        }
       }
     }
     if (this.state === 'stun') {
@@ -1660,8 +1724,17 @@ export class Fighter {
         pole.lerp(_p.set(sx * 0.6, -0.3, gu.elbow), gu.w);
       }
       let roll = isLead ? 0.1 : 0.15;
+      if (d && d.type === 'sprawl') {
+        // hands down on whatever is coming in low
+        const sk = this.sprawlK();
+        this.trunkPoint(sx * 0.17, -0.22, 0.44, _p);
+        hand.lerp(_p, sk);
+        if (sk > 0.3) pole.set(sx * 0.8, -0.2, -0.6);
+      }
       if (s && prog) {
-        if (s.move.kind === 'punch' && s.side === sideCh) {
+        if (s.move.path === 'push') roll = this.pushHand(s, prog, sx, hand, pole);
+        else if (s.move.kind === 'grab') roll = this.grabHand(s, prog, sx, hand, pole);
+        else if (s.move.kind === 'punch' && s.side === sideCh) {
           roll = this.punchHand(s, prog, hand, pole, sx);
         } else if (s.move.kind === 'punch') {
           // the other hand shells up at the chin
@@ -1686,6 +1759,9 @@ export class Fighter {
         const rw = em.w * em.reachW;
         if (side === em.reachSide && rw > 0.001) hand.lerp(this.toLocal(em.reach, _p), rw);
       }
+      // a hand holding on to the opponent (clinch grips): it goes where their body goes
+      const grip = this.emote ? this.emote.gripW[side] : 0;
+      if (grip > 0.001) hand.lerp(this.toLocal(this.emote!.grip[side], _p), grip);
       this.handRollT[side] = roll;
       const fore = FORE + this.extend[side];
       // a pose switch (guard to strike, strike to guard) mustn't snap the elbow round
@@ -1701,7 +1777,7 @@ export class Fighter {
       let calmT = 1;
       if (s && s.move.kind === 'punch' && s.side === sideCh) calmT = 0;
       else if (s && s.move.kind === 'kick') calmT = 0.4;
-      if (gu || (this.state === 'win' && !this.emote) || (em && em.w * em.ch[EC.ARM + side * 8 + 7] > 0.05)) calmT = 0;
+      if (gu || (this.state === 'win' && !this.emote) || (em && em.w * em.ch[EC.ARM + side * 8 + 7] > 0.05) || grip > 0.05) calmT = 0;
       this.calmW[side] = dt > 0 ? damp(this.calmW[side], calmT, calmT < this.calmW[side] ? 40 : 6, dt) : calmT;
       this.calmArm(side, L[shIdx], L[elIdx], hand, fore, dt);
       this.storeBend(side, L[shIdx], L[elIdx], hand, dt);
@@ -2154,6 +2230,79 @@ export class Fighter {
     out.y -= DM.sin(Math.PI * r) * 0.03;
     const from = m.path === 'upper' ? -0.85 : m.path === 'straight' ? 1 : m.path === 'hammer' ? -0.2 : 0.8;
     return lerp(from, 0.12, smoothstep(0, 0.7, k));
+  }
+
+  /**
+   * Two-handed shove: the hands come in to the chest (elbows down), then both palms drive
+   * out into the opponent's chest, a hand's width either side of its centre. Returns the roll.
+   */
+  private pushHand(s: StrikeAction, prog: StrikeProg, sx: number, out: Vector3, pole: Vector3) {
+    const guard = this._g2.copy(out);
+    const end = this.toLocal(s.endWorld, this._e2);
+    end.x = end.x * 0.4 + sx * 0.14;
+    end.y += 0.1;
+    end.z -= 0.04;
+    const load = _w.copy(guard);
+    load.x *= 0.7;
+    load.y -= 0.16;
+    load.z -= 0.05;
+    pole.set(sx * 0.35, -1, -0.45);
+    if (s.phase === 'windup') {
+      out.lerpVectors(guard, load, prog.load);
+      return 0.2 * prog.load;
+    }
+    if (s.phase === 'active') {
+      out.lerpVectors(load, end, prog.ext);
+      return 0.35;
+    }
+    const k = clamp01(s.t / s.recovery);
+    out.lerpVectors(end, guard, 0.8 * minJerk(k) + 0.2 * easeOutQuad(k));
+    return lerp(0.35, 0.12, k);
+  }
+
+  /**
+   * Grabs. A clinch tie-up reaches both hands round the opponent's neck and shoulders; a
+   * takedown shot drops them to the waist with the level change, then drives them at the
+   * backs of the thighs. Targets come from where the opponent actually is. Returns the roll.
+   */
+  private grabHand(s: StrikeAction, prog: StrikeProg, sx: number, out: Vector3, pole: Vector3) {
+    const guard = this._g2.copy(out);
+    const o = this.opp.body.pos;
+    const tgt = this._e2;
+    const shoot = s.move.path === 'shoot';
+    if (shoot) {
+      // the thigh on my hand's side of them, a little above the knee
+      const a = this.toLocal(o[J.HipL], _u), b = this.toLocal(o[J.HipR], _v);
+      tgt.copy((a.x - b.x) * sx > 0 ? a : b);
+      const kn = this.toLocal(o[(a.x - b.x) * sx > 0 ? J.KneeL : J.KneeR], _u);
+      tgt.lerp(kn, 0.35);
+      tgt.x += sx * 0.04;
+      tgt.z -= 0.04;
+      this.trunkPoint(sx * 0.22, -0.26, 0.34, _w);
+      pole.set(sx * 0.8, -0.3, -0.6);
+    } else {
+      // either side of the neck, fingers round the back of it
+      this.toLocal(o[J.Neck], tgt);
+      tgt.x += sx * 0.11;
+      tgt.z -= 0.03;
+      _w.copy(guard);
+      _w.x += sx * 0.05;
+      _w.z += 0.08;
+      pole.set(sx * 0.9, -0.6, -0.3);
+    }
+    if (s.phase === 'windup') {
+      out.lerpVectors(guard, _w, prog.load);
+      return shoot ? 0.6 * prog.load : -0.4 * prog.load;
+    }
+    if (s.phase === 'active') {
+      out.lerpVectors(_w, tgt, prog.ext);
+      return shoot ? 0.6 : -0.5;
+    }
+    // missed: hands come back (a shot that missed posts them low on the way)
+    const k = clamp01(s.t / s.recovery);
+    out.lerpVectors(this.toLocal(this.body.pos[sx < 0 ? J.HandL : J.HandR], _u), guard, minJerk(k));
+    if (shoot) out.y -= DM.sin(Math.PI * k) * 0.12;
+    return lerp(shoot ? 0.6 : -0.5, 0.12, k);
   }
 
   /** Body adjustments for kicks (balance over the support leg, lean, hip turnover). */

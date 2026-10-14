@@ -113,7 +113,7 @@ function oilLeak(part: number, cond: number) {
 }
 
 /** A part's hinge starts blowing high-pressure vapour below this condition. */
-const VENT_BELOW = 0.3;
+const VENT_BELOW = 0.2;
 type Radius = 'upper' | 'fore' | 'thigh' | 'shin';
 /**
  * The hinge each part vents from: joint a (t = 0) on the segment toward b, which the jet
@@ -811,6 +811,23 @@ export class Game {
         sfx?.whoosh(false, false, 0.5);
         this.arena.excite(0.15);
         break;
+      case 'clinch':
+        // chest plates meeting
+        sfx?.thud(0.3, this.pan(data.f.body.pos[J.Chest]));
+        this.arena.excite(0.2);
+        break;
+      case 'clinchBreak':
+        sfx?.whoosh(false, false, 0.4);
+        break;
+      case 'sprawl':
+        sfx?.thud(0.45, this.pan(data.f.body.pos[J.Pelvis]));
+        this.arena.excite(0.35);
+        break;
+      case 'takedown':
+        sfx?.whoosh(true, false, 0.7);
+        this.arena.excite(0.8);
+        this.director.shake(0.2);
+        break;
       case 'step':
         sfx?.step(data.f.index);
         break;
@@ -1209,7 +1226,7 @@ export class Game {
       : Math.min(24, Math.floor(h.damage / 10 + wear * wear * 12 + (h.crit ? 4 : 0) + (h.heavy ? 3 : 0) + Math.random() * 2));
     if (n > 0) this.fx.bits.spawn(h.point, h.dir, n, paint, h.blocked ? power * 0.5 : power);
     if (wear > 0.35 && h.damage >= 6) this.fx.smoke(h.point, 1 + Math.round(wear * 3), wear);
-    // a blow to a venting part makes its hinge blow
+    // a blow to a venting part makes its hinge blow (if it hasn't just)
     if (h.partCond < VENT_BELOW) this.steam.kick(h.defender.index * 16 + h.part);
     const k = oilLeak(h.part, h.partCond);
     if (k > 0 && !h.blocked) {
@@ -1305,7 +1322,7 @@ export class Game {
       if (side) _sideP.copy(_side).multiplyScalar(side);
       const k = (VENT_BELOW - parts.cond[p]) / VENT_BELOW;
       const burst = this.steam.vent(i * 16 + p, J0[a], J0[b], t, radius, _fwd, side ? _sideP : null, k, md.size, dt);
-      if (burst > 0) this.sfx?.hiss(0.4 + k * 0.6, burst, this.pan(J0[a]));
+      if (burst > 0) this.sfx?.hiss((0.4 + k * 0.6) * this.steam.blowOf(i * 16 + p), burst, this.pan(J0[a]));
     }
     // a wrecked chest or lower torso bleeds oil from a wound on its plating
     let bleed = 0;

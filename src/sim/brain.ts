@@ -6,6 +6,7 @@ import { J, ropeGap } from './body';
 import { armPart, LOOSE, P } from './damage';
 import { DM } from './dmath';
 import { COACH_FX, NO_COACH, type CoachFx, type CoachKind } from './coach';
+import { grappleStrength, type Grapple, type Tie } from './grapple';
 
 /**
  * The fight brain.
@@ -18,10 +19,10 @@ import { COACH_FX, NO_COACH, type CoachFx, type CoachKind } from './coach';
  */
 
 type PlanKind = 'pressure' | 'outbox' | 'counter' | 'circle' | 'retreat' | 'swarm' | 'wait';
-type Response = 'block' | 'slip' | 'duck' | 'sway' | 'backstep' | 'sidestep' | 'counter' | 'absorb';
-type AttackClass = 'straight' | 'hook' | 'upper' | 'overhead' | 'kickHigh' | 'kickMid' | 'kickLow' | 'lunge';
+type Response = 'block' | 'slip' | 'duck' | 'sway' | 'backstep' | 'sidestep' | 'counter' | 'absorb' | 'sprawl';
+type AttackClass = 'straight' | 'hook' | 'upper' | 'overhead' | 'kickHigh' | 'kickMid' | 'kickLow' | 'lunge' | 'shoot' | 'tie';
 
-const RESPONSES: Response[] = ['block', 'slip', 'duck', 'sway', 'backstep', 'sidestep', 'counter', 'absorb'];
+const RESPONSES: Response[] = ['block', 'slip', 'duck', 'sway', 'backstep', 'sidestep', 'counter', 'absorb', 'sprawl'];
 
 /** Priors: how well a response tends to work against a class of attack. */
 const PRIOR: Record<AttackClass, Partial<Record<Response, number>>> = {
@@ -33,6 +34,10 @@ const PRIOR: Record<AttackClass, Partial<Record<Response, number>>> = {
   kickMid: { block: 0.4, slip: 0.1, duck: 0.05, sway: 0.15, backstep: 0.6, sidestep: 0.55, counter: 0.2, absorb: 0.1 },
   kickLow: { block: 0.05, slip: 0.05, duck: 0.0, sway: 0.1, backstep: 0.7, sidestep: 0.45, counter: 0.3, absorb: 0.15 },
   lunge: { block: 0.4, slip: 0.25, duck: 0.3, sway: 0.2, backstep: 0.35, sidestep: 0.65, counter: 0.35, absorb: 0.05 },
+  // a shot at the legs: sprawl on it, step off it, or knee it in the face
+  shoot: { block: 0.05, slip: 0.05, duck: 0, sway: 0.05, backstep: 0.5, sidestep: 0.5, counter: 0.4, absorb: 0.05, sprawl: 0.85 },
+  // reaching to tie up: get out of there, punch them on the way in, or let them have the clinch
+  tie: { block: 0.1, slip: 0.35, duck: 0.25, sway: 0.3, backstep: 0.55, sidestep: 0.45, counter: 0.45, absorb: 0.25 },
 };
 
 const PERCEPTION_BUFFER = 120; // 1s at 120Hz
@@ -68,6 +73,10 @@ export interface Traits {
   /** Stays in the pocket to trade after a combo instead of getting out. */
   pocketLove: number;
   style: string;
+  /** Wants to clinch, shoot for takedowns and wrestle (vs keep it a stand-up fight). */
+  grappling: number;
+  /** Ties up with the plum (head down onto the knees) rather than a body lock (takedowns). */
+  plumPref: number;
 }
 
 /** Natural follow-ups: what tends to come after what in a combination. */
@@ -203,6 +212,14 @@ export class Brain {
   coach: CoachKind | null = null;
   coachUntil = 0;
 
+  // grappling
+  /** The clinch or takedown I'm in (set by the match each step; null when free). */
+  grip: Grapple | null = null;
+  private wasGripped = false;
+  private clinchTimer = 0;
+  /** How often they've sprawled on my shots. */
+  private sprawlRate = ema(0.3);
+
   onEvent: ((e: BrainEvent) => void) | null = null;
   /** The opponent's brain (so it can learn whether my feints draw reactions). */
   rival: Brain | null = null;
@@ -248,7 +265,7 @@ export class Brain {
       'Counter-puncher': [0.3, 0.55, 0.3],
     };
     const [fw, hm, pl] = lean[style];
-    return {
+    const t: Traits = {
       aggression,
       caution,
       patience,
@@ -264,7 +281,14 @@ export class Brain {
       headMovement: clamp(hm + r.range(-0.12, 0.12) + (st.agility - 1) * 0.5, 0, 1),
       pocketLove: clamp(pl + r.range(-0.15, 0.15), 0, 1),
       style,
+      grappling: 0,
+      plumPref: 0,
     };
+    // pressure fighters like to tie up and take down; a heavy, planted frame wrestles well
+    const grab: Record<string, number> = { Boxer: 0.3, Brawler: 0.65, Swarmer: 0.6, 'Out-fighter': 0.15, 'Counter-puncher': 0.35 };
+    t.grappling = clamp(grab[style] + (st.stability - 1) * 0.9 + power * 0.3 + r.range(-0.18, 0.18), 0.05, 0.95);
+    t.plumPref = clamp(r.range(0, 1) + (f.kickAbility === 'flyingKnee' ? 0.3 : 0) - (st.stability - 1) * 0.6, 0, 1);
+    return t;
   }
 
   // ------------------------------------------------------------------ helpers
@@ -415,6 +439,24 @@ export class Brain {
     const s = me.strike;
     if (s && s.phase === 'windup') this.trackAim(s);
 
+    // tied up (or on top of them, or being taken down): a different fight
+    const g = this.grip;
+    if (g) {
+      this.wasGripped = true;
+      this.pending = null;
+      this.grappleUpdate(dt, g);
+      return;
+    }
+    if (this.wasGripped) {
+      // out of it: step away and reset before going again
+      this.wasGripped = false;
+      this.exitUntil = time + this.rng.range(0.3, 0.6);
+      this.exitLat = this.rng.range(-0.6, 0.6);
+      this.calmUntil = time + this.rng.range(0.2, 0.7);
+      this.tempo *= 0.7;
+      this.standoff = 0;
+    }
+
     this.watchForAttacks();
     if (this.pending && time >= this.pending.at) this.executeResponse();
 
@@ -546,6 +588,153 @@ export class Brain {
     return (d - tk) / (d + tk + 60);
   }
 
+  // --------------------------------------------------------------- grappling
+  /** Inside a grapple: in the clinch I decide what to do; otherwise the grapple moves me. */
+  private grappleUpdate(dt: number, g: Grapple) {
+    const me = this.me;
+    me.guardMode = 'normal';
+    me.guardDrop = 0;
+    if (g.phase !== 'clinch' || me.state !== 'fight') return;
+    this.clinchTimer -= dt;
+    if (this.clinchTimer > 0 || me.action) return;
+    this.clinchTimer = this.rng.range(0.22, 0.5) * lerp(1.25, 0.8, this.traits.skill) * (1 + this.tired * 0.5);
+    this.clinchThink(g);
+  }
+
+  /**
+   * One decision in the clinch: knee, a short punch, fight for the underhooks, walk them to
+   * the ropes, trip, throw, push off, or lean on them and breathe.
+   */
+  private clinchThink(g: Grapple) {
+    const me = this.me;
+    const t = this.traits;
+    const ctl = g.control(me);
+    const agg = this.effAggression();
+    const cau = this.effCaution();
+    const stam = me.staminaRatio;
+    const fx = this.fx;
+    const tie = g.tie[me.index];
+    const oppHurt = 1 - this.opp.hpRatio;
+    const pinned = g.pinned(this.opp);
+    const kneeUp = me.cooldownLeft('clinchKnee') <= 0 && me.stamina > 10;
+    const u = [
+      // knee: best with their head pulled down in the plum
+      kneeUp ? 0.7 + agg * 0.9 + Math.max(0, ctl) * (tie === 'plum' ? 1.8 : 0.8) + fx.grab * 0.5 + (fx.head ? 0.4 : 0) : -9,
+      // a short uppercut or hook with a hand off the tie
+      me.stamina > 8 ? 0.25 + agg * 0.6 + t.pocketLove * 0.4 - Math.max(0, -ctl) * 0.4 : -9,
+      // fight for the underhooks
+      me.stamina > 8 ? 0.2 + t.grappling * 0.8 + Math.max(0, -ctl) * 1.3 + t.skill * 0.2 : -9,
+      // walk them back onto the ropes
+      ctl > 0.1 && !pinned && me.stamina > 8 ? 0.1 + t.grappling * 0.7 + ctl * 0.8 : -9,
+      // trip them
+      ctl > -0.1 && me.stamina > 12 ? -0.6 + t.grappling * 1.5 + ctl * 1.3 + oppHurt * 0.5 + fx.grab : -9,
+      // lift and slam: needs a body lock and the better of it
+      tie === 'lock' && ctl > 0.3 && me.stamina > 18 ? -0.6 + t.grappling * 1.7 + ctl * 1.4 + oppHurt * 0.4 + fx.grab : -9,
+      // frame and push off
+      0.1 + (1 - t.grappling) * 0.8 + Math.max(0, t.rangeBias) * 3 + Math.max(0, -ctl) * 0.8 + cau * 0.4 + this.fear * 0.5 - fx.grab,
+      // lean on them and breathe (the referee is watching)
+      (1 - stam) * 1.1 + Math.max(0, ctl) * 0.2 - g.quiet * 0.3,
+    ];
+    const k = softmaxPick(u, 0.35, this.rng);
+    const p = this.perceived;
+    switch (k) {
+      case 0: {
+        const zone: Zone = tie === 'plum' && ctl > 0.3 && this.rng.chance(0.55 + (fx.head ? 0.3 : 0)) ? 'head' : 'body';
+        me.tryStrike('clinchKnee', zone, this.zoneAim(zone, p, new Vector3()));
+        break;
+      }
+      case 1: {
+        const ids: MoveId[] = ['leadUpper', 'rearUpper', 'leadHook', 'rearHook'];
+        const id = ids[Math.floor(this.rng.next() * 4)];
+        const zone: Zone = this.rng.chance(0.5 + (fx.head ? 0.3 : 0)) ? 'head' : 'body';
+        me.tryStrike(id, zone, this.zoneAim(zone, p, new Vector3()));
+        break;
+      }
+      case 2:
+        g.startPummel(me);
+        break;
+      case 3:
+        g.startDrive(me);
+        break;
+      case 4:
+        g.tryTakedown(me, 'trip', this.rng);
+        break;
+      case 5:
+        g.tryTakedown(me, 'throw', this.rng);
+        break;
+      case 6:
+        if (g.breakAway(me, this.rng)) this.say('retreat', `${me.name} pushes off.`, 8);
+        break;
+    }
+  }
+
+  /** The tie I go for once I'm on top in a clinch. */
+  clinchTie(): Tie {
+    return this.traits.plumPref > 0.5 ? 'plum' : 'lock';
+  }
+
+  /** How many punches to drop on them after a takedown (0: let them up). */
+  groundBlows() {
+    const t = this.traits;
+    if (this.me.staminaRatio < 0.12) return 0;
+    const want = -1.2 + t.grappling * 2 + this.effAggression() * 1.4 + (this.opp.hpRatio < 0.3 ? 1 : 0) + this.fx.grab * 2 + this.rng.range(-0.8, 0.8);
+    return clamp(Math.round(want), 0, 4);
+  }
+
+  /** They tied me up or shot in on me. */
+  onGrabbed() {
+    this.pending = null;
+    this.activeResp = null;
+    if (this.inBurst) this.endBurst(false);
+    this.clinchTimer = this.rng.range(0.25, 0.5);
+  }
+
+  /**
+   * Clinching and shooting. A clinch smothers a longer, quicker or busier opponent and
+   * gives a hurt bot something to hold onto; a shot is the big swing, best at someone who's
+   * standing on one leg or overcommitted, and a known sprawler takes the fun out of it.
+   */
+  private grabUtility(m: MoveDef, d: number, closing: number, oppCommitted: boolean, oppRocked: number, agg: number, cau: number) {
+    const me = this.me;
+    const t = this.traits;
+    const p = this.perceived;
+    const shot = m.path === 'shoot';
+    const speed = me.strikeSpeed(m);
+    const dImpact = d - closing * (m.windup / speed);
+    const lo = m.range[0];
+    const hi = shot ? 1.85 : m.range[1] + m.lunge * 0.5;
+    const pReach = sigmoid((hi - dImpact) / 0.06) * sigmoid((dImpact - lo) / 0.06);
+    if (pReach < 0.08) return -100;
+    const sMe = grappleStrength(me), sOpp = grappleStrength(this.opp);
+    const edge = (sMe - sOpp) / (sMe + sOpp);
+    const oppKicking = p.actKind === 'strike' && !!p.moveId && MOVES[p.moveId].kind === 'kick' && p.phase !== 'recovery';
+    const nearRope = clamp01((1.1 - ropeGap(this.predPos.x, this.predPos.z)) / 0.8);
+    const fx = this.fx;
+    let v: number;
+    let risk: number;
+    if (shot) {
+      let pGet = clamp(0.5 + edge * 1.2 + (oppKicking ? 0.35 : oppCommitted ? 0.12 : 0) + oppRocked * 0.25, 0.15, 0.92);
+      // they see it coming unless they're busy
+      pGet *= 1 - this.sprawlRate.v * (oppCommitted || oppKicking ? 0.25 : 0.8);
+      // what a takedown is worth: the slam, the punches from on top, and the time on their back
+      const gain = 45 + t.grappling * 45 + this.opp.hpRatio * 10 - nearRope * 12;
+      v = pReach * pGet * gain;
+      risk = (1 - pGet) * 30 * (0.5 + this.sprawlRate.v);
+    } else {
+      const reachGap = Math.max(0, this.opp.build.stats.reach - me.build.stats.reach) * 60;
+      const gain = 10 + t.grappling * 30 + edge * 30 + oppRocked * 15 + nearRope * 8 + reachGap + this.speedGap() * 25 + this.fear * 12 + (1 - me.hpRatio) * 8;
+      v = pReach * gain;
+      risk = this.counterRate.v * 12;
+    }
+    const cost = m.stamina * (1.25 - me.staminaRatio) * 0.7;
+    const mv = this.moveVal.get(m.id + m.zones[0]);
+    const learned = mv ? (mv.v - 0.45) * 22 * Math.min(1, mv.n / 3) : 0;
+    const noise = this.rng.gauss() * (2 + t.creativity * 10);
+    // a bot that keeps clinching doesn't do it every time it gets close
+    const again = me.lastAction && me.lastAction.move.id === m.id ? -6 : 0;
+    return v * (0.35 + agg * 0.45) * (0.15 + t.grappling) - risk * (0.4 + cau * 0.9) - cost + learned + noise + again + fx.grab * 12 - (fx.head ? 8 : 0);
+  }
+
   // ---------------------------------------------------------------------- flow
   private updateFlow(dt: number) {
     const me = this.me;
@@ -621,13 +810,17 @@ export class Brain {
     const me = this.me;
     const t = this.traits;
     const agg = this.effAggression();
+    // a push kick if I have one, otherwise both hands in the chest
+    const shove: MoveId | null = me.build.kickAbility === 'pushKick' && me.cooldownLeft('pushKick') <= 0 ? 'pushKick' : me.cooldownLeft('shove') <= 0 ? 'shove' : null;
     const u = [
       // commit: let the hands go
       agg * 1.2 + me.staminaRatio * 0.8 + t.pocketLove * 0.4 - this.fear + this.speedGap() * 1.5 + this.fx.commit,
-      // shove: a push kick moves them off and resets the range
-      me.build.kickAbility === 'pushKick' && me.cooldownLeft('pushKick') <= 0 ? 0.5 + t.skill * 0.3 : -5,
+      // shove: moves them off and resets the range
+      shove ? 0.4 + t.skill * 0.3 + (1 - t.pocketLove) * 0.2 : -5,
       // step out and reset
       this.effCaution() * 0.8 + t.footwork * 0.5 + this.tired * 0.8,
+      // tie them up
+      me.cooldownLeft('tieUp') <= 0 ? -0.5 + t.grappling * 1.4 + this.fx.grab : -5,
     ];
     const k = softmaxPick(u, 0.3, this.rng);
     this.coverUntil = 0;
@@ -637,7 +830,9 @@ export class Brain {
       this.trigger = Math.min(this.trigger, 0.5);
     } else if (k === 1) {
       const aim = this.zoneAim('body', this.perceived, new Vector3());
-      if (me.tryStrike('pushKick', 'body', aim)) this.beginBurst(1);
+      if (me.tryStrike(shove!, 'body', aim)) this.beginBurst(1);
+    } else if (k === 3) {
+      if (me.tryStrike('tieUp', 'head', this.zoneAim('head', this.perceived, new Vector3()))) this.beginBurst(1);
     } else {
       this.circleDir = this.chooseCircleDir();
       this.exitUntil = this.time + this.rng.range(0.5, 0.9);
@@ -1055,16 +1250,28 @@ export class Brain {
     const punish = this.time < this.punishUntil;
 
     const opts: { id: MoveId; zone: Zone; u: number; feint: boolean }[] = [];
-    const candidates: MoveId[] = [...BASIC_PUNCHES, 'lowKick', me.build.fistAbility, me.build.kickAbility];
+    const candidates: MoveId[] = [...BASIC_PUNCHES, 'lowKick', 'shove', 'tieUp', 'shoot', me.build.fistAbility, me.build.kickAbility];
     for (const id of candidates) {
       const m = MOVES[id];
       if (me.cooldownLeft(id) > 0) continue;
       if (me.stamina < m.stamina * 0.8) continue;
       if (chain && m.ability && m.kind === 'kick' && this.comboCount > 2) continue;
+      if (m.kind === 'grab') {
+        // a shot or a tie-up ends a combination, it doesn't start in the middle of one
+        if (chain && this.comboCount > 2) continue;
+        const u = this.grabUtility(m, d, closing, oppCommitted, oppRocked, agg, cau);
+        if (u > -50) opts.push({ id, zone: m.zones[0], u, feint: false });
+        continue;
+      }
       for (const zone of m.zones) {
         const u = this.attackUtility(m, zone, d, closing, oppCommitted, oppRocked, agg, cau, last, punish, st.reach);
         if (u > -50) opts.push({ id, zone, u, feint: false });
       }
+    }
+    // a feinted shot: drop the level, and come up with the hands
+    if (!chain && d > 1.2 && d < 2 && p.state === 'fight' && me.cooldownLeft('shoot') <= 0 && this.traits.grappling > 0.3) {
+      const u = this.traits.feintiness * this.traits.grappling * this.feintReact.v * 30 - 6 + this.rng.gauss() * 4;
+      opts.push({ id: 'shoot', zone: 'legs', u, feint: true });
     }
     // feints: probe for reactions
     if (!chain && this.traits.feintiness > 0.05 && d < MOVES.jab.range[1] + 0.25 && d > 0.7 && p.state === 'fight') {
@@ -1211,6 +1418,14 @@ export class Brain {
     if (m.trip) dmg += 40 * (m.trip + me.passive('trip'));
     if (m.stun) dmg += 30;
     if (m.knockback > 3 && d < 1.1 && this.plan !== 'pressure') dmg += 20; // make space
+    if (m.path === 'push') {
+      // a body off balance goes over; one on one leg goes over for sure
+      const op = this.opp;
+      const kicking = p.actKind === 'strike' && !!p.moveId && MOVES[p.moveId].kind === 'kick' && p.phase !== 'recovery';
+      dmg += (kicking ? 50 : 0) + smoothstep(0.5, 0.15, op.poise / op.maxPoise) * 45;
+      // shove them onto the ropes, or off me when they're crowding
+      dmg += clamp01((1.3 - ropeGap(this.predPos.x, this.predPos.z)) / 0.9) * 10 + (d < 0.85 ? 12 : 0);
+    }
     let ev = pHit * dmg + pReach * (1 - pHit) * dmg * 0.1;
 
     // risk of being countered when it misses or is blocked
@@ -1236,6 +1451,8 @@ export class Brain {
       flow += FOLLOW[last.move.id]?.[m.id] ?? 0;
       // punch, punch, kick
       if (m.kind === 'kick' && last.move.kind === 'punch' && this.comboCount >= 2) flow += 4;
+      // punch, punch, then shove them off
+      if (m.path === 'push' && this.comboCount >= 2) flow += 3;
     } else if (this.time < this.entryUntil && (m.path === 'straight' || m.lunge > 0.3)) {
       // lead the way in with something long
       flow += 6;
@@ -1350,6 +1567,7 @@ export class Brain {
       sidestep: 0.1 / agility,
       counter: (MOVES.jab.windup + MOVES.jab.active * 0.5) / me.speedMult(),
       absorb: 0,
+      sprawl: 0.12 / agility,
     };
     const utils: number[] = [];
     const agg = this.effAggression();
@@ -1365,6 +1583,11 @@ export class Brain {
       trade = clamp(0.7 + lead * 3 + agg * 0.3 + this.anger * 0.2 + Math.max(0, 1 - me.speedMult()) * 1.5, 0.15, 1.2);
     }
     for (const r of RESPONSES) {
+      // only a shot is worth sprawling on
+      if (r === 'sprawl' && cls !== 'shoot') {
+        utils.push(-99);
+        continue;
+      }
       let v = this.responseValue(cls, r);
       const slack = timeLeft - motor - need[r];
       if (r !== 'absorb') v *= slack > 0 ? 1 : slack > -0.05 ? 0.4 : 0.05;
@@ -1390,6 +1613,9 @@ export class Brain {
       const t = this.traits;
       if (r === 'slip' || r === 'duck' || r === 'sway') v *= 0.8 + t.headMovement * 0.6;
       if (r === 'backstep' || r === 'sidestep') v *= 0.8 + t.footwork * 0.5;
+      // wrestlers sprawl, and let a clinch come
+      if (r === 'sprawl') v *= 0.7 + t.grappling * 0.6 + t.skill * 0.2;
+      if (r === 'absorb' && cls === 'tie') v *= 0.6 + t.grappling * 1.2 - this.fx.grab * 0.5;
       if (r === 'block') v *= (1.15 - t.headMovement * 0.3) * (this.time < this.coverUntil ? 1.4 : 1);
       // the corner's call: shell up and move, or stand in and trade
       const fx = this.fx;
@@ -1451,9 +1677,17 @@ export class Brain {
         }
         break;
       }
+      case 'sprawl':
+        if (!me.tryDodge('sprawl', 0)) {
+          this.holdGuard = 'body';
+          this.guardHoldUntil = this.time + 0.4;
+          this.activeResp.resp = 'block';
+        }
+        break;
       case 'counter': {
         const aim = this.zoneAim('head', this.perceived, new Vector3());
-        const id: MoveId = this.rng.chance(0.6) ? 'jab' : 'cross';
+        // a level change gets an uppercut in the face
+        const id: MoveId = pr.cls === 'shoot' ? 'rearUpper' : this.rng.chance(0.6) ? 'jab' : 'cross';
         if (!me.tryStrike(id, 'head', aim)) this.activeResp.resp = 'absorb';
         else this.beginBurst(this.rng.chance(0.35 + this.effAggression() * 0.3) ? 2 : 1);
         break;
@@ -1496,6 +1730,7 @@ export class Brain {
   /** My strike resolved. */
   onMyStrikeEnd(s: StrikeAction, damage: number) {
     if (s.result === 'feint' || s.result === 'interrupted') return;
+    if (s.move.path === 'shoot') learn(this.sprawlRate, s.result === 'dodged' ? 1 : 0, 0.3);
     const key = s.move.id + s.zone;
     let e = this.moveVal.get(key);
     if (!e) this.moveVal.set(key, (e = ema(0.45)));
@@ -1615,6 +1850,7 @@ export class Brain {
   /** What the bot is doing right now in the ebb and flow (for debugging and tools). */
   flowTag() {
     const now = this.time;
+    if (this.grip) return this.grip.phase === 'clinch' ? 'clinch' : this.grip.phase;
     if (this.inBurst) return 'combo';
     if (now < this.entryUntil) return this.entryFake ? 'stutter' : 'enter';
     if (now < this.reactUntil) return this.react;
@@ -1626,6 +1862,7 @@ export class Brain {
 }
 
 function classify(m: MoveDef, zone: Zone): AttackClass {
+  if (m.kind === 'grab') return m.path === 'shoot' ? 'shoot' : 'tie';
   if (m.kind === 'kick') {
     if (m.path === 'knee') return 'lunge';
     if (zone === 'legs') return 'kickLow';

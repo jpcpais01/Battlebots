@@ -7,7 +7,8 @@ import { Showman } from './emote';
 import { Greeting } from './greet';
 import { ENTRY, hatchXZ, PRESENT } from './entrance';
 import { FINISH_AT, FINISH_SELF, FINISHER_NAME, FinisherRun, pickFinisher } from './finisher';
-import type { MoveDef, Zone } from './moves';
+import { fallAway, Grapple, grappleStrength, type GrappleBlow, type GrappleHost, type Tie } from './grapple';
+import { MOVES, type MoveDef, type Zone } from './moves';
 import { clamp, closestOnSegment, lerp, Rng, smoothstep } from './math';
 import { armPart, CUT_JOINTS, legPart, LOOSE, P, PART_COUNT, type LossReason } from './damage';
 import { computeBuild } from '../game/items';
@@ -129,6 +130,14 @@ export class Match {
   private ropeCooldown = [0, 0];
   /** The finisher being performed (the clock stops and both brains wait). */
   fin: FinisherRun | null = null;
+  /** A clinch, takedown or ground and pound in progress (or its poses still handing back). */
+  grapple: Grapple | null = null;
+  private readonly grappleHost: GrappleHost = {
+    emit: (t, d) => this.emit(t, d),
+    hitstop: (x) => (this.hitstop = Math.max(this.hitstop, x)),
+    blow: (att, def, b) => this.grappleBlow(att, def, b),
+    groundBlows: (att) => this.brains[att.index].groundBlows(),
+  };
   /** A knocked-down bot that will not beat the count, and who put it there. */
   private countOut: { att: Fighter; def: Fighter; at: number } | null = null;
   introLength = PRESENT * 2;
@@ -326,6 +335,8 @@ export class Match {
 
     if (this.phase === 'greet') this.greet.update(dt);
     else if (this.phase !== 'intro' && this.phase !== 'countdown' && !this.fin) {
+      const g = this.grapple && this.grapple.live ? this.grapple : null;
+      for (const br of this.brains) br.grip = g && g.involves(br.me) ? g : null;
       const t0 = perf.now();
       this.brains[0].update(dt, this.time);
       this.brains[1].update(dt, this.time);
@@ -333,6 +344,11 @@ export class Match {
     }
     this.shows[0].update(dt, this);
     this.shows[1].update(dt, this);
+    const g = this.grapple;
+    if (g) {
+      g.update(dt);
+      if (g.done) this.grapple = null;
+    }
     const fin = this.fin;
     if (fin) {
       fin.update(dt);
@@ -395,15 +411,17 @@ export class Match {
         f.root.z += (cz / dc) * (clear - dc);
       }
     }
+    // tied up: chest to chest; in a takedown the bodies are on top of each other
+    const g = this.grapple && this.grapple.live ? this.grapple : null;
     if (a.isDown || b.isDown) {
-      // keep the standing fighter from walking over a downed one
+      // keep the standing fighter from walking over a downed one (unless it's on top of them)
       const standing = a.isDown ? b : a;
       const down = a.isDown ? a : b;
       if (standing.isDown) return;
       const p = down.body.pos[J.Pelvis];
       const dx = standing.root.x - p.x, dz = standing.root.z - p.z;
       const d = DM.hypot(dx, dz);
-      const clear = 0.9 * pair;
+      const clear = (g ? 0.45 : 0.9) * pair;
       if (d < clear && d > 1e-4) {
         standing.root.x += (dx / d) * (clear - d) * 0.2;
         standing.root.z += (dz / d) * (clear - d) * 0.2;
@@ -412,7 +430,7 @@ export class Match {
     }
     const dx = b.root.x - a.root.x, dz = b.root.z - a.root.z;
     const d = DM.hypot(dx, dz);
-    const min = 0.64 * pair;
+    const min = (g ? 0.5 : 0.64) * pair;
     if (d < min && d > 1e-5) {
       const push = (min - d) * 0.5;
       const nx = dx / d, nz = dz / d;
@@ -427,8 +445,10 @@ export class Match {
       if (vb < 0) b.rootVel.set(b.rootVel.x - nx * vb, 0, b.rootVel.z - nz * vb);
     }
     // leaning in can still bring the armour together: keep chests and heads apart too
-    this.separateParts(a, b, J.Chest, 0.5 * pair);
-    this.separateParts(a, b, J.Head, 0.4 * pair);
+    // (in a clinch they're pressed together; a shot or a throw goes right through)
+    if (g && g.phase !== 'clinch') return;
+    this.separateParts(a, b, J.Chest, (g ? 0.4 : 0.5) * pair);
+    this.separateParts(a, b, J.Head, (g ? 0.24 : 0.4) * pair);
   }
 
   /** Push the roots apart (softly) when two body parts get closer than min horizontally. */
@@ -455,6 +475,10 @@ export class Match {
     if (!s || s.phase !== 'active' || s.hasHit || s.feint) return;
     if (s.activeProgress < 0.1) return;
     if (def.invuln > 0 || def.isDown) return;
+    if (s.move.kind === 'grab') {
+      this.grabContact(att, def, s);
+      return;
+    }
     const j = att.strikerJoint(s);
     const from = att.body.last[j];
     const to = att.body.pos[j];
@@ -537,6 +561,17 @@ export class Match {
           }
         }
       }
+      // in the clinch the hands are busy holding on: whether a knee or a short punch gets
+      // through depends on who has the better position (a forearm frame, a hip turned in)
+      const g = this.grapple;
+      if (hit && hit !== 'block' && g && g.live && g.phase === 'clinch' && canGuard) {
+        const p = clamp(0.3 + g.control(def) * 0.45 - (def.state === 'stun' ? 0.25 : 0), 0.05, 0.7);
+        if (this.rng.chance(p)) {
+          hit = 'block';
+          blockHand = s.side === 'L' ? 1 : 0;
+          part = armPart(blockHand, 1);
+        }
+      }
       if (hit) {
         // a bot this close to the end can't stop the shot that starts a finisher, guard or no guard
         if (this.canFinish(att)) this.beginFinisher(att, s, hit === 'block' ? s.zone : hit, _p.clone());
@@ -544,6 +579,132 @@ export class Match {
         return;
       }
     }
+  }
+
+  // ---------------------------------------------------------------- grappling
+  /** A clinch attempt or a shot reaches them: tie up, take them down, or get stuffed. */
+  private grabContact(att: Fighter, def: Fighter, s: StrikeAction) {
+    const old = this.grapple;
+    if (old && old.live) return;
+    const shot = s.move.path === 'shoot';
+    if (s.activeProgress < (shot ? 0.15 : 0.35)) return;
+    const pair = (att.size + def.size) * 0.5;
+    const d = att.distTo(def);
+    if (d > (shot ? 0.78 * pair : (s.move.range[1] + 0.06) * rangeScale(att, def))) return;
+    if (def.state !== 'fight' && def.state !== 'stun') return;
+    const dd = def.dodge;
+    // slipped or stepped off it: it runs on, and likely misses
+    if (dd && dd.type !== 'sprawl' && (!shot || dd.type === 'backstep' || dd.type === 'sidestep')) return;
+    if (old) {
+      old.finish();
+      this.grapple = null;
+    }
+    const ab = this.brains[att.index], dbn = this.brains[def.index];
+    const tie: [Tie, Tie] = [this.brains[0].clinchTie(), this.brains[1].clinchTie()];
+    const under = this.rng.chance(0.5) ? 0 : 1;
+    s.hasHit = true;
+    const sa = grappleStrength(att), sd = grappleStrength(def);
+    const edge = (sa - sd) / (sa + sd);
+    const ds = def.strike;
+    if (shot) {
+      if (dd && dd.type === 'sprawl') {
+        // sprawled on: the hips land on their back and the shot goes nowhere
+        att.finishStrike(s, true, 'dodged');
+        def.stats.dodged++;
+        this.grapple = Grapple.stuffed(this.grappleHost, att, def, tie, this.frame);
+        dbn.onAvoided(true, s);
+        ab.onMyStrikeEnd(s, 0);
+        return;
+      }
+      let p = 0.5 + edge * 1.2 + (def.state === 'stun' ? 0.25 : 0) - def.passive('rooted') * 0.5;
+      // caught on one leg, or shot in under a punch
+      if (ds && ds.phase !== 'recovery' && ds.move.kind === 'kick') p += 0.35;
+      else if (ds && ds.phase !== 'windup') p += 0.12;
+      // ducked straight into it
+      if (dd) p += 0.1;
+      const got = this.rng.chance(clamp(p, 0.15, 0.92));
+      att.finishStrike(s, true, got ? 'hit' : 'blocked');
+      if (got) this.grapple = Grapple.shot(this.grappleHost, att, def, tie, this.frame);
+      // caught high: it ends up a clinch, with them on top of it
+      else this.grapple = Grapple.clinch(this.grappleHost, def, att, 0.3, tie, under, this.frame);
+    } else {
+      // whatever they were throwing with a leg or both hands stops; a punch already out lands or doesn't
+      if (ds && (ds.move.kind !== 'punch' || ds.phase === 'windup')) def.finishStrike(ds, true, 'interrupted');
+      att.finishStrike(s, true, 'hit');
+      const start = clamp(0.15 + edge * 0.6 + (def.state === 'stun' ? 0.25 : 0), -0.3, 0.6);
+      this.grapple = Grapple.clinch(this.grappleHost, att, def, start, tie, under, this.frame);
+    }
+    ab.onMyStrikeEnd(s, 0);
+    dbn.onGrabbed();
+  }
+
+  /** A body slammed into the canvas, or a punch from on top. */
+  private grappleBlow(att: Fighter, def: Fighter, b: GrappleBlow) {
+    if (this.phase !== 'fight' || def.state === 'ko') return;
+    const dst = def.build.stats;
+    let dmg = b.damage * this.rng.range(0.92, 1.08) * (1 + att.overdrive);
+    dmg *= 1 - dst.armor;
+    if (b.zone === 'body') dmg *= 1 - def.passive('bulwark');
+    if (b.zone === 'head') dmg *= (1 - dst.headGuard) * (1 - def.passive('ironChin'));
+    let shielded = false;
+    if (def.shield && b.kind === 'ground') {
+      shielded = true;
+      def.shield = false;
+      def.shieldTimer = def.passive('aegis');
+      dmg = 0;
+    }
+    dmg = Math.round(dmg);
+    def.hp = Math.max(0, def.hp - dmg);
+    def.lastHitTime = this.time;
+    const partCond = shielded ? def.parts.cond[b.part] : def.parts.damage(b.part, dmg);
+    if (!shielded) this.wearCheck(def, b.part);
+    att.stats.dealt += dmg;
+    att.stats.landed++;
+    const move = b.kind === 'slam' ? MOVES.shoot : MOVES.cross;
+    if (dmg > att.stats.biggest) {
+      att.stats.biggest = dmg;
+      att.stats.biggestMove = b.kind === 'slam' ? 'Takedown' : 'Ground punch';
+    }
+    // the body jolts with it
+    const body = def.body;
+    _b.copy(b.dir).multiplyScalar(b.jolt);
+    if (b.kind === 'slam') {
+      for (const j of [J.Chest, J.Pelvis, J.Head]) body.addVelocity(j, _b, SIM_DT);
+    } else {
+      const j = b.zone === 'head' ? J.Head : J.Chest;
+      body.addVelocity(j, _b, SIM_DT);
+      body.addVelocity(J.Neck, _b.multiplyScalar(0.4), SIM_DT);
+    }
+    this.hitstop = Math.max(this.hitstop, b.kind === 'slam' ? 0.1 : clamp(0.04 + dmg * 0.0009, 0.04, 0.1));
+    const info: HitInfo = {
+      part: b.part,
+      partCond,
+      tore: -1,
+      attacker: att,
+      defender: def,
+      move,
+      zone: b.zone,
+      blocked: false,
+      damage: dmg,
+      crit: false,
+      counter: false,
+      point: b.point,
+      dir: b.dir,
+      heavy: b.kind === 'slam' || dmg >= 55,
+      knockdown: b.kind === 'slam',
+      stagger: false,
+      shielded,
+      guardBreak: false,
+    };
+    this.emit('hit', info);
+    if (info.knockdown) {
+      att.stats.takedowns++;
+      this.emit('knockdown', info);
+    }
+    this.brains[att.index].onDealt(dmg);
+    this.brains[def.index].onTaken(dmg, false, false, move);
+    // the referee waves it off: a slam is a knockout, punches on a downed bot a stoppage
+    if (def.hp <= 0) this.ko(att, def, b.kind === 'slam' ? 'KO' : 'TKO');
   }
 
   // ---------------------------------------------------------------- finishers
@@ -565,6 +726,11 @@ export class Match {
 
   private beginFinisher(att: Fighter, s: StrikeAction, zone: Zone, point: Vector3) {
     const def = att.opp;
+    // a clinch knee can start one: the finisher takes the bodies over from the grapple
+    if (this.grapple) {
+      this.grapple.finish();
+      this.grapple = null;
+    }
     // its own stream, so fights without a finisher draw the same numbers as before
     const rng = new Rng((Math.floor(this.time * 120) * 2654435761 + (att.index + 1) * 97 + 13) >>> 0);
     const id = pickFinisher(rng, this.specs[att.index].emotes?.finish, this.brains[att.index].traits.style);
@@ -644,7 +810,8 @@ export class Match {
     // poise
     let poiseDmg = m.poise * power * (m.power ? 1 + att.passive('heavyStrike') : 1);
     if (zone === 'head') poiseDmg *= 1.2;
-    if (blocked) poiseDmg *= m.guardBreak ? 1.2 : 0.3;
+    // a shove moves them guard or no guard
+    if (blocked) poiseDmg *= m.guardBreak ? 1.2 : m.path === 'push' ? 0.85 : 0.3;
     if (shielded) poiseDmg = 0;
     if (crit) poiseDmg *= 1.3;
     if (counter) poiseDmg *= 1.3;
@@ -697,7 +864,7 @@ export class Match {
     dir.normalize();
 
     // knockback
-    let kb = m.knockback * (blocked ? 0.55 : 1) * (1 - def.passive('rooted'));
+    let kb = m.knockback * (blocked && m.path !== 'push' ? 0.55 : 1) * (1 - def.passive('rooted'));
     if (m.id === 'pushKick') kb *= 1 + att.passive('trip');
     // a big frame shoves a small one about, and barely moves for it
     kb *= Math.sqrt(att.size / def.size);
@@ -743,6 +910,9 @@ export class Match {
       def.recoil(_b.x * fk * zk, (zone === 'body' ? -0.6 : 0.2) * fk, _b.z * fk * zk, zone, fk);
     }
 
+    // a shot or a clinch attempt hit on the way in goes no further
+    if (ds && ds.move.kind === 'grab' && ds.phase !== 'recovery' && !blocked && !shielded) def.finishStrike(ds, true, 'interrupted');
+
     // stun / stagger / knockdown
     let knockdown = false;
     let stagger = false;
@@ -774,6 +944,11 @@ export class Match {
     } else if (!blocked && zone === 'legs' && m.trip && rng.chance(clamp(m.trip + att.passive('trip') * 0.5 + (def.poise < 0 ? 0.25 : 0), 0, 0.9))) {
       knockdown = true;
       def.knockDown(_c.copy(dir).negate(), 1.2, false);
+      def.poise = def.maxPoise * 0.6;
+    } else if (m.path === 'push' && !shielded && (def.poise <= 0 || (!!ds && ds.move.kind === 'kick' && ds.phase !== 'recovery' && rng.chance(0.7)))) {
+      // shoved over: off balance (or stood on one leg), and down they go. Nobody counts it.
+      knockdown = true;
+      def.knockDown(fallAway(def.root.x, def.root.z, _c.copy(dir), def.size), 1.6 + kb * 0.3, false);
       def.poise = def.maxPoise * 0.6;
     } else if (def.poise <= 0) {
       const recentlyRocked = this.time - def.lastStagger < 7;
@@ -964,6 +1139,7 @@ export class Match {
 
   private ko(winner: Fighter, loser: Fighter, kind: FinishKind) {
     if (this.phase !== 'fight') return;
+    this.grapple?.release();
     this.winner = winner;
     this.result = kind;
     if (loser.state !== 'ko') {
@@ -977,6 +1153,7 @@ export class Match {
   }
 
   private decision() {
+    this.grapple?.release();
     const [a, b] = this.fighters;
     const ra = a.hpRatio, rb = b.hpRatio;
     if (Math.abs(ra - rb) < 0.005) {
