@@ -17,8 +17,9 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-14 21:00",
-    title: "Tidier performance stats",
+    title: "No more floor fighting, tidier performance stats",
     notes: [
+      "No more fighting on the floor: after a takedown or a slam the bot stays on its feet, steps back and lets the other one get up, instead of kneeling over it to punch.",
       "Performance stats now start as just the FPS counter. Tap it to open the full panel.",
     ],
   },
@@ -50,7 +51,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: "2026-10-14 21:00",
     title: "Living home screens, MMA fighting, maker makeovers (part 2)",
     notes: [
-      "Takedowns: bots shoot double legs, trip each other from the clinch and lift and slam from a body lock. On top, they drop punches before the other bot scrambles back up.",
+      "Takedowns: bots shoot double legs, trip each other from the clinch and lift and slam from a body lock.",
       "Bots defend against it too: they sprawl on shots, push off out of the clinch, and the referee breaks up a clinch that goes quiet.",
       "Bots also shove each other. A bot that is off balance, or caught standing on one leg mid-kick, goes over. Takedowns now show on the results screen.",
       "Pressure fighters and heavy, planted builds like to wrestle; out-fighters would rather keep it standing. Your coach calls change how much your bot grapples too.",
