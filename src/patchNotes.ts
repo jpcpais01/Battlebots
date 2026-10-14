@@ -17,12 +17,21 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-14 21:00',
-    title: 'Clearer fight intros, a happy ride home',
+    title: 'Living home screens, MMA fighting, maker makeovers',
     notes: [
       'Save your favourite fights: tap Save replay on the results, then watch them again any time from Replays on the home screen. You can keep 30, and they follow your account to other devices.',
       'Replays saved before a game update still play, marked as an older version, since the bots may not fight it out exactly the same way.',
+      'The home screen comes alive: your robot now kicks back on a sun lounger at a tropical beach, sipping from a coconut, or trains on the heavy bag in a boxing gym. Pick the place (or the arena, as before) with the new scene button at the top.',
+      'Hit Fight on the beach and the phone rings: your bot takes the call, tosses the coconut, flips its shades up and gets to its feet, ready to fight. In the gym it lands one last huge punch on the bag, then walks to the arena door and pushes it open into the light. Tap the screen to skip.',
+      'All gear has been rebuilt so each maker looks like itself: Ironhorse is riveted steel with headlamps, radiator grilles, exhaust stacks, dozer blades and rubber tracks; Lumen is seamless and smooth with smoked glass and single light lines; Longwei is sharp and sturdy with carbon panels, glass sensor bands and a lidar crown; Martelli is classic heavy armour with brass trim, a plumed helm, a muscle cuirass and a V-twin on the back; Kensei keeps its lacquered samurai plate with gold crests; Strix is a faceted stealth jet with a gold canopy, intakes and tail fins.',
+      "Each maker's power core now glows its own colour: diesel orange, Lumen white, Longwei cyan, Martelli gold, Kensei crimson and Strix green.",
+      'Fights are now MMA, not just kickboxing. Bots tie each other up in a clinch, fight for the underhooks, drive knees up from the plum and walk each other onto the ropes.',
+      'Takedowns: bots shoot double legs, trip each other from the clinch and lift and slam from a body lock. On top, they drop punches before the other bot scrambles back up.',
+      'Bots defend against it too: they sprawl on shots, push off out of the clinch, and the referee breaks up a clinch that goes quiet.',
+      'Bots also shove each other. A bot that is off balance, or caught standing on one leg mid-kick, goes over. Takedowns now show on the results screen.',
+      'Pressure fighters and heavy, planted builds like to wrestle; out-fighters would rather keep it standing. Your coach calls change how much your bot grapples too.',
       'Metal pieces flying off a bot now land with a heavy, dull clunk instead of a light, sparkly ting.',
-      'Vapour jets from damaged joints now blow every 3 to 7 seconds instead of every second or two, and each burst is a random size, from a short puff up to the full blast.',
+      'Vapour jets from damaged joints now only start on parts that are nearly wrecked (below 20%), blow every 3 to 7 seconds instead of every second or two, and each burst is a random size, from a short puff up to the full blast. The vapour is also a touch more see-through.',
       'After every knockout the loser gets carried off on a hover stretcher. It swoops in from the tunnel, a lift beam floats the loser aboard, and then the loser perks right up for the camera with one of five bits: a peace sign, double thumbs up, a wave to the crowd, a lie-back with its hands behind its head, or some disco pointing. Then it flies off over the ropes and out the tunnel.',
       'If the loser was torn apart, every piece that came off flies onto the stretcher too, even the ones that landed in the stands.',
       'The results come up once the stretcher has gone. Tap Skip to see them straight away.',

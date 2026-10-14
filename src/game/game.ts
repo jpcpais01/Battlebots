@@ -31,16 +31,19 @@ import { contactAO } from '../render/ao';
 import { house } from '../render/house';
 import { warnNonFinite } from '../render/finite';
 import { Garage } from '../render/garage';
+import { HomeStage, type HomeSceneId } from '../render/home/homeStage';
 import { PartThumbs } from '../render/partPreview';
 import { walkOnFor } from '../audio/walkOn';
 import { ENTRY, hatchXZ } from '../sim/entrance';
 
 /** Where the 3D scene is: the fight arena (home, fights) or the workshop (garage). */
-export type Place = 'arena' | 'garage';
+export type Place = 'arena' | 'garage' | 'home';
 
 export interface GameCallbacks {
   onMatchEvent?: (type: string, data: unknown) => void;
   onFrame?: (dt: number) => void;
+  /** The animated home scene broke and the home screen fell back to the arena. */
+  onHomeFailed?: () => void;
   /**
    * A replay seek started (`done` false: the match may be replaced by a fresh one) or
    * landed (`done` true, on the match now showing).
@@ -113,7 +116,7 @@ function oilLeak(part: number, cond: number) {
 }
 
 /** A part's hinge starts blowing high-pressure vapour below this condition. */
-const VENT_BELOW = 0.3;
+const VENT_BELOW = 0.2;
 type Radius = 'upper' | 'fore' | 'thigh' | 'shin';
 /**
  * The hinge each part vents from: joint a (t = 0) on the segment toward b, which the jet
@@ -227,6 +230,12 @@ export class Game {
   /** Parts torn off during a seek, put on the models once it lands. */
   private seekTears: DetachInfo[] = [];
   private garage: Garage | null = null;
+  /** The animated home screen places (beach, gym), built on first use. */
+  private home: HomeStage | null = null;
+  /** A home scene failed: the home screen stays in the arena from now on. */
+  homeBroken = false;
+  /** The robot the home and garage show (kept for the home scenes' own actor). */
+  private shownSpec: BotSpec | null = null;
   private _thumbs: PartThumbs | null = null;
   place: Place = 'arena';
   private onLift = { name: '', power: 0, paint: DEFAULT_PAINT };
@@ -304,10 +313,15 @@ export class Game {
   }
 
   // ----------------------------------------------------------------- places
-  /** Switch the world between the arena and the workshop. The workshop is built on first use. */
+  /**
+   * Switch the world between the arena, the workshop and the home screen's places (beach,
+   * gym). The workshop and the places are built on first use.
+   */
   setPlace(p: Place) {
     if (p === this.place) return;
+    const was = this.place;
     this.place = p;
+    if (was === 'home') this.home?.exit();
     const inGarage = p === 'garage';
     if (inGarage && !this.garage) {
       this.garage = new Garage(this.stage.quality);
@@ -316,14 +330,70 @@ export class Game {
       this.probe.tag(this.garage.group, 'venue');
       this.garage.setBot(this.onLift.name, this.onLift.power, this.onLift.paint.accent);
     }
-    this.arena.group.visible = !inGarage;
-    this.arena.venue.group.visible = !inGarage;
-    this.drones.group.visible = !inGarage;
+    const inArena = p === 'arena';
+    this.arena.group.visible = inArena;
+    this.arena.venue.group.visible = inArena;
+    this.drones.group.visible = inArena;
+    if (this.showcase) this.showcase.model.root.visible = p !== 'home';
     if (inGarage) this.garage!.enter(this.stage);
     else {
       this.garage?.exit();
       this.stage.applyLook(this.stage.arenaLook);
     }
+    if (p === 'home') {
+      try {
+        const h = this.homeStage();
+        h.setBot(this.shownSpec);
+        h.enter();
+      } catch (e) {
+        this.homeFailed(e);
+      }
+    }
+  }
+
+  private homeStage() {
+    if (!this.home) {
+      this.home = new HomeStage(this.stage, this.fx, () => this.sfx, (o, part) => this.probe.tag(o, part));
+      this.stage.scene.add(this.home.group);
+    }
+    return this.home;
+  }
+
+  /** Which place the home screen shows (it switches straight away if it's showing). */
+  homeScene(id: HomeSceneId) {
+    try {
+      this.homeStage().use(id);
+    } catch (e) {
+      this.homeFailed(e);
+    }
+  }
+
+  /** The Fight button on an animated home: play the way out, then `done` (at the cut to the arena). */
+  homeOutro(done: () => void) {
+    if (this.place !== 'home' || !this.home) return done();
+    this.home.outro(done);
+  }
+
+  /** Cut the way out short (a tap). */
+  homeSkip() {
+    this.home?.skip();
+  }
+
+  get homeLeaving() {
+    return this.place === 'home' && !!this.home?.leaving;
+  }
+
+  /** A home scene threw: stay in the arena (the home screen still works there). */
+  private homeFailed(e: unknown) {
+    console.error('home scene failed', e);
+    this.homeBroken = true;
+    // mid-way out: go on to the fight
+    if (this.home?.leaving) this.home.skip();
+    if (this.place !== 'home') return;
+    this.setPlace('arena');
+    this.director.mode = 'menu';
+    this.director.snap();
+    this.cb.onHomeFailed?.();
   }
 
   /** Tell the workshop who is on the lift (desk monitor, bay light colour). */
@@ -345,6 +415,14 @@ export class Game {
   // ------------------------------------------------------------- showcase
   /** Show a single bot idling in the ring (home + garage). */
   showBot(spec: BotSpec | null) {
+    this.shownSpec = spec;
+    if (this.place === 'home') {
+      try {
+        this.home?.setBot(spec);
+      } catch (e) {
+        this.homeFailed(e);
+      }
+    }
     this.sparring(false);
     if (this.showcase) {
       this.stage.scene.remove(this.showcase.model.root);
@@ -373,6 +451,7 @@ export class Game {
     const model = new BotModel(spec.loadout, spec.paint, spec.size);
     this.probe.tag(model.root, 'bots');
     this.stage.scene.add(model.root);
+    model.root.visible = this.place !== 'home';
     this.showcase = { fighter, dummy, model, show: new Showman(fighter, dummy, null), spec };
   }
 
@@ -534,6 +613,8 @@ export class Game {
 
   // ------------------------------------------------------------------ match
   startMatch(a: BotSpec, b: BotSpec, seed: number, online = false, me = 0) {
+    // fights happen in the arena
+    if (this.place === 'home') this.setPlace('arena');
     this.endMatch();
     this.showBot(null);
     const m = new Match(a, b, seed);
@@ -811,6 +892,23 @@ export class Game {
         sfx?.whoosh(false, false, 0.5);
         this.arena.excite(0.15);
         break;
+      case 'clinch':
+        // chest plates meeting
+        sfx?.thud(0.3, this.pan(data.f.body.pos[J.Chest]));
+        this.arena.excite(0.2);
+        break;
+      case 'clinchBreak':
+        sfx?.whoosh(false, false, 0.4);
+        break;
+      case 'sprawl':
+        sfx?.thud(0.45, this.pan(data.f.body.pos[J.Pelvis]));
+        this.arena.excite(0.35);
+        break;
+      case 'takedown':
+        sfx?.whoosh(true, false, 0.7);
+        this.arena.excite(0.8);
+        this.director.shake(0.2);
+        break;
       case 'step':
         sfx?.step(data.f.index);
         break;
@@ -996,7 +1094,7 @@ export class Game {
       this.steam.update(flow);
       perf.lap('bots');
     }
-    if (this.showcase) {
+    if (this.showcase && this.place !== 'home') {
       const { fighter, model, show, dummy } = this.showcase;
       const run = this.sparRun;
       this.showAcc += dt * (run ? run.slowmo : 1);
@@ -1039,7 +1137,8 @@ export class Game {
       perf.lap('bots');
     }
     // contact occlusion follows whichever robots are on screen
-    const shown = m && this.models.length === 2 ? this.models : this.showcase ? (this.spar ? [this.showcase.model, this.spar.model] : [this.showcase.model]) : [];
+    const homeModel = this.place === 'home' ? this.home?.model : null;
+    const shown = m && this.models.length === 2 ? this.models : homeModel ? [homeModel] : this.showcase ? (this.spar ? [this.showcase.model, this.spar.model] : [this.showcase.model]) : [];
     // (a robot still down in its lift shaft casts nothing on the canvas, nor one carried off)
     const away = m && this.stretcher.gone ? this.stretcher.loser : -1;
     for (let i = 0; i < 2; i++) contactAO.set(i, i === away || (m && this.arena.corners.drop(m, i) < -0.3) ? null : (shown[i]?.joints ?? null), shown[i]?.size);
@@ -1052,7 +1151,27 @@ export class Game {
     this.crowdMood.tick(dt, crowdState);
     this.crowdMood.cues.length = 0; // sounds are the audio crowd's job
     if (this.place === 'garage') this.garage!.update(dt, this.time, this.fx);
-    else {
+    else if (this.place === 'home') {
+      try {
+        this.home!.update(dt, this.time);
+        const c = this.home!.cam;
+        const d = this.director;
+        if (d.mode === 'scene') {
+          d.scenePos.copy(c.pos);
+          d.sceneLook.copy(c.look);
+          d.sceneFov = c.fov;
+          d.sceneRoll = c.roll;
+          d.sceneLambda = c.lambda;
+          if (c.cut) {
+            d.snap();
+            d.cuts++;
+          }
+        }
+        c.cut = false;
+      } catch (e) {
+        this.homeFailed(e);
+      }
+    } else {
       // the stands and crowd are hidden in the workshop, so they don't need updating there
       this.arena.venue.crowd.update(dt, this.crowdMood.excite, crowdState?.phase === 'fight' || crowdState?.phase === 'greet');
       this.arena.venue.score(dt, m && f ? { names: [f[0].name, f[1].name], hp: [f[0].hpRatio, f[1].hpRatio], clock: m.clock, phase: m.phase, presenting: m.presenting } : null);

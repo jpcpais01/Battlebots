@@ -43,6 +43,11 @@ const moveUse = new Map<string, { n: number; hit: number; blk: number; dodge: nu
 const respUse = new Map<string, number>();
 const plans = new Map<string, number>();
 const distHist = [0, 0, 0, 0, 0];
+/** Grappling: clinches, breaks, takedowns, sprawls, shoves to the floor, punches from on top. */
+const grap = new Map<string, number>();
+const tally = (k: string) => grap.set(k, (grap.get(k) ?? 0) + 1);
+let clinchSteps = 0;
+let fightSteps = 0;
 
 for (let i = 0; i < N; i++) {
   const a = randomBot(rng);
@@ -72,6 +77,14 @@ for (let i = 0; i < N; i++) {
       tornParts.set(PART_NAME[d.part], (tornParts.get(PART_NAME[d.part]) ?? 0) + 1);
     }
     if (type === 'dodgeStart') respUse.set(d.d.type, (respUse.get(d.d.type) ?? 0) + 1);
+    if (type === 'clinch') tally(d.pinned ? 'clinch(pinned)' : 'clinch');
+    if (type === 'clinchBreak') tally(d.ref ? 'break(ref)' : 'break(push)');
+    if (type === 'takedown') tally(`takedown(${d.kind})`);
+    if (type === 'takedownStuffed') tally(`stuffed(${d.kind})`);
+    if (type === 'sprawl') tally('sprawl');
+    if (type === 'knockdown' && d.move.path === 'push') tally('shoved down');
+    if (type === 'hit' && d.move.id === 'cross' && d.defender.isDown) tally('ground punch');
+    if (type === 'ko' && m.grapple) tally(`ko in grapple(${m.grapple.phase})`);
   });
   let steps = 0;
   let lastLanded = 0;
@@ -80,6 +93,10 @@ for (let i = 0; i < N; i++) {
   while (m.phase !== 'end' && steps < 140 * 120) {
     m.step(SIM_DT);
     steps++;
+    if (m.phase === 'fight') {
+      fightSteps++;
+      if (m.grapple?.live) clinchSteps++;
+    }
     if (steps % 12 === 0 && m.phase === 'fight') {
       const d = m.fighters[0].distTo(m.fighters[1]);
       distHist[Math.min(4, Math.floor(d / 0.6))]++;
@@ -141,6 +158,7 @@ console.log(`stalls(8s no hits) ${agg.stalls} nan ${agg.nan} staggers/match ${pe
 console.log('distance hist (0.6m bins):', distHist.map((x) => ((x / distHist.reduce((a, b) => a + b, 0)) * 100).toFixed(0) + '%').join(' '));
 console.log('plans:', [...plans.entries()].map(([k, v]) => `${k}:${v}`).join(' '));
 console.log('dodges:', [...respUse.entries()].map(([k, v]) => `${k}:${v}`).join(' '));
+console.log(`grappling (per match): ${[...grap.entries()].map(([k, v]) => `${k} ${per(v)}`).join(', ')} | time grappling ${((clinchSteps / fightSteps) * 100).toFixed(1)}%`);
 console.log('moves:');
 for (const [k, e] of [...moveUse.entries()].sort((a, b) => b[1].n - a[1].n)) {
   console.log(`  ${k.padEnd(12)} n=${String(e.n).padStart(5)} hit ${((e.hit / e.n) * 100).toFixed(0).padStart(3)}% blk ${((e.blk / e.n) * 100).toFixed(0).padStart(3)}% dodge ${((e.dodge / e.n) * 100).toFixed(0).padStart(3)}% whiff ${((e.whiff / e.n) * 100).toFixed(0).padStart(3)}%`);

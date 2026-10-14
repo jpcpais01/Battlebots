@@ -66,6 +66,13 @@ export class EmotePose {
   reachSide = 1;
   reachW = 0;
   readonly reach = new Vector3();
+  /**
+   * Hands holding on to the opponent (clinch grips), left and right: a world point each and
+   * how much the hand goes there. Applies whatever the pose weight (a hand can keep its
+   * grip while the body throws a knee).
+   */
+  readonly grip = [new Vector3(), new Vector3()];
+  readonly gripW = [0, 0];
 }
 
 // ------------------------------------------------------------------ authoring
@@ -1222,6 +1229,7 @@ export class Showman {
     } else if (
       m.phase === 'fight' &&
       !this.tauntedThisCount &&
+      !m.grapple &&
       opp.state === 'down' &&
       me.state === 'fight' &&
       !me.action &&

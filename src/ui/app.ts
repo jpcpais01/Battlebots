@@ -58,6 +58,19 @@ const PAINT_HINT: Record<'primary' | 'secondary' | 'accent', string> = {
 
 type ScreenId = 'home' | 'garage' | 'fight' | 'online';
 
+/** Where the home screen happens: an animated place, or the arena as before. */
+type HomePlace = 'beach' | 'gym' | 'arena';
+const HOME_PLACE_NAME: Record<HomePlace, string> = { beach: 'Beach', gym: 'Gym', arena: 'Arena' };
+function loadHomePlace(): HomePlace {
+  try {
+    const v = localStorage.getItem('bb.homeScene');
+    if (v === 'beach' || v === 'gym' || v === 'arena') return v;
+  } catch {
+    /* ignore */
+  }
+  return 'beach';
+}
+
 /** Garage camera close-ups: target x, y, z and distance per slot, and the whole-robot view. */
 const OVERVIEW: [number, number, number, number] = [0, 1.02, 0, 4.7];
 const FOCUS: Record<Slot, [number, number, number, number]> = {
@@ -112,6 +125,11 @@ export class App {
   private spin = { dragging: false, vel: 0, idle: 0 };
   private fade: HTMLElement;
   private placeTimer = 0;
+  /** Where the home screen is: an animated place (beach, gym) or the arena. */
+  private homePlace: HomePlace = loadHomePlace();
+  private sceneBtn: HTMLButtonElement | null = null;
+  /** The Fight button's cinematic way out of a home scene is playing. */
+  private leaving = false;
   private homeCard: HTMLElement | null = null;
   private homeRecord: HTMLElement | null = null;
   private soundBtns: HTMLButtonElement[] = [];
@@ -249,6 +267,11 @@ export class App {
       // (an online fight can't pause: it plays on, and this phone catches up when it's back)
       if (document.hidden && this.current === 'fight' && !this.netFight && this.game.match && this.game.match.phase !== 'end' && !this.modal) this.pause();
     });
+    game.cb.onHomeFailed = () => {
+      this.endLeaving();
+      if (this.current === 'home') this.camera('home');
+    };
+    if (this.homePlace !== 'arena') game.homeScene(this.homePlace);
     this.go('home');
     this.account.start();
   }
@@ -256,6 +279,7 @@ export class App {
   // ------------------------------------------------------------ navigation
   private go(id: ScreenId) {
     if (id !== 'garage') this.dropTrial(false);
+    this.endLeaving();
     this.current = id;
     for (const [k, s] of Object.entries(this.screens)) s.classList.toggle('show', k === id);
     if (id !== 'fight') {
@@ -276,8 +300,8 @@ export class App {
       this.focus = null;
       this.refreshGarage();
     }
-    // the garage is its own place: switching to or from it dips through black
-    const place: Place = id === 'garage' ? 'garage' : 'arena';
+    // the garage and the home scenes are their own places: switching to or from one dips through black
+    const place: Place = id === 'garage' ? 'garage' : id === 'home' && this.sceneHome() ? 'home' : 'arena';
     clearTimeout(this.placeTimer);
     const apply = () => {
       const moved = this.game.place !== place;
@@ -296,7 +320,15 @@ export class App {
   /** Camera and ambience for a screen. */
   private camera(id: ScreenId) {
     const d = this.game.director;
-    if (id === 'home' || id === 'online') {
+    if (id === 'home' && this.game.place === 'home') {
+      // the scene runs its own camera (and its own sounds)
+      d.mode = 'scene';
+      d.shiftX = 0;
+      d.menuTurn = 0;
+      d.menuLive = false;
+      this.spin.vel = 0;
+      this.spin.idle = 0;
+    } else if (id === 'home' || id === 'online') {
       d.mode = 'menu';
       d.shiftX = 0;
       d.menuTurn = 0;
@@ -336,6 +368,9 @@ export class App {
       this.accountBtn = button('account-btn', '', () => this.accountPopup(), tr);
       this.refreshAccount();
     }
+    this.sceneBtn = button('scene-btn', '', () => this.cycleHomePlace(), tr);
+    this.sceneBtn.title = 'Home scene';
+    this.syncSceneBtn();
     this.soundBtns.push(button('icon-btn', '', () => this.toggleSound(), tr));
     const refresh = button('icon-btn', ICON.refresh, () => {
       refresh.classList.add('spinning');
@@ -373,6 +408,46 @@ export class App {
     button('btn small wide', `${ICON.replay}Replays`, () => this.replaysMenu(), sub);
     button('btn primary big', `${ICON.swords}Fight`, () => this.fight(), right);
     return s;
+  }
+
+  /** The home screen shows an animated place (unless the player picked the arena, or it broke). */
+  private sceneHome() {
+    return this.homePlace !== 'arena' && !this.game.homeBroken;
+  }
+
+  private syncSceneBtn() {
+    const b = this.sceneBtn;
+    if (!b) return;
+    b.innerHTML = `${ICON.scene}<span>${HOME_PLACE_NAME[this.homePlace]}</span>`;
+  }
+
+  /** The scene button: beach, gym, arena, round again. */
+  private cycleHomePlace() {
+    if (this.leaving) return;
+    this.tap('select');
+    const order: HomePlace[] = ['beach', 'gym', 'arena'];
+    this.homePlace = order[(order.indexOf(this.homePlace) + 1) % order.length];
+    try {
+      localStorage.setItem('bb.homeScene', this.homePlace);
+    } catch {
+      /* ignore */
+    }
+    this.syncSceneBtn();
+    // dip through black, change the place, come back up
+    this.fade.classList.add('on');
+    clearTimeout(this.placeTimer);
+    this.placeTimer = window.setTimeout(() => {
+      if (this.homePlace !== 'arena') this.game.homeScene(this.homePlace);
+      if (this.current === 'home') this.go('home');
+      else this.fade.classList.remove('on');
+    }, 170);
+  }
+
+  /** Back to normal after the way out (or if it was cut off). */
+  private endLeaving() {
+    if (!this.leaving) return;
+    this.leaving = false;
+    this.screens?.home?.classList.remove('leaving');
   }
 
   private refreshHome() {
@@ -1086,6 +1161,11 @@ export class App {
     let lastT = 0;
     canvas.addEventListener('pointerdown', (e) => {
       if (this.current === 'fight') return;
+      // a tap during the way out to the arena skips to the fight
+      if (this.leaving) {
+        this.game.homeSkip();
+        return;
+      }
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       this.spin.dragging = true;
       this.spin.vel = 0;
@@ -1140,7 +1220,7 @@ export class App {
   private homeTick(dt: number) {
     const s = this.spin;
     const d = this.game.director;
-    if (s.dragging || !d.menuLive) return;
+    if (s.dragging || !d.menuLive || this.leaving) return;
     d.menuTurn += this.flingStep(dt);
     if (s.idle < 3.5) return;
     // the short way home: whole turns don't count
@@ -1178,8 +1258,33 @@ export class App {
       this.go('online');
       return;
     }
+    if (this.leaving) return;
     this.tap('start');
     void enterLandscape();
+    if (this.current === 'home' && this.game.place === 'home') {
+      // the robot gets the call (or throws the last punch), then a cut to the arena
+      this.leaving = true;
+      this.screens.home.classList.add('leaving');
+      const d = this.game.director;
+      d.menuTurn = 0;
+      d.menuLive = false;
+      this.spin.vel = 0;
+      this.spin.dragging = false;
+      this.game.homeOutro(() => {
+        if (!this.leaving) return;
+        this.fade.classList.add('white', 'on');
+        window.setTimeout(() => {
+          if (!this.leaving) return this.fade.classList.remove('white', 'on');
+          this.startFight(sameOpponent);
+          window.setTimeout(() => this.fade.classList.remove('white'), 900);
+        }, 280);
+      });
+      return;
+    }
+    this.startFight(sameOpponent);
+  }
+
+  private startFight(sameOpponent: boolean) {
     this.closeResults();
     if (!sameOpponent || !this.opponent) this.opponent = this.makeOpponent();
     const seed = (Math.random() * 2 ** 32) >>> 0;
@@ -1717,6 +1822,7 @@ export class App {
         ${row('Blocks', a.stats.blocked, b.stats.blocked)}
         ${row('Dodges', a.stats.dodged, b.stats.dodged)}
         ${row('Knockdowns', a.stats.knockdowns, b.stats.knockdowns)}
+        ${a.stats.takedowns + b.stats.takedowns ? row('Takedowns', a.stats.takedowns, b.stats.takedowns) : ''}
         ${row('Best shot', a.stats.biggest ? `${Math.round(a.stats.biggest)}` : '–', b.stats.biggest ? `${Math.round(b.stats.biggest)}` : '–')}
       </div>`;
     const actions = el('div', 'actions', '', card);

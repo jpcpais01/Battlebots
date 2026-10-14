@@ -180,7 +180,7 @@ void main() {
   float d = texture2D(uTex, vTile + clamp(vUv, 0.0, 1.0) * 0.5).r;
   // thin vapour burns off first: the cloud frays into wisps as it ages
   float e = vAge * vAge * 0.6;
-  float a = smoothstep(e, e + 0.3, d) * vA;
+  float a = smoothstep(e, e + 0.3, d) * vA * 0.85;
   if (a < 0.004) discard;
   // lit from the rig above, shadowed underneath; dense parts scatter more light
   float lit = clamp(vShade * 0.75 + d * 0.45, 0.0, 1.0);

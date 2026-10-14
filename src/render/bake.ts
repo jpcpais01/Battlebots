@@ -14,6 +14,21 @@ export type Surfaces = Record<OpaqueKey, Surface>;
 
 export const surf = (hex: number, metal: number, rough: number): Surface => ({ color: new THREE.Color(hex), metal, rough });
 
+/**
+ * The makers' own materials, the same whatever the paint job: diesel brass and raw steel,
+ * smoked glass, rubber hose and tread, carbon fibre and anodised aluminium.
+ */
+export function makerSurfaces() {
+  return {
+    brass: surf(0xc99a3e, 1, 0.24),
+    glass: surf(0x0a0e14, 0.6, 0.06),
+    rubber: surf(0x141516, 0, 0.88),
+    steel: surf(0x737a83, 0.88, 0.4),
+    carbon: surf(0x1e2128, 0.35, 0.34),
+    alu: surf(0xc5cbd3, 0.9, 0.26),
+  };
+}
+
 const _v = new THREE.Vector3();
 /** Index offsets that swap the 2nd and 3rd corner of each triangle (winding flip). */
 export const FLIP = [0, 1, -1];

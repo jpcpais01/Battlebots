@@ -151,6 +151,19 @@ export class CrowdMood {
         this.bump(0.2);
         this.cue('ooh', 0.45, 0.05);
         break;
+      case 'takedown':
+        // off their feet: the house is up before the body lands
+        this.excite = Math.max(this.excite, 0.8);
+        this.cue('ooh', 0.75, 0);
+        break;
+      case 'clinch':
+        this.bump(0.08);
+        break;
+      case 'sprawl':
+      case 'takedownStuffed':
+        this.bump(0.15);
+        this.cue('ooh', 0.4, 0.05);
+        break;
       case 'dodge':
         this.bump(0.04);
         if (Math.random() < 0.15) this.cue('ooh', 0.22, 0.05, 3);

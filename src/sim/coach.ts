@@ -53,6 +53,8 @@ export interface CoachFx {
   block: number;
   feet: number;
   trade: number;
+  /** Added to the urge to clinch and shoot for takedowns (and to stay busy in the clinch). */
+  grab: number;
 }
 
 export const NO_COACH: CoachFx = {
@@ -71,6 +73,7 @@ export const NO_COACH: CoachFx = {
   block: 1,
   feet: 1,
   trade: 1,
+  grab: 0,
 };
 
 export const COACH_FX: Record<CoachKind, CoachFx> = {
@@ -88,6 +91,7 @@ export const COACH_FX: Record<CoachKind, CoachFx> = {
     meet: 0.5,
     commit: 0.8,
     trade: 1.2,
+    grab: 0.3,
   },
   // All in!!! Non-stop: right back in after every combination, longer combinations, trades
   allIn: {
@@ -105,6 +109,7 @@ export const COACH_FX: Record<CoachKind, CoachFx> = {
     block: 0.8,
     feet: 0.5,
     trade: 1.6,
+    grab: 0.6,
   },
   // Defend: hands up, make them come, block and move, only take what's given
   defend: {
@@ -123,6 +128,7 @@ export const COACH_FX: Record<CoachKind, CoachFx> = {
     block: 1.6,
     feet: 1.4,
     trade: 0.5,
+    grab: -0.6,
   },
   // For the head! Busier, and headhunting
   head: {
@@ -136,6 +142,7 @@ export const COACH_FX: Record<CoachKind, CoachFx> = {
     after: [0.3, 0, 0, 0],
     commit: 0.5,
     head: 14,
+    grab: -0.4,
   },
 };
 

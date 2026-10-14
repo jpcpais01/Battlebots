@@ -284,6 +284,31 @@ button:focus-visible {
 .home-btn:active {
   transform: scale(0.94);
 }
+/* the home scene picker: a glass pill with a picture and the place's name */
+.scene-btn {
+  height: 2.6em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  flex: none;
+  padding: 0 1em 0 0.8em;
+  border-radius: 999px;
+  background: rgba(12, 15, 23, 0.62);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-weight: 650;
+  font-size: 0.9em;
+  white-space: nowrap;
+  transition: transform 0.18s var(--ease);
+}
+.scene-btn svg {
+  width: 1.15em;
+  height: 1.15em;
+  flex: none;
+}
+.scene-btn:active {
+  transform: scale(0.94);
+}
 /* segmented choice: a track with the picked option lit white */
 .seg {
   display: grid;
@@ -1538,6 +1563,24 @@ button:focus-visible {
 }
 .scene-fade.on {
   opacity: 1;
+}
+/* the flash of light on the cut from a home scene to the arena */
+.scene-fade.white {
+  background: #f6f9ff;
+  transition: opacity 0.26s ease-in;
+}
+.scene-fade.white:not(.on) {
+  transition: opacity 0.75s ease-out;
+}
+/* the home screen gets out of the way while the robot heads for the arena */
+.screen.home.leaving > * {
+  opacity: 0;
+  transform: translateY(0.6em);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+.screen.home.leaving button,
+.screen.home.leaving .interactive {
+  pointer-events: none;
 }
 
 /* ------------------------------------------------------------ hud */
@@ -4670,3 +4713,13 @@ button:focus-visible {
   color: var(--orange);
 }
 
+@media (max-width: 560px) {
+  .scene-btn {
+    width: 2.6em;
+    padding: 0;
+    justify-content: center;
+  }
+  .scene-btn span {
+    display: none;
+  }
+}

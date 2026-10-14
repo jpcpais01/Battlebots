@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Rng } from '../sim/math';
-import { Baker, bakedGlowMaterial, surf, vertexPBR, type GlowKey, type Surface, type Surfaces } from './bake';
+import { Baker, bakedGlowMaterial, makerSurfaces, surf, vertexPBR, type GlowKey, type Surface, type Surfaces } from './bake';
 import { buildFist, buildFoot, buildForearm, buildHead, buildShin, buildShinGuard, buildThigh, buildToe, buildTorso, buildUpperArm, G, type PB } from './parts';
 import { RenderSettings } from './settings';
 import { contactAO } from './ao';
@@ -56,6 +56,7 @@ function spare(primary: number, secondary: number): Surfaces {
     chrome: surf(0xd9dee6, 1, 0.14),
     dark: surf(0x16191f, 0.45, 0.58),
     joint: surf(0x2b3039, 0.8, 0.38),
+    ...makerSurfaces(),
   };
 }
 const SPARES = [spare(0x7a7f87, 0x51565e), spare(0x7a7f87, 0x51565e), spare(0xff7a1a, 0x2a2f37), spare(0x2d6cdf, 0xd9dce0), spare(0xd9283e, 0x22252d)];
