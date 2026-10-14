@@ -9,8 +9,8 @@ import { RenderSettings } from './settings';
  * On every hard cut the drone nearest the new angle takes over and the one that just filmed is
  * left hanging where the camera was, from where it climbs away to its standby slot.
  *
- * Render only: nothing here touches the sim. Three draw calls for all of them (hulls, fan
- * blur discs, everything that glows), all instanced.
+ * Render only: nothing here touches the sim. Four draw calls for all of them (hulls, fan
+ * blur discs, everything that glows, red REC lights), all instanced.
  */
 
 const N = 3;
@@ -27,6 +27,11 @@ const MOTORS = [
   [-0.19, 0.012, -0.13],
 ];
 const DUCT_R = 0.072;
+/** Red recording lights (body frame + radius): a big REC dome on the nose, and the eye's tally. */
+const RECS = [
+  [0, 0.05, 0.085, 0.012],
+  [0, -0.004, 0.17, 0.0075],
+];
 
 function tint(g: THREE.BufferGeometry, hex: number, m?: THREE.Matrix4) {
   if (m) g.applyMatrix4(m);
@@ -81,6 +86,8 @@ function bodyGeometry() {
     // the eye: black glass dome in a machined bezel
     tint(new THREE.SphereGeometry(0.042, 18, 12), GLASS, at(0, -0.004, 0.13)),
     tint(ring(0.041, 0.007, 24, false), METAL, at(0, -0.004, 0.153)),
+    // bezel for the REC light on the nose
+    tint(new THREE.CylinderGeometry(0.017, 0.02, 0.012, 16), GUN, at(RECS[0][0], RECS[0][1] - 0.006, RECS[0][2], 0.5)),
     // belly thruster housing
     tint(new THREE.CylinderGeometry(0.03, 0.036, 0.016, 18), GUN, at(0, -0.042, -0.02)),
   ];
@@ -105,10 +112,9 @@ function bodyGeometry() {
  * hull seam and the duct rims, and the thruster glow underneath (the side the cameras mostly see).
  */
 function glowGeometry() {
-  const CYAN = 0x38e6ff, DEEP = 0x1a7fb8, RED = 0xff1a12;
+  const CYAN = 0x38e6ff, DEEP = 0x1a7fb8;
   const parts: THREE.BufferGeometry[] = [
     tint(ring(0.026, 0.0032, 24, false), CYAN, at(0, -0.004, 0.164)),
-    tint(new THREE.SphereGeometry(0.0075, 10, 8), RED, at(0, -0.004, 0.17)),
     // seam line where canopy meets belly
     tint(ring(1, 0.05, 40), CYAN, at(0, 0.001, 0, 0, 0, 0, 0.079, 0.06, 0.166)),
     // belly thruster
@@ -173,6 +179,7 @@ export class Drones {
   private bodies: THREE.InstancedMesh;
   private rotors: THREE.InstancedMesh;
   private lights: THREE.InstancedMesh;
+  private recs: THREE.InstancedMesh;
   private drones: Drone[] = [];
   private live = -1;
   /** The feed is a bot's eyes: the live drone is just hovering, and drawn. */
@@ -202,12 +209,18 @@ export class Drones {
       new THREE.MeshBasicMaterial({ vertexColors: true, color: new THREE.Color(1, 1, 1).multiplyScalar(RenderSettings.glow(2.2)), toneMapped: false }),
       N,
     );
-    for (const m of [this.bodies, this.rotors, this.lights]) {
+    this.recs = new THREE.InstancedMesh(
+      new THREE.SphereGeometry(1, 12, 8),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.06, 0.04).multiplyScalar(RenderSettings.glow(3)), toneMapped: false }),
+      N * RECS.length,
+    );
+    for (const m of [this.bodies, this.rotors, this.lights, this.recs]) {
       m.frustumCulled = false; // instances fly far from the base geometry's bounds
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       this.group.add(m);
     }
     for (let i = 0; i < this.lights.count; i++) this.lights.setColorAt(i, this.color.setRGB(0, 0, 0));
+    for (let i = 0; i < this.recs.count; i++) this.recs.setColorAt(i, this.color.setRGB(0, 0, 0));
     for (let i = 0; i < N; i++) {
       this.drones.push({ pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0, roll: 0, phase: i * 2.1, spin: i * 7 });
     }
@@ -309,6 +322,7 @@ export class Drones {
         this.bodies.setMatrixAt(i, this.zero);
         for (let j = 0; j < MOTORS.length; j++) this.rotors.setMatrixAt(i * MOTORS.length + j, this.zero);
         this.lights.setMatrixAt(i, this.zero);
+        for (let j = 0; j < RECS.length; j++) this.recs.setMatrixAt(i * RECS.length + j, this.zero);
         continue;
       }
       const want = Math.atan2(focus.x - d.pos.x, focus.z - d.pos.z);
@@ -339,10 +353,21 @@ export class Drones {
       const glow = 0.78 + 0.16 * Math.sin(t * 2.2 + d.phase) + effort * (0.25 + 0.1 * Math.sin(t * 31 + d.phase));
       this.lights.setMatrixAt(i, body);
       this.lights.setColorAt(i, this.color.setScalar(glow));
+      // REC: on most of each second, a short blink off, like a camera that's rolling
+      const rec = (t + d.phase * 0.31) % 1 < 0.72 ? 1 : 0.05;
+      this.color.setScalar(rec);
+      for (let j = 0; j < RECS.length; j++) {
+        const [x, y, z, r] = RECS[j];
+        local.makeScale(r, r, r).setPosition(x, y, z);
+        this.recs.setMatrixAt(i * RECS.length + j, local.premultiply(body));
+        this.recs.setColorAt(i * RECS.length + j, this.color);
+      }
     }
     this.bodies.instanceMatrix.needsUpdate = true;
     this.rotors.instanceMatrix.needsUpdate = true;
     this.lights.instanceMatrix.needsUpdate = true;
     this.lights.instanceColor!.needsUpdate = true;
+    this.recs.instanceMatrix.needsUpdate = true;
+    this.recs.instanceColor!.needsUpdate = true;
   }
 }
