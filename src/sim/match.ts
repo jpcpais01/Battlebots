@@ -603,6 +603,9 @@ export class Match {
     if (counter) dmg *= 1.2 + att.passive('retaliate');
     dmg *= 1 + att.rage * att.passive('rage');
     dmg *= 1 + att.heat * att.passive('furnace');
+    // a diesel engine pulls harder once it's warm
+    const torque = att.passive('torque');
+    if (torque > 0) dmg *= 1 + torque * Math.min(1, this.fightTime / 30);
     if (s.poised) {
       dmg *= 1 + att.passive('iaido');
       s.poised = false;

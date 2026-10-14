@@ -1,4 +1,4 @@
-import { ITEM_BY_ID, SLOTS, capRarity, sanitizeSize } from '../game/items';
+import { ITEM_BY_ID, SLOTS, capRarity, currentItemId, sanitizeSize } from '../game/items';
 import { DEFAULT_PLAYER, type BotSpec } from '../game/loadout';
 import { sanitizePaint } from '../game/paint';
 import { EMOTE_KIND, MAX_PICKS, type EmoteKind } from '../sim/emote';
@@ -42,8 +42,10 @@ export function sanitizeBot(raw: unknown): BotSpec {
   out.size = sanitizeSize(p.size);
   for (const slot of SLOTS) {
     const e = p.loadout?.[slot];
-    const item = e && typeof e.id === 'string' && ITEM_BY_ID.get(e.id);
-    if (item && item.slot === slot && Number.isInteger(e.rarity) && e.rarity >= 0 && e.rarity <= 4) out.loadout[slot] = { id: e.id, rarity: capRarity(e.rarity) };
+    // parts from before the maker rework move over to the part that replaced them
+    const id = e && typeof e.id === 'string' ? currentItemId(e.id) : undefined;
+    const item = id && ITEM_BY_ID.get(id);
+    if (e && item && item.slot === slot && Number.isInteger(e.rarity) && e.rarity >= 0 && e.rarity <= 4) out.loadout[slot] = { id: item.id, rarity: capRarity(e.rarity) };
   }
   const em = (p.emotes && typeof p.emotes === 'object' ? p.emotes : {}) as Partial<Record<EmoteKind, unknown>>;
   const picks = (kind: EmoteKind) => {

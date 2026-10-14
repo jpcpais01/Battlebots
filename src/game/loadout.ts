@@ -1,5 +1,5 @@
 import { Rng } from '../sim/math';
-import { COMPANIES, MAX_RARITY, SIZE_MAX, SIZE_MIN, SLOTS, capRarity, sanitizeSize, itemsForSlot, type Loadout, type Rarity } from './items';
+import { COMPANIES, COMPANY_BY_ID, MAX_RARITY, SIZE_MAX, SIZE_MIN, SLOTS, capRarity, sanitizeSize, itemsForSlot, type Loadout, type Rarity } from './items';
 import type { EmotePicks } from '../sim/emote';
 import { DEFAULT_PAINT, SCHEMES, samePaint, type Paint } from './paint';
 
@@ -25,11 +25,13 @@ export function rollRarity(rng: Rng, tier = 0.35): Rarity {
 
 export function randomLoadout(rng: Rng, tier = 0.35): Loadout {
   const out: Partial<Loadout> = {};
-  // about half of all bots are loyal to one maker and wear mostly its parts (often enough for a set bonus)
-  const fan = rng.chance(0.45) ? rng.pick(COMPANIES).id : null;
+  // about half of all bots are loyal to one maker and wear mostly its parts (often enough for a set
+  // bonus). A diesel fan goes all the way, since diesel parts only run on a full diesel bot; nobody
+  // else bolts a lone diesel part on.
+  const fan = rng.chance(0.45) ? rng.pick(COMPANIES) : null;
   for (const slot of SLOTS) {
-    const all = itemsForSlot(slot);
-    const theirs = fan && rng.chance(0.75) ? all.filter((it) => it.maker === fan) : [];
+    const all = itemsForSlot(slot).filter((it) => !COMPANY_BY_ID.get(it.maker)!.needsFull);
+    const theirs = fan && (fan.needsFull || rng.chance(0.75)) ? itemsForSlot(slot).filter((it) => it.maker === fan.id) : [];
     const item = rng.pick(theirs.length ? theirs : all);
     out[slot] = { id: item.id, rarity: rollRarity(rng, tier) };
   }
@@ -66,11 +68,11 @@ export const DEFAULT_PLAYER: BotSpec = {
   paint: { ...DEFAULT_PAINT },
   size: 1,
   loadout: {
-    head: { id: 'sentinel', rarity: capRarity(1) },
-    fist: { id: 'brawler', rarity: capRarity(1) },
-    core: { id: 'fusion', rarity: capRarity(1) },
-    chest: { id: 'plated', rarity: capRarity(1) },
-    legs: { id: 'strider', rarity: capRarity(1) },
-    kick: { id: 'whip', rarity: capRarity(1) },
+    head: { id: 'tianyan', rarity: capRarity(1) },
+    fist: { id: 'colosseo', rarity: capRarity(1) },
+    core: { id: 'cell', rarity: capRarity(1) },
+    chest: { id: 'greatwall', rarity: capRarity(1) },
+    legs: { id: 'longma', rarity: capRarity(1) },
+    kick: { id: 'afterburner', rarity: capRarity(1) },
   },
 };
