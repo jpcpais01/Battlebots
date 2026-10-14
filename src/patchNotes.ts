@@ -17,8 +17,10 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-14 21:00',
-    title: 'MMA fighting, maker makeovers, a happy ride home',
+    title: 'Living home screens, MMA fighting, maker makeovers',
     notes: [
+      'The home screen comes alive: your robot now kicks back on a sun lounger at a tropical beach, sipping from a coconut, or trains on the heavy bag in a boxing gym. Pick the place (or the arena, as before) with the new scene button at the top.',
+      'Hit Fight on the beach and the phone rings: your bot takes the call, tosses the coconut, flips its shades up and gets to its feet, ready to fight. In the gym it lands one last huge punch on the bag, then walks to the arena door and pushes it open into the light. Tap the screen to skip.',
       'All gear has been rebuilt so each maker looks like itself: Ironhorse is riveted steel with headlamps, radiator grilles, exhaust stacks, dozer blades and rubber tracks; Lumen is seamless and smooth with smoked glass and single light lines; Longwei is sharp and sturdy with carbon panels, glass sensor bands and a lidar crown; Martelli is classic heavy armour with brass trim, a plumed helm, a muscle cuirass and a V-twin on the back; Kensei keeps its lacquered samurai plate with gold crests; Strix is a faceted stealth jet with a gold canopy, intakes and tail fins.',
       "Each maker's power core now glows its own colour: diesel orange, Lumen white, Longwei cyan, Martelli gold, Kensei crimson and Strix green.",
       'Fights are now MMA, not just kickboxing. Bots tie each other up in a clinch, fight for the underhooks, drive knees up from the plum and walk each other onto the ropes.',

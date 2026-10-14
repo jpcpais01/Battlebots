@@ -362,6 +362,8 @@ export class BotModel {
   readonly anchors: (THREE.Vector3 | null)[] = Array.from({ length: 16 }, () => null);
   private sockets = 0;
   private oilNext = SOCKET_SLOTS;
+  /** Brightens the accent and core lights (the home scenes flare them when the robot gets the call). */
+  glowBoost = 1;
 
   constructor(loadout: Loadout, paint: Paint, size = 1) {
     this.loadout = loadout;
@@ -723,9 +725,9 @@ export class BotModel {
     }
     // overdrive: glow runs hot
     const od = f.overdrive > 0 ? 0.5 + 0.5 * Math.sin(time * 14) : 0;
-    this.cols[CH_GLOW].copy(this.baseGlow).lerp(_hotScaled(), od * 0.6);
+    this.cols[CH_GLOW].copy(this.baseGlow).lerp(_hotScaled(), od * 0.6).multiplyScalar(this.glowBoost);
     const pulse = 1 + Math.sin(time * 3 + f.index) * 0.15 + (f.shockTime > 0 ? 1.5 : 0);
-    this.cols[CH_CORE].copy(this.baseCore).multiplyScalar(f.state === 'ko' ? 0.15 : pulse);
+    this.cols[CH_CORE].copy(this.baseCore).multiplyScalar((f.state === 'ko' ? 0.15 : pulse) * this.glowBoost);
     // mythic items shimmer
     for (let i = 0; i < SLOTS.length; i++) {
       if (this.loadout[SLOTS[i]].rarity === 4) {
