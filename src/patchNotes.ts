@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-14 20:00',
     title: 'A new ring, heavier hits, arena light show',
     notes: [
+      'Damage flying off a bot is now real wreckage: jagged shards of torn armour, curled strips, nuts, bolts and washers at true size. They burst off hard with the blow, the freshly torn ones glowing orange and trailing sparks and smoke as they cool, then clatter and skid across the canvas and stay there, piling up as the fight wears on.',
       'The camera drones got a sci-fi makeover: sleek pearl-white hulls with a big glass eye, four glowing ducted fans instead of propellers, and cyan thrusters underneath that flare up when they race between shots.',
       'Vapour jets look far better: a hard streak of pressure blasts out of the joint and breaks into lumpy, lit clouds that curl upward and fray into wisps.',
       'Better pyro: flame cannons now fire a roaring jet that blooms into a churning fireball, throws off embers and leaves a cloud of smoke, and the spark fountains spray streaking white-hot sparks that crackle out as they fall. The cannons and fountains now sit on the arena floor where you can see them.',
