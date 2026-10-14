@@ -6,7 +6,7 @@ import { contactAO } from '../ao';
 import type { LightLook, Quality } from '../stage';
 import type { MoveId, Zone } from '../../sim/moves';
 import { pose } from './puppet';
-import { box, canvas, glowAt, hash, put, putS, ramp, seg, smooth, texture, type HomeScene, type SceneKit } from './scene';
+import { box, canvas, dataTexture, fbm, glowAt, hash, normalTexture, put, putS, ramp, seg, shaftMaterial, smooth, texture, type HomeScene, type SceneKit } from './scene';
 
 /** The room: x across, z from the lockers to the arena door, h the ceiling. */
 const ROOM = { x0: -6, x1: 6, z0: -4.5, z1: 5.5, h: 4.2 };
@@ -155,6 +155,147 @@ function brickTexture() {
     g.fillRect(x - r, y - r, r * 2, r * 2);
   }
   return texture(c, true);
+}
+
+/** The bricks' relief (same layout as brickTexture): mortar sunk between them, pitted faces. */
+function brickNormalTexture() {
+  const W = 1024, H = 512, bw = 128, bh = 32, m = 4;
+  const pit = fbm(256, 32, 2, 11);
+  const h = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) {
+    const r = Math.floor(y / bh), off = r % 2 ? bw / 2 : 0, yy = y - r * bh;
+    for (let x = 0; x < W; x++) {
+      const xx = (((x - off) % bw) + bw) % bw;
+      const e = Math.min(xx - m / 2, bw - m / 2 - xx, yy - m / 2, bh - m / 2 - yy);
+      const brick = e < 0 ? 0 : Math.min(1, 0.55 + e * 0.15);
+      h[y * W + x] = brick + pit[(y % 256) * 256 + (x % 256)] * (brick > 0 ? 0.25 : 0.08);
+    }
+  }
+  return normalTexture(h, W, H, 2.2);
+}
+
+/** Polished concrete: glossy where it's been worn smooth, duller in patches. */
+function concreteRoughTexture() {
+  const n = 256;
+  const a = fbm(n, 4, 5, 12), b = fbm(n, 16, 3, 13);
+  return dataTexture(n, n, (i, px) => {
+    px[i * 4 + 1] = (0.32 + 0.45 * a[i] + 0.15 * b[i]) * 255;
+  });
+}
+
+/** The view out of the high windows: a bright hazy sky over the city's rooftops. */
+function windowViewTexture() {
+  const W = 1024, H = 256;
+  const { c, g } = canvas(W, H);
+  const sky = g.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#d6e8ff');
+  sky.addColorStop(0.65, '#fff4e2');
+  sky.addColorStop(1, '#ffe7c4');
+  g.fillStyle = sky;
+  g.fillRect(0, 0, W, H);
+  const sun = g.createRadialGradient(W * 0.3, H * 0.35, 0, W * 0.3, H * 0.35, 260);
+  sun.addColorStop(0, 'rgba(255,255,255,0.9)');
+  sun.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = sun;
+  g.fillRect(0, 0, W, H);
+  // two rows of rooftops, the far one lost in the haze, water towers and a crane
+  for (const [col, base, tall, seed] of [['#b9c3cc', 0.72, 0.4, 1], ['#8e9aa6', 0.86, 0.3, 2]] as const) {
+    g.fillStyle = col;
+    let x = 0;
+    for (let i = 0; x < W; i++) {
+      const w = 40 + hash(i * 3.1 + seed) * 90, top = H * (base - hash(i * 7.3 + seed * 5) * tall);
+      g.fillRect(x, top, w + 1, H - top);
+      if (hash(i * 11 + seed) > 0.75) {
+        g.fillRect(x + w * 0.3, top - 26, 22, 18);
+        g.fillRect(x + w * 0.3 + 4, top - 8, 3, 8);
+        g.fillRect(x + w * 0.3 + 15, top - 8, 3, 8);
+      }
+      x += w;
+    }
+  }
+  g.strokeStyle = '#a3afba';
+  g.lineWidth = 3;
+  g.beginPath();
+  g.moveTo(760, H * 0.75);
+  g.lineTo(760, H * 0.12);
+  g.lineTo(940, H * 0.12);
+  g.moveTo(700, H * 0.12);
+  g.lineTo(760, H * 0.12);
+  g.stroke();
+  // grime on the glass
+  for (let i = 0; i < 60; i++) {
+    g.fillStyle = `rgba(120,110,90,${0.04 + hash(i) * 0.06})`;
+    g.fillRect(hash(i * 2.3) * W, hash(i * 4.1) * H * 0.5, 2 + hash(i * 6.7) * 4, 30 + hash(i * 8.9) * 90);
+  }
+  return texture(c);
+}
+
+/** A neon tube sign on a transparent ground. */
+function neonTexture() {
+  const { c, g } = canvas(1024, 256);
+  g.clearRect(0, 0, 1024, 256);
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = 'italic 700 150px "Russo One", sans-serif';
+  g.lineJoin = 'round';
+  for (const [blur, width, col] of [[40, 16, 'rgba(255,40,110,0.55)'], [14, 9, 'rgba(255,90,150,0.9)'], [0, 4, '#ffe6f0']] as const) {
+    g.shadowColor = 'rgba(255,40,110,1)';
+    g.shadowBlur = blur;
+    g.strokeStyle = col;
+    g.lineWidth = width;
+    g.strokeText('TRAIN HARD', 512, 132);
+  }
+  return texture(c);
+}
+
+/** A soft round glow (for light thrown on a wall). */
+function glowSpotTexture() {
+  const { c, g } = canvas(128, 128);
+  const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gr.addColorStop(0, 'rgba(255,255,255,1)');
+  gr.addColorStop(0.4, 'rgba(255,255,255,0.35)');
+  gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 128, 128);
+  return texture(c, false, false);
+}
+
+/** A championship banner. */
+function bannerTexture(kind: number) {
+  const { c, g } = canvas(256, 512);
+  g.fillStyle = kind ? '#1c3478' : '#7c1a1a';
+  g.fillRect(0, 0, 256, 512);
+  g.fillStyle = '#d8ac4c';
+  g.fillRect(0, 0, 256, 14);
+  g.fillRect(12, 24, 232, 4);
+  g.fillRect(12, 440, 232, 4);
+  // the swallowtail is cut by the mesh's alpha: paint it clear here
+  g.globalCompositeOperation = 'destination-out';
+  g.beginPath();
+  g.moveTo(0, 512);
+  g.lineTo(128, 452);
+  g.lineTo(256, 512);
+  g.fill();
+  g.globalCompositeOperation = 'source-over';
+  g.textAlign = 'center';
+  g.fillStyle = '#f2d27a';
+  g.font = '700 40px "Russo One", sans-serif';
+  g.fillText(kind ? 'HEAVY' : 'IRON', 128, 120);
+  g.fillText(kind ? 'WEIGHT' : 'LEAGUE', 128, 168);
+  g.font = '600 30px Rajdhani, sans-serif';
+  g.fillText('CHAMPIONS', 128, 230);
+  g.font = '700 64px "Russo One", sans-serif';
+  g.fillText(kind ? '2025' : '2026', 128, 330);
+  for (let i = 0; i < 3; i++) {
+    const x = 78 + i * 50, y = 392;
+    g.beginPath();
+    for (let k = 0; k < 10; k++) {
+      const a = (k / 10) * Math.PI * 2 - Math.PI / 2, r = k % 2 ? 7 : 16;
+      g.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+    }
+    g.fill();
+  }
+  return texture(c);
 }
 
 function concreteTexture() {
@@ -405,7 +546,7 @@ export class Gym implements HomeScene {
   private blast: THREE.MeshBasicMaterial;
   private leak: THREE.MeshBasicMaterial;
   private spill: THREE.MeshBasicMaterial;
-  private rays: THREE.MeshBasicMaterial;
+  private rays: THREE.ShaderMaterial;
   private sign: THREE.MeshBasicMaterial;
   private doorLight: THREE.PointLight;
   private motes: THREE.Points;
@@ -431,6 +572,15 @@ export class Gym implements HomeScene {
   private doorT = 0;
   private shake = 0;
   private bagC = new THREE.Vector3();
+  /** Shader clock for the light shafts. */
+  private time = { value: 0 };
+  private fans: THREE.Object3D[] = [];
+  private banners: THREE.Object3D[] = [];
+  private neon: THREE.MeshBasicMaterial;
+  private neonWash: THREE.MeshBasicMaterial;
+  private tvCtx: CanvasRenderingContext2D;
+  private tvTex: THREE.CanvasTexture;
+  private tvAt = -1;
 
   constructor(renderer: THREE.WebGLRenderer, quality: Quality) {
     const g = this.group;
@@ -439,7 +589,7 @@ export class Gym implements HomeScene {
 
     // ------------------------------------------------------------ walls, floor, ceiling
     const brick = brickTexture();
-    const wallMat = new THREE.MeshStandardMaterial({ map: brick, roughness: 0.9, metalness: 0, color: 0xc9bdb2 });
+    const wallMat = new THREE.MeshStandardMaterial({ map: brick, normalMap: brickNormalTexture(), roughness: 0.9, metalness: 0, color: 0xc9bdb2 });
     const walls = new THREE.Group();
     const BW = 1.84, BH = 1.2;
     const add = (geo: THREE.BufferGeometry, x: number, y: number, z: number, ry: number) => {
@@ -464,7 +614,7 @@ export class Gym implements HomeScene {
     floorGeo.translate((x0 + x1) / 2, 0, (z0 + z1) / 2);
     const floor = new THREE.Mesh(
       floorGeo,
-      contactAO.patch(new THREE.MeshStandardMaterial({ map: concreteTexture(), roughness: 0.82, metalness: 0 }), { spheres: true, strength: 1.5, direct: 0.6 }),
+      contactAO.patch(new THREE.MeshStandardMaterial({ map: concreteTexture(), roughnessMap: concreteRoughTexture(), roughness: 1, metalness: 0 }), { spheres: true, strength: 1.5, direct: 0.6 }),
     );
     floor.receiveShadow = true;
     g.add(floor);
@@ -490,6 +640,7 @@ export class Gym implements HomeScene {
     this.lockers(far);
     this.odds(far);
     this.doorFrame(far);
+    this.extras(far);
     const { opaque, emissive } = far.build();
     if (opaque) {
       const m = new THREE.Mesh(opaque, contactAO.patch(vertexPBR(new THREE.MeshStandardMaterial(), 'gym-props'), { spheres: true, ground: { y: 0, height: 0.3, k: 0.4 }, direct: 0.5 }));
@@ -589,7 +740,7 @@ export class Gym implements HomeScene {
       sp.setIndex([0, 1, 2, 1, 3, 2]);
     }
     g.add(new THREE.Mesh(sp, this.spill));
-    this.rays = new THREE.MeshBasicMaterial({ map: fade, color: glow(0xfff1d6, 1), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+    this.rays = shaftMaterial(glow(0xfff1d6, 1), 0, true, this.time);
     for (let i = 0; i < 3; i++) {
       const ray = new THREE.Mesh(new THREE.PlaneGeometry(DOOR.w * (0.7 + i * 0.25), 5), this.rays);
       ray.position.set(DOOR.x + (i - 1) * 0.3, DOOR.h * 0.55 - 0.3 * i, z1 - 2.4);
@@ -601,7 +752,7 @@ export class Gym implements HomeScene {
     g.add(this.doorLight);
 
     // ------------------------------------------------------------ windows: light shafts and dust
-    const beams = new THREE.MeshBasicMaterial({ map: fade, color: glow(0xffe8c4, 1), transparent: true, opacity: quality === 'low' ? 0.06 : 0.1, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+    const beams = shaftMaterial(glow(0xffe8c4, 1), quality === 'low' ? 0.08 : 0.14, true, this.time);
     const patch = new THREE.MeshBasicMaterial({ map: windowPatchTexture(), color: glow(0xffe2b4, 1), transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
     const sun = new THREE.Vector3(-1, -0.78, 0.22).normalize();
     const moteN = quality === 'low' ? 80 : 220;
@@ -639,7 +790,7 @@ export class Gym implements HomeScene {
     g.add(this.motes);
 
     // ------------------------------------------------------------ hanging lamps and their light
-    const cone = new THREE.MeshBasicMaterial({ map: fade, color: glow(0xffd9a0, 1), transparent: true, opacity: 0.06, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+    const cone = shaftMaterial(glow(0xffd9a0, 1), 0.08, false, this.time);
     for (const [lx, lz] of LAMPS) {
       const c = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 1.25, 2.7, 20, 1, true), cone);
       c.position.set(lx, 2.88 - 1.35, lz);
@@ -681,6 +832,78 @@ export class Gym implements HomeScene {
     this.bag.add(this.chain);
     this.bag.position.set(0, HANG_Y, BAG_D);
     g.add(this.bag);
+
+    // ------------------------------------------------------------ the view out of the windows
+    const view = windowViewTexture();
+    WINDOWS.forEach((wz, i) => {
+      const t = view.clone();
+      t.repeat.x = 0.34;
+      t.offset.x = i * 0.31;
+      t.needsUpdate = true;
+      const w = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.1), new THREE.MeshBasicMaterial({ map: t, color: glow(0xffffff, 1.7), toneMapped: false }));
+      w.position.set(x1 - 0.035, 2.95, wz);
+      w.rotation.y = -Math.PI / 2;
+      g.add(w);
+    });
+
+    // ------------------------------------------------------------ the neon over the lockers, washing the bricks pink
+    this.neon = new THREE.MeshBasicMaterial({ map: neonTexture(), color: glow(0xffffff, 2.2), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+    const neon = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 0.575), this.neon);
+    neon.position.set(2.7, 2.6, z0 + 0.06);
+    g.add(neon);
+    this.neonWash = new THREE.MeshBasicMaterial({ map: glowSpotTexture(), color: new THREE.Color(0xff3c86), transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+    const wash = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 2.2), this.neonWash);
+    wash.position.set(2.7, 2.55, z0 + 0.03);
+    g.add(wash);
+
+    // ------------------------------------------------------------ the TV on the wall, showing a fight
+    const tv = canvas(256, 144);
+    this.tvCtx = tv.g;
+    this.tvTex = texture(tv.c);
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.96, 0.54), new THREE.MeshBasicMaterial({ map: this.tvTex, color: glow(0xffffff, 1.3), toneMapped: false }));
+    screen.position.set(-1.6, 2.45, z0 + 0.085);
+    g.add(screen);
+
+    // ------------------------------------------------------------ ceiling fans turning slowly
+    const fb = new Baker();
+    seg(fb, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -0.42, 0), 0.02, 0.02, S.iron, 6);
+    put(fb, G.cyl(0.11, 0.13, 0.14, 16), 0, -0.48, 0, S.iron);
+    put(fb, G.sphere(0.05, 10, 6), 0, -0.56, 0, S.chrome);
+    const fanBody = fb.build().opaque!;
+    for (let k = 0; k < 5; k++) {
+      const a = (k / 5) * Math.PI * 2;
+      box(fb, 0.62, 0.012, 0.15, Math.cos(a) * 0.42, -0.5, -Math.sin(a) * 0.42, S.wood, 0, a, 0.06);
+      box(fb, 0.12, 0.02, 0.03, Math.cos(a) * 0.14, -0.49, -Math.sin(a) * 0.14, S.iron, 0, a, 0);
+    }
+    const fanBlades = fb.build().opaque!;
+    const fanMat = vertexPBR(new THREE.MeshStandardMaterial(), 'gym-props');
+    for (const [fx, fz] of FANS) {
+      const f = new THREE.Group();
+      f.position.set(fx, h, fz);
+      f.add(new THREE.Mesh(fanBody, fanMat));
+      const blades = new THREE.Mesh(fanBlades, fanMat);
+      blades.castShadow = true;
+      f.add(blades);
+      this.fans.push(blades);
+      g.add(f);
+    }
+
+    // ------------------------------------------------------------ championship banners hanging from a beam
+    [0, 1].forEach((kind) => {
+      const x = kind ? -4.0 : -1.2;
+      const hang = new THREE.Group();
+      hang.position.set(x, h - 0.36, -2.5);
+      const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 1.24), new THREE.MeshStandardMaterial({ map: bannerTexture(kind), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.85 }));
+      cloth.position.y = -0.66;
+      cloth.castShadow = true;
+      hang.add(cloth);
+      const pb = new Baker();
+      seg(pb, new THREE.Vector3(-0.36, -0.03, 0), new THREE.Vector3(0.36, -0.03, 0), 0.012, 0.012, S.gold, 6);
+      for (const s of [-1, 1]) seg(pb, new THREE.Vector3(s * 0.3, -0.03, 0), new THREE.Vector3(0, 0.03, 0), 0.004, 0.004, S.iron, 4);
+      hang.add(new THREE.Mesh(pb.build().opaque!, fanMat));
+      this.banners.push(hang);
+      g.add(hang);
+    });
 
     // ------------------------------------------------------------ reflections: this room
     const envScene = new THREE.Scene();
@@ -747,9 +970,7 @@ export class Gym implements HomeScene {
       seg(b, new THREE.Vector3(x, h, -3.6), new THREE.Vector3(x, h - 0.3, -3.6), 0.012, 0.012, S.iron, 5);
     }
     // windows high in the right wall
-    const sky = glow(0xdcebff, 1.8);
     for (const wz of WINDOWS) {
-      glowAt(b, G.box(0.01, 1.1, 1.5), x1 - 0.03, 2.95, wz, sky);
       box(b, 0.08, 1.22, 0.06, x1 - 0.06, 2.95, wz - 0.78, S.iron);
       box(b, 0.08, 1.22, 0.06, x1 - 0.06, 2.95, wz + 0.78, S.iron);
       box(b, 0.08, 0.06, 1.62, x1 - 0.06, 3.53, wz, S.iron);
@@ -962,6 +1183,134 @@ export class Gym implements HomeScene {
     box(b, 1.0, 0.3, 0.06, DOOR.x, DOOR.h + 0.36, z - 0.01, S.black);
     // hazard stripes on the floor in front of it
     for (let k = 0; k < 9; k++) box(b, 0.12, 0.004, 0.1, l + 0.1 + k * 0.215, 0.003, ROOM.z1 - 0.62, k % 2 ? S.black : S.yellow, 0, 0.5, 0);
+  }
+
+  /** Battle ropes, plyo boxes, a training dummy, trophies, pipes and the small stuff. */
+  private extras(b: Baker) {
+    const V = THREE.Vector3;
+    const { x0, x1, z0, h } = ROOM;
+    // battle ropes from an anchor on the left wall, snaking across the floor
+    box(b, 0.1, 0.3, 0.24, x0 + 0.07, 0.2, 0.45, S.iron);
+    for (const s of [-1, 1]) {
+      let prev = new V(x0 + 0.14, 0.22, 0.45 + s * 0.05);
+      for (let i = 1; i <= 22; i++) {
+        const u = i / 22;
+        const cur = new V(x0 + 0.14 + u * 3.0, 0.03 + 0.19 * (1 - smooth(u * 5)), 0.45 + s * (0.05 + u * 0.32) + Math.sin(u * 9 + s) * 0.16 * u);
+        seg(b, prev, cur, 0.028, 0.028, i > 19 ? S.yellow : S.black, 7);
+        prev = cur;
+      }
+    }
+    // plyo boxes under the shelf
+    box(b, 0.75, 0.6, 0.5, 0.1, 0.3, z0 + 0.62, S.wood, 0, 0.05, 0, 0.02);
+    box(b, 0.6, 0.45, 0.45, 0.12, 0.825, z0 + 0.6, S.woodDark, 0, -0.25, 0, 0.02);
+    // a training dummy by the ring
+    const dx = 1.15, dz = 4.35;
+    put(b, G.cyl(0.32, 0.36, 0.3, 18), dx, 0.15, dz, S.black);
+    put(b, G.cyl(0.07, 0.08, 0.7, 10), dx, 0.65, dz, S.iron);
+    putS(b, G.sphere(1, 16, 12), dx, 1.22, dz, S.dark, 0.24, 0.32, 0.16);
+    putS(b, G.sphere(1, 12, 8), dx, 1.5, dz, S.dark, 0.3, 0.09, 0.16);
+    put(b, G.sphere(0.13, 14, 10), dx, 1.72, dz, S.dark);
+    box(b, 0.14, 0.03, 0.02, dx, 1.74, dz - 0.125, S.black);
+    // trophies over the chalkboard
+    box(b, 1.3, 0.04, 0.24, -3.0, 2.3, z0 + 0.13, S.woodDark);
+    for (let k = 0; k < 3; k++) {
+      const x = -3.4 + k * 0.4, t = 1 + (k === 1 ? 0.35 : 0);
+      box(b, 0.12, 0.06, 0.12, x, 2.35, z0 + 0.14, S.black);
+      put(b, G.cyl(0.015, 0.02, 0.08 * t, 8), x, 2.42 + 0.02 * t, z0 + 0.14, S.gold);
+      put(b, G.cyl(0.07 * t, 0.035, 0.13 * t, 14), x, 2.5 + 0.08 * t, z0 + 0.14, S.gold);
+      for (const s of [-1, 1]) put(b, G.torus(0.035 * t, 0.007, 5, 10, Math.PI), x + s * 0.07 * t, 2.53 + 0.08 * t, z0 + 0.14, S.gold, 0, 0, s > 0 ? -Math.PI / 2 : Math.PI / 2);
+    }
+    // the TV's case and bracket
+    box(b, 1.04, 0.62, 0.06, -1.6, 2.45, z0 + 0.05, S.black, 0, 0, 0, 0.01);
+    // pipes and conduit up the corner and along the wall
+    seg(b, new V(x1 - 0.12, 0, z0 + 0.12), new V(x1 - 0.12, h, z0 + 0.12), 0.05, 0.05, S.duct, 10);
+    seg(b, new V(x0, 3.35, z0 + 0.1), new V(x1, 3.35, z0 + 0.1), 0.03, 0.03, S.iron, 8);
+    for (let x = -5; x <= 5; x += 2) box(b, 0.04, 0.09, 0.06, x, 3.35, z0 + 0.07, S.iron);
+    // exit sign, fire extinguisher
+    box(b, 0.44, 0.17, 0.06, -4.6, 2.85, z0 + 0.04, S.plastic);
+    glowAt(b, G.box(0.38, 0.12, 0.01), -4.6, 2.85, z0 + 0.075, glow(0x34ff7a, 2.2));
+    const fx = x0 + 0.13, fz = 4.6;
+    put(b, G.cyl(0.08, 0.08, 0.48, 14), fx, 0.36, fz, S.padRed);
+    putS(b, G.sphere(0.08, 14, 6), fx, 0.6, fz, S.padRed, 1, 0.5, 1);
+    put(b, G.cyl(0.02, 0.025, 0.08, 8), fx, 0.66, fz, S.black);
+    seg(b, new V(fx, 0.68, fz), new V(fx + 0.1, 0.4, fz - 0.06), 0.008, 0.008, S.black, 4);
+    box(b, 0.04, 0.12, 0.2, x0 + 0.03, 0.7, fz, S.iron);
+    // bottles on the bench, a gym bag, a chalk bucket
+    for (const k of [0, 1]) put(b, G.cyl(0.035, 0.035, 0.22, 10), 3.6 + k * 0.1, 0.585, z0 + 0.62, k ? S.water : S.plastic);
+    put(b, G.cyl(0.16, 0.16, 0.62, 16), 4.65, 0.16, z0 + 0.95, S.padBlue, 0, 0.3, Math.PI / 2);
+    seg(b, new V(4.45, 0.3, z0 + 0.88), new V(4.85, 0.3, z0 + 1.02), 0.012, 0.012, S.black, 4);
+    put(b, G.cyl(0.13, 0.11, 0.24, 14), -4.2, 0.12, -1.2, S.plastic);
+    put(b, G.cyl(0.115, 0.115, 0.01, 14), -4.2, 0.23, -1.2, S.towel);
+  }
+
+  /** The TV: a fight on, live, with the ticker running underneath. */
+  private drawTv(time: number) {
+    const g = this.tvCtx;
+    const W = 256, H = 144;
+    const bg = g.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#0b1230');
+    bg.addColorStop(1, '#2a0d24');
+    g.fillStyle = bg;
+    g.fillRect(0, 0, W, H);
+    g.fillStyle = 'rgba(255,240,200,0.12)';
+    for (const x of [60, 196]) {
+      g.beginPath();
+      g.moveTo(x - 6, 0);
+      g.lineTo(x + 6, 0);
+      g.lineTo(x + 50, 112);
+      g.lineTo(x - 50, 112);
+      g.fill();
+    }
+    g.fillStyle = '#c9c2b4';
+    g.beginPath();
+    g.ellipse(128, 112, 104, 16, 0, 0, Math.PI * 2);
+    g.fill();
+    // two robots trading blows
+    const t = time * 2.4;
+    const a = Math.max(0, Math.sin(t)), b = Math.max(0, Math.sin(t + Math.PI));
+    const bot = (x: number, col: string, dir: number, reach: number) => {
+      g.fillStyle = col;
+      g.fillRect(x - 9, 74, 18, 26);
+      g.fillRect(x - 7, 100, 5, 14);
+      g.fillRect(x + 2, 100, 5, 14);
+      g.fillRect(x - 6, 61, 12, 12);
+      g.fillRect(dir > 0 ? x + 9 : x - 17 - reach * 16, 77, 8 + reach * 16, 5);
+      g.fillRect(dir > 0 ? x + 6 : x - 12, 85, 6, 5);
+      g.fillStyle = '#e8fbff';
+      g.fillRect(x + dir * 2 - 2, 65, 5, 3);
+    };
+    bot(104 + a * 6 - b * 4, '#3d7bff', 1, a);
+    bot(152 - b * 6 + a * 4, '#ff4a3a', -1, b);
+    if (a > 0.93 || b > 0.93) {
+      g.fillStyle = 'rgba(255,230,120,0.95)';
+      g.beginPath();
+      for (let k = 0; k < 12; k++) {
+        const r = k % 2 ? 4 : 11, ang = (k / 12) * Math.PI * 2;
+        g.lineTo((a > b ? 150 : 106) + Math.cos(ang) * r, 79 + Math.sin(ang) * r);
+      }
+      g.fill();
+    }
+    // health bars, the live tag and the ticker
+    const round = (time % 40) / 40;
+    g.fillStyle = '#111';
+    g.fillRect(8, 8, 100, 8);
+    g.fillRect(148, 8, 100, 8);
+    g.fillStyle = '#3dff6e';
+    g.fillRect(8, 8, 100 * (1 - round * 0.7), 8);
+    g.fillRect(148 + 100 * round * 0.55, 8, 100 * (1 - round * 0.55), 8);
+    g.fillStyle = Math.sin(time * 4) > 0 ? '#ff2a2a' : '#7a1010';
+    g.fillRect(116, 6, 24, 12);
+    g.fillStyle = '#fff';
+    g.font = 'bold 9px sans-serif';
+    g.textAlign = 'center';
+    g.fillText('LIVE', 128, 15);
+    g.fillStyle = 'rgba(0,0,0,0.75)';
+    g.fillRect(0, 126, W, 18);
+    g.fillStyle = '#ffd36b';
+    g.font = 'bold 12px sans-serif';
+    g.textAlign = 'left';
+    g.fillText('ROBO FIGHT NIGHT  •  MAIN EVENT TONIGHT  •  NEW CHAMPION CROWNED  •', W - ((time * 45) % 760), 139);
+    this.tvTex.needsUpdate = true;
   }
 
   // ------------------------------------------------------------------ playing
@@ -1309,13 +1658,25 @@ export class Gym implements HomeScene {
     this.blast.color.setHex(0xfff4e2).multiplyScalar(RenderSettings.glow(2 + o * 9));
     this.leak.color.setHex(0xfff0d0).multiplyScalar(g * (1.2 + o * 3));
     this.spill.opacity = o * 0.9;
-    this.rays.opacity = o * 0.22;
+    this.rays.uniforms.uOpacity.value = o * 0.28;
     this.doorLight.intensity = o * 45;
     this.sign.color.setHex(0xff3b2a).multiplyScalar(RenderSettings.glow(2.2));
   }
 
   /** Dust in the sunbeams, the round timer, the sign's flicker. */
   private life(dt: number, time: number) {
+    this.time.value = time;
+    this.fans.forEach((f, i) => (f.rotation.y = time * (2.2 + i * 0.35)));
+    // the banners stir in the fans' draught
+    this.banners.forEach((b, i) => (b.rotation.x = 0.035 * Math.sin(time * 0.7 + i * 1.7)));
+    // the neon stutters now and then
+    const fl = Math.sin(time * 0.37) > 0.6 && hash(Math.floor(time * 14)) > 0.85 ? 0.2 : 1;
+    this.neon.color.setScalar(RenderSettings.glow(2.2) * fl);
+    this.neonWash.opacity = 0.32 * fl;
+    if (time - this.tvAt > 1 / 12 || time < this.tvAt) {
+      this.tvAt = time;
+      this.drawTv(time);
+    }
     const p = (this.motes.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
     const b = this.moteBase;
     for (let i = 0; i < p.length; i += 3) {
@@ -1346,6 +1707,10 @@ export class Gym implements HomeScene {
 
 /** Window positions along the right wall, and the lamps. */
 const WINDOWS = [-2.6, 0.4, 3.4];
+const FANS: [number, number][] = [
+  [2.6, -1.5],
+  [-3.0, 0.8],
+];
 const LAMPS: [number, number][] = [
   [0.5, 0.55],
   [3.5, 3.3],

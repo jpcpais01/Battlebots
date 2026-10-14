@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: "2026-10-14 21:00",
     title: "No more floor fighting, tidier performance stats",
     notes: [
+      "The gym got a makeover: brick walls with real relief, a polished concrete floor that catches the light, dusty sunbeams through windows that look out over the city, a pink TRAIN HARD neon, a TV showing a fight, ceiling fans, championship banners, battle ropes, trophies and a training dummy.",
       "The beach is now a golden-hour paradise: a low sun with a glowing halo, lit clouds and lens flare, a sea that sparkles, rolls and foams over the sand, wet sand that shines, plus a pier, overwater bungalows, a lighthouse, kayaks, buoys and a crab. The first shot now looks out to sea over your bot's shoulder.",
       "The loser's stretcher ride no longer crashes the winner's celebration. The victory plays out first, then the show cuts to the loser already aboard, waving and grinning as it glides off to the tunnel.",
       "No more fighting on the floor: after a takedown or a slam the bot stays on its feet, steps back and lets the other one get up, instead of kneeling over it to punch.",
