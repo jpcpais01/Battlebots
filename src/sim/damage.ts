@@ -9,7 +9,8 @@ import { RARITIES, type Loadout, type Slot } from '../game/items';
  * plate, the lower torso, or a leg); blocked shots wear down the forearm or upper arm that
  * took them and the fist or foot that was thrown into the guard. Worn parts make the robot
  * worse at what they do, and once a limb, or the head, is badly enough damaged a strong hit
- * can tear it off. Losing the head or a leg ends the fight, and so does losing both arms.
+ * can tear it off. Losing the head ends the fight, and so does losing both arms or both legs.
+ * A robot that loses one leg fights on, hopping on the other (see Fighter.legLost).
  *
  * Overall HP is unchanged: a part's condition is its own pool, on top of it.
  * Everything here is deterministic (the match's seeded RNG decides tear-offs).
@@ -116,6 +117,7 @@ const DURABILITY = [620, 980, 720, 300, 250, 250, 300, 250, 250, 300, 220, 220, 
 /** Below this condition a strong hit can tear the part off. */
 export const LOOSE = 0.4;
 
+/** Why a robot was dismantled ('leg': both of them). */
 export type LossReason = 'head' | 'leg' | 'arms';
 
 export class Parts {
@@ -180,6 +182,12 @@ export class Parts {
     return !!this.off[legPart(side, 0)] || !!this.off[legPart(side, 1)];
   }
 
+  /** The leg torn off when only one has been (0 left, 1 right); -1 with both legs on, or both gone. */
+  lostLeg() {
+    const a = this.legOut(0), b = this.legOut(1);
+    return a === b ? -1 : a ? 0 : 1;
+  }
+
   get armsLost() {
     return (this.armOut(0) ? 1 : 0) + (this.armOut(1) ? 1 : 0);
   }
@@ -187,7 +195,7 @@ export class Parts {
   /** Why this robot can't fight on, if it can't. */
   lossReason(): LossReason | null {
     if (this.off[P.Head]) return 'head';
-    if (this.legOut(0) || this.legOut(1)) return 'leg';
+    if (this.legOut(0) && this.legOut(1)) return 'leg';
     if (this.armOut(0) && this.armOut(1)) return 'arms';
     return null;
   }
@@ -221,8 +229,10 @@ export class Parts {
     return 1 - 0.25 * DM.pow(this.legWear(side), 1.2);
   }
 
-  /** Move speed and footwork: the worse leg decides most of it. */
+  /** Move speed and footwork: the worse leg decides most of it. Hopping on one leg, it's mostly gone. */
   mobility() {
+    const lost = this.lostLeg();
+    if (lost >= 0) return 0.6 * (1 - 0.38 * DM.pow(this.legWear(1 - lost), 1.15));
     const a = this.legWear(0), b = this.legWear(1);
     const w = Math.max(a, b) * 0.65 + Math.min(a, b) * 0.35;
     return 1 - 0.38 * DM.pow(w, 1.15);

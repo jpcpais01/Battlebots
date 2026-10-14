@@ -616,7 +616,9 @@ export class Brain {
     const tie = g.tie[me.index];
     const oppHurt = 1 - this.opp.hpRatio;
     const pinned = g.pinned(this.opp);
-    const kneeUp = me.cooldownLeft('clinchKnee') <= 0 && me.stamina > 10;
+    // on one leg there's no knee to throw, and nothing to trip or lift with
+    const legs = me.legLost < 0;
+    const kneeUp = legs && me.cooldownLeft('clinchKnee') <= 0 && me.stamina > 10;
     const u = [
       // knee: best with their head pulled down in the plum
       kneeUp ? 0.7 + agg * 0.9 + Math.max(0, ctl) * (tie === 'plum' ? 1.8 : 0.8) + fx.grab * 0.5 + (fx.head ? 0.4 : 0) : -9,
@@ -627,9 +629,9 @@ export class Brain {
       // walk them back onto the ropes
       ctl > 0.1 && !pinned && me.stamina > 8 ? 0.1 + t.grappling * 0.7 + ctl * 0.8 : -9,
       // trip them
-      ctl > -0.1 && me.stamina > 12 ? -0.6 + t.grappling * 1.5 + ctl * 1.3 + oppHurt * 0.5 + fx.grab : -9,
+      legs && ctl > -0.1 && me.stamina > 12 ? -0.6 + t.grappling * 1.5 + ctl * 1.3 + oppHurt * 0.5 + fx.grab : -9,
       // lift and slam: needs a body lock and the better of it
-      tie === 'lock' && ctl > 0.3 && me.stamina > 18 ? -0.6 + t.grappling * 1.7 + ctl * 1.4 + oppHurt * 0.4 + fx.grab : -9,
+      legs && tie === 'lock' && ctl > 0.3 && me.stamina > 18 ? -0.6 + t.grappling * 1.7 + ctl * 1.4 + oppHurt * 0.4 + fx.grab : -9,
       // frame and push off
       0.1 + (1 - t.grappling) * 0.8 + Math.max(0, t.rangeBias) * 3 + Math.max(0, -ctl) * 0.8 + cau * 0.4 + this.fear * 0.5 - fx.grab,
       // lean on them and breathe (the referee is watching)
@@ -803,7 +805,7 @@ export class Brain {
     const t = this.traits;
     const agg = this.effAggression();
     // a push kick if I have one, otherwise both hands in the chest
-    const shove: MoveId | null = me.build.kickAbility === 'pushKick' && me.cooldownLeft('pushKick') <= 0 ? 'pushKick' : me.cooldownLeft('shove') <= 0 ? 'shove' : null;
+    const shove: MoveId | null = me.build.kickAbility === 'pushKick' && me.cooldownLeft('pushKick') <= 0 && me.canThrow(MOVES.pushKick) ? 'pushKick' : me.cooldownLeft('shove') <= 0 ? 'shove' : null;
     const u = [
       // commit: let the hands go
       agg * 1.2 + me.staminaRatio * 0.8 + t.pocketLove * 0.4 - this.fear + this.speedGap() * 1.5 + this.fx.commit,
@@ -1139,7 +1141,8 @@ export class Brain {
     }
     if (this.gaitMoving) me.intentVel.set(this.stepX * this.stepSpeed, 0, this.stepZ * this.stepSpeed);
     else me.intentVel.set(0, 0, 0);
-    me.bounce = lerp(me.bounce, bounce * (1 - this.tired * 0.6), 0.05);
+    // hopping on one leg, there's no bounce to the footwork
+    me.bounce = lerp(me.bounce, bounce * (1 - this.tired * 0.6) * (me.legLost >= 0 ? 0.3 : 1), 0.05);
   }
 
   /** Lateral move that mirrors the opponent to trap them against the ropes. */
@@ -1247,6 +1250,7 @@ export class Brain {
       const m = MOVES[id];
       if (me.cooldownLeft(id) > 0) continue;
       if (me.stamina < m.stamina * 0.8) continue;
+      if (!me.canThrow(m)) continue;
       if (chain && m.ability && m.kind === 'kick' && this.comboCount > 2) continue;
       if (m.kind === 'grab') {
         // a shot or a tie-up ends a combination, it doesn't start in the middle of one
@@ -1261,7 +1265,7 @@ export class Brain {
       }
     }
     // a feinted shot: drop the level, and come up with the hands
-    if (!chain && d > 1.2 && d < 2 && p.state === 'fight' && me.cooldownLeft('shoot') <= 0 && this.traits.grappling > 0.3) {
+    if (!chain && d > 1.2 && d < 2 && p.state === 'fight' && me.cooldownLeft('shoot') <= 0 && this.traits.grappling > 0.3 && me.canThrow(MOVES.shoot)) {
       const u = this.traits.feintiness * this.traits.grappling * this.feintReact.v * 30 - 6 + this.rng.gauss() * 4;
       opts.push({ id: 'shoot', zone: 'legs', u, feint: true });
     }
@@ -1480,8 +1484,8 @@ export class Brain {
     if (zone === 'head') target = P.Head;
     else if (zone === 'body') target = op.cond[P.Chest] < op.cond[P.Torso] ? P.Chest : P.Torso;
     else {
-      // go for the worse leg
-      const l = Math.min(op.cond[P.ShinL], op.cond[P.ThighL]), r = Math.min(op.cond[P.ShinR], op.cond[P.ThighR]);
+      // go for the worse leg (of the ones still on)
+      const l = op.legOut(0) ? 2 : Math.min(op.cond[P.ShinL], op.cond[P.ThighL]), r = op.legOut(1) ? 2 : Math.min(op.cond[P.ShinR], op.cond[P.ThighR]);
       target = l < r ? (op.cond[P.ShinL] < op.cond[P.ThighL] ? P.ShinL : P.ThighL) : op.cond[P.ShinR] < op.cond[P.ThighR] ? P.ShinR : P.ThighR;
     }
     v += op.wear(target) * 7 * read;
@@ -1576,7 +1580,7 @@ export class Brain {
     }
     for (const r of RESPONSES) {
       // only a shot is worth sprawling on
-      if (r === 'sprawl' && cls !== 'shoot') {
+      if (r === 'sprawl' && (cls !== 'shoot' || me.legLost >= 0)) {
         utils.push(-99);
         continue;
       }

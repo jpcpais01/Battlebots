@@ -573,9 +573,11 @@ export class Match {
       }
       if (!hit && legsMove) {
         for (let side = 0; side < 2; side++) {
+          // a torn-off leg isn't there to hit (what's left of a thigh still is)
+          if (dp.off[legPart(side, 0)]) continue;
           const h = side ? J.HipR : J.HipL, kn = side ? J.KneeR : J.KneeL, ft = side ? J.FootR : J.FootL;
           closestOnSegment(_p, db[kn], db[ft], _c);
-          const d1 = _c.distanceTo(_p);
+          const d1 = dp.off[legPart(side, 1)] ? Infinity : _c.distanceTo(_p);
           const shinT = _c.distanceTo(db[kn]) / Math.max(1e-4, db[kn].distanceTo(db[ft]));
           closestOnSegment(_p, db[h], db[kn], _c);
           const d2 = _c.distanceTo(_p);
@@ -928,6 +930,7 @@ export class Match {
     let stagger = false;
     const heavy = dmg >= 55 || crit || !!m.ability || tore >= 0;
     let fatal: LossReason | null = null;
+    let legGone = false;
     if (tore >= 0) {
       const socket = def.parts.detach(tore);
       if (socket >= 0) this.wearCheck(def, socket);
@@ -939,6 +942,11 @@ export class Match {
         def.body.addVelocity(j, _b, SIM_DT);
       }
       fatal = def.parts.lossReason();
+      // one leg gone: it goes down, then gets up and fights on, hopping on the other
+      if (!fatal && (tore === P.ThighL || tore === P.ShinL || tore === P.ThighR || tore === P.ShinR)) {
+        legGone = true;
+        def.legTorn();
+      }
       if (def.strike && def.strike.move.kind === 'punch' && def.parts.armOut(def.strike.side === 'L' ? 0 : 1)) def.finishStrike(def.strike, true, 'interrupted');
       const info: DetachInfo = { f: def, by: att, part: tore, point: point.clone(), dir: dir.clone(), strength, fatal };
       this.emit('detach', info);
@@ -951,18 +959,25 @@ export class Match {
         this.lossReason = fatal;
         this.ko(att, def, 'Dismantled');
       } else this.ko(att, def, 'KO');
-    } else if (!blocked && zone === 'legs' && m.trip && rng.chance(clamp(m.trip + att.passive('trip') * 0.5 + (def.poise < 0 ? 0.25 : 0), 0, 0.9))) {
+    } else if (legGone) {
+      // nobody counts it: it's down because it has nothing to stand on, and it needs a moment
+      knockdown = true;
+      def.knockDown(dir, 2 + kb * 0.5, false, false);
+      def.downTime = 1.6;
+      def.poise = def.maxPoise * 0.6;
+    } else if (!blocked && zone === 'legs' && m.trip && rng.chance(clamp(m.trip + att.passive('trip') * 0.5 + (def.poise < 0 ? 0.25 : 0) + (def.legLost >= 0 ? 0.3 : 0), 0, 0.9))) {
       knockdown = true;
       def.knockDown(_c.copy(dir).negate(), 1.2, false);
       def.poise = def.maxPoise * 0.6;
-    } else if (m.path === 'push' && !shielded && (def.poise <= 0 || (!!ds && ds.move.kind === 'kick' && ds.phase !== 'recovery' && rng.chance(0.7)))) {
+    } else if (m.path === 'push' && !shielded && (def.poise <= 0 || (!!ds && ds.move.kind === 'kick' && ds.phase !== 'recovery' && rng.chance(0.7)) || (def.legLost >= 0 && rng.chance(0.45)))) {
       // shoved over: off balance (or stood on one leg), and down they go. Nobody counts it.
       knockdown = true;
       def.knockDown(fallAway(def.root.x, def.root.z, _c.copy(dir), def.size), 1.6 + kb * 0.3, false);
       def.poise = def.maxPoise * 0.6;
     } else if (def.poise <= 0) {
       const recentlyRocked = this.time - def.lastStagger < 7;
-      const bigEnough = dmg >= 62 || (crit && dmg >= 40) || (recentlyRocked && dmg >= 30) || def.hpRatio < 0.15;
+      // (on one leg, a solid shot is enough)
+      const bigEnough = dmg >= (def.legLost >= 0 ? 42 : 62) || (crit && dmg >= 40) || (recentlyRocked && dmg >= 30) || def.hpRatio < 0.15;
       if (bigEnough && !blocked) {
         knockdown = true;
         def.knockDown(dir, 2.2 + kb * 0.7);
