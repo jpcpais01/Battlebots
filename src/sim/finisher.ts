@@ -907,7 +907,7 @@ export class FinisherRun {
   /**
    * The limb stops where it touched instead of carrying on inside them for the step it
    * took to notice (a fast heel covers several centimetres a step), so the impact frame,
-   * frozen by the hitstop, shows it on them.
+   * slowed right down by the hitstop, shows it on them.
    */
   private stopAt(j: number) {
     const b = this.att.body;

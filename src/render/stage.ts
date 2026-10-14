@@ -88,6 +88,10 @@ export class Stage {
   private pendingFor = 0;
   /** Field of view the director builds its lenses from; the director owns `camera.fov`. */
   baseFov = 38;
+  /** What the next frame draws once beforehand, everything shown (see warmUp). */
+  private warmRoots: THREE.Object3D[] = [];
+  private warmExtras: THREE.Object3D[] = [];
+  private overlayWarm = false;
   onResize: ((w: number, h: number) => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement, quality: Quality) {
@@ -271,7 +275,57 @@ export class Stage {
     }
   }
 
+  /**
+   * Before the next frame, draw a throwaway frame with everything under `roots` shown and nothing
+   * culled (and `extras` added to the scene just for it). Every shader, shadow-map variant, buffer
+   * and texture they can use is then built and uploaded at a quiet moment, rather than on the
+   * first spark, flash, torn-off part or stretcher of a fight, where building one stalls a frame
+   * (worst on phones). The real frame, drawn straight after, covers it.
+   */
+  warmUp(roots: THREE.Object3D[], extras: THREE.Object3D[] = []) {
+    this.warmRoots.push(...roots);
+    this.warmExtras.push(...extras);
+  }
+
+  private warmFrame() {
+    const extras = this.warmExtras.splice(0);
+    const roots = this.warmRoots.splice(0).concat(extras);
+    for (const o of extras) this.scene.add(o);
+    const shown: THREE.Object3D[] = [];
+    const culled: THREE.Object3D[] = [];
+    for (const root of roots) {
+      root.traverse((o) => {
+        // the set of lights is part of every shader: leave lights exactly as they are
+        if ((o as THREE.Light).isLight) return;
+        if (!o.visible) {
+          o.visible = true;
+          shown.push(o);
+        }
+        if (o.frustumCulled) {
+          o.frustumCulled = false;
+          culled.push(o);
+        }
+      });
+    }
+    try {
+      this.draw();
+      if (!this.overlayWarm && this.rippleOverlay) {
+        this.overlayWarm = true;
+        this.rippleOverlay.prewarm(this.renderer);
+      }
+    } finally {
+      for (const o of shown) o.visible = false;
+      for (const o of culled) o.frustumCulled = true;
+      for (const o of extras) o.removeFromParent();
+    }
+  }
+
   render() {
+    if (this.warmRoots.length || this.warmExtras.length) this.warmFrame();
+    this.draw();
+  }
+
+  private draw() {
     const size = this.renderer.getDrawingBufferSize(_size);
     const box = this.ripples.prepare(this.camera, size.x / Math.max(1, size.y));
     contactAO.renderMap(this.renderer);

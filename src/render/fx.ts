@@ -150,6 +150,8 @@ export class Fx {
       this.flames.push(m);
       this.group.add(m);
     }
+    // made up front (and shader-compiled by Stage.warmUp), so a fight's first flash costs nothing
+    for (let i = 0; i < 8; i++) this.newFlash();
   }
 
   setPixelScale(h: number) {
@@ -281,7 +283,7 @@ export class Fx {
   }
 
   dust(p: THREE.Vector3, count: number, strength = 1) {
-    const c = new THREE.Color(0x8a93a6).multiplyScalar(0.35);
+    const c = _e.set(0x8a93a6).multiplyScalar(0.35);
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2;
       const s = (0.8 + Math.random() * 1.8) * strength;
@@ -291,7 +293,7 @@ export class Fx {
   }
 
   burst(p: THREE.Vector3, color: THREE.ColorRepresentation, count = 30, speed = 3) {
-    const c = new THREE.Color(color).multiplyScalar(RenderSettings.glow(2));
+    const c = _e.set(color).multiplyScalar(RenderSettings.glow(2));
     for (let i = 0; i < count; i++) {
       _v.randomDirection().multiplyScalar(speed * (0.5 + Math.random() * 0.5));
       this.emit(p, _v.x, _v.y, _v.z, c, 0.4 + Math.random() * 0.3, 0.06, 3, 0);
@@ -300,7 +302,7 @@ export class Fx {
 
   /** Energy siphon: motes flowing from a to b. */
   siphon(a: THREE.Vector3, b: THREE.Vector3, color: THREE.ColorRepresentation) {
-    const c = new THREE.Color(color).multiplyScalar(RenderSettings.glow(2));
+    const c = _e.set(color).multiplyScalar(RenderSettings.glow(2));
     for (let i = 0; i < 12; i++) {
       _v.subVectors(b, a).multiplyScalar(1.6 + Math.random());
       _u.copy(a).add(_w.randomDirection().multiplyScalar(0.12));
@@ -308,16 +310,19 @@ export class Fx {
     }
   }
 
+  private newFlash(): Flash {
+    const sprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: this.tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }),
+    );
+    sprite.visible = false;
+    this.group.add(sprite);
+    const f = { sprite, t: 1, life: 1, size: 1 };
+    this.flashes.push(f);
+    return f;
+  }
+
   flash(p: THREE.Vector3, color: THREE.ColorRepresentation, size = 0.8, life = 0.14) {
-    let f = this.flashes.find((x) => x.t >= x.life);
-    if (!f) {
-      const sprite = new THREE.Sprite(
-        new THREE.SpriteMaterial({ map: this.tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }),
-      );
-      this.group.add(sprite);
-      f = { sprite, t: 0, life, size };
-      this.flashes.push(f);
-    }
+    const f = this.flashes.find((x) => x.t >= x.life) ?? this.newFlash();
     f.t = 0;
     f.life = life;
     f.size = size;
@@ -327,7 +332,14 @@ export class Fx {
   }
 
   arc(pos: THREE.Vector3, t = 0.4, color: THREE.ColorRepresentation = 0x9ad8ff) {
-    this.arcSources.push({ pos: pos.clone(), t, color: new THREE.Color(color) });
+    let a = this.arcSources.find((x) => x.t <= 0);
+    if (!a) {
+      a = { pos: new THREE.Vector3(), t: 0, color: new THREE.Color() };
+      this.arcSources.push(a);
+    }
+    a.pos.copy(pos);
+    a.t = t;
+    a.color.set(color);
   }
 
   /** Attach thruster flames for this frame. Call `beginFrame` first. */
@@ -351,11 +363,13 @@ export class Fx {
     this.streaks.update(dt, camera);
     this.bits.update(dt, this.fragTrail);
     // particles
+    let live = false;
     for (let i = 0; i < MAX_PARTICLES; i++) {
       if (this.pLife[i] <= 0) {
         this.pAlpha[i] = 0;
         continue;
       }
+      live = true;
       this.pLife[i] -= dt;
       const k = Math.max(0, this.pLife[i] / this.pMax[i]);
       const drag = Math.exp(-this.pDrag[i] * dt);
@@ -371,10 +385,15 @@ export class Fx {
       }
       this.pAlpha[i] = k;
     }
-    this.geo.attributes.position.needsUpdate = true;
-    this.geo.attributes.color.needsUpdate = true;
-    this.geo.attributes.size.needsUpdate = true;
-    this.geo.attributes.alpha.needsUpdate = true;
+    // nothing to upload or draw while none are alive (dead ones were given alpha 0 above, for
+    // when the next one is emitted)
+    this.points.visible = live;
+    if (live) {
+      this.geo.attributes.position.needsUpdate = true;
+      this.geo.attributes.color.needsUpdate = true;
+      this.geo.attributes.size.needsUpdate = true;
+      this.geo.attributes.alpha.needsUpdate = true;
+    }
     let anySmoke = false;
     for (let i = 0; i < MAX_SMOKE; i++) {
       if (this.sLife[i] <= 0) {
@@ -421,8 +440,8 @@ export class Fx {
     // electric arcs
     const arcPos = this.arcGeo.attributes.position as THREE.BufferAttribute;
     let n = 0;
-    this.arcSources = this.arcSources.filter((a) => (a.t -= dt) > 0);
     for (const a of this.arcSources) {
+      if (a.t <= 0 || (a.t -= dt) <= 0) continue;
       for (let b = 0; b < 4 && n < 390; b++) {
         _v.copy(a.pos);
         _w.randomDirection().multiplyScalar(0.07);
@@ -446,6 +465,7 @@ const _t = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _c = new THREE.Color();
 const _cw = new THREE.Color();
+const _e = new THREE.Color();
 const _q = new THREE.Quaternion();
 const _up = new THREE.Vector3(0, 1, 0);
 

@@ -61,7 +61,8 @@ export function octBand(profile: readonly (readonly [number, number])[]): THREE.
 }
 
 /** A flat octagon at y 0 (corner radius r), facing up, with planar UVs spanning ±uvR. */
-export function octDisc(r: number, uvR = r): THREE.BufferGeometry {
+export function octDisc(r: number, uvR = r, holes: readonly (readonly [number, number, number])[] = []): THREE.BufferGeometry {
+  if (holes.length) return octDiscWithHoles(r, uvR, holes);
   const pos = [0, 0, 0];
   const uv = [0.5, 0.5];
   const idx: number[] = [];
@@ -77,6 +78,44 @@ export function octDisc(r: number, uvR = r): THREE.BufferGeometry {
   g.setAttribute('normal', new THREE.Float32BufferAttribute(new Array(pos.length).fill(0).map((_, k) => (k % 3 === 1 ? 1 : 0)), 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx);
+  return g;
+}
+
+/**
+ * The octagon with round holes cut in it, each (x, z, radius). The holes are real geometry: a
+ * `discard` cutting them in the shader would switch off the GPU's early depth test for the whole
+ * surface, so every pixel of it under the robots would be lit and then thrown away.
+ */
+function octDiscWithHoles(r: number, uvR: number, holes: readonly (readonly [number, number, number])[]) {
+  // drawn in (x, -z), then turned flat, so the faces come out facing up
+  const shape = new THREE.Shape();
+  for (let i = 0; i < SIDES; i++) {
+    const a = cornerAngle(i);
+    if (i === 0) shape.moveTo(Math.cos(a) * r, -Math.sin(a) * r);
+    else shape.lineTo(Math.cos(a) * r, -Math.sin(a) * r);
+  }
+  shape.closePath();
+  const SEG = 64;
+  for (const [x, z, hr] of holes) {
+    // around the circle rather than inside it, so nothing of the surface pokes into the hole
+    const R = hr / Math.cos(Math.PI / SEG);
+    const hole = new THREE.Path();
+    for (let k = 0; k < SEG; k++) {
+      const a = (k / SEG) * Math.PI * 2;
+      if (k === 0) hole.moveTo(x + Math.cos(a) * R, -z - Math.sin(a) * R);
+      else hole.lineTo(x + Math.cos(a) * R, -z - Math.sin(a) * R);
+    }
+    hole.closePath();
+    shape.holes.push(hole);
+  }
+  const g = new THREE.ShapeGeometry(shape, 1).rotateX(-Math.PI / 2);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const uv = g.attributes.uv as THREE.BufferAttribute;
+  const nor = g.attributes.normal as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    uv.setXY(i, pos.getX(i) / (2 * uvR) + 0.5, -pos.getZ(i) / (2 * uvR) + 0.5);
+    nor.setXYZ(i, 0, 1, 0);
+  }
   return g;
 }
 

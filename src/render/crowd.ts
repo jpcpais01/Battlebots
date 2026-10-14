@@ -1006,6 +1006,46 @@ function paintAtlas(cw: number, ch: number): THREE.DataTexture {
   return tex;
 }
 
+/**
+ * Where each figure actually is in its cell, as bytes: left and right across the cell (0..1), and
+ * bottom and top up the sprite (0..1), grown a few texels for the mip-blurred edge. The vertex
+ * shader shrinks every fan's quad to the box of the pose it is showing, so the air round a seated
+ * fan, which was most of each quad, is never shaded. A cell with nothing in it gets an empty box.
+ */
+function figureBounds(atlas: THREE.DataTexture): THREE.DataTexture {
+  const { data, width: W, height: H } = atlas.image as { data: Uint8Array; width: number; height: number };
+  const cw = W / COLS, ch = H / POSES;
+  const pad = 5;
+  const out = new Uint8Array(COLS * POSES * 4);
+  for (let pose = 0; pose < POSES; pose++) {
+    for (let col = 0; col < COLS; col++) {
+      let x0 = cw, x1 = -1, y0 = ch, y1 = -1;
+      for (let y = 0; y < ch; y++) {
+        const row = (pose * ch + y) * W + col * cw;
+        for (let x = 0; x < cw; x++) {
+          if (!data[(row + x) * 4 + 3]) continue;
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+      }
+      if (x1 < 0) continue;
+      // canvas rows run down from the top of the cell; the sprite's height runs up from its feet
+      const left = Math.max(0, x0 - pad) / cw, right = Math.min(cw, x1 + 1 + pad) / cw;
+      const bottom = 1 - Math.min(ch, y1 + 1 + pad) / ch, top = 1 - Math.max(0, y0 - pad) / ch;
+      out.set(
+        [Math.floor(left * 255), Math.ceil(right * 255), Math.floor(bottom * 255), Math.ceil(top * 255)],
+        (pose * COLS + col) * 4,
+      );
+    }
+  }
+  const tex = new THREE.DataTexture(out, COLS, POSES, THREE.RGBAFormat);
+  tex.minFilter = tex.magFilter = THREE.NearestFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 // palettes (sRGB)
 const SKIN = ['#f3d2bd', '#e8b996', '#d29b74', '#b67b55', '#8d5a3b', '#6a412a', '#4a2c1d'];
 const HAIR = ['#14100d', '#2a1c14', '#3f2a1c', '#6b4527', '#8a5a2b', '#c49a5a', '#d8c08a', '#8d8d8d', '#e2e2e2', '#7a2a1a'];
@@ -1038,6 +1078,7 @@ const vert = /* glsl */ `
   uniform vec4 uHot[${HOT}];  // where a torn-off part came down among the fans: xyz, how wild
   uniform vec3 uSkin[7];
   uniform vec3 uPants[8];
+  uniform sampler2D uBounds; // each cell's figure box: left, right, bottom, top
   varying vec4 vUv;       // atlas uv, height up the sprite, side light across it
   varying vec3 vShirt, vHair, vSkin, vPants, vAccent;
 
@@ -1133,13 +1174,17 @@ const vert = /* glsl */ `
     vec3 right = vec3(fwd.z, 0.0, -fwd.x);
     float s = iData.x;
     float wide = empty ? 1.0 : 0.9 + 0.2 * h1(seed * 17.1);
-    vec3 p = base + right * (position.x * ${SPR_W.toFixed(2)} * s * wide + sway * position.y) + vec3(0.0, position.y * ${SPR_H.toFixed(2)} * s + lift, 0.0);
+    // the quad only spans the figure in this pose (gx across, -0.5..0.5; gy up, 0..1)
+    vec4 bb = texelFetch(uBounds, ivec2(int(iData.y + 0.5), int(pose + 0.5)), 0);
+    float gx = flip > 0.0 ? mix(bb.x, bb.y, position.x + 0.5) - 0.5 : mix(0.5 - bb.y, 0.5 - bb.x, position.x + 0.5);
+    float gy = mix(bb.z, bb.w, position.y);
+    vec3 p = base + right * (gx * ${SPR_W.toFixed(2)} * s * wide + sway * gy) + vec3(0.0, gy * ${SPR_H.toFixed(2)} * s + lift, 0.0);
 
-    float lx = position.x * flip + 0.5;
+    float lx = gx * flip + 0.5;
     // the ring is the key light: the side of each fan turned towards it is brighter
     vec2 toRing = -iPos.xz / max(1.0, length(iPos.xz));
-    float side = dot(right.xz, toRing) * position.x * 2.0;
-    vUv = vec4((iData.y + lx) / ${COLS.toFixed(1)}, (pose + 1.0 - position.y) / ${POSES.toFixed(1)}, position.y, side);
+    float side = dot(right.xz, toRing) * gx * 2.0;
+    vUv = vec4((iData.y + lx) / ${COLS.toFixed(1)}, (pose + 1.0 - gy) / ${POSES.toFixed(1)}, gy, side);
 
     // light: brighter near the ring, team colour wash from each corner, roaming spotlights
     float hgt = clamp(iPos.y / 19.0, 0.0, 1.0);
@@ -1352,6 +1397,7 @@ export class Crowd {
         THREE.UniformsLib.fog,
         {
           uAtlas: { value: null },
+          uBounds: { value: null },
           uWave: { value: 0 },
           uWaveA: { value: 0 },
           uExcite: { value: 0.15 },
@@ -1371,6 +1417,7 @@ export class Crowd {
     });
     const u = this.mat.uniforms;
     u.uAtlas.value = atlas;
+    u.uBounds.value = figureBounds(atlas);
     u.uSpots.value = this.spots;
     u.uHot.value = this.hot;
     u.uTime = uniforms.uTime;

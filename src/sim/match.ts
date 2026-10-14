@@ -17,6 +17,16 @@ import { perf } from '../perf';
 import { DM } from './dmath';
 
 export const SIM_DT = 1 / 120;
+
+/**
+ * How fast match time runs on screen while an impact's slow-down plays out: a sharp dip to a
+ * quarter speed the moment a hit lands, easing back to full speed as `left` runs out of `span`.
+ */
+export function impactPace(left: number, span: number) {
+  if (left <= 0 || span <= 0) return 1;
+  const k = Math.min(1, left / span);
+  return 1 - 0.75 * k * k;
+}
 /** Seconds on the canvas before a bot that stays down is counted out. */
 export const COUNT_OUT = 9.6;
 /** Chance a downed bot gets up on each second of the count, at full health (scales with HP). */
@@ -112,12 +122,15 @@ export class Match {
   readonly specs: [BotSpec, BotSpec];
   readonly rng: Rng;
   time = 0;
-  /** Steps taken so far (hitstop steps included): the shared clock of an online fight. */
+  /** Steps taken so far: the shared clock of an online fight. */
   frame = 0;
   phaseTime = 0;
   phase: MatchPhase = 'intro';
   clock = ROUND_TIME;
+  /** Seconds left of the current impact's slow-down (see pace). */
   hitstop = 0;
+  /** What hitstop started at for the current impact. */
+  private hitSpan = 0;
   /** Suggested slow-motion factor for the renderer's clock. */
   slowmo = 1;
   winner: Fighter | null = null;
@@ -134,7 +147,7 @@ export class Match {
   grapple: Grapple | null = null;
   private readonly grappleHost: GrappleHost = {
     emit: (t, d) => this.emit(t, d),
-    hitstop: (x) => (this.hitstop = Math.max(this.hitstop, x)),
+    hitstop: (x) => this.impact(x),
     blow: (att, def, b) => this.grappleBlow(att, def, b),
   };
   /** A knocked-down bot that will not beat the count, and who put it there. */
@@ -256,14 +269,25 @@ export class Match {
     }
   }
 
+  /** A hit lands: the clock dips for `s` seconds of match time (the longest impact wins). */
+  private impact(s: number) {
+    if (s <= this.hitstop) return;
+    this.hitstop = s;
+    this.hitSpan = s;
+  }
+
+  /** The rate the renderer should run match time at: the slow-motion, dipped by each impact. */
+  get pace() {
+    return this.slowmo * impactPace(this.hitstop, this.hitSpan);
+  }
+
   step(dt = SIM_DT) {
     if (this.frame === this.replayCut) this.skipIntro();
     if (this.coachQueue.length) this.applyCoach();
     this.frame++;
-    if (this.hitstop > 0) {
-      this.hitstop -= dt;
-      return;
-    }
+    // an impact dips the renderer's clock (pace) rather than freezing the fight, which on screen
+    // read as a stutter: the fight carries on through it in slow motion
+    if (this.hitstop > 0) this.hitstop = Math.max(0, this.hitstop - dt);
     this.time += dt;
     this.phaseTime += dt;
     for (const f of this.fighters) if (f.hooks) f.hooks.time = this.time;
@@ -663,7 +687,7 @@ export class Match {
     const body = def.body;
     _b.copy(b.dir).multiplyScalar(b.jolt);
     for (const j of [J.Chest, J.Pelvis, J.Head]) body.addVelocity(j, _b, SIM_DT);
-    this.hitstop = Math.max(this.hitstop, 0.1);
+    this.impact(0.1);
     const info: HitInfo = {
       part: b.part,
       partCond,
@@ -726,7 +750,7 @@ export class Match {
         if (t === 'detach') this.lossReason = 'head';
         this.emit(t, d);
       },
-      hitstop: (x) => (this.hitstop = Math.max(this.hitstop, x)),
+      hitstop: (x) => this.impact(x),
       wear: (f, p) => this.wearCheck(f, p),
     });
     this.fin = fin;
@@ -1010,8 +1034,8 @@ export class Match {
     s.counter = counter;
     if (!m.multi || s.sub >= (m.multi ?? 1) - 1) att.finishStrike(s);
 
-    this.hitstop = blocked ? 0.03 : clamp(0.04 + dmg * 0.0009 + (crit ? 0.03 : 0), 0.04, 0.16);
-    if (knockdown) this.hitstop = Math.max(this.hitstop, 0.12);
+    this.impact(blocked ? 0.03 : clamp(0.04 + dmg * 0.0009 + (crit ? 0.03 : 0), 0.04, 0.16));
+    if (knockdown) this.impact(0.12);
 
     const info: HitInfo = {
       part,

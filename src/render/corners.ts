@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RING_CORNER } from '../sim/body';
 import { CORNER_OF, ENTRY, entryTime, HATCH_R, hatchXZ, LIFT_DEPTH, liftDrop, liftUp } from '../sim/entrance';
 import type { Match } from '../sim/match';
@@ -9,29 +10,7 @@ import { RenderSettings } from './settings';
 /** Corner colours: the blue corner (fighter 0) and the orange corner (fighter 1). */
 export const CORNER_COLOR = [0x2ad8ff, 0xff7a2a] as const;
 
-/** The two lift hatches as (x, z, radius): every surface over a shaft is cut away inside them. */
-const HATCHES = { value: [0, 1].map((i) => new THREE.Vector3(...hatchXZ(i), HATCH_R)) };
 const SHAFT_H = LIFT_DEPTH + 0.45;
-
-/**
- * Cut the hatch holes out of a floor-level material (the canvas, the stage under it, the
- * arena floor under that), so the lift shafts can be seen into. Chains any existing patch.
- */
-export function cutHatches(mat: THREE.Material) {
-  const prev = mat.onBeforeCompile;
-  const prevKey = mat.customProgramCacheKey.bind(mat);
-  mat.onBeforeCompile = (sh, renderer) => {
-    prev.call(mat, sh, renderer);
-    sh.uniforms.uHatch = HATCHES;
-    sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec2 vHatchXZ;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHatchXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
-    sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec2 vHatchXZ;\nuniform vec3 uHatch[2];')
-      .replace(/void\s+main\s*\(\s*\)\s*\{/, (s) => `${s}\n  for (int i = 0; i < 2; i++) if (distance(vHatchXZ, uHatch[i].xy) < uHatch[i].z) discard;`);
-  };
-  mat.customProgramCacheKey = () => prevKey() + '|hatch';
-}
 
 function canvas(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void) {
   const c = document.createElement('canvas');
@@ -249,6 +228,8 @@ interface Corner {
   inZ: number;
   root: THREE.Group;
   deck: THREE.Group;
+  /** The piston under the deck: hidden under it while the deck is flush. */
+  rod: THREE.Mesh;
   deckGlow: THREE.MeshStandardMaterial;
   doors: THREE.Mesh[];
   shaft: THREE.Group;
@@ -295,6 +276,7 @@ export class Corners {
     const deckSide = new THREE.MeshStandardMaterial({ color: 0x2a2f37, metalness: 0.85, roughness: 0.35 });
     const piston = new THREE.MeshStandardMaterial({ color: 0xc8ced8, metalness: 1, roughness: 0.18 });
     const floor = new THREE.MeshStandardMaterial({ color: 0x0c0d10, metalness: 0.5, roughness: 0.6 });
+    const nozzles: THREE.BufferGeometry[] = [];
     for (let i = 0; i < 2; i++) {
       const [x, z] = hatchXZ(i);
       const d = Math.hypot(x, z);
@@ -315,6 +297,8 @@ export class Corners {
       slab.translate(0, -0.08 + 0.0015, 0);
       // the top's texture runs along local z: turn it so the chevrons point into the ring
       slab.rotateY(Math.PI / 2);
+      // no underside: nobody ever sees it, down the shaft
+      slab.groups.length = 2;
       const deckMesh = new THREE.Mesh(slab, [deckSide, top, deckSide]);
       deckMesh.receiveShadow = true;
       deck.add(deckMesh);
@@ -383,12 +367,7 @@ export class Corners {
       // CO2 cannons either side of the post, on the canvas edge
       const tx = -Math.sin(a), tz = Math.cos(a);
       const jets = [-1, 1].map((s) => new THREE.Vector3(px * 0.97 + tx * s * 0.42, 0.06, pz * 0.97 + tz * s * 0.42));
-      const nozzle = new THREE.MeshStandardMaterial({ color: 0x30353d, metalness: 0.9, roughness: 0.3 });
-      for (const j of jets) {
-        const n = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.075, 0.14, 12).translate(0, 0.07, 0), nozzle);
-        n.position.set(j.x, 0, j.z);
-        this.group.add(n);
-      }
+      for (const j of jets) nozzles.push(new THREE.CylinderGeometry(0.05, 0.075, 0.14, 12).translate(j.x, 0.07, j.z));
 
       this.corners.push({
         i,
@@ -398,6 +377,7 @@ export class Corners {
         inZ: -z / d,
         root,
         deck,
+        rod,
         deckGlow: top,
         doors,
         shaft,
@@ -412,6 +392,8 @@ export class Corners {
         flare: 0,
       });
     }
+    // all four nozzles in one draw
+    this.group.add(new THREE.Mesh(mergeGeometries(nozzles)!, new THREE.MeshStandardMaterial({ color: 0x30353d, metalness: 0.9, roughness: 0.3 })));
     this.pose(null);
   }
 
@@ -441,6 +423,7 @@ export class Corners {
       const up = done ? 1 : liftUp(t);
       c.drop = done ? 0 : liftDrop(t);
       c.deck.position.y = c.drop;
+      c.rod.visible = Math.abs(c.drop) > 0.002;
       for (let k = 0; k < 2; k++) {
         const door = c.doors[k];
         door.visible = open < 0.999;

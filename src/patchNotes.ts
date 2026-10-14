@@ -17,8 +17,12 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-14 22:00",
-    title: "A rainy night in",
+    title: "A rainy night in, and a smoother, lighter arena",
     notes: [
+      "Hits feel smooth: instead of freezing for a few frames on impact, the fight dips into a split second of slow motion and eases straight back.",
+      "No more hitch the first time a fight throws sparks, rips a part off or calls the stretcher: every effect is ready before the bell.",
+      "The arena is much lighter to run, especially on phones: the stands, crowd and ring take a fraction of the work to draw and look the same.",
+      "Glow and shockwaves cost less on phones, so big exchanges hold a steadier frame rate.",
       "New home scene, the Lounge: your bot slumps on a velvet sofa with its feet up and a steaming coffee, watching a fireplace on TV while rain runs down a big window over the city at night. Lightning flickers, a record turns, candles and fairy lights glow and a robot vacuum does its rounds. Hit Fight and the TV cuts to the news: you're up. Cue the spit-take.",
     ],
   },

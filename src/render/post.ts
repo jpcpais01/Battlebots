@@ -78,7 +78,8 @@ const COMPOSITE = /* glsl */ `
     vec2 uv = vUv;
     vec3 crest = vec3(0.0);
     vec3 c;
-    if (uRipN > 0) {
+    // the warp only runs over the screen box the live shockwaves cover
+    if (uRipN > 0 && all(greaterThan(vUv, uRipBox.xy)) && all(lessThan(vUv, uRipBox.zw))) {
       vec2 off = rippleOffset(vUv, crest);
       uv += off;
       // a touch of colour split along the bend, like light through thick glass
@@ -106,6 +107,11 @@ const pass = (fragmentShader: string, uniforms: Record<string, THREE.IUniform>, 
     // the composite is tone mapped like any material drawn to the screen; the bloom levels stay linear HDR
     toneMapped: blend === 'screen',
   });
+
+// WebGL2 attachment points (the same numbers in every context)
+const COLOR = [0x8ce0]; // COLOR_ATTACHMENT0
+const DEPTH = [0x8d00]; // DEPTH_ATTACHMENT
+const COLOR_DEPTH = [0x8ce0, 0x8d00];
 
 type Format = { format: THREE.PixelFormat; internalFormat: THREE.PixelFormatGPU | null; samples: number };
 
@@ -214,6 +220,7 @@ export class PostFX {
     const r = this.renderer;
     r.setRenderTarget(this.sceneRT);
     r.render(scene, camera);
+    this.discardSamples();
 
     // every pass below covers its whole target, so nothing needs clearing
     const autoClear = r.autoClear;
@@ -221,13 +228,13 @@ export class PostFX {
     const L = this.levels;
 
     this.prefilter.uniforms.tSrc.value = this.sceneRT.texture;
-    this.draw(this.prefilter, L[0]);
+    this.draw(this.prefilter, L[0], true);
 
     for (let i = 1; i < L.length; i++) {
       const src = L[i - 1];
       this.down.uniforms.tSrc.value = src.texture;
       (this.down.uniforms.uTexel.value as THREE.Vector2).set(1 / src.width, 1 / src.height);
-      this.draw(this.down, L[i]);
+      this.draw(this.down, L[i], true);
     }
     // back up the chain: each level gains the blurred sum of everything below it
     for (let i = L.length - 2; i >= 0; i--) {
@@ -241,10 +248,33 @@ export class PostFX {
     r.autoClear = autoClear;
   }
 
-  private draw(m: THREE.ShaderMaterial, target: THREE.WebGLRenderTarget | null) {
-    this.renderer.setRenderTarget(target);
+  /**
+   * Once the scene has been resolved (three blits the multisampled colour into the texture at the
+   * end of render), its samples and depth are never read again. Saying so lets a phone's tiled GPU
+   * drop them on the chip instead of writing them out to memory: at 4× MSAA that is several times
+   * the size of the frame itself, every frame. Desktop drivers ignore it.
+   */
+  private discardSamples() {
+    const r = this.renderer;
+    const gl = r.getContext() as WebGL2RenderingContext;
+    const props = r.properties.get(this.sceneRT) as { __webglFramebuffer?: WebGLFramebuffer; __webglMultisampledFramebuffer?: WebGLFramebuffer };
+    const ms = props.__webglMultisampledFramebuffer;
+    const fb = ms ?? props.__webglFramebuffer;
+    if (!fb) return;
+    r.state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fb);
+    gl.invalidateFramebuffer(gl.DRAW_FRAMEBUFFER, ms ? COLOR_DEPTH : DEPTH);
+  }
+
+  /** `fresh`: the pass overwrites every pixel, so the target's old contents needn't be loaded. */
+  private draw(m: THREE.ShaderMaterial, target: THREE.WebGLRenderTarget | null, fresh = false) {
+    const r = this.renderer;
+    r.setRenderTarget(target);
+    if (fresh) {
+      const gl = r.getContext() as WebGL2RenderingContext;
+      gl.invalidateFramebuffer(gl.FRAMEBUFFER, COLOR);
+    }
     this.quad.material = m;
-    this.quad.render(this.renderer);
+    this.quad.render(r);
   }
 
   dispose() {
