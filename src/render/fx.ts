@@ -188,14 +188,14 @@ export class Fx {
     }
   }
 
-  /** Bits of plating knocked loose: small dark flakes that tumble to the canvas. */
-  shrapnel(p: THREE.Vector3, dir: THREE.Vector3, count: number, speed = 3) {
-    for (let i = 0; i < count; i++) {
-      const s = speed * (0.4 + Math.random() * 0.8);
-      const g = 0.1 + Math.random() * 0.25;
-      this.emitSmoke(p, dir.x * s + (Math.random() - 0.5) * speed, dir.y * s + Math.random() * speed * 0.8, dir.z * s + (Math.random() - 0.5) * speed, g, 0.7 + Math.random() * 0.6, 0.025 + Math.random() * 0.025, 0, 1, 9, 0.6);
+  /** A hot fragment in flight sheds sparks off its torn edge and drags a thread of smoke. */
+  private fragTrail = (p: THREE.Vector3, v: THREE.Vector3, heat: number) => {
+    if (Math.random() < 0.55 * heat) {
+      _c.setRGB(1, 0.5, 0.12);
+      this.streaks.emit(p, v.x * 0.25 + (Math.random() - 0.5), v.y * 0.25 + Math.random() * 0.6, v.z * 0.25 + (Math.random() - 0.5), _c, 0.12 + Math.random() * 0.2, 0.004 + heat * 0.004);
     }
-  }
+    if (Math.random() < 0.18 * heat) this.emitSmoke(p, v.x * 0.05, 0.25, v.z * 0.05, 0.16, 0.5 + Math.random() * 0.4, 0.035, 0.5, 0.25 * heat, -0.2, 2);
+  };
 
   makeTrail(color: THREE.ColorRepresentation, width = 0.16): Trail {
     const t = new Trail(color, width);
@@ -343,7 +343,7 @@ export class Fx {
 
   update(dt: number, camera: THREE.Camera) {
     this.streaks.update(dt, camera);
-    this.bits.update(dt);
+    this.bits.update(dt, this.fragTrail);
     // particles
     for (let i = 0; i < MAX_PARTICLES; i++) {
       if (this.pLife[i] <= 0) {
