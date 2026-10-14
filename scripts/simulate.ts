@@ -32,6 +32,7 @@ const agg = {
   trips: 0,
   dismantled: 0,
   tears: 0,
+  ringOuts: 0,
 };
 const lossBy = new Map<string, number>();
 const tornParts = new Map<string, number>();
@@ -75,6 +76,7 @@ for (let i = 0; i < N; i++) {
   let steps = 0;
   let lastLanded = 0;
   let quiet = 0;
+  let ringOut = false;
   while (m.phase !== 'end' && steps < 140 * 120) {
     m.step(SIM_DT);
     steps++;
@@ -83,6 +85,7 @@ for (let i = 0; i < N; i++) {
       distHist[Math.min(4, Math.floor(d / 0.6))]++;
       for (const br of m.brains) plans.set(br.plan, (plans.get(br.plan) ?? 0) + 1);
     }
+    if (!ringOut && m.fighters.some((f) => f.body.outside[J.Pelvis])) ringOut = true;
     if (steps % 120 === 0) {
       const landed = m.fighters[0].stats.landed + m.fighters[1].stats.landed;
       if (landed === lastLanded && m.phase === 'fight') quiet++;
@@ -94,6 +97,7 @@ for (let i = 0; i < N; i++) {
       }
     }
   }
+  if (ringOut) agg.ringOuts++;
   const [fa, fb] = m.fighters;
   agg.duration += 99 - m.clock;
   if (m.result === 'KO') agg.ko++;
@@ -133,7 +137,7 @@ console.log(`avg end condition (loser / winner): ${PART_NAME.map((n, p) => `${n}
 console.log(
   `per match: thrown ${per(agg.thrown)} landed ${per(agg.landed)} (${((agg.landed / agg.thrown) * 100).toFixed(0)}%) blocked ${per(agg.blocked)} dodged ${per(agg.dodged)} whiffs ${per(agg.whiffs)} feints ${per(agg.feints)} counters ${per(agg.counters)} knockdowns ${per(agg.knockdowns)}`,
 );
-console.log(`stalls(8s no hits) ${agg.stalls} nan ${agg.nan} staggers/match ${per(agg.staggers)} trips/match ${per(agg.trips)}`);
+console.log(`stalls(8s no hits) ${agg.stalls} nan ${agg.nan} staggers/match ${per(agg.staggers)} trips/match ${per(agg.trips)} thrown out of the ring ${agg.ringOuts}`);
 console.log('distance hist (0.6m bins):', distHist.map((x) => ((x / distHist.reduce((a, b) => a + b, 0)) * 100).toFixed(0) + '%').join(' '));
 console.log('plans:', [...plans.entries()].map(([k, v]) => `${k}:${v}`).join(' '));
 console.log('dodges:', [...respUse.entries()].map(([k, v]) => `${k}:${v}`).join(' '));

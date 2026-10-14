@@ -398,7 +398,8 @@ export class Arena {
         const side = sideOf(p.x, p.z);
         const nx = SIDE_NX[side], nz = SIDE_NZ[side];
         const reach = p.x * nx + p.z * nz - ROPE_LINE;
-        if (reach + rad <= 0) continue;
+        // clear of them on the inside, or already well out past them (thrown over the top)
+        if (reach + rad <= 0 || reach - rad > 0.3) continue;
         const along = (-p.x * nz + p.z * nx + ROPE_HALF) / (2 * ROPE_HALF);
         for (let h = 0; h < nH; h++) {
           const dy = p.y - ROPE_HEIGHTS[h];

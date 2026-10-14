@@ -94,6 +94,24 @@ export const ropeGap = (x: number, z: number) => {
   const s = ropeSide(x, z);
   return ROPE_LINE - (x * SIDE_NX[s] + z * SIDE_NZ[s]);
 };
+/** Height of the top rope: below it the ropes catch a body, above it a body sails over. */
+export const ROPE_TOP = 1.35;
+/** Corner posts (with their pads and caps): radius and height. */
+const POST_R = 0.16;
+const POST_TOP = 1.76;
+/** The stage under the ring, as octagon apothems: canvas (y 0), the steel base's lip (y -0.12), then the arena floor. */
+const CANVAS_EDGE = (RING_CORNER + 0.55) * DM.cos(Math.PI / 8);
+const BASE_EDGE = (RING_CORNER + 0.75) * DM.cos(Math.PI / 8);
+const BASE_Y = -0.12;
+export const ARENA_FLOOR = -0.62;
+/** Nothing gets further from the ring than the ringside barrier (it sits further out than this all round). */
+const BARRIER = 9.2;
+/** Height of the ground at (x, z): the canvas, the stage base around it, or the arena floor off the stage. */
+export const groundAt = (x: number, z: number) => {
+  const s = ropeSide(x, z);
+  const oct = x * SIDE_NX[s] + z * SIDE_NZ[s];
+  return oct < CANVAS_EDGE ? 0 : oct < BASE_EDGE ? BASE_Y : ARENA_FLOOR;
+};
 
 const _a = new Vector3();
 const _b = new Vector3();
@@ -113,6 +131,8 @@ export class Body {
   /** 1 = fully driven by animation, 0 = ragdoll. */
   tone = 1;
   grounded = new Uint8Array(JOINT_COUNT);
+  /** Particles that have gone over the top rope and are outside the ring. */
+  readonly outside = new Uint8Array(JOINT_COUNT);
   /** Particles of torn-off parts: they no longer follow the rig or hold on to the body. */
   readonly cut = new Uint8Array(JOINT_COUNT);
   /** Collision radius of each particle (RADII scaled by the frame size). */
@@ -253,41 +273,87 @@ export class Body {
   private collideWorld() {
     for (let i = 0; i < JOINT_COUNT; i++) {
       const p = this.pos[i];
+      const q = this.prev[i];
       const r = this.radii[i];
-      if (p.y < r) {
-        p.y = r;
-        this.grounded[i] = 1;
-        // friction: bleed horizontal velocity
-        const q = this.prev[i];
-        const f = this.tone < 0.5 ? 0.35 : 0.1;
-        q.x += (p.x - q.x) * f;
-        q.z += (p.z - q.z) * f;
-      } else this.grounded[i] = 0;
-      // the ropes are elastic: they give as a body leans or is thrown into them,
-      // and spring it back in (moving pos but not prev turns the push into velocity)
       const side = ropeSide(p.x, p.z);
       const nx = SIDE_NX[side], nz = SIDE_NZ[side];
-      const pen = p.x * nx + p.z * nz - (ROPE_LINE - r);
-      if (pen > 0) {
-        let push = pen * ROPE_SPRING;
-        if (pen - push > ROPE_GIVE) push = pen - ROPE_GIVE;
-        p.x -= nx * push;
-        p.z -= nz * push;
-        // stretching rope soaks up some outward speed
-        const q = this.prev[i];
-        const vout = (p.x - q.x) * nx + (p.z - q.z) * nz;
-        if (vout > 0) {
-          q.x += nx * vout * 0.1;
-          q.z += nz * vout * 0.1;
+      const oct = p.x * nx + p.z * nz;
+      // the ground: the canvas, or off the stage the base and the arena floor
+      const g = groundAt(p.x, p.z);
+      if (p.y < g + r) {
+        if (q.y < g + r - 0.04 && groundAt(q.x, q.z) < g) {
+          // coming in from lower down: that's the side of the stage, not its top
+          const edge = g === 0 ? CANVAS_EDGE : BASE_EDGE;
+          p.x += nx * (edge + r - oct);
+          p.z += nz * (edge + r - oct);
+          q.x = p.x;
+          q.z = p.z;
+          this.grounded[i] = 0;
+        } else {
+          p.y = g + r;
+          this.grounded[i] = 1;
+          // friction: bleed horizontal velocity
+          const f = this.tone < 0.5 ? 0.35 : 0.1;
+          q.x += (p.x - q.x) * f;
+          q.z += (p.z - q.z) * f;
         }
-      }
-      // and nothing slips out past the corner posts
+      } else this.grounded[i] = 0;
+      // the ropes catch anything below the top rope, from whichever side it is on;
+      // above the top rope a body sails clean over them
+      const past = oct - ROPE_LINE;
+      const below = p.y < ROPE_TOP + r;
+      if (!this.outside[i]) {
+        if (below) {
+          // elastic: they give as a body leans or is thrown into them, and spring it
+          // back in (moving pos but not prev turns the push into velocity)
+          const pen = past + r;
+          if (pen > 0) {
+            let push = pen * ROPE_SPRING;
+            if (pen - push > ROPE_GIVE) push = pen - ROPE_GIVE;
+            p.x -= nx * push;
+            p.z -= nz * push;
+            // stretching rope soaks up some outward speed
+            const vout = (p.x - q.x) * nx + (p.z - q.z) * nz;
+            if (vout > 0) {
+              q.x += nx * vout * 0.1;
+              q.z += nz * vout * 0.1;
+            }
+          }
+        } else if (past > 0) this.outside[i] = 1;
+      } else if (below) {
+        // out of the ring: the ropes keep it out
+        const pen = r - past;
+        if (pen > 0) {
+          p.x += nx * pen;
+          p.z += nz * pen;
+          const vin = (q.x - p.x) * nx + (q.z - p.z) * nz;
+          if (vin > 0) {
+            q.x -= nx * vin * 0.5;
+            q.z -= nz * vin * 0.5;
+          }
+        }
+      } else if (past < 0) this.outside[i] = 0;
+      // and the ringside barrier stops whatever flies that far
       const d2 = p.x * p.x + p.z * p.z;
-      const lim = RING_CORNER - 0.2 - r;
-      if (d2 > lim * lim) {
-        const d = Math.sqrt(d2);
-        p.x *= lim / d;
-        p.z *= lim / d;
+      if (d2 > (BARRIER - r) * (BARRIER - r)) {
+        const k = (BARRIER - r) / Math.sqrt(d2);
+        p.x *= k;
+        p.z *= k;
+        q.x = p.x;
+        q.z = p.z;
+      }
+      // the corner posts are solid all the way up
+      if (p.y < POST_TOP + r) {
+        const c = Math.round((DM.atan2(p.z, p.x) - Math.PI / 8) / (Math.PI / 4)) * (Math.PI / 4) + Math.PI / 8;
+        const cx = p.x - DM.cos(c) * RING_CORNER, cz = p.z - DM.sin(c) * RING_CORNER;
+        const dc = Math.sqrt(cx * cx + cz * cz);
+        const lim = POST_R + r;
+        if (dc < lim) {
+          // push out the way it is already on (from the ring centre's side if it is dead on the axis)
+          const ux = dc > 1e-5 ? cx / dc : -DM.cos(c), uz = dc > 1e-5 ? cz / dc : -DM.sin(c);
+          p.x += ux * (lim - dc);
+          p.z += uz * (lim - dc);
+        }
       }
     }
   }
