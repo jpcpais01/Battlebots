@@ -16,6 +16,14 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-14 23:00",
+    title: "Fighting on one leg",
+    notes: [
+      "Losing a leg no longer ends the fight. The bot goes down, pushes itself back up on the leg it has left and fights on, hopping.",
+      "On one leg a bot moves in slow, weighty hops, sways as it keeps its balance, throws no kicks and goes over far more easily. Lose the second leg and it's dismantled.",
+    ],
+  },
+  {
     hour: "2026-10-14 22:00",
     title: "A rainy night in, and a smoother, lighter arena",
     notes: [

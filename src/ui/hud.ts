@@ -71,7 +71,7 @@ const FINISH_DELAY = 0.9;
 const FINISH_WORD: Record<FinishKind, string[]> = { KO: ['K.', 'O.'], TKO: ['T.', 'K.', 'O.'], Dismantled: ['DIS', 'MAN', 'TLED'] };
 
 /** What was lost, for the finisher's subtitle. */
-const LOSS_TEXT: Record<LossReason, string> = { head: 'Head torn off', leg: 'Leg torn off', arms: 'Both arms torn off' };
+const LOSS_TEXT: Record<LossReason, string> = { head: 'Head torn off', leg: 'Both legs torn off', arms: 'Both arms torn off' };
 
 /**
  * The x-ray condition display: a front-on schematic of the robot (its left arm on the right,
@@ -700,6 +700,8 @@ export class Hud {
         // the finishing blow also reports a knockdown, after 'ko': the finisher already covers it
         if (m.phase !== 'fight' || d.state === 'ko') break;
         if (d.knockdowns <= this.kdSeen[d.index]) {
+          // a leg torn off puts it down too: the RIPPED OFF callout already says why
+          if (h.tore >= 0) break;
           // a sweep, a shove or a takedown puts them down but doesn't count toward the TKO
           this.callout(h.move.kind === 'grab' ? 'TAKEDOWN!' : h.move.path === 'push' ? 'SHOVED DOWN!' : 'SWEPT!', 'small cyan', 900);
           break;

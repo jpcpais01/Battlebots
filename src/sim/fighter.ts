@@ -354,6 +354,8 @@ export class Fighter {
   knockdowns = 0;
   /** Condition of every body part (locational damage). */
   readonly parts: Parts;
+  /** On one leg: when the last hop landed (the next waits until it has its balance back). */
+  private hopAt = -10;
 
   // brain-controlled intent
   intentVel = new Vector3();
@@ -506,7 +508,38 @@ export class Fighter {
     return this.build.stats;
   }
   get maxPoise() {
-    return 200 * this.build.stats.stability * this.parts.balance();
+    // on one leg it takes far less to put it over
+    return 200 * this.build.stats.stability * this.parts.balance() * (this.legLost >= 0 ? 0.6 : 1);
+  }
+  /**
+   * The leg it has lost (0 left, 1 right) when it fights on hopping on the other; -1 with
+   * both legs on. (Both gone ends the fight.)
+   */
+  get legLost() {
+    return this.parts.lostLeg();
+  }
+
+  /**
+   * A leg has just come off and it fights on: the one left takes the lead (it plants under
+   * the body, and the get-ups push up off it), and the stump stops stepping.
+   */
+  legTorn() {
+    const lost = this.legLost;
+    if (lost < 0) return;
+    this.stance = lost === 0 ? 1 : -1;
+    const f = this.feet[lost];
+    f.stepping = false;
+    f.locked = true;
+    this.hopAt = this.hooksTime;
+    this.poise = Math.min(this.poise, this.maxPoise);
+  }
+
+  /** Can it throw this move at all with the limbs it has left? (Not whether it's free to now.) */
+  canThrow(move: MoveDef) {
+    // hopping on one leg: nothing to kick with, nothing to stand on to kick, no drive for a shot
+    if (this.legLost >= 0 && (move.kind === 'kick' || move.path === 'shoot')) return false;
+    if (move.kind === 'grab' && this.parts.armsLost >= 2) return false;
+    return true;
   }
   passive(id: PassiveId) {
     return this.build.passives.get(id) ?? 0;
@@ -638,7 +671,7 @@ export class Fighter {
     if (move.kind === 'punch' && this.parts.armOut(side === 'L' ? 0 : 1)) return false;
     // clinch knees only from the clinch; and nobody shoots or ties up from inside one
     if (!!move.clinch !== this.clinched && (move.clinch || move.kind === 'grab')) return false;
-    if (move.kind === 'grab' && this.parts.armsLost >= 2) return false;
+    if (!this.canThrow(move)) return false;
     let speed = this.strikeSpeed(move, side);
     let windupMul = 1;
     if (prev) {
@@ -690,7 +723,8 @@ export class Fighter {
       active: move.active / speed,
       recovery: move.recovery / speed,
       chained: !!prev,
-      lungeLeft: move.lunge * (1 + this.passive('pistonDrive')) * this.size,
+      // (hopping on one leg, it can't step in behind a shot as far)
+      lungeLeft: move.lunge * (1 + this.passive('pistonDrive')) * this.size * (this.legLost >= 0 ? 0.5 : 1),
       activeProgress: 0,
       counter: false,
     };
@@ -711,6 +745,8 @@ export class Fighter {
 
   tryDodge(type: DodgeType, dir: number): boolean {
     if (this.state !== 'fight' || this.clinched) return false;
+    // a sprawl throws both legs back
+    if (type === 'sprawl' && this.legLost >= 0) return false;
     const s = this.strike;
     if (s) {
       // Only abort a strike that is still winding up (and not by much).
@@ -727,7 +763,8 @@ export class Fighter {
     this.lastActTime = this.hooksTime;
     const fwd = this.forward(_v);
     const rt = this.right(_w);
-    const imp = 3.1 * agility;
+    // on one leg a step away is a single hop
+    const imp = 3.1 * agility * (this.legLost >= 0 ? 0.55 : 1);
     if (type === 'backstep') this.rootVel.addScaledVector(fwd, -imp);
     if (type === 'sidestep') this.rootVel.addScaledVector(rt, imp * dir);
     // the legs fly back: the hips go back with them
@@ -1006,6 +1043,8 @@ export class Fighter {
     const faceDown = _v.y < 0;
     this.getupKeys = faceDown ? GETUP_FRONT : GETUP_BACK;
     this.getupDur = faceDown ? 1.35 : 1.55;
+    // on one leg it has to push most of the way up with its hands
+    if (this.legLost >= 0) this.getupDur *= 1.3;
     // get up facing along the body: towards the head from a push-up, towards the feet
     // from sitting up. The fight turns it to the opponent once it is on its feet.
     _u.y = 0;
@@ -1115,6 +1154,17 @@ export class Fighter {
         accel *= 1.5;
       }
     }
+    const lost = this.legLost;
+    const stand = lost >= 0 ? this.feet[1 - lost] : null;
+    if (stand) {
+      // hopping: the body only really travels while the foot is off the canvas. Planted, it
+      // brakes and finds its balance before the next hop.
+      if (stand.stepping) maxSpd *= 1.5;
+      else {
+        maxSpd *= 0.35;
+        accel *= 1.5;
+      }
+    }
     if (this.state === 'stun') maxSpd *= 0.25;
     if (this.state === 'stagger') {
       maxSpd *= 0.15;
@@ -1176,6 +1226,8 @@ export class Fighter {
       if (this.state === 'win') turn = 1.5;
       if (this.state === 'held') turn = 2;
       if (this.state === 'getup') turn = this.stateTime / this.getupDur < 0.6 ? 0 : 3;
+      // one leg turns slowly, a shuffle on the ball of the foot
+      if (stand) turn *= 0.6;
       const em = this.emote;
       if (em && em.faceOn && em.w > 0.2) {
         target = em.face;
@@ -1187,11 +1239,13 @@ export class Fighter {
     // on one leg the body turns over the support foot, not round its own centre: swing it
     // round a point between the hips and that foot, and turn the foot (on its ball) with
     // it, so the legs never cross when a kick spins or follows a moving target
+    // (and hopping on one leg it is always on one leg)
     const face = this.yaw + this.spinYaw;
     const dTurn = wrapAngle(face - this.faceDone);
     this.faceDone = face;
-    if (sup && !sup.locked && !sup.stepping && dTurn !== 0 && Math.abs(dTurn) < 1) {
-      const f = sup;
+    const piv = sup ?? stand;
+    if (piv && !piv.locked && !piv.stepping && dTurn !== 0 && Math.abs(dTurn) < 1) {
+      const f = piv;
       const cx = (this.root.x + f.pos.x) * 0.5, cz = (this.root.z + f.pos.z) * 0.5;
       const c = DM.cos(dTurn), sn = DM.sin(dTurn);
       for (const p of [this.root, f.pos]) {
@@ -1228,6 +1282,9 @@ export class Fighter {
       const o = EC.FOOT + i * 7;
       out.set(sx * em.ch[o], FOOT_Y, em.ch[o + 1]);
     }
+    // one leg left: it stands under the body, not out in a stance
+    const lost = this.legLost;
+    if (lost >= 0 && i !== lost) out.set(sx * 0.07, FOOT_Y, 0.03);
     return out;
   }
 
@@ -1265,8 +1322,11 @@ export class Fighter {
           f.stepping = false;
           f.pos.copy(f.to);
           f.yaw = f.toYaw;
-          // the knees give a little as the weight lands on the new foot
-          this.stepDip = Math.max(this.stepDip, 0.008 + f.arc * 0.12);
+          // the knees give a little as the weight lands on the new foot; a hop lands
+          // the whole body into the one knee
+          const hop = this.legLost >= 0;
+          this.stepDip = Math.max(this.stepDip, hop ? 0.025 + (f.arc / this.size) * 0.35 : 0.008 + f.arc * 0.12);
+          if (hop) this.hopAt = this.hooksTime;
           this.hooks?.emit('step', { f: this, foot: i });
         }
       }
@@ -1282,9 +1342,10 @@ export class Fighter {
     let bestErr = 0;
     const vx = moving > 0.3 ? this.rootVel.x / moving : 0;
     const vz = moving > 0.3 ? this.rootVel.z / moving : 0;
+    const lost = this.legLost;
     for (let i = 0; i < 2; i++) {
       const f = this.feet[i];
-      if (f.locked || f.stepping) continue;
+      if (f.locked || f.stepping || i === lost) continue;
       this.stanceFoot(i, _p);
       this.toWorld(_p, _q, this.yaw);
       _q.addScaledVector(this.rootVel, 0.12);
@@ -1303,21 +1364,42 @@ export class Fighter {
     if (s && s.phase !== 'recovery') thresh = kick ? 0.12 : s.move.kind === 'grab' ? 0.14 : 0.45;
     if (this.sprawlK() > 0) thresh = 0.1;
     // bouncy footwork: re-plant even when settled
-    else if (this.bounce > 0.5 && moving < 0.3 && this.rng.chance(dt * 0.9 * this.bounce)) thresh = 0.02;
+    // (one-legged, that's a little balancing hop now and then)
+    else if (this.bounce > 0.5 && moving < 0.3 && this.rng.chance(dt * (lost >= 0 ? 0.25 : 0.9) * this.bounce)) thresh = 0.02;
     // emoting: set the feet exactly (a power stance, back to the stance after)
     if (!s && this.emote?.restep && moving < 0.3) thresh = Math.min(thresh, 0.07);
+    if (lost >= 0) {
+      // hopping: while it wants to go somewhere (or has been knocked off the foot) the next
+      // hop comes as soon as it has its balance back from the last one
+      const d = this.dodge;
+      if (bestErr < 0.3 && this.hooksTime - this.hopAt < 0.18) return;
+      if (d && (d.type === 'backstep' || d.type === 'sidestep')) thresh = 0.02;
+      else if (!s && this.intentVel.lengthSq() > 0.1) thresh = Math.min(thresh, 0.05);
+      else if (s) thresh = Math.min(thresh, 0.2);
+    }
     if (anyStepping && bestErr < 0.55) return;
     if (bestErr < thresh) return;
     const f = this.feet[best];
     this.stanceFoot(best, _p);
     this.toWorld(_p, _q, this.yaw);
     f.dur = clamp(0.28 / Math.sqrt(this.build.stats.agility * this.parts.mobility() * (moving > 1.2 ? 1.4 : 1)), 0.12, kick ? 0.13 : 0.34);
-    _q.addScaledVector(this.rootVel, f.dur * 0.8);
+    f.arc = (0.05 + Math.min(0.12, bestErr * 0.18)) * this.size;
+    if (lost >= 0) {
+      // a hop: unhurried, low, and landing where the body is going (it travels mostly in the air)
+      f.dur = clamp(0.32 / Math.sqrt(this.build.stats.agility), 0.27, 0.4);
+      f.arc = (0.045 + Math.min(0.04, bestErr * 0.1)) * this.size;
+      const want = this.build.stats.moveSpeed * this.parts.mobility() * 1.2;
+      _w.copy(this.intentVel);
+      const wl = _w.length();
+      if (wl > want) _w.multiplyScalar(want / wl);
+      // (thrown back by a dodge or a blow, it hops where that is taking it)
+      if (moving > Math.min(wl, want)) _w.copy(this.rootVel);
+      _q.addScaledVector(_w, f.dur * 0.8);
+    } else _q.addScaledVector(this.rootVel, f.dur * 0.8);
     f.from.copy(f.pos);
     f.to.copy(_q);
     f.to.y = FOOT_Y * this.size;
     f.t = 0;
-    f.arc = (0.05 + Math.min(0.12, bestErr * 0.18)) * this.size;
     f.fromYaw = f.yaw;
     f.toYaw = this.yaw + this.stanceFootYaw(best);
     f.stepping = true;
@@ -1507,6 +1589,20 @@ export class Fighter {
       roll += this.noise.at(t * 1.1 + 5) * 0.2;
       hd.x += this.noise.at(t * 1.7 + 9) * 0.05;
     }
+    const lost = this.legLost;
+    if (lost >= 0) {
+      // on one leg: the hips over the foot, its knee bent to soak up the weight, the trunk
+      // leaning a touch over the standing side, and never quite still as it keeps its balance
+      const sxS = lost === 0 ? 1 : -1;
+      const bal = this.noise.at(t * 0.9 + 210), bal2 = this.noise.at(t * 0.55 + 230);
+      crouch += 0.06;
+      pd.x += sxS * 0.06 + bal * 0.02;
+      pd.z += bal2 * 0.012;
+      roll += sxS * 0.05 + bal * 0.05;
+      pitch += 0.04 + bal2 * 0.03;
+      hd.x -= bal * 0.015;
+      heel[1 - lost] = Math.min(heel[1 - lost], 0.06);
+    }
     const gu = this.state === 'getup' ? this.getupPose() : null;
     if (gu) {
       pitch = lerp(pitch, gu.pitch, gu.w);
@@ -1568,6 +1664,11 @@ export class Fighter {
       const fwd = clamp(sy * dx + cy * dz, -0.4, 0.4);
       const size = Math.min(1, DM.hypot(dx, dz) / 0.3);
       const sxF = i === 0 ? -1 : 1;
+      if (lost >= 0) {
+        // a hop: the whole body goes up with the foot (the weight stays over it)
+        rise += (0.025 + 0.02 * size) * sw;
+        continue;
+      }
       pd.x -= sxF * 0.045 * sw * (0.4 + 0.6 * size);
       roll -= sxF * 0.03 * sw * size;
       rise += 0.014 * sw * size;
@@ -1707,6 +1808,11 @@ export class Fighter {
         hand.x += this.noise.at(t * 0.5 + 130) * 0.01 * paw;
         hand.y += this.noise.at(t * 0.6 + 145) * 0.012 * paw + bob * 0.35 + breath * 0.008;
       }
+      // the arm over the missing leg rides out a little, a counterweight
+      if (side === lost && fighting) {
+        hand.x += sx * 0.05;
+        hand.y -= 0.04;
+      }
       if (this.state === 'win' && !this.emote) {
         hand.set(sx * 0.38, 2.15 + DM.sin(t * 6 + side) * 0.06, 0.12);
       }
@@ -1798,13 +1904,23 @@ export class Fighter {
       const pole = _q.set(sx * 0.25, 0.1, 1);
       this.footAirT[side] = 0;
       this.footFlexT[side] = 0;
-      if (s && prog && s.move.kind === 'kick' && s.side === (side === 0 ? 'L' : 'R')) {
+      if (side === lost) {
+        // the stump: what's left of the thigh hangs a little forward, out of the way
+        foot.copy(L[hipIdx]);
+        foot.x += sx * 0.02;
+        foot.y -= 0.55;
+        foot.z += 0.3;
+        f.locked = true;
+        f.stepping = false;
+        this.toWorld(foot, f.pos);
+        this.footAirT[side] = 1;
+      } else if (s && prog && s.move.kind === 'kick' && s.side === (side === 0 ? 'L' : 'R')) {
         const flex = this.kickFoot(s, prog, foot, pole, L[hipIdx]);
         f.locked = true;
         this.toWorld(foot, f.pos);
         this.footAirT[side] = 1;
         this.footFlexT[side] = flex;
-      } else if (em && em.w * em.ch[EC.FOOT + side * 7 + 6] > 0.001) {
+      } else if (lost < 0 && em && em.w * em.ch[EC.FOOT + side * 7 + 6] > 0.001) {
         // emote footwork off the stance spot: stomps, shuffles, a knee to the canvas
         const e = em.ch, o = EC.FOOT + side * 7;
         const fw = em.w * e[o + 6];
@@ -1823,7 +1939,10 @@ export class Fighter {
         const isLead = (side === 0) === (st < 0);
         const o = isLead ? 0 : 3;
         this.stanceFoot(side, _p);
-        foot.set(sx * gu.feet[o], gu.feet[o + 1], gu.feet[o + 2]).lerp(_p, 1 - gu.w);
+        foot.set(sx * gu.feet[o], gu.feet[o + 1], gu.feet[o + 2]);
+        // one leg: it plants under the body to push up off it
+        if (lost >= 0) foot.set(foot.x * 0.6, foot.y, foot.z * 0.55);
+        foot.lerp(_p, 1 - gu.w);
         pole.set(sx * 0.2, gu.knee[isLead ? 0 : 1], 1).lerp(_w.set(sx * 0.25, 0.1, 1), 1 - gu.w);
         f.locked = true;
         f.stepping = false;
