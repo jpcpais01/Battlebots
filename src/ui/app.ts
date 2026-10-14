@@ -354,10 +354,11 @@ export class App {
   private buildGarage() {
     const s = el('div', 'screen garage');
     const top = el('div', 'garage-top', '', s);
-    button('icon-btn', ICON.back, () => {
+    const homeBtn = button('home-btn', `${ICON.back}${ICON.home}<span>Home</span>`, () => {
       this.tap('back');
       this.go(this.online.active ? 'online' : 'home');
     }, top);
+    homeBtn.title = 'Back to home';
     const id = el('div', 'garage-id', '', top);
     const nameRow = el('div', 'gname-row', '', id);
     const name = button('name', '', () => this.rename(), nameRow);
@@ -1556,7 +1557,7 @@ export class App {
       this.go('home');
       this.go('garage');
     }, actions);
-    button('btn small', ICON.back, () => {
+    button('btn small', `${ICON.home}<span>Home</span>`, () => {
       this.tap('back');
       this.closeResults();
       this.go('home');

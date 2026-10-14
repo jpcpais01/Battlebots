@@ -18,7 +18,10 @@ export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-14 20:00',
     title: 'Arena touch-ups',
-    notes: ['The arena floor around the ring is now matte black, no more shiny glare.'],
+    notes: [
+      'The back arrow in the garage and online screens is now a proper Home button with a house icon, and the results screen\'s Home button says what it does.',
+      'The arena floor around the ring is now matte black, no more shiny glare.',
+    ],
   },
   {
     hour: '2026-10-14 19:00',
