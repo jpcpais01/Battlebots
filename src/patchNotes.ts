@@ -25,7 +25,7 @@ export const PATCH_NOTES: PatchNote[] = [
       'Bots also shove each other. A bot that is off balance, or caught standing on one leg mid-kick, goes over. Takedowns now show on the results screen.',
       'Pressure fighters and heavy, planted builds like to wrestle; out-fighters would rather keep it standing. Your coach calls change how much your bot grapples too.',
       'Metal pieces flying off a bot now land with a heavy, dull clunk instead of a light, sparkly ting.',
-      'Vapour jets from damaged joints now only start on parts that are nearly wrecked (below 20%), blow every 3 to 7 seconds instead of every second or two, and each burst is a random size, from a short puff up to the full blast.',
+      'Vapour jets from damaged joints now only start on parts that are nearly wrecked (below 20%), blow every 3 to 7 seconds instead of every second or two, and each burst is a random size, from a short puff up to the full blast. The vapour is also a touch more see-through.',
       'After every knockout the loser gets carried off on a hover stretcher. It swoops in from the tunnel, a lift beam floats the loser aboard, and then the loser perks right up for the camera with one of five bits: a peace sign, double thumbs up, a wave to the crowd, a lie-back with its hands behind its head, or some disco pointing. Then it flies off over the ropes and out the tunnel.',
       'If the loser was torn apart, every piece that came off flies onto the stretcher too, even the ones that landed in the stands.',
       'The results come up once the stretcher has gone. Tap Skip to see them straight away.',
