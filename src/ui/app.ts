@@ -3,7 +3,7 @@ import { resScaleChoices, type Quality, type ResScale } from '../render/stage';
 import type { FpsCap } from '../render/pacer';
 import { enterLandscape } from '../fullscreen';
 import { Rng } from '../sim/math';
-import { MOVES } from '../sim/moves';
+import { MOVES, type MoveId } from '../sim/moves';
 import type { Fighter } from '../sim/fighter';
 import {
   computeBuild,
@@ -27,8 +27,8 @@ import { EMOTE_INFO, MAX_PICKS, type EmoteInfo, type EmoteKind } from '../sim/em
 import { randomBot, randomName, type BotSpec } from '../game/loadout';
 import { contrastingPaint, FINISHES, FRAMES, GLOW_COLORS, PAINT_COLORS, hexColor, samePaint, schemeOf, SCHEMES, type Paint } from '../game/paint';
 import { button, el, esc } from './dom';
-import { Hud } from './hud';
-import { botCardInner, paintOf } from './botCard';
+import { barColors, Hud } from './hud';
+import { paintOf } from './botCard';
 import { PerfOverlay } from './perfOverlay';
 import { ICON, SLOT_ICON } from './icons';
 import { makerLogo, PartsMenu } from './garageParts';
@@ -196,7 +196,7 @@ export class App {
     this.ui.appendChild(this.screens.home);
     this.ui.appendChild(this.screens.garage);
     this.ui.appendChild(this.screens.online);
-    el('div', 'rotate', `<div>${ICON.rotate}<p>Turn your phone sideways<br><span class="muted">Battlebots plays in landscape</span></p></div>`, this.ui);
+    el('div', 'rotate', `<div>${ICON.rotate}<p>Turn your phone sideways<span class="muted">Battlebots plays in landscape</span></p></div>`, this.ui);
     this.fade = el('div', 'scene-fade');
     this.ui.prepend(this.fade);
     game.cb.onFrame = (dt) => {
@@ -312,39 +312,49 @@ export class App {
   // ------------------------------------------------------------ home
   private buildHome() {
     const s = el('div', 'screen home');
-    const left = el('div', 'home-left', '', s);
-    const logo = el('div', 'logo', `<span class="l1">BATTLE</span><span class="l2">BOTS</span><span class="tag">ROBOT BOXING ARENA</span>`, left);
-    this.patchBtn(logo);
-    this.homeCard = el('div', 'bcard l home interactive', '', left);
-    this.homeCard.addEventListener('click', () => {
-      this.tap('select');
-      this.go('garage');
-    });
-
-    const tr = el('div', 'home-top-right', '', s);
+    // top bar: the wordmark and what's new on the left; account, sound, updates and settings on the right
+    const bar = el('div', 'topbar', '', s);
+    const brand = el('div', 'brand', '<div class="logo"><span class="l1">BATTLE</span><span class="l2">BOTS</span></div>', bar);
+    this.patchBtn(brand);
+    const tr = el('div', 'tb-right', '', bar);
+    if (this.account.available) {
+      this.accountBtn = button('account-btn', '', () => this.accountPopup(), tr);
+      this.refreshAccount();
+    }
     this.soundBtns.push(button('icon-btn', '', () => this.toggleSound(), tr));
     const refresh = button('icon-btn', ICON.refresh, () => {
       refresh.classList.add('spinning');
       void forceUpdate();
     }, tr);
     refresh.title = 'Check for updates';
-    button('icon-btn', ICON.gear, () => this.settings(), tr);
+    button('icon-btn', ICON.gear, () => this.settings(), tr).title = 'Settings';
     this.syncSound();
 
-    const right = el('div', 'home-right', '', s);
-    if (this.account.available) {
-      this.accountBtn = button('account-btn', '', () => this.accountPopup(), right);
-      this.refreshAccount();
-    }
-    this.homeRecord = el('div', 'record', '', right);
-    button('btn small cyan', `${ICON.globe}Online`, () => {
+    // your bot, bottom left: tap its name to open the garage, or a part to open its slot
+    this.homeCard = el('div', 'hero interactive', '', s);
+    this.homeCard.addEventListener('click', (e) => {
+      const t = (e.target as HTMLElement).closest<HTMLElement>('[data-slot], .hero-name');
+      if (!t) return;
       this.tap('select');
-      this.go('online');
-    }, right);
-    button('btn small', `${ICON.wrench}Garage`, () => {
+      if (t.dataset.slot) {
+        this.slot = t.dataset.slot as Slot;
+        this.tab = 'part';
+      }
+      this.go('garage');
+    });
+
+    // bottom right: the fight, with the garage and online rooms just above it
+    const right = el('div', 'home-actions', '', s);
+    this.homeRecord = el('div', 'home-record', '', right);
+    const sub = el('div', 'home-sub', '', right);
+    button('btn', `${ICON.wrench}Garage`, () => {
       this.tap('select');
       this.go('garage');
-    }, right);
+    }, sub);
+    button('btn', `${ICON.globe}Online`, () => {
+      this.tap('select');
+      this.go('online');
+    }, sub);
     button('btn primary big', `${ICON.swords}Fight`, () => this.fight(), right);
     return s;
   }
@@ -354,9 +364,26 @@ export class App {
     const b = computeBuild(p.loadout, p.size);
     const card = this.homeCard!;
     card.style.setProperty('--paint', paintOf(p));
-    card.innerHTML = botCardInner(this.game, p, b, { side: 'l', tag: 'Your bot', delay: 0.15 });
+    const move = (id: MoveId) => `<span class="pill">${ABILITY_ICON[id] ?? ''}${esc(MOVES[id].name)}</span>`;
+    const sets = b.sets
+      .filter((st) => st.active)
+      .map((st) => `<span class="pill mk" style="--mc:${st.company.color}">${COMPANY_ICON[st.company.id]}${esc(st.company.name)} ×${st.count}</span>`)
+      .join('');
+    const z = p.size ?? 1;
+    const size = z === 1 ? '' : `<span class="pill sz">${ICON.size}${Math.round(z * 100)}% ${sizeName(z)}</span>`;
+    const tiles = SLOTS.map((slot, k) => {
+      const eq = p.loadout[slot];
+      const item = ITEM_BY_ID.get(eq.id)!;
+      const src = this.thumb(item, eq.rarity);
+      return `<button class="tile" data-slot="${slot}" style="--rc:${partTint(item, eq.rarity)};--d:${(0.15 + k * 0.04).toFixed(2)}s" title="${esc(SLOT_LABEL[slot])}: ${esc(item.name)}">${src ? `<img src="${src}" alt="">` : SLOT_ICON[slot]}</button>`;
+    }).join('');
+    card.innerHTML = `<div class="hero-kicker"><span class="kicker">Your bot</span><b>Power ${b.rating}</b></div>
+      <button class="hero-name">${esc(p.name)}</button>
+      <div class="hero-meta">${move(b.fistAbility)}${move(b.kickAbility)}${sets}${size}</div>
+      <div class="hero-tiles">${tiles}</div>`;
     const r = this.record;
-    this.homeRecord!.innerHTML = `W <b>${r.wins}</b> · L <b>${r.losses}</b>${r.draws ? ` · D <b>${r.draws}</b>` : ''}${r.streak > 1 ? ` · Streak <b>${r.streak}</b>` : ''}`;
+    const stat = (n: number, label: string) => `<span><b>${n}</b>${label}</span>`;
+    this.homeRecord!.innerHTML = stat(r.wins, 'Wins') + stat(r.losses, 'Losses') + (r.draws ? stat(r.draws, 'Draws') : '') + (r.streak > 1 ? stat(r.streak, 'Streak') : '');
   }
 
   private toggleSound() {
@@ -1168,7 +1195,7 @@ export class App {
     this.openModal('Paused', (box) => {
       button('btn primary', `${ICON.play}Resume`, () => this.closeModal(), box);
       this.soundRow(box);
-      button('btn small', 'Forfeit', () => {
+      button('btn small danger', `${ICON.exit}Forfeit`, () => {
         this.closeModal();
         if (this.game.match && this.game.match.phase !== 'end') this.tally(false, false);
         this.go('home');
@@ -1262,7 +1289,7 @@ export class App {
       const gfx = col('Graphics');
       const saved = loadQuality();
       const qName = (q: Quality) => (q === 'med' ? 'Medium' : q[0].toUpperCase() + q.slice(1));
-      this.segRow(gfx, saved ? 'Quality' : `Quality (auto picked ${qName(this.quality)})`, () => [
+      this.segRow(gfx, saved ? 'Quality' : `Quality <span>Auto picked ${qName(this.quality)}</span>`, () => [
         { text: 'Auto', on: !saved, pick: () => saved && (saveQuality(null), location.reload()) },
         ...(['low', 'med', 'high'] as Quality[]).map((q) => ({
           text: q === 'med' ? 'Med' : qName(q),
@@ -1281,12 +1308,12 @@ export class App {
         () => {
           const cur = stage.resScale;
           const pr = stage.renderer.getPixelRatio();
-          return `Resolution <span>${cur === null ? `auto, now ${+pr.toFixed(2)}x` : `${cur}x`} of ${native}x</span>`;
+          return `Resolution <span>${cur === null ? `Auto, now ${+pr.toFixed(2)}x` : `${cur}x`} of ${native}x</span>`;
         },
         () => resOpts.map((o) => ({ text: o.text, on: o.value === stage.resScale, pick: () => stage.setResScale(o.value) })),
       );
       const pacer = this.game.pacer;
-      this.segRow(gfx, `Frame rate <span>screen ${pacer.hz} Hz</span>`, () =>
+      this.segRow(gfx, `Frame rate <span>Screen ${pacer.hz} Hz</span>`, () =>
         (['max', 60, 30] as FpsCap[]).map((o) => ({
           text: o === 'max' ? `Max ${pacer.hz}` : `${o}`,
           on: o === pacer.cap,
@@ -1437,7 +1464,7 @@ export class App {
     try {
       seen = localStorage.getItem('bb.notesSeen') ?? '';
     } catch {}
-    const b = button(`notes-btn${latest && seen !== latest ? ' new' : ''}`, 'Patch notes', () => {
+    const b = button(`notes-btn${latest && seen !== latest ? ' new' : ''}`, "What's new", () => {
       b.classList.remove('new');
       try {
         localStorage.setItem('bb.notesSeen', latest);
@@ -1448,13 +1475,17 @@ export class App {
 
   private patchNotes() {
     this.tap();
-    this.openModal('Patch notes', (box) => {
+    this.openModal("What's new", (box) => {
       box.classList.add('notes');
+      box.replaceChildren();
+      const backdrop = box.parentElement!;
+      backdrop.addEventListener('click', (e) => e.target === backdrop && this.closeModal());
+      const top = el('div', 'set-head', "<h2>What's new</h2>", box);
+      button('icon-btn', ICON.close, () => this.closeModal(), top);
       const list = el('div', 'notes-list', '', box);
       for (const p of PATCH_NOTES) {
         el('div', 'note', `<div class="note-head"><b>${esc(p.title)}</b><span>${esc(hourLabel(p.hour))}</span></div><ul>${p.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>`, list);
       }
-      button('btn cyan', 'Close', () => this.closeModal(), box);
     });
   }
 
@@ -1527,15 +1558,25 @@ export class App {
     const row = (label: string, va: number | string, vb: number | string, higher = true) => {
       const na = typeof va === 'number' ? va : parseFloat(va);
       const nb = typeof vb === 'number' ? vb : parseFloat(vb);
-      const wa = !isNaN(na) && !isNaN(nb) && (higher ? na > nb : na < nb);
-      const wb = !isNaN(na) && !isNaN(nb) && (higher ? nb > na : nb < na);
-      return `<span class="a${wa ? ' w' : ''}">${va}</span><span class="l">${label}</span><span class="b${wb ? ' w' : ''}">${vb}</span>`;
+      const both = !isNaN(na) && !isNaN(nb);
+      const wa = both && (higher ? na > nb : na < nb);
+      const wb = both && (higher ? nb > na : nb < na);
+      // each side's share of the line (the better side's share, for a lower-is-better line)
+      const sum = na + nb;
+      const k = both && sum > 0 ? (higher ? na / sum : nb / sum) : -1;
+      const bar = k < 0 ? '<i class="cmp none"></i>' : `<i class="cmp" style="--k:${k.toFixed(3)}"></i>`;
+      return `<span class="a${wa ? ' w' : ''}">${va}</span><span class="l">${label}</span><span class="b${wb ? ' w' : ''}">${vb}</span>${bar}`;
     };
     const res = el('div', 'results screen show', '', this.ui);
-    res.innerHTML = `
-      <div class="head"><div class="verdict${won || draw ? '' : ' lose'}">${verdict}</div><div class="who">${who}</div></div>
+    const card = el('div', 'res-card', '', res);
+    const [ca] = barColors(m.specs[0].paint);
+    const [cb] = barColors(m.specs[1].paint);
+    card.style.setProperty('--ca', ca);
+    card.style.setProperty('--cb', cb);
+    card.innerHTML = `
+      <div class="head"><span class="kicker">${Math.round(m.fightTime)} seconds</span><div class="verdict${won || draw ? '' : ' lose'}">${verdict}</div><div class="who">${who}</div></div>
       <div class="stats-table">
-        <span class="h a">${esc(a.name)}</span><span class="h l">${Math.round(m.fightTime)}s</span><span class="h b">${esc(b.name)}</span>
+        <span class="h a">${esc(a.name)}</span><span class="h l">vs</span><span class="h b">${esc(b.name)}</span>
         ${row('Damage', Math.round(a.stats.dealt), Math.round(b.stats.dealt))}
         ${row('Landed', `${a.stats.landed}/${a.stats.thrown}`, `${b.stats.landed}/${b.stats.thrown}`)}
         ${row('Accuracy', acc(a), acc(b))}
@@ -1544,15 +1585,15 @@ export class App {
         ${row('Knockdowns', a.stats.knockdowns, b.stats.knockdowns)}
         ${row('Best shot', a.stats.biggest ? `${Math.round(a.stats.biggest)}` : '–', b.stats.biggest ? `${Math.round(b.stats.biggest)}` : '–')}
       </div>`;
-    const actions = el('div', 'actions', '', res);
+    const actions = el('div', 'actions', '', card);
     this.results = res;
     this.game.director.shiftX = 0.2;
     if (net) {
-      this.netResults(res, actions, net);
+      this.netResults(card, actions, net);
       return;
     }
     button('btn primary', `${ICON.swords}Next fight`, () => this.fight(), actions);
-    button('btn', 'Rematch', () => this.fight(true), actions);
+    button('btn', `${ICON.refresh}Rematch`, () => this.fight(true), actions);
     if (this.lastFight) button('btn', `${ICON.replay}Replay`, () => this.replay(), actions);
     button('btn', `${ICON.wrench}Garage`, () => {
       this.tap('select');
@@ -1631,9 +1672,9 @@ export class App {
     });
   }
 
-  private netResults(res: HTMLElement, actions: HTMLElement, net: OnlineSession) {
-    if (net.desynced && net.role === 'guest') el('div', 'net-note', "Your screens drifted apart, so the host's result counts.", res).style.order = '-1';
-    this.resultsNote = el('div', 'net-note', '', res);
+  private netResults(card: HTMLElement, actions: HTMLElement, net: OnlineSession) {
+    if (net.desynced && net.role === 'guest') card.insertBefore(el('div', 'net-note', "Your screens drifted apart, so the host's result counts."), actions);
+    this.resultsNote = card.insertBefore(el('div', 'net-note'), actions);
     this.rematchBtn = button('btn primary', '', () => {
       this.tap('select');
       net.voteRematch();
