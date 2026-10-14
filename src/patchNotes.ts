@@ -17,8 +17,11 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-14 17:00',
-    title: 'Cleaner fight screen',
-    notes: ['The little text line at the bottom of fights that narrated every move is gone, so the action and the coach buttons have the screen to themselves.'],
+    title: 'Cleaner fights, whole-bot finishers',
+    notes: [
+      'Finishers now need a whole bot: if any of your parts has been torn off, you can no longer pull off a finisher.',
+      'The little text line at the bottom of fights that narrated every move is gone, so the action and the coach buttons have the screen to themselves.',
+    ],
   },
   {
     hour: '2026-10-14 15:00',

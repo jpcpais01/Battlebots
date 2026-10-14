@@ -26,7 +26,8 @@ import {
 } from './emote';
 
 /**
- * Finishers: once a bot is down to its last 15% and the other still has 40% or more,
+ * Finishers: once a bot is down to its last 15% and the other still has 40% or more
+ * (and every one of its parts still on),
  * the healthy bot's next strike that lands (or smashes into the guard) turns into a
  * finisher, a choreographed two-body sequence that ends the fight on the spot.
  *
