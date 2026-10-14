@@ -84,7 +84,7 @@ export type MatchListener = (type: string, data: any) => void; // eslint-disable
 /** How far a standing fighter's armour reaches out from its root (where it meets the ropes). */
 const ROPE_REACH = 0.25;
 /** How far a standing fighter can sink into the ropes before they stop giving. */
-const ROPE_STRETCH = 0.3;
+const ROPE_STRETCH = 0.4;
 /** A standing fighter's root never gets closer to a corner post than this. */
 const POST_CLEAR = 0.65;
 /** Rope stiffness (m/s^2 of push-back per metre of stretch). */

@@ -89,6 +89,11 @@ export const SIDE_NX = Array.from({ length: 8 }, (_, k) => DM.cos((k * Math.PI) 
 export const SIDE_NZ = Array.from({ length: 8 }, (_, k) => DM.sin((k * Math.PI) / 4));
 /** The side (0..7) whose ropes a point is up against. */
 export const ropeSide = (x: number, z: number) => ((Math.round(DM.atan2(z, x) / (Math.PI / 4)) % 8) + 8) % 8;
+/** How far a point is from the nearest ropes (negative once it is past them). */
+export const ropeGap = (x: number, z: number) => {
+  const s = ropeSide(x, z);
+  return ROPE_LINE - (x * SIDE_NX[s] + z * SIDE_NZ[s]);
+};
 
 const _a = new Vector3();
 const _b = new Vector3();
@@ -107,7 +112,6 @@ export class Body {
   constraints: Constraint[] = [];
   /** 1 = fully driven by animation, 0 = ragdoll. */
   tone = 1;
-  arenaRadius = 4.6;
   grounded = new Uint8Array(JOINT_COUNT);
   /** Particles of torn-off parts: they no longer follow the rig or hold on to the body. */
   readonly cut = new Uint8Array(JOINT_COUNT);

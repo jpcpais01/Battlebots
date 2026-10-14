@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-14 01:00',
+    title: 'The whole ring is open',
+    notes: [
+      'No more invisible wall: bots now use the whole ring right up to the ropes, lean and sink into them, and can get pinned there by an opponent pressing forward.',
+    ],
+  },
+  {
     hour: '2026-10-14 00:00',
     title: 'Calmer, steadier bots',
     notes: [
