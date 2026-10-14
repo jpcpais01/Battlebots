@@ -17,8 +17,12 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: '2026-10-14 03:00',
-    title: 'Bot sizes, beat the count, and camera drones',
+    title: 'Bot sizes, beat the count, camera drones and real oil',
     notes: [
+      'Oil now looks like real motor oil: thick, glossy black with a rainbow sheen. Drops bead on the wound, stretch and string out as they fall, and spread into slick puddles.',
+      'Tearing a part off wrenches the joint it was attached to: the part it hung from loses 30% of what it had left, and the metal around the socket is wrecked.',
+      'Torn sockets gush oil, then keep bleeding for the rest of the fight.',
+      'Both robots get oily and dirty as the fight goes on: oil splashes onto the attacker\'s fists, flicks onto whoever is close, runs down the plating, and coats the feet of a bot that steps in a puddle.',
       'New Size tab in the garage: build your bot up to 120% or down to 80%. Big bots reach further, have more health and hit harder but are slower and easier to hit. Small bots are quick, sharp and hard to hit. Opponents come in all sizes too.',
       'Downed bots now really try to get up during the count: sometimes their legs give out halfway and they slump back to the canvas.',
       'Knocked-down bots now get a chance to rise on every second of the count, and the more health they have left the better their odds. A badly hurt bot can stay down for ten.',
