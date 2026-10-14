@@ -320,6 +320,10 @@ export class Body {
             }
           }
         } else if (past > 0) this.outside[i] = 1;
+      } else if (below && this.tone >= 0.5) {
+        // a standing body only leaned its head or a hand out over the top rope: it comes
+        // back in under it (the ropes can't snag one joint outside and stretch it)
+        this.outside[i] = 0;
       } else if (below) {
         // out of the ring: the ropes keep it out
         const pen = r - past;

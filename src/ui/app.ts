@@ -1651,6 +1651,7 @@ export class App {
         ${row('Blocks', a.stats.blocked, b.stats.blocked)}
         ${row('Dodges', a.stats.dodged, b.stats.dodged)}
         ${row('Knockdowns', a.stats.knockdowns, b.stats.knockdowns)}
+        ${a.stats.takedowns + b.stats.takedowns ? row('Takedowns', a.stats.takedowns, b.stats.takedowns) : ''}
         ${row('Best shot', a.stats.biggest ? `${Math.round(a.stats.biggest)}` : '–', b.stats.biggest ? `${Math.round(b.stats.biggest)}` : '–')}
       </div>`;
     const actions = el('div', 'actions', '', card);

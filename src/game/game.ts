@@ -811,6 +811,23 @@ export class Game {
         sfx?.whoosh(false, false, 0.5);
         this.arena.excite(0.15);
         break;
+      case 'clinch':
+        // chest plates meeting
+        sfx?.thud(0.3, this.pan(data.f.body.pos[J.Chest]));
+        this.arena.excite(0.2);
+        break;
+      case 'clinchBreak':
+        sfx?.whoosh(false, false, 0.4);
+        break;
+      case 'sprawl':
+        sfx?.thud(0.45, this.pan(data.f.body.pos[J.Pelvis]));
+        this.arena.excite(0.35);
+        break;
+      case 'takedown':
+        sfx?.whoosh(true, false, 0.7);
+        this.arena.excite(0.8);
+        this.director.shake(0.2);
+        break;
       case 'step':
         sfx?.step(data.f.index);
         break;

@@ -700,8 +700,8 @@ export class Hud {
         // the finishing blow also reports a knockdown, after 'ko': the finisher already covers it
         if (m.phase !== 'fight' || d.state === 'ko') break;
         if (d.knockdowns <= this.kdSeen[d.index]) {
-          // a leg sweep puts them down but doesn't count toward the TKO
-          this.callout('SWEPT!', 'small cyan', 900);
+          // a sweep, a shove or a takedown puts them down but doesn't count toward the TKO
+          this.callout(h.move.kind === 'grab' ? 'TAKEDOWN!' : h.move.path === 'push' ? 'SHOVED DOWN!' : 'SWEPT!', 'small cyan', 900);
           break;
         }
         this.kdSeen[d.index] = d.knockdowns;
@@ -715,6 +715,12 @@ export class Hud {
         break;
       case 'dodge':
         if (m.time - this.lastCalloutAt > 1.2) this.callout('DODGE', 'small cyan', 700);
+        break;
+      case 'clinch':
+        if (m.time - this.lastCalloutAt > 1.2) this.callout(data.pinned ? 'PINNED ON THE ROPES' : 'CLINCH', 'small', 800);
+        break;
+      case 'sprawl':
+        this.callout('SPRAWL!', 'small cyan', 800);
         break;
       case 'strikeStart': {
         const d = data as { f: Fighter; s: { feint: boolean; move: { ability?: string; name: string } } };
