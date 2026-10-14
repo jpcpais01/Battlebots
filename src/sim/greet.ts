@@ -43,11 +43,11 @@ export class Greeting {
     let speed: number;
     let drop: number;
     if (this.bumpAt < 0) {
-      // walk to the centre, gloves low, settling into a long arm's length; the fist
-      // goes out on the last stride, so arriving and reaching are one motion
-      speed = clamp((d - BUMP_D) * 2.4, 0, 1.2);
+      // out of the corners to the centre, gloves low, settling into a long arm's length;
+      // the fist goes out on the last stride, so arriving and reaching are one motion
+      speed = clamp((d - BUMP_D) * 2.4, 0, 1.6);
       drop = 0.55;
-      if (d < BUMP_D + 0.4 || this.t > 3.2) {
+      if (d < BUMP_D + 0.4 || this.t > 4.5) {
         this.bumpAt = this.t;
         m.shows[0].bump();
         m.shows[1].bump();

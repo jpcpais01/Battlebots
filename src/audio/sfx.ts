@@ -2,6 +2,7 @@ import { BANK, renderImpact, type ImpactKind } from './impacts';
 import { Crowd, type CrowdState } from './crowd';
 import { Booth, nameKey, type Clip, type NameCut } from './booth';
 import { Voice } from './voice';
+import { renderWalkOn } from './walkOn';
 
 const MASTER = 0.7;
 
@@ -41,6 +42,11 @@ export class Sfx {
   private hallOff = 0;
   /** Clips of names the player had voiced, handed to the voice once audio starts. */
   private userClips = new Map<string, ArrayBuffer>();
+  /** Walk-on themes, rendered once each the first time they're needed. */
+  private walkOns = new Map<string, Promise<AudioBuffer | null>>();
+  /** The theme playing now (and a token so a late render never starts a stale one). */
+  private walkOnNow: { src: AudioBufferSourceNode; g: GainNode } | null = null;
+  private walkOnToken = 0;
   /** Commentary volume: 1 on, 0.5 quiet, 0 off. */
   commentary = 1;
   /** The commentators. Silent until audio starts and the voice list has loaded. */
@@ -309,6 +315,78 @@ export class Sfx {
     this.noise(0.22, 'lowpass', 900, 0.7, 0.3, 0, 120);
     // no chant clips: at least a tick on the beat
     if (!sung && n > 0) this.tone('square', 660, 660, 0.06, 0.04, 0.02);
+  }
+
+  /** Render walk-on themes ahead of when they play (at the start of a fight). */
+  primeWalkOn(...ids: string[]) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    for (const id of ids) if (!this.walkOns.has(id)) this.walkOns.set(id, renderWalkOn(id, ctx.sampleRate).catch(() => null));
+  }
+
+  /**
+   * A bot's walk-on theme, from `offset` seconds in (it was asked for that long ago). Fades
+   * out whatever theme was already playing.
+   */
+  walkOn(id: string, offset = 0, gain = 0.62) {
+    if (!this.ok) return;
+    this.walkOnStop(0.3);
+    this.primeWalkOn(id);
+    const ctx = this.ctx!;
+    const asked = ctx.currentTime;
+    const token = ++this.walkOnToken;
+    void this.walkOns.get(id)!.then((buf) => {
+      if (!buf || token !== this.walkOnToken || !this.master) return;
+      // a slow render starts it late, in time with the entrance (but never past the drop)
+      const at = offset + ctx.currentTime - asked;
+      if (at > 1.6) return;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const g = ctx.createGain();
+      g.gain.value = gain;
+      src.connect(g).connect(this.master);
+      src.start(ctx.currentTime, Math.max(0, at));
+      src.onended = () => {
+        if (this.walkOnNow?.src === src) this.walkOnNow = null;
+        g.disconnect();
+      };
+      this.walkOnNow = { src, g };
+    });
+  }
+
+  /** Fade the walk-on theme out over `fade` seconds. */
+  walkOnStop(fade = 0.6) {
+    this.walkOnToken++;
+    const w = this.walkOnNow;
+    this.walkOnNow = null;
+    if (!w || !this.ctx) return;
+    const t = this.ctx.currentTime;
+    w.g.gain.cancelScheduledValues(t);
+    w.g.gain.setValueAtTime(w.g.gain.value, t);
+    w.g.gain.linearRampToValueAtTime(0, t + fade);
+    w.src.stop(t + fade + 0.05);
+  }
+
+  /** A corner lift: the doors unlock and slide (open), the hydraulics push (rise), it locks at the top (arrive). */
+  lift(cue: 'open' | 'rise' | 'arrive', pan = 0) {
+    if (!this.ok) return;
+    if (cue === 'open') {
+      // a clunk, then the hiss of the seals letting go
+      this.impact('block', 0.3, 0.55, pan);
+      this.noise(0.9, 'highpass', 2500, 0.6, 0.12, 0.05);
+      this.noise(0.6, 'bandpass', 600, 1.2, 0.1, 0.1, 180);
+    } else if (cue === 'rise') {
+      // a hydraulic whine climbing with the lift
+      this.tone('sawtooth', 55, 110, 1.3, 0.05, 0, 300, 900);
+      this.tone('sine', 110, 220, 1.3, 0.05);
+      this.noise(1.3, 'bandpass', 300, 2, 0.06, 0, 1400);
+    } else {
+      // locked: a heavy metal clunk and the CO2 cannons blasting
+      this.impact('heavy', 0.75, 0.62, pan);
+      this.tone('sine', 70, 34, 0.7, 0.5);
+      this.noise(1.1, 'highpass', 1200, 0.4, 0.28, 0.02, 5000);
+      this.noise(0.9, 'lowpass', 1800, 0.6, 0.18, 0.02, 300);
+    }
   }
 
   /** Two robots touching gloves: a bright, ringing clink of metal knuckles. */

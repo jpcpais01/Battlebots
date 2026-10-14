@@ -7,7 +7,7 @@ import { ClearView } from '../render/clearView';
 import { Drones } from '../render/drones';
 import { CrowdMood } from '../audio/crowd';
 import { BotModel } from '../render/botModel';
-import { Match, SIM_DT, type DetachInfo, type HitInfo } from '../sim/match';
+import { Match, PRESENT, SIM_DT, type DetachInfo, type HitInfo } from '../sim/match';
 import type { CoachCall } from '../sim/coach';
 import { CUT_JOINTS, P, PART_COUNT } from '../sim/damage';
 import { Debris } from '../render/debris';
@@ -31,6 +31,8 @@ import { house } from '../render/house';
 import { warnNonFinite } from '../render/finite';
 import { Garage } from '../render/garage';
 import { PartThumbs } from '../render/partPreview';
+import { walkOnFor } from '../audio/walkOn';
+import { ENTRY, hatchXZ } from '../sim/entrance';
 
 /** Where the 3D scene is: the fight arena (home, fights) or the workshop (garage). */
 export type Place = 'arena' | 'garage';
@@ -71,6 +73,7 @@ const _dq = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
 const _side = new THREE.Vector3();
 const _sideP = new THREE.Vector3();
+const _c = new THREE.Color();
 
 /** Oil starts to leak from the chest or lower torso below this condition. */
 const LEAK_BELOW = 0.35;
@@ -531,6 +534,18 @@ export class Game {
     const m = new Match(a, b, seed);
     this.match = m;
     this.models = [new BotModel(a.loadout, a.paint, a.size), new BotModel(b.loadout, b.paint, b.size)];
+    // each corner's entrance is lit in its bot's colours, to its own walk-on music
+    this.arena.corners.setAccents(a.paint.accent, b.paint.accent);
+    this.arena.corners.onCue = (i, cue) => {
+      if (this.quiet || this.seeking) return;
+      const at = this.match?.fighters[i].body.pos[J.Pelvis];
+      this.sfx?.lift(cue, at ? this.pan(at) : 0);
+      if (cue === 'arrive') {
+        this.director.shake(0.25);
+        this.arena.excite(1.1);
+      }
+    };
+    this.sfx?.primeWalkOn(walkOnFor(a), walkOnFor(b));
     for (const md of this.models) {
       this.probe.tag(md.root, 'bots');
       this.stage.scene.add(md.root);
@@ -622,6 +637,7 @@ export class Game {
       this.paused = paused;
     }
     this.sfx?.booth.end();
+    this.sfx?.walkOnStop(0.2);
     this.director.reset();
     this.seekTo = frame;
     this.acc = 0;
@@ -663,6 +679,7 @@ export class Game {
     this.seekTears = [];
     if (!this.match) return;
     this.sfx?.booth.end();
+    this.sfx?.walkOnStop(0.4);
     for (const md of this.models) {
       this.stage.scene.remove(md.root);
       md.dispose();
@@ -816,6 +833,16 @@ export class Game {
       case 'fightStart':
         sfx?.bell(1);
         break;
+      case 'entrance': {
+        // the walk-on music starts as the corner's doors open
+        const i = (data.f as Fighter).index;
+        sfx?.walkOn(walkOnFor(this.match!.specs[i]), Math.max(0, this.match!.phaseTime - i * PRESENT - ENTRY.start));
+        break;
+      }
+      case 'phase':
+        // the house quietens for the countdown
+        if (data === 'countdown') sfx?.walkOnStop(0.9);
+        break;
       case 'getUp':
         this.arena.excite(0.5);
         break;
@@ -877,11 +904,13 @@ export class Game {
         const f = m.fighters[i];
         const model = this.models[i];
         model.end(f, this.time, this.models[1 - i]);
+        // riding the corner lift up in the intro
+        const lift = this.arena.corners.drop(m, i);
         if (m.hitstop > 0) {
           // tiny vibration while frozen on impact
           const k = Math.min(1, m.hitstop * 20) * 0.012;
-          model.root.position.set((Math.random() - 0.5) * k, 0, (Math.random() - 0.5) * k);
-        } else model.root.position.set(0, 0, 0);
+          model.root.position.set((Math.random() - 0.5) * k, lift, (Math.random() - 0.5) * k);
+        } else model.root.position.set(0, lift, 0);
         if (seeking) continue;
         this.updateTrailsAndFlames(i);
         if (m.fin && m.fin.att === f) this.finisherGlow(m, i, dt);
@@ -970,7 +999,8 @@ export class Game {
     }
     // contact occlusion follows whichever robots are on screen
     const shown = m && this.models.length === 2 ? this.models : this.showcase ? (this.spar ? [this.showcase.model, this.spar.model] : [this.showcase.model]) : [];
-    for (let i = 0; i < 2; i++) contactAO.set(i, shown[i]?.joints ?? null, shown[i]?.size);
+    // (a robot still down in its lift shaft casts nothing on the canvas)
+    for (let i = 0; i < 2; i++) contactAO.set(i, m && this.arena.corners.drop(m, i) < -0.3 ? null : (shown[i]?.joints ?? null), shown[i]?.size);
     this.fx.update(still ? 0 : dt, this.stage.camera);
     this.stage.ripples.update(still ? 0 : dt);
     perf.lap('fx');
@@ -985,6 +1015,18 @@ export class Game {
       this.arena.venue.crowd.update(dt, this.crowdMood.excite, crowdState?.phase === 'fight' || crowdState?.phase === 'greet');
       this.arena.venue.score(dt, m && f ? { names: [f[0].name, f[1].name], hp: [f[0].hpRatio, f[1].hpRatio], clock: m.clock, phase: m.phase, presenting: m.presenting } : null);
       this.arena.update(dt, this.time);
+      this.arena.corners.update(still ? 0 : dt, this.time, m, this.fx, seeking);
+      // the house light on each side swings to that bot's colours while it makes its entrance
+      const look = this.stage.arenaLook.rims;
+      for (let j = 0; j < look.length; j++) {
+        // the fighter whose corner this light hangs over
+        const i = look[j].pos[0] * hatchXZ(0)[0] + look[j].pos[2] * hatchXZ(0)[1] > 0 ? 0 : 1;
+        const k = m ? this.arena.corners.flare(i) : 0;
+        const r = this.stage.rims[j];
+        r.intensity = look[j].intensity * (1 + 1.4 * k);
+        r.color.setHex(look[j].color);
+        if (k > 0 && m) r.color.lerp(_c.setHex(m.specs[i].paint.accent), 0.7 * Math.min(1, k * 1.5));
+      }
     }
     perf.lap('arena');
     this.director.update(still && m ? 0 : dt, m);

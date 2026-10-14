@@ -13,6 +13,7 @@ import { ABILITY_ICON, ICON, PASSIVE_ICON, SLOT_ICON } from './icons';
 import { saveZoom, type Zoom } from './store';
 import { botCardHtml, paintOf } from './botCard';
 import { ReplayBar } from './replayBar';
+import { WALK_ON_NAME, walkOnFor } from '../audio/walkOn';
 
 const _p = new THREE.Vector3();
 
@@ -455,7 +456,7 @@ export class Hud {
       const corner = i ? 'And in the orange corner' : 'In the blue corner';
       const style = m.brains[i].traits.style;
       return `<div class="present ${i ? 'r' : 'l'}" style="--paint:${paintOf(spec)}">${card}
-        <div class="banner"><span class="corner">${corner}</span><b class="pname">${esc(spec.name)}</b><span class="style">${esc(style)}</span></div></div>`;
+        <div class="banner"><span class="corner">${corner}</span><b class="pname">${esc(spec.name)}</b><span class="style">${esc(style)}</span><span class="tune">${esc(WALK_ON_NAME[walkOnFor(spec)])}</span></div></div>`;
     };
     this.vs = el('div', `vs${on ? '' : ' interactive'}`, `${panel(0)}${panel(1)}`, this.root);
     this.presents = [...this.vs.querySelectorAll<HTMLElement>('.present')];

@@ -3,6 +3,7 @@ import { J } from '../sim/body';
 import type { Fighter } from '../sim/fighter';
 import { P } from '../sim/damage';
 import { COUNTDOWN, PRESENT, type HitInfo, type Match } from '../sim/match';
+import { entryTime, LIFT_DEPTH, liftUp } from '../sim/entrance';
 import { clamp, damp, Noise1, Rng, smoothstep } from '../sim/math';
 import { AX, AZ, SUITE_D, UPPER_Y } from './bowl';
 
@@ -825,6 +826,8 @@ export class Director {
     // aim off to the card's side, which puts the fighter on the other side of the frame
     const off = 0.34 * this.dist * Math.tan((this.fov * Math.PI) / 360) * this.camera.aspect;
     this.look.set(this.center.x + dz * off * sw, this.center.y, this.center.z - dx * off * sw);
+    // it opens looking down into the corner's hatch, and tilts up with the lift
+    this.look.y -= 0.45 * (1 - liftUp(entryTime(match.phase, match.phaseTime, who))) * LIFT_DEPTH;
     if (cut) this.cuts++;
   }
 
@@ -885,7 +888,8 @@ export class Director {
     const k = smoothstep(0, COUNTDOWN, match.phaseTime);
     const [a, b] = match.fighters;
     this.center.set((a.body.pos[J.Pelvis].x + b.body.pos[J.Pelvis].x) / 2, 1.05, (a.body.pos[J.Pelvis].z + b.body.pos[J.Pelvis].z) / 2);
-    const r = (11 - k * 4) * ZOOM[this.zoom].dist;
+    // the fighters wait in opposite corners: wide enough for both
+    const r = (11.5 - k * 3.3) * ZOOM[this.zoom].dist;
     const h = 5.5 - k * 3.2;
     const wantYaw = this.axisAng + this.side * (Math.PI / 2 + 1.6 - k * 1.5);
     // the countdown opens on a cut from the presentations, then sweeps

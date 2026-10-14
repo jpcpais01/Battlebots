@@ -5,6 +5,7 @@ import type { Fighter, FState } from './fighter';
 import type { Match } from './match';
 import { clamp01, hermite, keySlope, lerp, minJerk, Rng, wrapAngle } from './math';
 import { DM } from './dmath';
+import { ENTRY } from './entrance';
 
 /**
  * Showmanship: knockout celebrations and taunts over a downed opponent.
@@ -873,6 +874,164 @@ const strut: Spec = (() => {
   };
 })();
 
+// ---------- corner entrances
+// Played from the bottom of the lift: the first ARRIVE seconds are the ride up (a held,
+// coiled pose the hatch light plays over), then the reveal as the lift locks at the top.
+const ARRIVE = ENTRY.arrive - ENTRY.start;
+const E_LEAD = arm([0.12, 0.28, 0.4], GUARD.pole, 0.1);
+const E_READY = S({ crouch: 0.08, pitch: 0.08, twist: 0.2, hip: 0.14, a: GUARD, b: E_LEAD, stance: null });
+
+const powerUp: Spec = (() => {
+  const A = ARRIVE;
+  const LOW = arm([0.22, -0.3, 0.22], [0.8, -1, -0.3], 0.6);
+  const coil = S({ crouch: 0.24, pitch: 0.5, head: [0, -0.06, 0.07], a: LOW, b: LOW, stance: WIDE });
+  const look = S({ crouch: 0.2, pitch: 0.2, head: [0, 0.01, 0.02] }, coil.def);
+  const blast = S({ crouch: 0.05, pitch: -0.28, head: [0, 0.02, -0.05], a: ROAR, b: ROAR, stance: WIDE, heel: 0.3 });
+  const slam = S({ crouch: 0.1, pitch: 0.12, a: TAP_IN, b: TAP_IN, stance: WIDE });
+  const K: Key[] = [[0, coil], [A - 0.05, coil], [A + 0.3, look], [A + 0.62, blast, punchy], [A + 1.2, blast], [A + 1.42, slam, snap], [A + 1.7, slam], [A + 2.05, E_READY], [99, E_READY]];
+  return {
+    id: 'powerUp',
+    len: 4.3,
+    sample(o, c) {
+      const t = c.t;
+      keys(o, t, K);
+      // charging on the way up: a tremble that builds until it lets go
+      const ch = clamp01(t / A) * win(t, 0.1, A + 0.62, 0.15);
+      o[armI(0)] += DM.sin(t * 57) * 0.012 * ch;
+      o[armI(1)] += DM.sin(t * 51 + 1) * 0.012 * ch;
+      o[EC.HEAD] += DM.sin(t * 43) * 0.006 * ch;
+      c.gaze = t < A + 0.2 ? 'down' : t < A + 1.5 ? 'ahead' : 'opp';
+      c.beat(A + 0.62, 1, 0.12);
+      c.beat(A + 1.42, 0.5, 0.05);
+    },
+  };
+})();
+
+const heroLanding: Spec = (() => {
+  const A = ARRIVE;
+  const legs = { crouch: 0.46, fa: { off: [0, 0.02, -0.5] as V3, knee: -0.55, w: 1 }, fb: { off: [0, 0, 0.3] as V3, knee: 0.3, w: 1 } };
+  const land = S({ ...legs, pitch: 0.42, pelvis: [0, -0.02], head: [0, -0.06, 0.07], a: FIST_DOWN, b: arm([0.52, -0.12, 0.08], [1, -0.3, -0.4], -0.4) });
+  const lookUp = S({ ...legs, pitch: 0.18, head: [0, 0.03, -0.02], a: FIST_DOWN, b: KNEE_REST });
+  const rise = S({ crouch: 0.08, pitch: -0.12, a: SKY, b: HIP, stance: WIDE, heel: 0.3 });
+  const K: Key[] = [[0, land], [A + 0.25, land], [A + 0.65, lookUp], [A + 1.0, lookUp], [A + 1.45, rise, punchy], [A + 1.95, rise], [A + 2.3, E_READY], [99, E_READY]];
+  return {
+    id: 'heroLanding',
+    len: 4.3,
+    sample(o, c) {
+      const t = c.t;
+      keys(o, t, K);
+      // the fist on the canvas shakes with the lift
+      o[armI(0) + 1] += DM.sin(t * 61) * 0.006 * win(t, 0.2, A, 0.2);
+      c.gaze = t < A + 0.5 ? 'down' : t > A + 1.4 && t < A + 2 ? 'sky' : 'opp';
+      c.beat(A + 0.02, 0.6, 0.08);
+      c.beat(A + 1.45, 1);
+    },
+  };
+})();
+
+const coldStare: Spec = (() => {
+  const A = ARRIVE;
+  const CROSS_A = arm([-0.1, 0.02, 0.24], [1, -0.5, -0.4], 0.6);
+  const CROSS_B = arm([-0.06, 0.08, 0.3], [1, -0.5, -0.4], 0.6);
+  const crossed = S({ crouch: 0.02, pitch: -0.12, head: [0, -0.01, 0.01], a: CROSS_A, b: CROSS_B, stance: SQUARE });
+  const tilt = S({ roll: 0.07, head: [0.025, -0.012, 0.01] }, crossed.def);
+  const point = S({ crouch: 0.04, pitch: -0.04, twist: -0.2, a: POINT, b: CROSS_B, stance: SQUARE });
+  const K: Key[] = [[0, crossed], [A + 0.5, crossed], [A + 0.9, tilt], [A + 1.25, tilt], [A + 1.55, point, punchy], [A + 2.1, point], [A + 2.4, E_READY], [99, E_READY]];
+  return {
+    id: 'coldStare',
+    len: 4.3,
+    sample(o, c) {
+      keys(o, c.t, K);
+      c.beat(A + 1.55, 0.6);
+    },
+  };
+})();
+
+const crowdPleaser: Spec = (() => {
+  const A = ARRIVE;
+  const arms = S({ crouch: 0.03, pitch: -0.18, a: V, b: V, heel: 0.2 });
+  const ear = S({ pitch: -0.06, roll: -0.12, twist: 0.15, head: [-0.03, 0, 0], a: V, b: CUP });
+  const K: Key[] = [[0, arms], [A + 1.05, arms], [A + 1.4, ear, punchy], [A + 2.05, ear], [A + 2.4, E_READY], [99, E_READY]];
+  const PUMP = arm([0.4, 0.42, 0.16], V.pole, 0.2);
+  return {
+    id: 'crowdPleaser',
+    len: 4.3,
+    sample(o, c) {
+      const t = c.t;
+      keys(o, t, K);
+      // arms aloft all the way up, then pumping as the lift locks
+      const p = pump(t, A - 0.15, 1.7) * win(t, A - 0.2, A + 1.05, 0.15);
+      armTo(o, 0, PUMP, p);
+      armTo(o, 1, PUMP, p);
+      o[EC.CROUCH] += 0.04 * p;
+      for (let i = 0; i < 2; i++) c.beat(A - 0.15 + (i + 0.5) / 1.7, 0.35);
+      const turned = t > A + 0.9 && t < A + 2.1;
+      c.face = turned ? 'crowd' : 'opp';
+      c.turn = 3;
+      c.gaze = turned ? 'crowd' : t < A ? 'sky' : 'opp';
+      c.beat(A + 1.4, 0.8);
+    },
+  };
+})();
+
+const shadowBoxer: Spec = (() => {
+  const A = ARRIVE;
+  const guard = S({ crouch: 0.1, pitch: 0.1, twist: 0.22, hip: 0.14, a: GUARD, b: E_LEAD, stance: null });
+  const HOOK = arm([0.36, 0.3, 0.42], [0.2, -1, -0.6], 0.2);
+  // which arm (0 rear, 1 lead), what, and when
+  const combo: [number, ArmDef, number][] = [[1, JAB, A + 0.12], [1, JAB, A + 0.36], [0, JAB, A + 0.6], [1, HOOK, A + 1.05], [0, JAB, A + 1.3]];
+  return {
+    id: 'shadowBoxer',
+    len: 4.3,
+    sample(o, c) {
+      const t = c.t;
+      keys(o, t, [[0, guard], [99, guard]]);
+      // bouncing on the toes all the way up
+      o[EC.CROUCH] += 0.025 * (0.5 + 0.5 * DM.sin(t * 11));
+      o[EC.HEEL] += 0.25 * (0.5 + 0.5 * DM.sin(t * 11));
+      for (const [k, d, t0] of combo) {
+        const p = pulse(t, t0, 0.09, 0.17);
+        armTo(o, k, d, p);
+        o[EC.TWIST] += (k === 0 ? -0.34 : 0.12) * p;
+        c.beat(t0 + 0.09, 0.25);
+      }
+      // a shoulder roll, then the gloves together
+      const roll = win(t, A + 1.6, A + 2.1, 0.15);
+      o[EC.ROLL] += DM.sin((t - A - 1.6) * 12.5) * 0.08 * roll;
+      const tap = pulse(t, A + 2.2, 0.07, 0.14) + pulse(t, A + 2.42, 0.07, 0.14);
+      armTo(o, 0, TAP_IN, tap);
+      armTo(o, 1, TAP_IN, tap);
+      c.gaze = t < A ? 'ahead' : 'opp';
+    },
+  };
+})();
+
+const earthquake: Spec = (() => {
+  const A = ARRIVE;
+  const GRIP = arm([0.3, -0.3, 0.2], [0.6, -0.4, -1], 0.6);
+  const gather = S({ crouch: 0.16, pitch: 0.24, head: [0, -0.03, 0.05], a: GRIP, b: GRIP, stance: WIDE });
+  const lift = S({ crouch: 0.06, pitch: -0.06, roll: -0.08, a: FLEX, b: FLEX, fa: { off: [0, 0.32, 0.1], knee: 0.6, w: 1 }, stance: WIDE });
+  const stomp = S({ crouch: 0.22, pitch: 0.34, head: [0, -0.03, 0.07], a: CRUNCH, b: CRUNCH, fa: { off: [0, 0, 0], knee: 0.1, w: 1 }, stance: WIDE });
+  const down = S({ fa: { w: 0 } }, stomp.def);
+  const flexed = S({ crouch: 0.1, pitch: -0.08, a: FLEX, b: FLEX, stance: WIDE });
+  const K: Key[] = [[0, gather], [A + 0.12, gather], [A + 0.5, lift], [A + 0.68, stomp, snap], [A + 0.85, down], [A + 1.3, down], [A + 1.65, flexed], [A + 2.15, flexed], [A + 2.45, E_READY], [99, E_READY]];
+  return {
+    id: 'earthquake',
+    len: 4.3,
+    sample(o, c) {
+      const t = c.t;
+      keys(o, t, K);
+      const shake = win(t, A + 0.7, A + 1.35, 0.1) + win(t, A + 1.65, A + 2.15, 0.1);
+      o[armI(0)] += DM.sin(t * 53) * 0.009 * shake;
+      o[armI(1)] += DM.sin(t * 47 + 1) * 0.009 * shake;
+      c.gaze = t < A + 0.4 ? 'down' : 'opp';
+      c.beat(A + 0.68, 1, 0.3);
+    },
+  };
+})();
+
+const ENTRANCES = [powerUp, heroLanding, coldStare, crowdPleaser, shadowBoxer, earthquake];
+
 // ------------------------------------------------------------------ choosing
 type Style = 'Boxer' | 'Brawler' | 'Swarmer' | 'Out-fighter' | 'Counter-puncher';
 const aff = (style: string, m: Partial<Record<Style, number>>, dflt: number) => m[style as Style] ?? dflt;
@@ -972,6 +1131,18 @@ function tauntWeights(r: FightRead, room: number): [Spec, number][] {
   return w;
 }
 
+function entranceWeights(r: FightRead): [Spec, number][] {
+  const s = r.style;
+  return [
+    [powerUp, 1 + r.temper * 0.6],
+    [heroLanding, 0.4 + r.showboat * 1.2 + r.aggression * 0.4],
+    [coldStare, (1 - r.showboat) * 1.2 + r.caution * 0.6 + aff(s, { 'Counter-puncher': 0.8 }, 0)],
+    [crowdPleaser, r.showboat * 1.6],
+    [shadowBoxer, aff(s, { Boxer: 1.2, 'Out-fighter': 1, Swarmer: 0.8 }, 0.3)],
+    [earthquake, aff(s, { Brawler: 1.6 }, 0.3) + r.temper * 0.8],
+  ];
+}
+
 // ------------------------------------------------------------------ the performer
 const _f = new Vector3();
 
@@ -983,6 +1154,9 @@ export class Showman {
   /** The player's equipped emotes; null = the fighter picks from everything. */
   private readonly wins: Set<Spec> | null;
   private readonly taunts: Set<Spec> | null;
+  private readonly entrances: Set<Spec> | null;
+  /** Seconds the play's choreography is sampled ahead of its clock (the garage skips the lift ride). */
+  private skip = 0;
   /** Radius of the ring walk (laps, struts); small for the garage preview. */
   private ringR = 2.3;
   private spec: Spec | null = null;
@@ -1020,6 +1194,7 @@ export class Showman {
     };
     this.wins = set(picks?.win?.filter((id) => EMOTE_KIND[id] === 'win'));
     this.taunts = set(picks?.taunt?.filter((id) => EMOTE_KIND[id] === 'taunt'));
+    this.entrances = set(picks?.entrance?.filter((id) => EMOTE_KIND[id] === 'entrance'));
     me.emote = this.pose;
     this.c.onBeat = (k, shake) => this.match?.emit('emote', { f: this.me, k, shake });
   }
@@ -1065,9 +1240,12 @@ export class Showman {
     this.outLen = 0.4;
   }
 
-  /** Being presented before the fight: bang the gloves together for the camera. */
-  present(len: number) {
-    this.play(gloveTap, 'greet', 0.5, false, len);
+  /** The intro: ride the lift up out of the corner and make an entrance. Returns which one. */
+  enter(m: Match, len: number): string {
+    const rng = this.rng(m);
+    const spec = pickWeighted(rng, only(entranceWeights(this.assess(m)), this.entrances));
+    this.play(spec, 'greet', rng.next(), false, len);
+    return spec.id;
   }
 
   /** Garage: perform this emote now, playing to `yaw` (the camera). */
@@ -1075,7 +1253,13 @@ export class Showman {
     const spec = EMOTES[id];
     if (!spec) return;
     this.ringR = 0.9;
-    this.play(spec, EMOTE_KIND[id] === 'taunt' ? 'taunt' : 'celebrate', this.plays % 2 ? 0.3 : 0.7);
+    const entrance = EMOTE_KIND[id] === 'entrance';
+    this.play(spec, EMOTE_KIND[id] === 'taunt' ? 'taunt' : entrance ? 'greet' : 'celebrate', this.plays % 2 ? 0.3 : 0.7);
+    // no lift in the garage: start just before the reveal
+    if (entrance) {
+      this.skip = ARRIVE - 0.5;
+      this.c.T = spec.len - this.skip;
+    }
     this.crowdYaw = yaw;
   }
 
@@ -1164,6 +1348,7 @@ export class Showman {
     this.w0 = chain ? this.pose.w : 0;
     this.spec = spec;
     this.kind = kind;
+    this.skip = 0;
     this.plays++;
     // the primary arm is the rear (power) hand; celebrations sometimes use the other
     this.mirror = (me.stance > 0) !== flip;
@@ -1220,7 +1405,11 @@ export class Showman {
     // sample (authored for a right-handed performer), then resolve sides
     c.reset();
     const a = this.auth;
+    c.t += this.skip;
+    c.prevT += this.skip;
     spec.sample(a, c);
+    c.t -= this.skip;
+    c.prevT -= this.skip;
     // never quite still: breathing and a slow sway
     a[EC.CROUCH] += DM.sin(c.t * 2.6) * 0.008;
     a[EC.TWIST] += DM.sin(c.t * 0.9 + c.v * 6) * 0.035;
@@ -1295,7 +1484,7 @@ export class Showman {
 
 /** Every emote by id (debug captures and tools). */
 export const EMOTES: Record<string, Spec> = Object.fromEntries(
-  [champion, flex, chestPound, leap, salute, bow, kneel, shadowbox, standOver, fistPumps, wave, lap, beckon, shrug, pointDown, shuffle, crowdPump, stompRoar, gloveTap, strut, bump].map((s) => [s.id, s]),
+  [champion, flex, chestPound, leap, salute, bow, kneel, shadowbox, standOver, fistPumps, wave, lap, beckon, shrug, pointDown, shuffle, crowdPump, stompRoar, gloveTap, strut, bump, ...ENTRANCES].map((s) => [s.id, s]),
 );
 
 /** Equipped emotes (picked in the garage). Empty lists mean the fighter picks for itself. */
@@ -1304,9 +1493,11 @@ export interface EmotePicks {
   taunt: string[];
   /** Finishers (see finisher.ts); missing in saves from before they existed. */
   finish?: string[];
+  /** Corner entrances; missing in saves from before they existed. */
+  entrance?: string[];
 }
 
-export type EmoteKind = 'win' | 'taunt' | 'finish';
+export type EmoteKind = 'win' | 'taunt' | 'finish' | 'entrance';
 export interface EmoteInfo {
   id: string;
   kind: EmoteKind;
@@ -1339,6 +1530,12 @@ export const EMOTE_INFO: readonly EmoteInfo[] = [
   { id: 'stompRoar', kind: 'taunt', name: 'Stomp & Roar', blurb: 'Stomps the canvas and roars over them.' },
   { id: 'gloveTap', kind: 'taunt', name: 'Glove Tap', blurb: 'Bangs the gloves together and waits.' },
   { id: 'strut', kind: 'taunt', name: 'Strut', blurb: 'Struts around the ring.' },
+  { id: 'powerUp', kind: 'entrance', name: 'Power Up', blurb: 'Rides up coiled and charging, then lets it all out.' },
+  { id: 'heroLanding', kind: 'entrance', name: 'Hero Landing', blurb: 'Rises on one knee, fist on the canvas, then stands tall.' },
+  { id: 'coldStare', kind: 'entrance', name: 'Cold Stare', blurb: 'Arms crossed the whole way up. Then points at them.' },
+  { id: 'crowdPleaser', kind: 'entrance', name: 'Crowd Pleaser', blurb: 'Arms up for the fans, then asks them for more noise.' },
+  { id: 'shadowBoxer', kind: 'entrance', name: 'Shadow Boxer', blurb: 'Bouncing on its toes, throwing combos as it arrives.' },
+  { id: 'earthquake', kind: 'entrance', name: 'Earthquake', blurb: 'Stomps the canvas the moment the lift locks.' },
   // finishers: the moves themselves live in finisher.ts
   { id: 'skyfall', kind: 'finish', name: 'Skyfall', blurb: 'Charges a crackling uppercut and launches them sky-high.' },
   { id: 'meteor', kind: 'finish', name: 'Meteor Hammer', blurb: 'Folds them with a body shot, leaps and hammers them into the canvas.' },

@@ -33,6 +33,7 @@ import { contactAO } from './ao';
 import { house, HOUSE_GLSL } from './house';
 import { FloorShow } from './floor';
 import { ArenaShow } from './show';
+import { cutHatches } from './corners';
 
 /**
  * The indoor arena around the ring: a two-tier seating bowl with a suite level, LED ribbon
@@ -284,7 +285,8 @@ class Scoreboard {
   private present(name: string, side: number) {
     const g = this.g;
     this.frame();
-    const col = side === 0 ? ['#ffd08a', '#ff6a12'] : ['#d8fbff', '#22b8f0'];
+    // fighter 0 has the blue corner, fighter 1 the orange (as on the HUD)
+    const col = side === 1 ? ['#ffd08a', '#ff6a12'] : ['#d8fbff', '#22b8f0'];
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillStyle = col[1];
@@ -292,7 +294,7 @@ class Scoreboard {
     g.fillRect(40, 226, 432, 4);
     g.font = 'bold 24px "Russo One", Impact, sans-serif';
     g.fillStyle = '#d8dde6';
-    g.fillText(side === 0 ? 'IN THE ORANGE CORNER' : 'IN THE BLUE CORNER', 256, 44);
+    g.fillText(side === 1 ? 'IN THE ORANGE CORNER' : 'IN THE BLUE CORNER', 256, 44);
     const n = name.toUpperCase();
     g.font = `bold ${n.length > 10 ? 58 : 82}px "Russo One", Impact, sans-serif`;
     const tg = g.createLinearGradient(0, 100, 0, 200);
@@ -609,6 +611,8 @@ export class Venue {
       floor: true,
       direct: 0.8,
     });
+    // the lift shafts in the corners go down through it
+    cutHatches(floorMat);
     const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.position.y = FLOOR;
     floor.receiveShadow = true;
