@@ -16,6 +16,11 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-14 20:00',
+    title: 'Arena touch-ups',
+    notes: ['The arena floor around the ring is now matte black, no more shiny glare.'],
+  },
+  {
     hour: '2026-10-14 19:00',
     title: 'Thrown out of the ring, replay controls',
     notes: [
