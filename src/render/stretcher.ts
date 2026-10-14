@@ -6,18 +6,19 @@ import type { Fighter } from '../sim/fighter';
 import type { Match } from '../sim/match';
 import { FRAMES } from '../game/paint';
 import type { Sfx } from '../audio/sfx';
-import { AX } from './bowl';
+import { AX, FLOOR, TUNNEL_GATE, TUNNEL_OPEN_HW } from './bowl';
 import { groundAt, type Debris, type HeldPiece } from './debris';
 import { RenderSettings } from './settings';
 import type { BotModel, PoseSource } from './botModel';
 
 /**
  * The loser's ride home. The victory plays out first, with the loser left lying in the ring;
- * then, about ten seconds after the winner was decided, the show cuts to a new scene: the loser
- * already aboard a hover stretcher (with every part that was torn off it), gliding across the
- * arena floor to the tunnel on its side. All smiles, it does one of five bits for the camera
- * that follows it: a peace sign, double thumbs up, a wave to the crowd, a lie-back with its
- * hands behind its head, or disco pointing to a beat. The camera lets it go at the tunnel.
+ * then, about twelve seconds after the winner was decided, the show cuts to a new scene: the
+ * loser already aboard a hover stretcher (with every part that was torn off it), gliding down
+ * the walkout carpet on its side, between the crew and security, and into the tunnel. All
+ * smiles, it does one of five bits for the camera that follows it: a peace sign, double thumbs
+ * up, a wave to the crowd, a lie-back with its hands behind its head, or disco pointing to a
+ * beat. Nearing the tunnel it waves goodbye, and the energy gate in there swallows it up.
  *
  * The ride is picked from the match seed, and the whole thing is timed off the match clock
  * after the final bell, so it plays the same on both phones online and in replays. Render
@@ -29,12 +30,16 @@ export type Ride = (typeof RIDES)[number];
 
 // Timeline, in match seconds after the fight ends ('end' phase).
 /** The victory, before the cut. A KO's slow-mo already took ~8 s; a decision ends quicker. */
-const HOLD_KO = 2.0;
-const HOLD_DECISION = 7.0;
-/** The ride itself, from the cut to gone down the tunnel. */
-const RIDE = 7.0;
-/** The camera stops following and watches it go, this far into the ride. */
-const LET_GO = 4.4;
+const HOLD_KO = 4.0;
+const HOLD_DECISION = 9.0;
+/** The ride itself, from the cut to gone through the gate. */
+const RIDE = 10.0;
+/** The second shot: watching it go, from back down the carpet. */
+const WIDE = 4.6;
+/** Waving goodbye, from this far into the ride. */
+const BYE = RIDE - 4.2;
+/** Hover height of the deck over the arena floor. */
+const HOVER = 0.62;
 
 /** When the ride is over, in 'end' phase time (the results come up after it). */
 export function rideEnd(m: Match) {
@@ -173,6 +178,23 @@ function ridePose(ride: Ride, t: number, o: Pose) {
       break;
     }
   }
+}
+
+function lerpPose(a: Pose, b: Pose, k: number, o: Pose) {
+  const l = (x: number, y: number) => x + (y - x) * k;
+  o.th = l(a.th, b.th);
+  o.nod = l(a.nod, b.nod);
+  o.tilt = l(a.tilt, b.tilt);
+  for (let s = 0; s < 2; s++) {
+    for (let i = 0; i < 3; i++) {
+      o.hand[s][i] = l(a.hand[s][i], b.hand[s][i]);
+      o.pole[s][i] = l(a.pole[s][i], b.pole[s][i]);
+    }
+    o.knee[s] = l(a.knee[s], b.knee[s]);
+  }
+  o.cross = l(a.cross, b.cross);
+  o.ankles = l(a.ankles, b.ankles);
+  o.tap = l(a.tap, b.tap);
 }
 
 /** Swap sides (the bit's main arm is gone: the other one does it). */
@@ -409,7 +431,11 @@ export class Stretcher {
   private f: Fighter | null = null;
   private size = 1;
   private len = { ua: 0.28, fa: 0.27, th: 0.4, sh: 0.4 };
-  private path: THREE.CatmullRomCurve3 | null = null;
+  /** Along the carpet: its side (1 east, -1 west), and where it starts and ends (|x|). */
+  private side = 1;
+  private x0 = 8;
+  private x1 = 17;
+  private wide = new THREE.Vector3();
   private hold = HOLD_KO;
   private took = false;
   private pieces: Ridden[] = [];
@@ -424,9 +450,11 @@ export class Stretcher {
   private camLook = new THREE.Vector3();
   private shotNo = -1;
   private camOut = { pos: new THREE.Vector3(), look: new THREE.Vector3(), fovK: 1, cut: false };
+  private a = pose();
+  private b = pose();
   private cur = pose();
   /** Where the stretcher is this frame. */
-  private at = new THREE.Vector3();
+  readonly at = new THREE.Vector3();
 
   constructor() {
     this.group.name = 'stretcher';
@@ -524,20 +552,13 @@ export class Stretcher {
       footFlex: [0.25, 0.25],
     };
 
-    // across the arena floor outside the ring, on the loser's side, and into the tunnel there
-    const pel = loser.body.pos[J.Pelvis];
-    const sx = pel.x >= 0 ? 1 : -1;
-    const sz = pel.z >= 0 ? 1 : -1;
-    this.path = new THREE.CatmullRomCurve3(
-      [
-        new THREE.Vector3(sx * 5.2, 0.55, sz * 5.8),
-        new THREE.Vector3(sx * 8.4, 0.5, sz * 3.6),
-        new THREE.Vector3(sx * (AX - 1.6), 0.45, sz * 0.4),
-        new THREE.Vector3(sx * (AX + 3.2), 0.42, 0),
-      ],
-      false,
-      'centripetal',
-    );
+    // straight down the walkout carpet on the loser's side, and through the gate in its tunnel
+    const sx = (this.side = loser.body.pos[J.Pelvis].x >= 0 ? 1 : -1);
+    this.x0 = 8.0;
+    // (done once its foot end is through the gate)
+    this.x1 = AX + TUNNEL_GATE + 1.5 * s;
+    // the wide shot: from back down the carpet, a little off to one side and up
+    this.wide.set(sx * 8.6, FLOOR + 1.9, -0.6);
     this.hold = m.result === 'Decision' ? HOLD_DECISION : HOLD_KO;
     this.group.visible = false;
     this.posed = false;
@@ -573,7 +594,7 @@ export class Stretcher {
    */
   update(t: number, dt: number, model: BotModel, debris: Debris, sfx: Sfx | null, quiet: boolean) {
     const f = this.f;
-    if (!this.on || !f || !this.path) return;
+    if (!this.on || !f) return;
     const prev = this.t;
     this.t = t;
     const crossed = (x: number) => !quiet && prev >= 0 && prev < x && t >= x;
@@ -592,15 +613,16 @@ export class Stretcher {
     this.group.visible = true;
     const s = this.size;
 
-    // ---- where the stretcher is: already under way when the scene cuts in, speeding up at the end
+    // ---- where the stretcher is: already under way when the scene cuts in, gathering speed
     const k = rt / RIDE;
-    const u = 0.12 + 0.88 * (k * (0.7 + 0.3 * k));
-    this.path.getPointAt(u, _p);
-    this.path.getTangentAt(Math.min(0.999, u), _v);
-    const yaw = Math.atan2(_v.x, _v.z);
-    const pitch = -Math.asin(Math.max(-1, Math.min(1, _v.y))) * 0.5;
-    _p.y += Math.sin(t * 2.3) * 0.025;
-    const roll = Math.sin(t * 1.7) * 0.02;
+    const u = k * (0.72 + 0.28 * k);
+    const sx = this.side;
+    _p.set(sx * (this.x0 + (this.x1 - this.x0) * u), FLOOR + HOVER * s + Math.sin(t * 2.3) * 0.025, 0);
+    // a lazy sway down the carpet
+    _p.z = Math.sin(t * 0.7) * 0.12 * (1 - smooth(this.x1 - 4, this.x1 - 2.5, sx * _p.x));
+    const yaw = (sx > 0 ? Math.PI / 2 : -Math.PI / 2) + Math.cos(t * 0.7) * 0.06;
+    const pitch = Math.sin(t * 1.3) * 0.015;
+    const roll = Math.sin(t * 1.7) * 0.025;
     this.at.copy(_p);
     this.rig.position.copy(_p);
     this.rig.rotation.set(pitch, yaw, roll, 'YXZ');
@@ -609,17 +631,22 @@ export class Stretcher {
     this.rig.matrixWorldNeedsUpdate = true;
     this.puppet.faceYaw = yaw;
 
-    // hover pool on the floor below, glow pulse
-    const ground = groundAt(_p.x, _p.z);
+    // hover pool on the floor below (the hall's floor too), glow pulse, thrusters up at the end
+    const inHall = Math.abs(_p.x) > AX - 0.7 && Math.abs(_p.z) < TUNNEL_OPEN_HW;
+    const ground = inHall ? FLOOR : groundAt(_p.x, _p.z);
     this.pool.position.set(_p.x, ground + 0.012, _p.z);
     this.pool.scale.setScalar(2.2 * s);
-    // (none in the tunnel, where the "ground" is the roof block over it)
-    this.poolMat.opacity = ground > _p.y ? 0 : 0.55 * Math.max(0, 1 - (_p.y - ground) / 3.2);
-    this.glowMat.color.setScalar(RenderSettings.glow(2.2 + 0.4 * Math.sin(t * 9)));
+    this.poolMat.opacity = 0.55 * Math.max(0, 1 - (_p.y - ground) / 3.2);
+    this.glowMat.color.setScalar(RenderSettings.glow(2.2 + 0.4 * Math.sin(t * 9) + 1.2 * smooth(RIDE - 3, RIDE - 1, rt)));
 
-    // ---- the loser, already into its bit, with its torn parts aboard
-    ridePose(this.ride, rt + 1, this.cur);
-    if (this.mirrored) mirrorPose(this.cur);
+    // ---- the loser, already into its bit (with its torn parts aboard), then waving goodbye
+    ridePose(this.ride, rt + 1, this.a);
+    ridePose('wave', rt - BYE, this.b);
+    if (this.mirrored) {
+      mirrorPose(this.a);
+      mirrorPose(this.b);
+    }
+    lerpPose(this.a, this.b, this.ride === 'wave' ? 0 : smooth(BYE, BYE + 0.8, rt), this.cur);
     this.back.rotation.x = -this.cur.th;
     this.puppet.state = 'ready';
     if (crossed(this.hold)) sfx?.stretcher('depart');
@@ -627,6 +654,9 @@ export class Stretcher {
       sfx?.stretcher('cheer');
       this.puff = 0;
     }
+    // a chime as it goes through the gate
+    const gateAt = (AX + TUNNEL_GATE - this.x0) / (this.x1 - this.x0);
+    if (crossed(this.hold + RIDE * ((-0.72 + Math.sqrt(0.72 * 0.72 + 4 * 0.28 * gateAt)) / (2 * 0.28)))) sfx?.stretcher('arrive');
     this.deckPose(this.cur);
     this.posed = true;
     if (!this.took) {
@@ -726,7 +756,9 @@ export class Stretcher {
       _r.subVectors(P[J.ShR], P[J.ShL]).normalize();
       _u.subVectors(P[J.Neck], P[J.Pelvis]).normalize();
       for (let side = 0; side < 2; side++) {
-        const sign = this.signs[side];
+        // waving goodbye at the end: an open hand
+        const bye = this.ride !== 'wave' && this.t - this.hold > BYE + 0.4;
+        const sign = bye ? (side === (this.mirrored ? 0 : 1) ? 'open' : 'none') : this.signs[side];
         if (sign === 'none' || !this.hasHand[side]) continue;
         const hand = P[side === 0 ? J.HandL : J.HandR];
         _f.subVectors(hand, P[side === 0 ? J.ElL : J.ElR]).normalize();
@@ -816,39 +848,45 @@ export class Stretcher {
   }
 
   /**
-   * One shot: following it from behind and a little to the side (it rides head first, facing
-   * back down the deck at us), then letting it go at the tunnel.
+   * Two shots: following it down the carpet from just behind (it rides head first, facing back
+   * down the deck at us), then from back down the carpet, watching it go into the tunnel.
    */
   private film(rt: number, dt: number, yaw: number) {
     const s = this.size;
-    const cut = this.shotNo !== 0;
-    this.shotNo = 0;
+    const shot = rt < WIDE ? 0 : 1;
+    const cut = this.shotNo !== shot;
+    this.shotNo = shot;
     const pos = this.camOut.pos, look = this.camOut.look;
-    const cy = Math.cos(yaw), sy = Math.sin(yaw);
-    // (x across, z along the way it's going)
-    const local = (x: number, y: number, z: number, out: THREE.Vector3) => out.set(this.at.x + x * cy + z * sy, this.at.y + y, this.at.z - x * sy + z * cy);
-    local(0.75 * s, 0.95 * s, -2.7 * s, pos);
-    local(0, 0.45 * s, 0.2 * s, look);
-    const go = smooth(LET_GO, RIDE, rt);
-    if (cut || dt <= 0) {
-      if (cut) {
-        this.camPos.copy(pos);
-        this.camLook.copy(look);
-      }
+    let fovK: number;
+    if (shot === 0) {
+      const cy = Math.cos(yaw), sy = Math.sin(yaw);
+      // (x across, z along the way it's going)
+      const local = (x: number, y: number, z: number, out: THREE.Vector3) => out.set(this.at.x + x * cy + z * sy, this.at.y + y, this.at.z - x * sy + z * cy);
+      const push = smooth(0, WIDE, rt);
+      local((0.8 - 0.25 * push) * s, (0.85 - 0.1 * push) * s, (-2.55 + 0.45 * push) * s, pos);
+      local(0, 0.48 * s, 0.15 * s, look);
+      fovK = 0.85;
     } else {
-      if (rt < LET_GO) {
-        this.camPos.x = damp(this.camPos.x, pos.x, 4, dt);
-        this.camPos.y = damp(this.camPos.y, pos.y, 4, dt);
-        this.camPos.z = damp(this.camPos.z, pos.z, 4, dt);
-      }
+      pos.copy(this.wide);
+      look.copy(this.at).add(_v.set(0, 0.45 * s, 0));
+      fovK = 0.8 - 0.32 * smooth(WIDE, RIDE, rt);
+    }
+    if (cut) {
+      this.camPos.copy(pos);
+      this.camLook.copy(look);
+    } else if (dt > 0) {
+      this.camPos.x = damp(this.camPos.x, pos.x, 5, dt);
+      this.camPos.y = damp(this.camPos.y, pos.y, 5, dt);
+      this.camPos.z = damp(this.camPos.z, pos.z, 5, dt);
       this.camLook.x = damp(this.camLook.x, look.x, 6, dt);
       this.camLook.y = damp(this.camLook.y, look.y, 6, dt);
       this.camLook.z = damp(this.camLook.z, look.z, 6, dt);
     }
     this.shot = this.camOut;
     this.camOut.cut = cut;
-    this.camOut.fovK = 0.85 - 0.25 * go;
+    this.camOut.fovK = fovK;
     pos.copy(this.camPos);
     look.copy(this.camLook);
   }
+
 }

@@ -1200,6 +1200,8 @@ export class Game {
     perf.lap('arena');
     const shot = m && this.stretcher.on ? this.stretcher.shot : null;
     if (shot) this.director.film(shot.pos, shot.look, shot.fovK, shot.cut);
+    // its tunnel's gate ripples as the stretcher goes through
+    this.arena.venue.gateHit(m && this.stretcher.posed ? this.stretcher.at : null);
     this.director.update(still && m ? 0 : dt, m, alpha);
     // a bot's-eye shot: the lens is inside that bot's head
     const pov = m && this.models.length === 2 ? this.director.pov : -1;

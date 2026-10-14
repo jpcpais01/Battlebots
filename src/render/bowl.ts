@@ -104,6 +104,41 @@ const AISLE = 1.0;
 /** Lower rows that the two entrance tunnels cut through. */
 export const TUNNEL_ROWS = 6;
 export const TUNNEL_W = 3.8;
+/** Each tunnel's mouth: half its width, and its height off the arena floor. */
+export const TUNNEL_OPEN_HW = 1.48;
+export const TUNNEL_OPEN_H = 2.56;
+/** The energy gate across each tunnel, this far in from its mouth. */
+export const TUNNEL_GATE = 2.3;
+
+/**
+ * Outline `o` with the two tunnel mouths cut out of its east and west sides (|z| < `hw`): the
+ * runs that are left, in order. Outlines at different offsets cut into matching runs.
+ */
+export function gapRuns(o: OutlinePt[], hw = TUNNEL_OPEN_HW): OutlinePt[][] {
+  const runs: OutlinePt[][] = [];
+  let cur: OutlinePt[] = [];
+  const side = (p: OutlinePt) => Math.abs(p.nx) > 0.999;
+  const at = (q: OutlinePt, p: OutlinePt, z: number): OutlinePt => {
+    const t = (z - q.z) / (p.z - q.z);
+    return { x: q.x + (p.x - q.x) * t, z, nx: p.nx, nz: p.nz, s: q.s + (p.s - q.s) * t };
+  };
+  for (let i = 0; i < o.length; i++) {
+    const p = o[i];
+    const q = i > 0 ? o[i - 1] : null;
+    if (q && side(p) && side(q) && Math.sign(p.x) === Math.sign(q.x) && Math.min(p.z, q.z) < hw && Math.max(p.z, q.z) > -hw) {
+      // a straight east or west side running across a mouth
+      const dir = Math.sign(p.z - q.z);
+      const enter = -dir * hw, leave = dir * hw;
+      if ((q.z - enter) * dir < 0) cur.push(at(q, p, enter));
+      if (cur.length > 1) runs.push(cur);
+      cur = [];
+      if ((p.z - leave) * dir > 0) cur.push(at(q, p, leave));
+    }
+    if (!(side(p) && Math.abs(p.z) < hw)) cur.push(p);
+  }
+  if (cur.length > 1) runs.push(cur);
+  return runs;
+}
 /** Rows cut by the vomitories (the stairwells fans walk in through), mid-way along each side of both tiers. */
 export const VOM_ROW0 = 8;
 export const VOM_ROW1 = 12;

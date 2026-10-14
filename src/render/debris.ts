@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RING_CORNER, ROPE_LINE, ropeSide, SIDE_NX, SIDE_NZ } from '../sim/body';
-import { AX, AZ, BACK_D, FLOOR, RC, ROOF_Y, ROWS, TUNNEL_ROWS, TUNNEL_W } from './bowl';
+import { AX, AZ, BACK_D, FLOOR, RC, ROOF_Y, ROWS, TUNNEL_OPEN_HW, TUNNEL_ROWS, TUNNEL_W } from './bowl';
 import type { Fx } from './fx';
 
 /**
@@ -69,7 +69,8 @@ export function groundAt(x: number, z: number): number {
   if (oct < BASE) return -0.12;
   const d = bowlD(x, z);
   if (d < -0.6) return FLOOR;
-  if (d < -0.35) return 0.42; // the barrier with its ad boards
+  // the barrier with its ad boards (open at the tunnel mouths)
+  if (d < -0.35) return Math.abs(z) < TUNNEL_OPEN_HW && Math.abs(x) > AX - 1 ? FLOOR : 0.42;
   if (d < 0) return FLOOR;
   if (d >= BACK_D) return ROOF_Y;
   if (Math.abs(z) < TUNNEL_W / 2 && Math.abs(x) > AX && d < TUNNEL_D) return ROWS[TUNNEL_ROWS].y;
