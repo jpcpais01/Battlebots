@@ -6,27 +6,21 @@ import { Rng } from '../sim/math';
 import { MOVES } from '../sim/moves';
 import type { Fighter } from '../sim/fighter';
 import {
-  COMPANIES,
   computeBuild,
-  formatPassive,
   partTint,
-  setsOf,
-  formatStatLine,
   ITEM_BY_ID,
   MAX_RARITY,
   itemsForSlot,
   RARITIES,
-  scaledStat,
   SLOT_LABEL,
   SLOTS,
   SIZE_MAX,
   SIZE_MIN,
   sanitizeSize,
-  type Equipped,
   type ItemDef,
+  type Loadout,
   type Rarity,
   type Slot,
-  type StatKey,
 } from '../game/items';
 import { hourLabel, PATCH_NOTES } from '../patchNotes';
 import { EMOTE_INFO, MAX_PICKS, type EmoteInfo, type EmoteKind } from '../sim/emote';
@@ -36,7 +30,8 @@ import { button, el, esc } from './dom';
 import { Hud } from './hud';
 import { botCardInner, paintOf } from './botCard';
 import { PerfOverlay } from './perfOverlay';
-import { ABILITY_ICON, COMPANY_ICON, ICON, PASSIVE_ICON, SLOT_ICON } from './icons';
+import { ICON, SLOT_ICON } from './icons';
+import { makerLogo, PartsMenu } from './garageParts';
 import { forceUpdate } from '../update';
 import { OnlineScreen } from './online';
 import type { OnlineSession } from '../net/session';
@@ -106,6 +101,10 @@ export class App {
   } | null = null;
   /** Slot the garage camera is looking closely at (null: the whole robot). */
   private focus: Slot | null = null;
+  /** The part picker; it can put a part on the bot on trial before it is fitted. */
+  private parts: PartsMenu;
+  /** The bot on the lift is wearing a part on trial, not the saved loadout. */
+  private trialShown = false;
   private prewarm = false;
   private spin = { dragging: false, vel: 0, idle: 0 };
   private fade: HTMLElement;
@@ -154,6 +153,22 @@ export class App {
     setOnSaved(() => this.account.saved());
     this.hud = new Hud(game, this.ui);
     this.perf = new PerfOverlay(game);
+    this.parts = new PartsMenu({
+      player: () => this.player,
+      thumb: (item, rarity) => this.thumb(item, rarity),
+      tap: (k) => this.tap(k),
+      showTrial: (spec) => {
+        this.trialShown = !!spec;
+        this.game.showBot(spec ?? this.player);
+      },
+      equip: (slot, id) => {
+        this.player.loadout[slot].id = id;
+        this.commitPlayer();
+        this.game.garagePulse();
+      },
+      previewMove: (id) => this.game.previewMove(id),
+      redraw: () => this.refreshGarage(),
+    });
     this.hud.onPause = () => this.pause();
     this.hud.onCoach = (kind) => {
       const m = this.game.match;
@@ -209,6 +224,13 @@ export class App {
     };
     this.hud.onReplayResults = () => this.replayResults();
     this.setupGarageDrag();
+    // the part picker answers a keyboard like a pad: arrows browse, Enter fits
+    window.addEventListener('keydown', (e) => {
+      if (this.current !== 'garage' || this.tab !== 'part' || this.modal || e.repeat) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest('input, textarea') || ((e.key === 'Enter' || e.key === ' ') && t?.closest('button'))) return;
+      if (this.parts.key(this.slot, e)) e.preventDefault();
+    });
     document.addEventListener('visibilitychange', () => {
       // (an online fight can't pause: it plays on, and this phone catches up when it's back)
       if (document.hidden && this.current === 'fight' && !this.netFight && this.game.match && this.game.match.phase !== 'end' && !this.modal) this.pause();
@@ -219,6 +241,7 @@ export class App {
 
   // ------------------------------------------------------------ navigation
   private go(id: ScreenId) {
+    if (id !== 'garage') this.dropTrial(false);
     this.current = id;
     for (const [k, s] of Object.entries(this.screens)) s.classList.toggle('show', k === id);
     if (id !== 'fight') {
@@ -537,8 +560,19 @@ export class App {
   private commitPlayer(rebuildModel = true) {
     savePlayer(this.player);
     this.online.session?.setBot(this.player);
-    if (rebuildModel) this.game.showBot(this.player);
+    if (rebuildModel) {
+      this.parts.clear();
+      this.trialShown = false;
+      this.game.showBot(this.player);
+    }
     this.refreshGarage();
+  }
+
+  /** Take any part on trial off the bot (and put the saved bot back on the lift if asked). */
+  private dropTrial(restore = true) {
+    this.parts.clear();
+    if (this.trialShown && restore) this.game.showBot(this.player);
+    this.trialShown = false;
   }
 
   /** Camera close-up on one slot's part, or the whole robot (null). */
@@ -569,6 +603,9 @@ export class App {
     const p = this.player;
     // the sparring dummy only stands in while finishers are on show
     if (!(this.tab === 'emotes' && this.emoteKind === 'finish')) this.game.sparring(false);
+    // a part on trial belongs to the part tab it was picked in
+    if (this.tab !== 'part') this.dropTrial();
+    g.items.className = this.tab === 'part' ? 'items parts' : 'items scroll';
     const build = computeBuild(p.loadout);
     g.name.innerHTML = `${esc(p.name)} <span class="muted">✎</span>`;
     this.syncVoiceBtn();
@@ -587,6 +624,7 @@ export class App {
         this.tap();
         if (slot === this.slot && this.tab === 'part') this.setFocus(this.focus ? null : slot);
         else {
+          this.dropTrial();
           this.slot = slot;
           this.tab = 'part';
           this.setFocus(slot);
@@ -631,7 +669,7 @@ export class App {
 
     const eq = p.loadout[this.slot];
     const cur = ITEM_BY_ID.get(eq.id)!;
-    g.title.innerHTML = `<b>${SLOT_LABEL[this.slot]}</b><span>${esc(cur.name)}${MAX_RARITY ? ` · <i style="color:${RARITIES[eq.rarity].color}">${RARITIES[eq.rarity].name}</i>` : ''}</span>`;
+    g.title.innerHTML = `<b>${SLOT_LABEL[this.slot]}</b><span>Fitted: ${esc(cur.name)}${MAX_RARITY ? ` · <i style="color:${RARITIES[eq.rarity].color}">${RARITIES[eq.rarity].name}</i>` : ''}</span>`;
     if (this.focus) this.setFocus(this.slot);
     else this.setFocus(null);
 
@@ -647,42 +685,8 @@ export class App {
       b.style.setProperty('--rc', r.color);
     });
 
-    const scroll = g.items.scrollTop;
-    g.items.innerHTML = '';
-    // grouped by maker: a brand header (how many of its parts are fitted, and its set bonuses), then its parts
-    const fitted = new Map(setsOf(p.loadout).map((st) => [st.company.id, st.count]));
-    const slotItems = itemsForSlot(this.slot);
-    for (const co of COMPANIES) {
-      const mine = slotItems.filter((it) => it.maker === co.id);
-      if (!mine.length) continue;
-      const n = fitted.get(co.id) ?? 0;
-      const pips = Array.from({ length: 6 }, (_, k) => `<i class="${k < n ? 'on' : ''}${k === 2 ? ' gap' : ''}"></i>`).join('');
-      const bon = co.sets.map((b) => `<span class="${n >= b.at ? 'on' : ''}"><b>${b.at}</b>${esc(b.text)}</span>`).join('');
-      const h = el('div', `maker${n >= 3 ? ' live' : ''}`, `<div class="mlogo">${COMPANY_ICON[co.id]}</div>
-        <div class="mname"><b>${esc(co.name)}</b><span>${esc(co.motto)} <em>${esc(co.focus)}</em></span></div>
-        <div class="pips" title="${n} of 6 parts fitted">${pips}</div>
-        <div class="mbon">${bon}</div>`, g.items);
-      h.style.setProperty('--mc', co.color);
-      for (const item of mine) this.itemCard(item, eq, build.rating);
-    }
-    g.items.scrollTop = scroll;
+    this.parts.render(g.items, this.slot);
     this.prewarmThumbs();
-  }
-
-  /** One part's card in the slot list; tapping fits it (and shows its move, if it has one). */
-  private itemCard(item: ItemDef, eq: Equipped, rating: number) {
-    const on = item.id === eq.id;
-    const delta = on ? 0 : computeBuild({ ...this.player.loadout, [this.slot]: { id: item.id, rarity: eq.rarity } }).rating - rating;
-    const card = button(`item${on ? ' on' : ''}`, this.itemHtml(item, eq.rarity, on, delta), () => {
-      if (item.id !== eq.id) {
-        this.tap('select');
-        eq.id = item.id;
-        this.commitPlayer();
-        this.game.garagePulse();
-      }
-      if (item.ability) setTimeout(() => this.game.previewMove(item.ability!), 120);
-    }, this.garageEls!.items);
-    card.style.setProperty('--rc', partTint(item, eq.rarity));
   }
 
   /** The Paint tab: ready-made schemes, each colour, the finish and the frame metal, all shown live on the bot. */
@@ -958,47 +962,46 @@ export class App {
     idle(step);
   }
 
-  private itemHtml(item: ItemDef, rarity: Rarity, on: boolean, delta: number) {
-    const chips = (Object.entries(item.stats) as [StatKey, number][])
-      .map(([k, v]) => {
-        const sv = scaledStat(v, rarity);
-        return `<span class="chip${sv < 0 ? ' neg' : ''}">${formatStatLine(k, sv)}</span>`;
-      })
-      .join('');
-    const ab = item.ability ? `<span class="chip skill">${MOVES[item.ability].name}${MOVES[item.ability].cooldown ? ` · ${MOVES[item.ability].cooldown}s` : ''}</span>` : '';
-    const src = this.thumb(item, rarity);
-    const pic = src ? `<img src="${src}" alt="">` : (item.ability && ABILITY_ICON[item.ability]) || SLOT_ICON[item.slot];
-    const tag = on ? '<span class="eq">Fitted</span>' : delta ? `<span class="delta${delta > 0 ? ' up' : ' down'}">${delta > 0 ? '+' : '−'}${Math.abs(delta)}</span>` : '';
-    return `<div class="pic">${pic}</div>
-      <div class="t"><b>${esc(item.name)}</b>${tag}</div>
-      <div class="tag">${esc(item.tagline)}</div>
-      <div class="chips">${ab}${chips}</div>
-      <div class="passive">${PASSIVE_ICON[item.passive.id] ?? ''}<em>${esc(item.passive.name)}</em> · ${esc(formatPassive(item.passive, rarity))}</div>`;
-  }
-
+  /** The diagnostics box; while a part is on trial it shows what fitting it would add or take away. */
   private renderStats() {
-    const b = computeBuild(this.player.loadout, this.player.size);
-    const s = b.stats;
-    const rows: [string, number, string][] = [
-      ['Health', (s.maxHp - 1100) / 800, String(Math.round(s.maxHp))],
-      ['Strike', ((s.punchPower + s.kickPower) / 2 - 0.85) / 0.9, `${Math.round(((s.punchPower + s.kickPower) / 2) * 100)}`],
-      ['Speed', (s.punchSpeed - 0.9) / 0.6, `${Math.round(s.punchSpeed * 100)}`],
-      ['Defense', (s.armor + s.headGuard * 0.5) / 0.35, `${Math.round(s.armor * 100)}%`],
-      ['Footwork', ((s.moveSpeed / 2.1) * s.agility - 0.9) / 0.8, `${Math.round((s.moveSpeed / 2.1) * s.agility * 100)}`],
-      ['Reflexes', (0.15 / s.reaction - 0.9) / 0.9, `${Math.round(s.reaction * 1000)}ms`],
-    ];
+    const trial: Loadout | null = this.tab === 'part' ? this.parts.trialLoadout() : null;
+    const rowsOf = (lo: Loadout) => {
+      const s = computeBuild(lo, this.player.size).stats;
+      const strike = (s.punchPower + s.kickPower) / 2;
+      const feet = (s.moveSpeed / 2.1) * s.agility;
+      // [label, bar fill (0..1, more is better), readout]
+      const rows: [string, number, string][] = [
+        ['Health', (s.maxHp - 1100) / 800, String(Math.round(s.maxHp))],
+        ['Strike', (strike - 0.85) / 0.9, `${Math.round(strike * 100)}`],
+        ['Speed', (s.punchSpeed - 0.9) / 0.6, `${Math.round(s.punchSpeed * 100)}`],
+        ['Defense', (s.armor + s.headGuard * 0.5) / 0.35, `${Math.round(s.armor * 100)}%`],
+        ['Footwork', (feet - 0.9) / 0.8, `${Math.round(feet * 100)}`],
+        ['Reflexes', (0.15 / s.reaction - 0.9) / 0.9, `${Math.round(s.reaction * 1000)}ms`],
+      ];
+      return rows.map(([l, k, v]) => [l, Math.max(0.04, Math.min(1, k)), v] as const);
+    };
+    const now = rowsOf(this.player.loadout);
+    const next = trial ? rowsOf(trial) : now;
+    const b = computeBuild(trial ?? this.player.loadout, this.player.size);
+    const pct = (k: number) => `${Math.round(k * 100)}%`;
     const g = this.garageEls!;
     g.stats.innerHTML =
-      `<div class="sh"><span>Diagnostics</span><span class="muted">${MOVES[b.fistAbility].name} · ${MOVES[b.kickAbility].name}</span></div>` +
-      rows
-        .map(([l, k, v]) => `<span class="lbl">${l}</span><div class="bar"><i style="width:${Math.round(Math.max(0.04, Math.min(1, k)) * 100)}%"></i></div><span class="val">${v}</span>`)
+      `<div class="sh"><span>${trial ? '<b class="trial">On trial</b>' : 'Diagnostics'}</span><span class="muted">${MOVES[b.fistAbility].name} · ${MOVES[b.kickAbility].name}</span></div>` +
+      next
+        .map(([l, k, v], i) => {
+          const k0 = now[i][1];
+          const d = Math.abs(k - k0) < 0.005 ? '' : k > k0 ? 'up' : 'down';
+          // the bar as fitted, with what the trial adds (green) or takes away (outlined)
+          const bar = d ? `<i style="width:${pct(Math.min(k, k0))}"></i><u class="${d}" style="left:${pct(Math.min(k, k0))};width:${pct(Math.abs(k - k0))}"></u>` : `<i style="width:${pct(k)}"></i>`;
+          return `<span class="lbl">${l}</span><div class="bar">${bar}</div><span class="val${d && ` ${d}`}">${v}</span>`;
+        })
         .join('') +
       `<div class="sets">${b.sets
         .map((st) => {
           const next = st.company.sets.find((x) => st.count < x.at);
           const live = st.company.sets.filter((x) => st.count >= x.at).map((x) => esc(x.text)).join(' · ');
           const hint = live || (next ? `${next.at - st.count} more for ${esc(next.text)}` : '');
-          return `<span class="set${st.active ? ' on' : ''}" style="--mc:${st.company.color}" title="${esc(st.company.name)}">${COMPANY_ICON[st.company.id]}<b>${st.count}</b><span>${hint}</span></span>`;
+          return `<span class="set${st.active ? ' on' : ''}" style="--mc:${st.company.color}" title="${esc(st.company.name)}">${makerLogo(st.company)}<b>${st.count}</b><span>${hint}</span></span>`;
         })
         .join('')}</div>`;
   }
