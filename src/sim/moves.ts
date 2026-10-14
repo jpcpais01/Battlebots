@@ -72,7 +72,7 @@ export interface MoveDef {
  * every move towards human fight timing (a visible load, a committed swing and an
  * unhurried return to guard). The AI reads the scaled values, so it stays in sync.
  */
-const TEMPO = { windup: 1.25, active: 1.2, recovery: 1.25 };
+const TEMPO = { windup: 1.42, active: 1.3, recovery: 1.48 };
 const M = (d: MoveDef): MoveDef => ({
   ...d,
   windup: d.windup * TEMPO.windup,

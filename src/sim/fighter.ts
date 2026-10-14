@@ -233,6 +233,8 @@ const GETUP_FLAT = new Map<GetupKey[], number[][]>([
 ]);
 /** How long the legs take to fold under a knocked-out body before it drops as a ragdoll (s). */
 const BUCKLE = 0.36;
+/** How quickly a calmed arm follows its pose (rad/s, critically damped): settles in about a third of a second. */
+const CALM = 13;
 const TRUNK_Y = [-0.62, -0.5, -0.36, -0.2, -0.1, -0.02, 0.14, 0.22, 0.28];
 const TRUNK_W = [0.14, 0.2, 0.16, 0.17, 0.2, 0.25, 0.27, 0.22, 0.1];
 const TRUNK_F = [0.1, 0.13, 0.12, 0.14, 0.16, 0.21, 0.21, 0.1, 0.06];
@@ -382,6 +384,9 @@ export class Fighter {
   private sp = Array.from({ length: 10 }, () => new Spring1());
   /** Guard mode blend springs: normal, high, body, low. */
   private gsp = Array.from({ length: 4 }, () => new Spring1());
+  /** Arm calming: springs for elbow and fist (shoulder frame), per side, and how much each arm is calmed. */
+  private csp = Array.from({ length: 12 }, () => new Spring1());
+  private calmW = [1, 1];
   private breathPhase = 0;
   /** Knockout buckle: time left, its length, where the feet stood and which way it faced. */
   private buckle = 0;
@@ -680,7 +685,7 @@ export class Fighter {
     const cost = 5 * (1 - this.passive('slipstream'));
     if (this.stamina < cost) return false;
     this.stamina -= cost;
-    const baseDur = type === 'backstep' || type === 'sidestep' ? 0.34 : type === 'duck' ? 0.42 : 0.38;
+    const baseDur = type === 'backstep' || type === 'sidestep' ? 0.38 : type === 'duck' ? 0.48 : 0.44;
     const d: DodgeAction = { kind: 'dodge', type, dir, t: 0, dur: baseDur / agility, uid: UID++ };
     this.action = d;
     this.lastActTime = this.hooksTime;
@@ -1097,7 +1102,7 @@ export class Fighter {
     // facing
     if (this.opp) {
       let target = DM.atan2(this.opp.root.x - this.root.x, this.opp.root.z - this.root.z);
-      let turn = 9;
+      let turn = 7;
       if (s && s.phase === 'active') turn = 3;
       if (this.state === 'stun') turn = 2;
       if (this.state === 'stagger') turn = 1;
@@ -1224,7 +1229,7 @@ export class Fighter {
     const f = this.feet[best];
     this.stanceFoot(best, _p);
     this.toWorld(_p, _q, this.yaw);
-    f.dur = clamp(0.24 / Math.sqrt(this.build.stats.agility * this.parts.mobility() * (moving > 1.2 ? 1.4 : 1)), 0.12, kick ? 0.13 : 0.3);
+    f.dur = clamp(0.28 / Math.sqrt(this.build.stats.agility * this.parts.mobility() * (moving > 1.2 ? 1.4 : 1)), 0.12, kick ? 0.13 : 0.34);
     _q.addScaledVector(this.rootVel, f.dur * 0.8);
     f.from.copy(f.pos);
     f.to.copy(_q);
@@ -1263,7 +1268,7 @@ export class Fighter {
     // on the balls of the feet: rear heel up, both heels lift with the bounce
     const rearI = st < 0 ? 1 : 0;
     // a real bounce: a quick press off the balls of the feet at the bottom, a float at the top
-    const bounceWave = -0.5 * DM.cos(this.bobPhase) + Math.abs(DM.sin(this.bobPhase * 0.5)) - 0.5;
+    const bounceWave = -DM.cos(this.bobPhase);
     const onToes = fighting ? 0.08 + 0.1 * this.bounce * (0.5 + 0.5 * bounceWave) : 0;
     heel[0] = heel[1] = onToes;
     heel[rearI] += fighting ? 0.14 : 0;
@@ -1482,7 +1487,7 @@ export class Fighter {
     // past where it was going before settling, like a body with weight. A nimble build
     // moves its mass a little quicker than a heavy one.
     const spr = this.sp;
-    const q = clamp(0.88 + 0.12 * this.build.stats.agility, 0.85, 1.12);
+    const q = clamp(0.88 + 0.12 * this.build.stats.agility, 0.85, 1.12) * 0.8;
     const fast = (s && s.phase !== 'windup') || d;
     this.crouch = spr[0].to(crouch, (fast ? 72 : 40) * q, 0.78, dt);
     this.pitch = spr[1].to(pitch, (fast ? 72 : 40) * q, 0.72, dt);
@@ -1508,10 +1513,11 @@ export class Fighter {
     }
 
     // ---------- bob (bouncing on the toes)
-    if (dt > 0) this.bobPhase += dt * (5.2 + this.bounce * 2.2 + tired * 1.5 + this.rootVel.length() * 1.2);
+    // an unhurried bounce: about one press every second, quicker when tired or moving
+    if (dt > 0) this.bobPhase += dt * (4.4 + this.bounce * 1.4 + tired * 1.2 + this.rootVel.length() * 1.2);
     // on the move the steps carry the bounce, so the idle toe-bounce fades out
-    const bobAmp = ((fighting ? 0.012 + 0.016 * this.bounce : 0.008) + tired * 0.01) / (1 + this.rootVel.length() * 1.5);
-    const bob = (-0.5 * DM.cos(this.bobPhase) + Math.abs(DM.sin(this.bobPhase * 0.5)) - 0.5) * bobAmp;
+    const bobAmp = ((fighting ? 0.01 + 0.012 * this.bounce : 0.007) + tired * 0.008) / (1 + this.rootVel.length() * 1.5);
+    const bob = -DM.cos(this.bobPhase) * bobAmp;
 
     // ---------- skeleton (local)
     let pelvisH = PELVIS_H - this.crouch + bob + this.lift;
@@ -1578,12 +1584,12 @@ export class Fighter {
       // the guard is never still, and never on a loop: the lead hand feels out the range,
       // the rear one breathes with the chest
       if (isLead) {
-        hand.x += this.noise.at(t * 1.3 + 70) * 0.03 * paw;
-        hand.y += this.noise.at(t * 1.6 + 85) * 0.022 * paw + bob * 0.6 + breath * 0.006;
-        hand.z += (this.noise.at(t * 1.1 + 100) * 0.045 + Math.max(0, this.noise.at(t * 2.4 + 115)) * 0.035) * paw;
+        hand.x += this.noise.at(t * 0.7 + 70) * 0.025 * paw;
+        hand.y += this.noise.at(t * 0.8 + 85) * 0.018 * paw + bob * 0.5 + breath * 0.006;
+        hand.z += (this.noise.at(t * 0.6 + 100) * 0.04 + Math.max(0, this.noise.at(t * 1.1 + 115)) * 0.03) * paw;
       } else {
-        hand.x += this.noise.at(t * 0.9 + 130) * 0.012 * paw;
-        hand.y += this.noise.at(t * 1.2 + 145) * 0.014 * paw + bob * 0.4 + breath * 0.008;
+        hand.x += this.noise.at(t * 0.5 + 130) * 0.01 * paw;
+        hand.y += this.noise.at(t * 0.6 + 145) * 0.012 * paw + bob * 0.35 + breath * 0.008;
       }
       if (this.state === 'win' && !this.emote) {
         hand.set(sx * 0.38, 2.15 + DM.sin(t * 6 + side) * 0.06, 0.12);
@@ -1637,6 +1643,15 @@ export class Fighter {
       this.keepBend(side, L[shIdx], hand, pole);
       ik2(L[shIdx], hand, UPPER, fore, pole, L[elIdx], hand);
       this.fitArm(shIdx, elIdx, handIdx, fore);
+      // calm: an arm that isn't throwing settles in the shoulder frame instead of chasing
+      // every small push (the armour, the head's sway, a guard changing shape), so
+      // guarding forearms drift and settle rather than twitch
+      let calmT = 1;
+      if (s && s.move.kind === 'punch' && s.side === sideCh) calmT = 0;
+      else if (s && s.move.kind === 'kick') calmT = 0.4;
+      if (gu || (this.state === 'win' && !this.emote) || (em && em.w * em.ch[EC.ARM + side * 8 + 7] > 0.05)) calmT = 0;
+      this.calmW[side] = dt > 0 ? damp(this.calmW[side], calmT, calmT < this.calmW[side] ? 40 : 6, dt) : calmT;
+      this.calmArm(side, L[shIdx], L[elIdx], hand, fore, dt);
       this.storeBend(side, L[shIdx], L[elIdx], hand, dt);
     }
 
@@ -1713,6 +1728,28 @@ export class Fighter {
       this.keepBend(2 + side, L[hipIdx], foot, pole);
       ik2(L[hipIdx], foot, THIGH, SHIN, pole, L[kneeIdx], foot);
       this.storeBend(2 + side, L[hipIdx], L[kneeIdx], foot, dt);
+    }
+  }
+
+  /** Settle an arm (elbow and fist, in the shoulder frame) by calmW, keeping its bone lengths. */
+  private calmArm(side: number, sh: Vector3, el: Vector3, hd: Vector3, fore: number, dt: number) {
+    const sp = this.csp, o = side * 6, w = this.calmW[side];
+    const ax = (p: Vector3, i: number) => {
+      _bs.subVectors(p, sh);
+      const x = sp[o + i].to(_bs.dot(_tX), CALM, 1, dt);
+      const y = sp[o + i + 1].to(_bs.dot(_tU), CALM, 1, dt);
+      const z = sp[o + i + 2].to(_bs.dot(_tZ), CALM, 1, dt);
+      return _bm.copy(sh).addScaledVector(_tX, x).addScaledVector(_tU, y).addScaledVector(_tZ, z);
+    };
+    // always track, so the arm is in step the moment it is calmed again
+    this.trunkFrame();
+    const e = ax(el, 0);
+    if (w > 0.001) el.lerp(e, w);
+    const h = ax(hd, 3);
+    if (w > 0.001) {
+      hd.lerp(h, w);
+      _bp.subVectors(el, sh);
+      ik2(sh, hd, UPPER, fore, _bp, el, hd);
     }
   }
 
@@ -1901,7 +1938,7 @@ export class Fighter {
     const mode = this.state === 'fight' || this.state === 'stun' ? this.guardMode : 'normal';
     // critically damped: the hands lift into a new guard and settle, no snap at the start
     (['normal', 'high', 'body', 'low'] as GuardMode[]).forEach((m, i) => {
-      w[m] = this.gsp[i].to(m === mode ? 1 : 0, 36, 1, dt);
+      w[m] = this.gsp[i].to(m === mode ? 1 : 0, 16, 1, dt);
     });
   }
 
@@ -2451,7 +2488,7 @@ export class Fighter {
       this.footHeel[i] = f.locked ? 0 : this.heel[i];
       this.footAir[i] += (this.footAirT[i] - this.footAir[i]) * k;
       this.footFlex[i] += (this.footFlexT[i] - this.footFlex[i]) * k;
-      this.handRoll[i] += (this.handRollT[i] - this.handRoll[i]) * (dt > 0 ? 1 - DM.exp(-40 * dt) : 1);
+      this.handRoll[i] += (this.handRollT[i] - this.handRoll[i]) * (dt > 0 ? 1 - DM.exp(-22 * dt) : 1);
     }
     // trails
     const s = this.strike;
