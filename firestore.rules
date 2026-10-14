@@ -10,6 +10,17 @@ service cloud.firestore {
       allow create, update: if request.auth != null
         && request.auth.uid == uid
         && validSave(request.resource.data);
+
+      // saved fight replays: one small document each
+      match /replays/{rid} {
+        allow read, delete: if request.auth != null && request.auth.uid == uid;
+        allow create, update: if request.auth != null
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['data', 'saved'])
+          && request.resource.data.data is string
+          && request.resource.data.data.size() <= 40000
+          && request.resource.data.saved is timestamp;
+      }
     }
 
     // everything else is closed

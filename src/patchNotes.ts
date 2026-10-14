@@ -19,6 +19,8 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: '2026-10-14 21:00',
     title: 'Clearer fight intros, a happy ride home',
     notes: [
+      'Save your favourite fights: tap Save replay on the results, then watch them again any time from Replays on the home screen. You can keep 30, and they follow your account to other devices.',
+      'Replays saved before a game update still play, marked as an older version, since the bots may not fight it out exactly the same way.',
       'Metal pieces flying off a bot now land with a heavy, dull clunk instead of a light, sparkly ting.',
       'Vapour jets from damaged joints now blow every 3 to 7 seconds instead of every second or two, and each burst is a random size, from a short puff up to the full blast.',
       'After every knockout the loser gets carried off on a hover stretcher. It swoops in from the tunnel, a lift beam floats the loser aboard, and then the loser perks right up for the camera with one of five bits: a peace sign, double thumbs up, a wave to the crowd, a lie-back with its hands behind its head, or some disco pointing. Then it flies off over the ropes and out the tunnel.',

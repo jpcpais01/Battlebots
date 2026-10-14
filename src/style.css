@@ -518,6 +518,9 @@ button:focus-visible {
   padding-left: 0.6em;
   padding-right: 0.6em;
 }
+.home-sub .btn.wide {
+  grid-column: 1 / -1;
+}
 .home-record {
   display: flex;
   justify-content: center;
@@ -4439,6 +4442,21 @@ button:focus-visible {
 .save-row .icon-btn.small {
   width: 2.2em;
   height: 2.2em;
+}
+/* saved replays: how the fight went, and a tag on ones from an older version */
+.replay-row .save-name span.win {
+  color: var(--green);
+}
+.replay-row .save-name span.loss {
+  color: var(--red);
+}
+.replay-row .save-name em.old {
+  margin-left: 0.4em;
+  padding: 0 0.45em;
+  border-radius: 999px;
+  font-style: normal;
+  color: var(--muted);
+  border: 1px solid var(--line);
 }
 .save-row .icon-btn.armed {
   border-color: var(--red);
