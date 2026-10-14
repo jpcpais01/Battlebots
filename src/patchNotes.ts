@@ -16,6 +16,14 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: '2026-10-14 00:00',
+    title: 'Calmer, steadier bots',
+    notes: [
+      'Guarding hands are calm now: no more twitchy, vibrating forearms. The guard drifts and settles, and holds its shape instead of flicking between high and low.',
+      'Everything moves at a more grounded pace: punches and kicks wind up and return to guard more deliberately, the bounce on the toes is slower, and steps, turns and dodges are less hurried. Fights run a few seconds longer.',
+    ],
+  },
+  {
     hour: '2026-10-13 22:00',
     title: 'Bots move with real weight, and leak oil',
     notes: [

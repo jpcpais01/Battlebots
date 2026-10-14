@@ -177,6 +177,8 @@ export class Brain {
   private oppAvgHit = ema(45);
   private oppAttackRate = ema(0.6);
   private oppAttackRange = ema(1.15);
+  /** When the guard last changed shape on its own (not a block). */
+  private guardSetAt = -10;
   private bandDealt = [0, 0, 0];
   private bandTaken = [0, 0, 0];
   private oppMoveCount = new Map<MoveId, number>();
@@ -918,6 +920,10 @@ export class Brain {
     // shell up over a head that is about to come off
     if (inThreat && me.parts.cond[P.Head] < LOOSE + 0.1 && this.plan !== 'swarm') mode = 'high';
     if (this.time < this.coverUntil && inThreat) mode = 'high';
+    // a guard settles into a shape and holds it a moment: flicking between shapes as the
+    // range breathes in and out reads as twitching hands
+    if (mode !== me.guardMode && this.time - this.guardSetAt < 0.5) mode = me.guardMode;
+    if (mode !== me.guardMode) this.guardSetAt = this.time;
     me.guardMode = mode;
     // a showboat who just landed a combo plays to the crowd once clear
     if (this.tauntAt > 0 && this.time > this.tauntAt && d > 1.7) {
