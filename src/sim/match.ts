@@ -691,7 +691,8 @@ export class Match {
     const heavy = dmg >= 55 || crit || !!m.ability || tore >= 0;
     let fatal: LossReason | null = null;
     if (tore >= 0) {
-      def.parts.detach(tore);
+      const socket = def.parts.detach(tore);
+      if (socket >= 0) this.wearCheck(def, socket);
       def.body.sever(CUT_JOINTS[tore]);
       // the torn part flies off with the blow
       for (const j of CUT_JOINTS[tore]) {

@@ -46,6 +46,34 @@ const _dq = new THREE.Vector3();
 
 /** Oil starts to leak from the chest or lower torso below this condition. */
 const LEAK_BELOW = 0.35;
+/** The joint a stump hangs from, so a torn socket sprays oil outward along the lost limb. */
+const STUMP_PARENT: Partial<Record<number, number>> = {
+  [J.Neck]: J.Chest,
+  [J.ShL]: J.Chest,
+  [J.ShR]: J.Chest,
+  [J.ElL]: J.ShL,
+  [J.ElR]: J.ShR,
+  [J.HipL]: J.Pelvis,
+  [J.HipR]: J.Pelvis,
+  [J.KneeL]: J.HipL,
+  [J.KneeR]: J.HipR,
+};
+/** Joints oil gets splashed onto when it flies about. */
+const SPLASH_JOINTS = [J.Chest, J.Chest, J.Pelvis, J.Head, J.ShL, J.ShR, J.ElL, J.ElR, J.HandL, J.HandR, J.KneeL, J.KneeR, J.HipL, J.HipR];
+/** The fist or foot nearest a point (the one that just landed a blow there). */
+function nearestStriker(joints: THREE.Vector3[], p: THREE.Vector3) {
+  let best = J.HandL;
+  let bd = Infinity;
+  for (const j of [J.HandL, J.HandR, J.FootL, J.FootR]) {
+    const d = joints[j].distanceToSquared(p);
+    if (d < bd) {
+      bd = d;
+      best = j;
+    }
+  }
+  return best;
+}
+
 /** How badly a trunk part bleeds oil, 0 (not at all) to 1, from its condition. */
 function oilLeak(part: number, cond: number) {
   if ((part !== P.Chest && part !== P.Torso) || cond >= LEAK_BELOW) return 0;
@@ -708,7 +736,16 @@ export class Game {
         this.oilFeet[i * 2] = f.parts.legOut(0) ? null : this.models[i].joints[J.FootL];
         this.oilFeet[i * 2 + 1] = f.parts.legOut(1) ? null : this.models[i].joints[J.FootR];
       }
-      this.oil.update(dt * this.speed * m.slowmo, this.oilFeet);
+      const stepped = this.oil.update(dt * this.speed * m.slowmo, this.oilFeet);
+      // stepping in a puddle splashes the foot and shin
+      for (let fi = 0; fi < 4; fi++) {
+        if (!(stepped & (1 << fi))) continue;
+        const md = this.models[fi >> 1];
+        const left = (fi & 1) === 0;
+        md.oilSplash(left ? J.FootL : J.FootR, 0.12, 1, 0.04);
+        if (Math.random() < 0.5) md.oilSplash(left ? J.KneeL : J.KneeR, 0.09, 0.8);
+        md.grime += 0.03;
+      }
       perf.lap('bots');
     }
     if (this.showcase) {
@@ -900,7 +937,16 @@ export class Game {
       if (wear > 0.35) this.fx.smoke(h.point, 1 + Math.round(wear * 3), wear);
     }
     const k = oilLeak(h.part, h.partCond);
-    if (k > 0 && !h.blocked) this.oil.splash(h.point, h.dir, k);
+    if (k > 0 && !h.blocked) {
+      this.oil.splash(h.point, h.dir, k);
+      // the blow comes away dripping
+      const am = this.models[h.attacker.index];
+      if (am) {
+        am.oilSplash(nearestStriker(am.joints, h.point), 0.08 + k * 0.05, 0.8 + k * 0.2, 0.05);
+        am.grime += 0.02;
+      }
+      if (Math.random() < 0.5) this.models[h.defender.index]?.oilSplash(h.part === P.Chest ? J.Chest : J.Pelvis, 0.12 + k * 0.06);
+    }
   }
 
   /** A part comes off: the piece flies, the stump bursts with sparks, the arena erupts. */
@@ -916,6 +962,17 @@ export class Game {
     const stump = STUMP[d.part] ?? J.Chest;
     this.stumps[i].push({ joint: stump, age: 0 });
     const at = model.joints[stump];
+    // the torn socket wrenches the metal around it and gushes oil over both robots
+    model.socketWrench(d.part);
+    this.oil.splash(at, d.dir, 1.4, 70, 1.3);
+    for (let n = 0; n < 3; n++) model.oilSplash(SPLASH_JOINTS[(Math.random() * SPLASH_JOINTS.length) | 0], 0.1 + Math.random() * 0.08);
+    model.grime += 0.12;
+    const bm = this.models[d.by.index];
+    if (bm) {
+      bm.oilSplash(nearestStriker(bm.joints, at), 0.14, 1, 0.05);
+      bm.oilSplash(Math.random() < 0.5 ? J.Chest : J.Head, 0.1 + Math.random() * 0.06);
+      bm.grime += 0.08;
+    }
     this.fx.sparks(at, _dp.copy(d.dir).setY(0.6).normalize(), 60, 0xffc070, 9, 1.4);
     this.fx.sparks(at, _up, 24, 0x9ad8ff, 5, 1.6);
     this.fx.flash(at, 0xffe0b0, 2.2, 0.28);
@@ -955,6 +1012,7 @@ export class Game {
       if (w > 0.75 && Math.random() < dt * (0.3 + kk * 1.5)) this.fx.arc(_dp, 0.1 + kk * 0.06);
     }
     // a wrecked chest or lower torso bleeds oil from a wound on its plating
+    let bleed = 0;
     for (let w = 0; w < 2; w++) {
       const p = w === 0 ? P.Chest : P.Torso;
       const k = oilLeak(p, parts.cond[p]);
@@ -964,11 +1022,31 @@ export class Game {
       if (w === 0) _dp.copy(J0[J.Chest]).addScaledVector(_dq, 0.21);
       else _dp.lerpVectors(J0[J.Pelvis], J0[J.Chest], 0.3).addScaledVector(_dq, 0.17);
       this.oil.leak(i * 2 + w, _dp, _dq, k, dt);
+      bleed += k;
+    }
+    bleed += this.stumps[i].length * 0.8;
+    if (bleed > 0) {
+      const me = this.models[i];
+      me.grime += dt * 0.006 * bleed;
+      // oil runs down its own plating and flicks onto whatever is close, the other robot included
+      if (Math.random() < dt * 0.6 * bleed) me.oilSplash(SPLASH_JOINTS[(Math.random() * SPLASH_JOINTS.length) | 0], 0.07 + Math.random() * 0.08, 0.6 + Math.random() * 0.4);
+      const other = this.models[1 - i];
+      if (other && other.joints[J.Chest].distanceTo(J0[J.Chest]) < 1.4 && Math.random() < dt * 0.4 * bleed) {
+        other.oilSplash(SPLASH_JOINTS[(Math.random() * SPLASH_JOINTS.length) | 0], 0.06 + Math.random() * 0.07, 0.6 + Math.random() * 0.4);
+        other.grime += 0.015;
+      }
     }
     for (const s of this.stumps[i]) {
       s.age += dt;
       const heat = Math.max(0.15, 1 - s.age / 5);
       const at = J0[s.joint];
+      // a torn socket gushes, then keeps bleeding steadily
+      const par = STUMP_PARENT[s.joint];
+      if (par !== undefined) {
+        _dq.subVectors(at, J0[par]);
+        if (_dq.lengthSq() < 1e-6) _dq.set(0, 1, 0);
+        this.oil.leak(100 + i * 16 + s.joint, at, _dq.normalize(), 0.6 + Math.max(0, 1 - s.age / 6) * 0.9, dt);
+      }
       if (Math.random() < dt * 9 * heat) this.fx.sparks(at, _up, 2 + Math.round(heat * 6), 0xffb050, 2 + heat * 3, 1.4);
       if (Math.random() < dt * 7 * heat) this.fx.smoke(at, 1, heat);
       if (Math.random() < dt * 2.5 * heat) this.fx.arc(at, 0.15);
