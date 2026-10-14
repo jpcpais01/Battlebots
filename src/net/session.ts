@@ -3,7 +3,6 @@ import type { Match } from '../sim/match';
 import { SIM_DT } from '../sim/match';
 import { matchHash } from '../sim/hash';
 import type { BotSpec } from '../game/loadout';
-import { contrastingPaint, paintsContrast } from '../game/paint';
 import { sanitizeBot } from '../ui/store';
 import { simFingerprint } from './fingerprint';
 import { joinRoom, Link, Room, type NetMsg } from './link';
@@ -202,8 +201,7 @@ export class OnlineSession {
     if (this.role !== 'host' || !this.canFight) return;
     const a = sanitizeBot(this.myBot);
     const b = sanitizeBot(this.peerBot);
-    // look-alike paint on both corners would be unreadable: the guest wears another scheme for the fight
-    if (!paintsContrast(a.paint, b.paint)) b.paint = contrastingPaint(a.paint);
+    // each bot fights in its owner's own paint, even when both look alike
     const r = new Uint32Array(1);
     crypto.getRandomValues(r);
     const seed = r[0];
