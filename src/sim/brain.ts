@@ -987,7 +987,8 @@ export class Brain {
 
     let target = myReach * 0.9;
     let lateral = 0;
-    let speed = st.moveSpeed;
+    // fighting footwork is a stalk, not a sprint: well under the legs' top speed
+    let speed = st.moveSpeed * 0.8;
     let bounce = lerp(0.35, 1, t.footwork);
     let busy = t.footwork;
     let urgent = false;
@@ -1095,10 +1096,11 @@ export class Brain {
     const need = Math.min(1, len);
     if (need > 0.9 || ropeK > 0.85) urgent = true;
 
-    // footwork comes in steps: push off, land, settle, go again
+    // footwork comes in moves: push off, a step or two, settle, go again. Each move is
+    // unhurried (a shuffle at walking pace, not a scurry), the settles are real pauses.
     if (urgent) {
       this.gaitMoving = true;
-      this.gaitT = this.rng.range(0.08, 0.18); // finish the step once the hurry is over
+      this.gaitT = this.rng.range(0.14, 0.24); // finish the step once the hurry is over
       if (len > 1e-4) {
         this.stepX = vx / len;
         this.stepZ = vz / len;
@@ -1111,13 +1113,13 @@ export class Brain {
           // land and settle
           this.gaitMoving = false;
           // sometimes two steps in a row, sometimes a long settle
-          const settle = this.rng.chance(0.2 + busy * 0.15) ? 0.02 : lerp(0.55, 0.12, busy) * this.rng.range(0.4, 1.8);
+          const settle = this.rng.chance(0.15 + busy * 0.1) ? 0.05 : lerp(0.7, 0.25, busy) * this.rng.range(0.5, 1.6);
           this.gaitT = settle * (1 - need * 0.5);
         } else {
           let sx = vx, sz = vz, sn = need;
           if (sn < 0.12) {
             // nothing to fix: shuffle in rhythm, or stay planted
-            if (this.rng.chance(0.25 + busy * 0.65)) {
+            if (this.rng.chance(0.15 + busy * 0.45)) {
               const lat = this.rng.sign() * this.rng.range(0.4, 1);
               const rad = this.rng.range(-0.6, 0.6);
               sx = px * lat + tx * rad;
@@ -1125,16 +1127,16 @@ export class Brain {
               sn = 0.45;
             } else {
               sn = 0;
-              this.gaitT = this.rng.range(0.15, 0.4);
+              this.gaitT = this.rng.range(0.3, 0.7);
             }
           }
           if (sn > 0) {
             const l = DM.hypot(sx, sz) || 1;
             this.gaitMoving = true;
-            this.gaitT = this.rng.range(0.16, 0.3) * lerp(1.2, 0.8, busy);
+            this.gaitT = this.rng.range(0.28, 0.48) * lerp(1.15, 0.85, busy);
             this.stepX = sx / l;
             this.stepZ = sz / l;
-            this.stepSpeed = speed * lerp(0.5, 0.9, Math.max(sn, busy * 0.6));
+            this.stepSpeed = speed * lerp(0.36, 0.62, Math.max(sn, busy * 0.6));
           }
         }
       }
