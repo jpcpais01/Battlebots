@@ -33,12 +33,13 @@ import { house } from '../render/house';
 import { warnNonFinite } from '../render/finite';
 import { Garage } from '../render/garage';
 import { HomeStage, type HomeSceneId } from '../render/home/homeStage';
+import type { WorldMap } from '../render/map/world';
 import { PartThumbs } from '../render/partPreview';
 import { walkOnFor } from '../audio/walkOn';
 import { ENTRY, hatchXZ } from '../sim/entrance';
 
 /** Where the 3D scene is: the fight arena (home, fights) or the workshop (garage). */
-export type Place = 'arena' | 'garage' | 'home';
+export type Place = 'arena' | 'garage' | 'home' | 'map';
 
 export interface GameCallbacks {
   onMatchEvent?: (type: string, data: unknown) => void;
@@ -240,6 +241,9 @@ export class Game {
   /** Parts torn off during a seek, put on the models once it lands. */
   private seekTears: DetachInfo[] = [];
   private garage: Garage | null = null;
+  /** The world map, built the first time it's opened. */
+  private world: WorldMap | null = null;
+  private worldBuild: Promise<WorldMap> | null = null;
   /** The animated home screen places (beach, gym), built on first use. */
   private home: HomeStage | null = null;
   /** A home scene failed: the home screen stays in the arena from now on. */
@@ -296,6 +300,7 @@ export class Game {
       this.oil.setPixelScale(h);
       this.steam.setPixelScale(h);
       this.arena.setPixelScale(h);
+      this.world?.setPixelScale(h);
       const narrow = w / Math.max(1, h / (window.devicePixelRatio || 1)) < 1.2;
       this.director.setBaseFov(this.stage.baseFov, narrow);
     };
@@ -356,11 +361,14 @@ export class Game {
     this.arena.group.visible = inArena;
     this.arena.venue.group.visible = inArena;
     this.drones.group.visible = inArena;
-    if (this.showcase) this.showcase.model.root.visible = p !== 'home';
+    if (this.showcase) this.showcase.model.root.visible = p !== 'home' && p !== 'map';
+    const inMap = p === 'map' && !!this.world;
+    if (this.world) this.world.group.visible = inMap;
+    this.director.clip = inMap ? this.world!.cam.clip : null;
     if (inGarage) this.garage!.enter(this.stage);
     else {
       this.garage?.exit();
-      this.stage.applyLook(this.stage.arenaLook);
+      this.stage.applyLook(inMap ? this.world!.look : this.stage.arenaLook);
     }
     if (p === 'home') {
       try {
@@ -371,6 +379,35 @@ export class Game {
         this.homeFailed(e);
       }
     }
+  }
+
+  /** Build the world map (once; later calls get the same one), reporting progress 0..1. */
+  loadWorld(progress: (k: number) => void = () => {}): Promise<WorldMap> {
+    if (!this.worldBuild) {
+      // (its own chunk: nobody downloads the map until they open it)
+      this.worldBuild = import('../render/map/world').then(({ WorldMap }) => WorldMap.build(this.stage.quality, this.stage.camera, progress)).then((w) => {
+        this.world = w;
+        w.group.visible = this.place === 'map';
+        w.setOutput(!!this.stage.post);
+        w.setPixelScale(this.stage.renderer.getDrawingBufferSize(new THREE.Vector2()).y);
+        this.stage.scene.add(w.group);
+        this.probe.tag(w.group, 'venue');
+        // build its shaders on the first frame it's shown, not piecemeal as things come into view
+        this.stage.warmUp([w.group]);
+        if (this.place === 'map') {
+          this.director.clip = w.cam.clip;
+          this.stage.applyLook(w.look);
+        }
+        return w;
+      });
+      this.worldBuild.catch(() => (this.worldBuild = null));
+    }
+    return this.worldBuild;
+  }
+
+  /** The world map, once built. */
+  get worldMap() {
+    return this.world;
   }
 
   private homeStage() {
@@ -473,7 +510,7 @@ export class Game {
     const model = new BotModel(spec.loadout, spec.paint, spec.size);
     this.probe.tag(model.root, 'bots');
     this.stage.scene.add(model.root);
-    model.root.visible = this.place !== 'home';
+    model.root.visible = this.place !== 'home' && this.place !== 'map';
     this.showcase = { fighter, dummy, model, show: new Showman(fighter, dummy, null), spec };
   }
 
@@ -1123,7 +1160,7 @@ export class Game {
       this.steam.update(flow);
       perf.lap('bots');
     }
-    if (this.showcase && this.place !== 'home') {
+    if (this.showcase && this.place !== 'home' && this.place !== 'map') {
       const { fighter, model, show, dummy } = this.showcase;
       const run = this.sparRun;
       this.showAcc += dt * (run ? run.slowmo : 1) * impactPace(this.sparStop, this.sparSpan);
@@ -1165,7 +1202,7 @@ export class Game {
     }
     // contact occlusion follows whichever robots are on screen
     const homeModel = this.place === 'home' ? this.home?.model : null;
-    const shown = m && this.models.length === 2 ? this.models : homeModel ? [homeModel] : this.showcase ? (this.spar ? [this.showcase.model, this.spar.model] : [this.showcase.model]) : [];
+    const shown = m && this.models.length === 2 ? this.models : homeModel ? [homeModel] : this.showcase && this.place !== 'map' ? (this.spar ? [this.showcase.model, this.spar.model] : [this.showcase.model]) : [];
     // (a robot still down in its lift shaft casts nothing on the canvas, nor one carried off)
     const away = m && this.stretcher.gone ? this.stretcher.loser : -1;
     for (let i = 0; i < 2; i++) contactAO.set(i, i === away || (m && this.arena.corners.drop(m, i) < -0.3) ? null : (shown[i]?.joints ?? null), shown[i]?.size);
@@ -1178,7 +1215,25 @@ export class Game {
     this.crowdMood.tick(dt, crowdState);
     this.crowdMood.cues.length = 0; // sounds are the audio crowd's job
     if (this.place === 'garage') this.garage!.update(dt, this.time, this.fx);
-    else if (this.place === 'home') {
+    else if (this.place === 'map') {
+      const w = this.world;
+      const d = this.director;
+      if (w) {
+        try {
+          w.update(dt, this.time, this.stage.camera);
+        } catch (e) {
+          // (a broken map mustn't stop the game: it just stands still)
+          console.error('map update failed', e);
+        }
+        // the map flies its own camera: the director follows it exactly
+        d.scenePos.copy(w.cam.pos);
+        d.sceneLook.copy(w.cam.look);
+        d.sceneFov = 1;
+        d.sceneRoll = 0;
+        d.sceneLambda = 200;
+        d.clip = w.cam.clip;
+      }
+    } else if (this.place === 'home') {
       try {
         this.home!.update(dt, this.time);
         const c = this.home!.cam;

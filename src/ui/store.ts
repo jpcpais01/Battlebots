@@ -3,6 +3,7 @@ import { DEFAULT_PLAYER, type BotSpec } from '../game/loadout';
 import { sanitizePaint } from '../game/paint';
 import { EMOTE_KIND, MAX_PICKS, type EmoteKind } from '../sim/emote';
 import { WALK_ON_NAME } from '../audio/walkOn';
+import { sanitizeEvents, type EventsRecord } from '../game/events';
 
 export interface Record_ {
   wins: number;
@@ -10,6 +11,8 @@ export interface Record_ {
   draws: number;
   streak: number;
   best: number;
+  /** Progress in the world map's cups and championships. */
+  events: EventsRecord;
 }
 
 function read<T>(key: string, fallback: T): T {
@@ -75,7 +78,7 @@ export function savePlayer(p: BotSpec) {
 export function sanitizeRecord(raw: unknown): Record_ {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<Record<keyof Record_, unknown>>;
   const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0);
-  return { wins: n(r.wins), losses: n(r.losses), draws: n(r.draws), streak: n(r.streak), best: n(r.best) };
+  return { wins: n(r.wins), losses: n(r.losses), draws: n(r.draws), streak: n(r.streak), best: n(r.best), events: sanitizeEvents(r.events) };
 }
 
 export const loadRecord = (): Record_ => sanitizeRecord(read<unknown>('bb.record', null));
