@@ -42,42 +42,6 @@
         inset: 0;
         pointer-events: none;
       }
-      /* stage lamps over the ring, swinging slowly: blue corner, red corner, a white key */
-      .bt-beam {
-        position: absolute;
-        top: -8vh;
-        width: 46vw;
-        height: 130vh;
-        margin-left: -23vw;
-        transform-origin: 50% 0;
-        clip-path: polygon(47% 0, 53% 0, 100% 100%, 0 100%);
-        mix-blend-mode: screen;
-        will-change: transform;
-      }
-      .bt-b1 {
-        left: 16%;
-        background: linear-gradient(180deg, rgba(61, 139, 255, 0.34), rgba(61, 139, 255, 0.05) 62%, transparent 82%);
-        animation: bt-swing 7.5s ease-in-out -2s infinite alternate;
-      }
-      .bt-b2 {
-        left: 50%;
-        background: linear-gradient(180deg, rgba(255, 236, 214, 0.2), rgba(255, 236, 214, 0.035) 60%, transparent 80%);
-        animation: bt-swing 9s ease-in-out -6s infinite alternate-reverse;
-        --swing: 7deg;
-      }
-      .bt-b3 {
-        left: 84%;
-        background: linear-gradient(180deg, rgba(255, 74, 48, 0.32), rgba(255, 74, 48, 0.05) 62%, transparent 82%);
-        animation: bt-swing 8.2s ease-in-out infinite alternate-reverse;
-      }
-      @keyframes bt-swing {
-        from {
-          transform: rotate(calc(var(--swing, 15deg) * -1));
-        }
-        to {
-          transform: rotate(var(--swing, 15deg));
-        }
-      }
       /* the canvas, running toward you, fading into the dark */
       .bt-floor {
         position: absolute;
@@ -362,7 +326,6 @@
         }
       }
       @media (prefers-reduced-motion: reduce) {
-        .bt-beam,
         .bt-floor i,
         .bt-ticks,
         .bt-glow {
@@ -377,7 +340,6 @@
     <div id="ui"></div>
     <div id="boot" class="boot" role="progressbar" aria-label="Loading Battlebots" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
       <div class="bt-stage" aria-hidden="true">
-        <i class="bt-beam bt-b1"></i><i class="bt-beam bt-b2"></i><i class="bt-beam bt-b3"></i>
         <div class="bt-pool"></div>
         <div class="bt-floor"><i></i></div>
       </div>

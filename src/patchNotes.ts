@@ -17,8 +17,10 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 12:00",
-    title: "A flowing river",
+    title: "Home scenes load up front, a flowing river",
     notes: [
+      "Every home background (beach, gym and lounge) is now built while the game loads, so switching between them shows the new one straight away instead of after a few seconds.",
+      "The loading screen is calmer: the swinging spotlights are gone, leaving the arena floor and the power core.",
       "The river on the world map now really flows: fast down the middle and slow by the banks, with ripples and lines of foam carried downstream, white water churning over the rapids, foam lacing the banks, and the sun glittering on it and dancing over the stony shallows. The lake above the falls shows its shallows too.",
       "Cascade Falls drops sheer off the cliff again in a tall white curtain with spray at its foot, the dam sits on the cliff edge instead of hanging in the air, and the river below now runs down its valley instead of floating over it, tumbling through a run of rapids on the way to the city.",
     ],
