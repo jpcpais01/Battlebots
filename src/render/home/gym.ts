@@ -1577,7 +1577,7 @@ export class Gym implements HomeScene {
       // look ahead to the door the whole way
       a.face(last ? _u.set(DOOR.x, 0, ROOM.z1) : wp);
       if (this.phaseT > 0.12) {
-        const speed = 1.5 * Math.sqrt(z) * smooth(this.phaseT / 0.5) * (last ? Math.min(1, d / 0.6 + 0.25) : 1);
+        const speed = 1.2 * Math.sqrt(z) * smooth(this.phaseT / 0.5) * (last ? Math.min(1, d / 0.6 + 0.25) : 1);
         a.walk = a.walk ?? new THREE.Vector3();
         a.walk.copy(_v).multiplyScalar(speed / Math.max(1e-3, d));
       }
@@ -1610,7 +1610,7 @@ export class Gym implements HomeScene {
       a.armW = 1 - smooth(this.phaseT / 0.4);
       a.face(_u.set(DOOR.x, 0, ROOM.z1 + 4));
       a.walk = a.walk ?? new THREE.Vector3();
-      a.walk.set(0, 0, 1.3 * Math.sqrt(z) * smooth(this.phaseT / 0.4));
+      a.walk.set(0, 0, 1.15 * Math.sqrt(z) * smooth(this.phaseT / 0.4));
       this.chaseCam(k, false, true);
       if (this.phaseT > 1.35) this.over = true;
     }
