@@ -16,6 +16,27 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-15 13:00",
+    title: "Richer home scenes",
+    notes: [
+      "The beach is busier: robots sunbathe, play volleyball and walk a dog along the shore, with a tiki stand and lifeguard tower down the sand.",
+      "Beach palms, sand, sea and clouds are far more detailed, with swaying sea oats and flags rippling in the breeze.",
+      "Your beach lounger got a makeover: wood grain, piped cushions, a towel over the back and a boombox with a bouncing equaliser.",
+      "The gym got a big makeover: worn floors, grimy brick, peeling fight posters, a training whiteboard, a title belt and a robot workbench by the door.",
+      "The gym feels alive: a standing fan sweeps the room, a double-end bag bounces, a security camera pans and an old tube light flickers.",
+    ],
+  },
+  {
+    hour: "2026-10-15 13:00",
+    title: "Richer home scenes",
+    notes: [
+      "New gear around the gym: a glove rack, an agility ladder, a stretching corner, jump ropes and a sledgehammer, and the clock shows your real time.",
+      "The lounge sofa is now plump and buttoned, with piping, a knitted throw and a blanket over the arm, and wood, velvet and knit show real texture.",
+      "Through the lounge window the city lights flicker, beacons blink and planes cross the rainy sky, while car headlights sweep the ceiling.",
+      "The lounge has a neon sign in the window, a fish tank, a radiator, fight posters and a pizza box on the floor.",
+    ],
+  },
+  {
     hour: "2026-10-15 12:00",
     title: "A fresh loading screen",
     notes: [
