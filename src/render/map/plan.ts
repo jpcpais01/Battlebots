@@ -56,6 +56,10 @@ export interface Box {
   seed: number;
 }
 
+/** What a building out in the country is. */
+export const HouseKind = { House: 0, Barn: 1, Silo: 2, Greenhouse: 3 } as const;
+export type HouseKind = (typeof HouseKind)[keyof typeof HouseKind];
+
 export interface House {
   x: number;
   y: number;
@@ -66,6 +70,9 @@ export interface House {
   rot: number;
   wall: number;
   roof: number;
+  kind: HouseKind;
+  /** 0..1, picks the details (roof shape, porch, garden, which windows are lit). */
+  seed: number;
 }
 
 export const TreeKind = { Broad: 0, Pine: 1, Blossom: 2, Palm: 3 } as const;
@@ -90,6 +97,8 @@ export interface Sign {
   /** Cell in the sign atlas and its neon colour index. */
   cell: number;
   neon: number;
+  /** Stands on a roof on legs (a billboard). */
+  roof?: boolean;
 }
 
 /** Neon colours (sRGB): magenta, cyan, amber, violet, lime. */
@@ -123,6 +132,30 @@ export interface Bridge {
   rot: number;
 }
 
+/**
+ * The four mega-towers in the middle of downtown, each standing on its own block: centre, height
+ * to the tip, and the radius the camera keeps clear of below the top.
+ */
+export const MEGA = {
+  spire: { x: -46, z: -118, top: 604, r: 34 },
+  arcology: { x: 26, z: -190, top: 452, r: 44 },
+  needle: { x: 98, z: -118, top: 532, r: 40 },
+  monolith: { x: -118, z: -118, top: 430, r: 40 },
+};
+/** The plaza the giant hologram stands in, in front of them. */
+export const HOLO_PLAZA = { x: 26, z: -46 };
+/**
+ * The arcology's stacked blocks, bottom to top: size, offset from the tower's centre, turn, and
+ * the height of their floor and roof (a lit gap between each).
+ */
+export const ARCOLOGY: { w: number; d: number; dx: number; dz: number; rot: number; y0: number; y1: number }[] = [
+  { w: 48, d: 46, dx: 0, dz: 0, rot: 0, y0: 19, y1: 104 },
+  { w: 44, d: 38, dx: 7, dz: -6, rot: 0.12, y0: 108, y1: 186 },
+  { w: 38, d: 34, dx: -6, dz: 4, rot: -0.06, y0: 190, y1: 266 },
+  { w: 30, d: 28, dx: 4, dz: -4, rot: 0.2, y0: 270, y1: 338 },
+  { w: 22, d: 22, dx: 0, dz: 0, rot: 0.1, y0: 342, y1: 398 },
+];
+
 export interface Plan {
   boxes: Box[];
   houses: House[];
@@ -132,6 +165,10 @@ export interface Plan {
   bridges: Bridge[];
   /** Red warning lights on tower tops. */
   beacons: number[];
+  /** Radio masts on tower roofs: x, roof y, z, height. */
+  masts: number[];
+  /** Street lamps: x, y, z. */
+  lamps: number[];
   /** Street lines for traffic: [x0, z0, x1, z1, lanes]. */
   streets: number[][];
 }
@@ -267,6 +304,8 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
   const trees: Tree[] = [];
   const signs: Sign[] = [];
   const beacons: number[] = [];
+  const masts: number[] = [];
+  const lamps: number[] = [];
   const streets: number[][] = [];
   const treeK = quality === 'high' ? 1 : quality === 'med' ? 0.72 : 0.5;
 
@@ -291,6 +330,12 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
       const sea = smoothstep(48, 160, coast(cx, cz));
       const hMax = (16 + 210 * Math.pow(core, 1.7)) * mix(0.55, 1, sea) * (0.85 + 0.3 * r());
       if (Math.abs(cx - SITES.rooftop.x) < 1 && Math.abs(cz - SITES.rooftop.z) < 1) continue;
+      // the mega-towers' blocks: just a podium (the towers are built in towers.ts)
+      if (Object.values(MEGA).some((m) => Math.abs(m.x - cx) < 1 && Math.abs(m.z - cz) < 1)) {
+        boxes.push({ ...box(cx, cz, x1 - x0, z1 - z0, CITY_Y, 16, Style.Office, r()), lit: 0.6 });
+        continue;
+      }
+      if (Math.abs(cx - HOLO_PLAZA.x) < 1 && Math.abs(cz - HOLO_PLAZA.z) < 1) continue;
       fillBlock(x0, z0, x1, z1, hMax, core);
     }
 
@@ -377,7 +422,13 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
       boxes.push({ ...box(cx, cz, rw, rd, roofY, h - shaftH, style, seed), neon, roof: r() < 0.3 ? 2 : 0 });
       roofY = CITY_Y + h;
     }
-    if (h > 90) beacons.push(cx, roofY + 3, cz);
+    if (h > 120 && r() < 0.6) {
+      // a radio mast, its warning light on top
+      const mh = 10 + r() * 22;
+      const mx = cx + (r() - 0.5) * rw * 0.5, mz = cz + (r() - 0.5) * rd * 0.5;
+      masts.push(mx, roofY, mz, mh);
+      beacons.push(mx, roofY + mh, mz);
+    } else if (h > 90) beacons.push(cx, roofY + 3, cz);
     kit(cx, cz, rw, rd, roofY, 1 + Math.floor(r() * 2));
     if (r() < 0.55) sign(cx, cz, sw, sd, CITY_Y + podH + 3, Math.min(shaftH - podH - 6, 28));
   }
@@ -402,7 +453,13 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
     if (core > 0.15 && r() < 0.35) b.neon = Math.floor(r() * NEON.length);
     boxes.push(b);
     if (b.roof !== 1) kit(cx, cz, w, d, CITY_Y + h, Math.floor(r() * 3));
-    if (core > 0.1 && r() < 0.3) sign(cx, cz, w, d, CITY_Y + 4, Math.min(h - 6, 14));
+    if (core > 0.1 && r() < 0.42) sign(cx, cz, w, d, CITY_Y + 4, Math.min(h - 6, 14));
+    else if (r() < 0.3) shopSign(cx, cz, w, d);
+    // a billboard on the roof, facing the street to the south
+    if (b.roof !== 1 && h > 14 && h < 40 && w > 12 && r() < 0.14) {
+      const bw = Math.min(w * 0.8, 9 + r() * 6), bh = 3.2 + r() * 1.6;
+      signs.push({ x: cx, y: CITY_Y + h + 2.2 + bh / 2, z: cz + d / 2 - 2.5, rot: 0, w: bw, h: bh, cell: Math.floor(r() * 8), neon: Math.floor(r() * NEON.length), roof: true });
+    }
   }
 
   function box(x: number, z: number, w: number, d: number, y0: number, h: number, style: Style, seed: number): Box {
@@ -432,12 +489,45 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
     signs.push({ x: x + nx * (reach + 0.6) + tx * off, y: y + h / 2, z: z + nz * (reach + 0.6) + tz * off, rot, w: 3 + r() * 2, h, cell: Math.floor(r() * 8), neon: Math.floor(r() * NEON.length) });
   }
 
+  /** A wide sign over a shopfront, its characters along it. */
+  function shopSign(x: number, z: number, w: number, d: number) {
+    const f = Math.floor(r() * 4);
+    const rot = (f * Math.PI) / 2;
+    const nx = Math.sin(rot), nz = Math.cos(rot);
+    const reach = (f % 2 === 0 ? d : w) / 2;
+    const along = (f % 2 === 0 ? w : d) / 2;
+    const sw = Math.min(along * 1.4, 5 + r() * 6);
+    const off = (r() - 0.5) * (along * 2 - sw) * 0.8;
+    const tx = Math.cos(rot), tz = -Math.sin(rot);
+    signs.push({ x: x + nx * (reach + 0.4) + tx * off, y: CITY_Y + 4.4 + r() * 1.2, z: z + nz * (reach + 0.4) + tz * off, rot, w: sw, h: 1.5 + r() * 0.7, cell: Math.floor(r() * 8), neon: Math.floor(r() * NEON.length) });
+  }
+
   // ------------------------------------------------------------ the rooftop arena's tower
   {
     const s = SITES.rooftop;
     boxes.push({ x: s.x, z: s.z, w: 56, d: 56, y0: CITY_Y, h: 22, style: Style.Office, col: 0xe9e2d4, lit: 0.5, neon: -1, roof: 0, seed: 0.31 });
     boxes.push({ x: s.x, z: s.z, w: 38, d: 38, y0: CITY_Y + 22, h: 208, style: Style.Glass, col: 0x4d7f95, lit: 0.55, neon: 1, roof: 0, seed: 0.73 });
     boxes.push({ x: s.x, z: s.z, w: 30, d: 30, y0: CITY_Y + 230, h: 22, style: Style.Glass, col: 0x557a99, lit: 0.7, neon: 0, roof: 0, seed: 0.52 });
+  }
+
+  // ------------------------------------------------------------ trees on the arcology's terraces
+  {
+    const a = MEGA.arcology;
+    for (let k = 0; k < ARCOLOGY.length; k++) {
+      const b = ARCOLOGY[k], up = ARCOLOGY[k + 1];
+      for (let t = 0; t < 26; t++) {
+        const lx = (r() - 0.5) * (b.w - 5), lz = (r() - 0.5) * (b.d - 5);
+        const c = Math.cos(b.rot), s = Math.sin(b.rot);
+        const x = a.x + b.dx + lx * c + lz * s, z = a.z + b.dz - lx * s + lz * c;
+        if (up) {
+          // (not under the next block up)
+          const ux = x - a.x - up.dx, uz = z - a.z - up.dz;
+          const cu = Math.cos(up.rot), su = Math.sin(up.rot);
+          if (Math.abs(ux * cu - uz * su) < up.w / 2 + 3 && Math.abs(ux * su + uz * cu) < up.d / 2 + 3) continue;
+        }
+        trees.push({ x, y: b.y1, z, s: 0.38 + r() * 0.2, kind: r() < 0.3 ? TreeKind.Blossom : TreeKind.Broad, col: r() });
+      }
+    }
   }
 
   // ------------------------------------------------------------ docks
@@ -494,6 +584,20 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
       }
     }
     if (xB - xA > 100) streets.push([xA, z, xB, z, isAvenue(j) ? 2 : 1]);
+  }
+
+  // ------------------------------------------------------------ street lamps (where the ground shader pools their light)
+  for (const s of streets) {
+    const alongZ = s[0] === s[2];
+    const hw = (s[4] > 1 ? AVENUE : STREET) / 2 + 1.5;
+    const a = alongZ ? s[1] : s[0], b = alongZ ? s[3] : s[2];
+    for (let t = Math.ceil((a - 11) / 22) * 22 + 11; t < b; t += 22)
+      for (const side of [-1, 1]) {
+        const x = alongZ ? s[0] + side * hw : t, z = alongZ ? t : s[1] + side * hw;
+        const rv = river(x, z);
+        if (rv.d < rv.w + 4 || coast(x, z) < 14 || cityWeight(x, z) < 0.5) continue;
+        lamps.push(x, CITY_Y + 6, z);
+      }
   }
 
   // ------------------------------------------------------------ bridges where streets cross the river
@@ -598,7 +702,32 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
     [-470, -330, 40],
     [560, 120, 40],
   ];
+  /** A house, and now and then a tree in its back garden. */
+  const addHouse = (o: Omit<House, 'kind' | 'seed'>, kind: HouseKind = HouseKind.House) => {
+    const seed = r();
+    houses.push({ ...o, kind, seed });
+    if (kind === HouseKind.House && seed > 0.62) {
+      const back = o.d / 2 + 4 + r() * 2, side = (r() - 0.5) * o.w;
+      const c = Math.cos(o.rot), s = Math.sin(o.rot);
+      const x = o.x - s * back + c * side, z = o.z - c * back - s * side;
+      trees.push({ x, y: height(x, z), z, s: 0.5 + r() * 0.3, kind: r() < 0.3 ? TreeKind.Blossom : TreeKind.Broad, col: r() });
+    }
+  };
   for (const [vx, vz, vr] of villages) {
+    // farm villages: a barn, silos and greenhouses at the edge, out in the fields
+    if (farm(vx, vz, height(vx, vz)) > 0.2) {
+      for (let k = 0; k < 5; k++) {
+        const a = r() * Math.PI * 2, d = vr * (0.85 + r() * 0.4);
+        const x = vx + Math.cos(a) * d, z = vz + Math.sin(a) * d;
+        if (coast(x, z) < 15 || nearSite(x, z, 10) || onRoad(x, z, 9) || slope(x, z) > 0.3) continue;
+        const rv = river(x, z);
+        if (rv.d < rv.w + 12) continue;
+        const y = height(x, z), rot = Math.round(r() * 4) * (Math.PI / 2);
+        if (k === 0) addHouse({ x, y, z, w: 22, d: 13, h: 7, rot, wall: pick(r, [0xa8402e, 0x9a3b2c, 0x7d5a44]), roof: 0x5d5148 }, HouseKind.Barn);
+        else if (k < 3) addHouse({ x, y, z, w: 6, d: 6, h: 14 + r() * 6, rot, wall: pick(r, [0xd8d4cc, 0xb7b9b4]), roof: 0x9aa0a4 }, HouseKind.Silo);
+        else addHouse({ x, y, z, w: 26, d: 9, h: 3.2, rot, wall: 0xe4ece8, roof: 0xd6e2e0 }, HouseKind.Greenhouse);
+      }
+    }
     for (let k = 0; k < vr * 0.55; k++) {
       const a = r() * Math.PI * 2, d = Math.sqrt(r()) * vr;
       const x = vx + Math.cos(a) * d, z = vz + Math.sin(a) * d;
@@ -609,7 +738,7 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
       const h = height(x, z);
       if (slope(x, z) > 0.35) continue;
       const w = 7 + r() * 6, dd = 6 + r() * 4;
-      houses.push({ x, y: h, z, w, d: dd, h: 4 + r() * 3, rot: Math.round(r() * 4) * (Math.PI / 2) + (r() - 0.5) * 0.3, wall: pick(r, WALLS), roof: pick(r, ROOFS) });
+      addHouse({ x, y: h, z, w, d: dd, h: 4 + r() * 3, rot: Math.round(r() * 4) * (Math.PI / 2) + (r() - 0.5) * 0.3, wall: pick(r, WALLS), roof: pick(r, ROOFS) });
     }
   }
   // the city's outer streets: little houses with gardens past the edge of the blocks
@@ -625,8 +754,8 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
     if (rv.d < rv.w + 14) continue;
     const h = height(x, z);
     if (houses.some((o) => Math.abs(o.x - x) < 13 && Math.abs(o.z - z) < 13)) continue;
-    houses.push({ x, y: h, z, w: 8 + r() * 5, d: 7 + r() * 4, h: 4.5 + r() * 4, rot: Math.round(r() * 4) * (Math.PI / 2), wall: pick(r, WALLS), roof: pick(r, ROOFS) });
+    addHouse({ x, y: h, z, w: 8 + r() * 5, d: 7 + r() * 4, h: 4.5 + r() * 4, rot: Math.round(r() * 4) * (Math.PI / 2), wall: pick(r, WALLS), roof: pick(r, ROOFS) });
   }
 
-  return { boxes, houses, trees, signs, docks, bridges, beacons, streets };
+  return { boxes, houses, trees, signs, docks, bridges, beacons, masts, lamps, streets };
 }

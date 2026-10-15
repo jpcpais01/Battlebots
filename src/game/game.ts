@@ -1294,6 +1294,11 @@ export class Game {
           // (a broken map mustn't stop the game: it just stands still)
           console.error('map update failed', e);
         }
+        // fading between day and night: the haze and background follow
+        if (w.lookChanged) {
+          w.lookChanged = false;
+          this.stage.applyLook(w.look);
+        }
         // the map flies its own camera: the director follows it exactly
         d.scenePos.copy(w.cam.pos);
         d.sceneLook.copy(w.cam.look);

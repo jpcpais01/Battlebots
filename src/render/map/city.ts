@@ -1,14 +1,15 @@
 import * as THREE from 'three';
-import { CITY_Y, DOWNTOWN, height } from './layout';
-import { DECK_Y, LIGHTHOUSE, MAGLEV, NEON, TURBINES, WHEEL, type Box, type Plan } from './plan';
-import { MAP_GLSL, MAP_OUT, Mesher, glowMaterial, litMaterial, mapMaterial, type MapUniforms } from './kit';
+import { CITY_Y, height } from './layout';
+import { DECK_Y, LIGHTHOUSE, MAGLEV, NEON, Style, TURBINES, WHEEL, type Box, type Plan } from './plan';
+import { AA_GLSL, MAP_GLSL, MAP_OUT, Mesher, glowMaterial, litMaterial, mapMaterial, type MapUniforms } from './kit';
+import { buildHouses, windowMaterial } from './houses';
 
 /**
  * The city: every building box in one instanced draw, its windows, neon trim and roofs drawn in
  * the shader (curtain-wall glass reflecting the sky, ribbon-windowed offices, punched-window flats,
  * old brick); the houses, bridges, piers and cranes merged into one prop mesh; neon signs; the
  * maglev and its train; traffic on the streets and in the air; the Ferris wheel, the lighthouse,
- * the wind farm and a holographic koi circling downtown.
+ * the wind farm. (The mega-towers and holograms downtown are in towers.ts and holo.ts.)
  */
 
 const _m = new THREE.Matrix4();
@@ -18,26 +19,10 @@ const _p = new THREE.Vector3();
 const _c = new THREE.Color();
 const _up = new THREE.Vector3(0, 1, 0);
 
-/** Filtered pulse trains and bands, so window grids and trim never shimmer however far off. */
-const AA_GLSL = /* glsl */ `
-  // integral of a pulse train that is on for the first 'duty' of every unit cell
-  float pulseI(float x, float duty) { return floor(x) * duty + min(fract(x), duty); }
-  // that pulse train box-filtered over a width w (in cells): its exact average there
-  float fpulse(float x, float duty, float w) {
-    w = max(w, 1e-4);
-    return (pulseI(x + 0.5 * w, duty) - pulseI(x - 0.5 * w, duty)) / w;
-  }
-  // a band [a, b] box-filtered over a width w
-  float fband(float x, float a, float b, float w) {
-    w = max(w, 1e-4);
-    return clamp((min(x + 0.5 * w, b) - max(x - 0.5 * w, a)) / w, 0.0, 1.0);
-  }
+const SKY_GLSL = /* glsl */ `
   vec3 skyRefl(vec3 r) {
-    float up = clamp(r.y, 0.0, 1.0);
-    vec3 c = mix(vec3(1.0, 0.82, 0.68), vec3(0.32, 0.5, 0.86), pow(up, 0.55));
-    c += vec3(1.0, 0.7, 0.4) * pow(max(dot(normalize(r), uSunDir), 0.0), 8.0) * 0.8;
     // below the horizon: the city across the street
-    return mix(vec3(0.16, 0.16, 0.2), c, smoothstep(-0.12, 0.04, r.y));
+    return mix(vec3(0.16, 0.16, 0.2) * (1.0 - 0.7 * uNight), skyCol(r), smoothstep(-0.12, 0.04, r.y));
   }
 `;
 
@@ -88,6 +73,7 @@ function buildingMaterial(u: MapUniforms) {
     fragmentShader: /* glsl */ `
       ${MAP_GLSL}
       ${AA_GLSL}
+      ${SKY_GLSL}
       uniform vec3 uNeon[5];
       varying vec3 vWorld, vN, vCol, vSize;
       varying vec4 vInfo;
@@ -167,6 +153,9 @@ function buildingMaterial(u: MapUniforms) {
           if (style < 0.5) {
             // glass towers are mostly glass: the spandrels between floors are tinted panels
             alb = mix(vCol * 0.55, vCol, 0.5);
+          } else if (style > 1.5 && style < 2.5) {
+            // flats: a balcony slab under each row of windows
+            alb = mix(alb, vCol * 1.12, fband(fract(q.y), 0.0, 0.1, qw.y) * (1.0 - far));
           } else if (style > 2.5) {
             // brick courses
             alb *= 0.9 + 0.1 * fpulse(f.y / 0.3, 0.8, px.y / 0.3);
@@ -277,15 +266,23 @@ function signMaterial(u: MapUniforms) {
         // the frame
         vec2 e = min(m, vSign.xy - m);
         float frame = fband(min(e.x, e.y), 0.15, 0.45, length(px));
-        // characters stacked down it: each a 3×4 grid of strokes picked from a hash
-        float gs = W * 0.8;
-        vec2 g = (m - vec2((W - gs) * 0.5, 0.0)) / gs;
-        g.y = (vSign.y - m.y) / gs * 0.9;
+        // characters stacked down it (or along it, on a wide sign): each a 3×4 grid of strokes
+        // picked from a hash
+        bool wide = vSign.x > vSign.y;
+        float gs = wide ? vSign.y * 0.7 : W * 0.8;
+        vec2 g;
+        if (wide) g = vec2((m.x - gs * 0.4) / (gs * 0.85), (m.y - (vSign.y - gs) * 0.5) / gs);
+        else {
+          g = (m - vec2((W - gs) * 0.5, 0.0)) / gs;
+          g.y = (vSign.y - m.y) / gs * 0.9;
+        }
         vec2 gid = floor(g);
         vec2 gf = fract(g) * vec2(3.0, 4.0);
         vec2 sid = floor(gf);
         float h = hash12(gid * 3.1 + sid * 7.7 + vSign.z * 13.0);
-        float stroke = step(0.45, h) * step(0.0, g.x) * step(g.x, 1.0) * step(0.4, g.y) * step(g.y, floor(vSign.y / gs * 0.9));
+        float stroke = wide
+          ? step(0.45, h) * step(0.0, g.y) * step(g.y, 1.0) * step(0.0, g.x) * step(g.x, floor((W - gs * 0.8) / (gs * 0.85)))
+          : step(0.45, h) * step(0.0, g.x) * step(g.x, 1.0) * step(0.4, g.y) * step(g.y, floor(vSign.y / gs * 0.9));
         vec2 sf = fract(gf);
         stroke *= step(0.15, sf.x) * step(sf.x, 0.85) * step(0.15, sf.y) * step(sf.y, 0.85);
         // the strokes blur into a soft glow once too small to read
@@ -304,26 +301,11 @@ function signMaterial(u: MapUniforms) {
 }
 
 // ------------------------------------------------------------------ props
-/** A gable-roofed prism over a w×d footprint, ridge along x, eaves at y 0, ridge at y h. */
-function gable() {
-  const g = new THREE.BufferGeometry();
-  const p = [
-    // two sloped faces
-    -0.5, 0, -0.5, 0.5, 0, -0.5, 0.5, 1, 0, -0.5, 0, -0.5, 0.5, 1, 0, -0.5, 1, 0,
-    -0.5, 0, 0.5, -0.5, 1, 0, 0.5, 1, 0, -0.5, 0, 0.5, 0.5, 1, 0, 0.5, 0, 0.5,
-    // gable ends
-    -0.5, 0, -0.5, -0.5, 1, 0, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0, 0.5, 0.5, 1, 0,
-  ];
-  g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
-  g.computeVertexNormals();
-  return g;
-}
-
 /** Everything static and matte: houses, bridges, piers, cranes, the maglev's track, the lighthouse and the turbine towers. */
 function props(u: MapUniforms, plan: Plan, maglev: THREE.CurvePath<THREE.Vector3>) {
   const ms = new Mesher();
+  const win = new Mesher();
   const box = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
-  const roofG = gable();
   const cyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 8, 1).translate(0, 0.5, 0);
   const cone = new THREE.ConeGeometry(0.5, 1, 8, 1).translate(0, 0.5, 0);
   const put = (g: THREE.BufferGeometry, x: number, y: number, z: number, sx: number, sy: number, sz: number, rot: number, col: number, k = 1) => {
@@ -331,14 +313,28 @@ function props(u: MapUniforms, plan: Plan, maglev: THREE.CurvePath<THREE.Vector3
     _m.compose(_p.set(x, y, z), _q, _s.set(sx, sy, sz));
     ms.add(g, _m, _c.setHex(col), k);
   };
-  // houses: walls, a roof that overhangs a little, a chimney on some
-  for (const h of plan.houses) {
-    put(box, h.x, h.y - 0.6, h.z, h.w, h.h + 0.6, h.d, h.rot, h.wall);
-    put(roofG, h.x, h.y + h.h, h.z, h.w + 1, Math.min(h.w, h.d) * 0.42, h.d + 1, h.rot, h.roof);
-    if ((h.x * 7.3 + h.z) % 3 < 1) {
-      const a = h.rot, ox = h.w * 0.25;
-      put(box, h.x + Math.cos(a) * ox, h.y + h.h, h.z - Math.sin(a) * ox, 0.9, 2.6, 0.9, a, 0x8c6a5a);
-    }
+  // houses, barns, silos and greenhouses
+  buildHouses(ms, win, plan.houses);
+  // radio masts on the towers, with a crossbar or two
+  for (let i = 0; i < plan.masts.length; i += 4) {
+    const [x, y, z, h] = plan.masts.slice(i, i + 4);
+    put(cyl, x, y, z, 0.7, h, 0.7, 0, 0xc9ccd0);
+    put(box, x, y + h * 0.55, z, 4, 0.3, 0.3, 0, 0xc9ccd0);
+    if (h > 20) put(box, x, y + h * 0.8, z, 0.3, 0.3, 3, 0, 0xc9ccd0);
+  }
+  // water tanks on legs on the roofs of the old brick buildings
+  for (const b of plan.boxes) {
+    if (b.style !== Style.Old || b.roof !== 0 || b.h > 34 || (b.seed * 7.31) % 1 > 0.3) continue;
+    const x = b.x + (((b.seed * 13.7) % 1) - 0.5) * (b.w - 6) * 0.6, z = b.z + (((b.seed * 5.3) % 1) - 0.5) * (b.d - 6) * 0.6, y = b.y0 + b.h;
+    for (const [lx, lz] of [[-1.3, -1.3], [1.3, -1.3], [-1.3, 1.3], [1.3, 1.3]]) put(box, x + lx, y, z + lz, 0.25, 3, 0.25, 0, 0x4a4440);
+    put(cyl, x, y + 3, z, 4.4, 3.6, 4.4, 0, 0x8a6a4a);
+    put(cone, x, y + 6.6, z, 4.8, 1.5, 4.8, 0, 0x5a4a40);
+  }
+  // the billboards' backs and legs
+  for (const sg of plan.signs) {
+    if (!sg.roof) continue;
+    put(box, sg.x, sg.y - sg.h / 2 - 0.1, sg.z - 0.35, sg.w + 0.3, sg.h + 0.2, 0.4, sg.rot, 0x3a3d42);
+    for (const lx of [-sg.w * 0.3, sg.w * 0.3]) put(box, sg.x + lx, sg.y - sg.h / 2 - 2.4, sg.z - 0.35, 0.4, 2.4, 0.4, 0, 0x55585c);
   }
   // bridges: a deck, parapets, and a pier under the middle
   for (const b of plan.bridges) {
@@ -389,7 +385,9 @@ function props(u: MapUniforms, plan: Plan, maglev: THREE.CurvePath<THREE.Vector3
     put(cyl, x, y + 54, z, 2.2, 6, 2.2, 0, 0xeef0f0);
     put(box, x, y + 56, z - 1.5, 2.6, 2.6, 6, 0, 0xeef0f0);
   }
-  return new THREE.Mesh(ms.geometry(), litMaterial(u));
+  const group = new THREE.Group();
+  group.add(new THREE.Mesh(ms.geometry(), litMaterial(u)), new THREE.Mesh(win.geometry(), windowMaterial(u)));
+  return group;
 }
 
 // ------------------------------------------------------------------ the maglev
@@ -589,6 +587,46 @@ function beacons(u: MapUniforms, plan: Plan, extra: number[]) {
   return { pts: p, px: mat.uniforms.uPx };
 }
 
+/** Street lamps: warm points along the kerbs, faint by day, bright at night. */
+function lamps(u: MapUniforms, plan: Plan) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(plan.lamps, 3));
+  g.computeBoundingSphere();
+  const mat = mapMaterial(u, {
+    uniforms: { uPx: { value: 1 } },
+    vertexShader: /* glsl */ `
+      uniform float uPx, uDusk;
+      varying float vOn;
+      varying vec3 vCol;
+      #include <fog_pars_vertex>
+      void main() {
+        vOn = mix(0.05, 1.0, clamp((uDusk - 0.55) / 0.45, 0.0, 1.0));
+        // most are sodium orange, some newer white ones
+        vCol = fract(sin(dot(position.xz, vec2(12.9, 78.2))) * 43758.5) < 0.3 ? vec3(0.85, 0.92, 1.0) : vec3(1.0, 0.68, 0.32);
+        vec4 mvPosition = viewMatrix * modelMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mvPosition;
+        gl_PointSize = clamp(2.6 * uPx * 260.0 / -mvPosition.z, 1.0, 6.0);
+        #include <fog_vertex>
+      }`,
+    fragmentShader: /* glsl */ `
+      ${MAP_GLSL}
+      varying float vOn;
+      varying vec3 vCol;
+      #include <fog_pars_fragment>
+      void main() {
+        float k = smoothstep(0.5, 0.1, length(gl_PointCoord - 0.5));
+        gl_FragColor = vec4(vCol * k * vOn * uGlow * 0.3, 1.0);
+        ${MAP_OUT}
+      }`,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const p = new THREE.Points(g, mat);
+  p.renderOrder = 3;
+  return { pts: p, px: mat.uniforms.uPx };
+}
+
 // ------------------------------------------------------------------ the Ferris wheel
 function wheel(u: MapUniforms) {
   const { x, z, r } = WHEEL;
@@ -727,100 +765,6 @@ function lighthouseBeam(u: MapUniforms) {
   };
 }
 
-// ------------------------------------------------------------------ the holo koi
-/**
- * A giant holographic koi swimming slow circles round the tallest towers downtown: a ribbon body
- * and fins that ripple as it swims, drawn additive in scanlines.
- */
-function holoKoi(u: MapUniforms) {
-  const pos: number[] = [], uvs: number[] = [], idx: number[] = [];
-  // body: a strip of rings along the fish (x along the body, 0 head .. 1 tail)
-  const SEG = 24, RING = 8;
-  for (let i = 0; i <= SEG; i++) {
-    const t = i / SEG;
-    const r = Math.sin(Math.min(1, t * 1.25) * Math.PI) * 0.12 * (t < 0.8 ? 1 : 1 - (t - 0.8) * 3) + 0.01;
-    for (let j = 0; j <= RING; j++) {
-      const a = (j / RING) * Math.PI * 2;
-      pos.push(-t, Math.sin(a) * r * 1.1, Math.cos(a) * r * 0.8);
-      uvs.push(t, j / RING);
-    }
-  }
-  for (let i = 0; i < SEG; i++)
-    for (let j = 0; j < RING; j++) {
-      const a = i * (RING + 1) + j, b = a + RING + 1;
-      idx.push(a, b, a + 1, a + 1, b, b + 1);
-    }
-  // the tail fan and two pectoral fins (flat)
-  const fin = (pts: number[][], t: number) => {
-    const base = pos.length / 3;
-    for (const p of pts) {
-      pos.push(p[0], p[1], p[2]);
-      uvs.push(t, 2);
-    }
-    for (let k = 1; k < pts.length - 1; k++) idx.push(base, base + k, base + k + 1);
-  };
-  fin([[-0.92, 0, 0], [-1.15, 0.2, 0], [-1.22, 0.05, 0], [-1.22, -0.05, 0], [-1.15, -0.2, 0]], 1);
-  fin([[-0.25, -0.05, 0.08], [-0.4, -0.12, 0.3], [-0.48, -0.06, 0.22]], 0.3);
-  fin([[-0.25, -0.05, -0.08], [-0.48, -0.06, -0.22], [-0.4, -0.12, -0.3]], 0.3);
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  g.setIndex(idx);
-  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(DOWNTOWN.x, 160, DOWNTOWN.z), 260);
-  const mat = mapMaterial(u, {
-    uniforms: { uCentre: { value: new THREE.Vector3(DOWNTOWN.x - 20, 150, DOWNTOWN.z + 10) } },
-    vertexShader: /* glsl */ `
-      uniform float uTime;
-      uniform vec3 uCentre;
-      varying vec2 vUv;
-      varying vec3 vWorld, vN;
-      #include <fog_pars_vertex>
-      void main() {
-        vUv = uv;
-        float L = 90.0;
-        float R = 150.0;
-        // swims a slow circle; the body follows the circle and ripples side to side
-        float a0 = uTime * 0.075;
-        float t = -position.x;
-        float a = a0 - t * L / R;
-        float wig = sin(uTime * 2.2 - t * 5.0) * 0.06 * (0.3 + t);
-        float rr = R + wig * L;
-        vec3 c = uCentre + vec3(cos(a) * rr, sin(uTime * 0.4 - t * 2.0) * 6.0, sin(a) * rr);
-        vec3 fwd = normalize(vec3(-sin(a), 0.0, cos(a)));
-        vec3 side = vec3(cos(a), 0.0, sin(a));
-        vec3 p = c + vec3(0.0, position.y * L, 0.0) + side * position.z * L;
-        vN = normalize(side * position.z + vec3(0.0, position.y, 0.0) + 1e-4);
-        vWorld = p;
-        vec4 mvPosition = viewMatrix * vec4(p, 1.0);
-        gl_Position = projectionMatrix * mvPosition;
-        #include <fog_vertex>
-      }`,
-    fragmentShader: /* glsl */ `
-      ${MAP_GLSL}
-      varying vec2 vUv;
-      varying vec3 vWorld, vN;
-      #include <fog_pars_fragment>
-      void main() {
-        vec3 V = normalize(cameraPosition - vWorld);
-        float rim = vUv.y > 1.5 ? 0.6 : pow(1.0 - abs(dot(V, normalize(vN))), 2.0);
-        float scan = 0.6 + 0.4 * step(0.5, fract(vWorld.y * 0.5 - uTime * 2.0));
-        // koi patches: orange on white-cyan
-        float spot = step(0.55, texture2D(uNoise, vUv * vec2(1.3, 0.5) + 0.3).g);
-        vec3 col = mix(vec3(0.35, 0.95, 1.0), vec3(1.0, 0.45, 0.25), spot);
-        float k = (0.25 + rim) * scan * (0.75 + 0.25 * sin(uTime * 3.0 + vUv.x * 9.0));
-        gl_FragColor = vec4(col * k * uGlow * 0.18, 1.0);
-        ${MAP_OUT}
-      }`,
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-  const m = new THREE.Mesh(g, mat);
-  m.renderOrder = 5;
-  return m;
-}
-
 // ------------------------------------------------------------------ all of it
 export interface City {
   group: THREE.Group;
@@ -842,13 +786,14 @@ export function buildCity(u: MapUniforms, plan: Plan, extraBeacons: number[]): C
   group.add(cars.pts);
   const bc = beacons(u, plan, extraBeacons);
   group.add(bc.pts);
+  const lp = lamps(u, plan);
+  group.add(lp.pts);
   const fw = wheel(u);
   group.add(fw.group);
   const rt = rotors(u);
   group.add(rt.mesh);
   const lh = lighthouseBeam(u);
   group.add(lh.group);
-  group.add(holoKoi(u));
   return {
     group,
     update(dt, t) {
@@ -861,6 +806,7 @@ export function buildCity(u: MapUniforms, plan: Plan, extraBeacons: number[]): C
       // point sizes are in pixels at a 1000 px tall screen
       cars.px.value = h / 1000;
       bc.px.value = h / 1000;
+      lp.px.value = h / 1000;
     },
   };
 }

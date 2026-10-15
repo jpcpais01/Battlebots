@@ -20,6 +20,16 @@ export const MAP_COLORS = {
   ground: lin(0x7a6656, 0.36),
   /** The haze on the horizon (also the background past the far mountains). */
   fog: 0xd7c0b2,
+  fogDensity: 0.00019,
+};
+
+/** The same at night: a cool low moon where the sun was, the haze lit violet by the city. */
+export const NIGHT_COLORS = {
+  sun: lin(0x93aaff, 0.36),
+  sky: lin(0x3a4c96, 0.26),
+  ground: lin(0x2e2440, 0.2),
+  fog: 0x1c1d38,
+  fogDensity: 0.00023,
 };
 
 /** Area the shadow height map covers (square, centred on the origin). */
@@ -38,6 +48,8 @@ export interface MapUniforms {
   uNoise: { value: THREE.Texture | null };
   /** How lit the city's windows and neon are (0 day .. 1 night). */
   uDusk: { value: number };
+  /** 0 golden hour .. 1 night (the sky reflected in glass and water, clouds, holograms). */
+  uNight: { value: number };
   /** The bloom-aware glow multiplier. */
   uGlow: { value: number };
   /** The haze colour as the background reaches the screen (see MAP_OUT). */
@@ -55,6 +67,7 @@ export function mapUniforms(glow: number): MapUniforms {
     uShadowHalf: { value: SHADOW_HALF },
     uNoise: { value: null },
     uDusk: { value: 0.55 },
+    uNight: { value: 0 },
     uGlow: { value: glow },
     uFogOut: { value: new THREE.Color(MAP_COLORS.fog) },
   };
@@ -65,7 +78,7 @@ export const MAP_GLSL = /* glsl */ `
   uniform float uTime;
   uniform vec3 uSunDir, uSunCol, uSky, uGnd;
   uniform sampler2D uShadow, uNoise;
-  uniform float uShadowHalf, uDusk, uGlow;
+  uniform float uShadowHalf, uDusk, uGlow, uNight;
   uniform vec3 uFogOut;
   float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
   // 1 in sunlight, 0 in a shadow (terrain, buildings), softened over a couple of metres
@@ -81,6 +94,15 @@ export const MAP_GLSL = /* glsl */ `
     return mix(1.0, 0.6, smoothstep(0.52, 0.72, c));
   }
   vec3 ambient(vec3 n) { return mix(uGnd, uSky, n.y * 0.5 + 0.5); }
+  // the sky looking along r (what glass and water reflect): warm horizon and the sun's glow by
+  // day; by night a deep blue zenith over a horizon lit violet by the city, and the moon
+  vec3 skyCol(vec3 r) {
+    float up = clamp(r.y, 0.0, 1.0);
+    float toSun = max(dot(normalize(r), uSunDir), 0.0);
+    vec3 day = mix(vec3(1.0, 0.82, 0.68), vec3(0.32, 0.5, 0.86), pow(up, 0.55)) + vec3(1.0, 0.7, 0.4) * pow(toSun, 8.0) * 0.8;
+    vec3 night = mix(vec3(0.2, 0.12, 0.26), vec3(0.02, 0.035, 0.09), pow(up, 0.4)) + vec3(0.5, 0.6, 0.9) * pow(toSun, 60.0) * 0.5;
+    return mix(day, night, uNight);
+  }
   // the light a matte surface with normal n gets at w
   vec3 mapLight(vec3 n, vec3 w) {
     float ndl = max(dot(n, uSunDir), 0.0);
@@ -124,6 +146,22 @@ export const MAP_OUT = /* glsl */ `
   #ifdef USE_FOG
     gl_FragColor.rgb = mix(gl_FragColor.rgb, uFogOut, 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth));
   #endif
+`;
+
+/** Filtered pulse trains and bands, so window grids and trim never shimmer however far off. */
+export const AA_GLSL = /* glsl */ `
+  // integral of a pulse train that is on for the first 'duty' of every unit cell
+  float pulseI(float x, float duty) { return floor(x) * duty + min(fract(x), duty); }
+  // that pulse train box-filtered over a width w (in cells): its exact average there
+  float fpulse(float x, float duty, float w) {
+    w = max(w, 1e-4);
+    return (pulseI(x + 0.5 * w, duty) - pulseI(x - 0.5 * w, duty)) / w;
+  }
+  // a band [a, b] box-filtered over a width w
+  float fband(float x, float a, float b, float w) {
+    w = max(w, 1e-4);
+    return clamp((min(x + 0.5 * w, b) - max(x - 0.5 * w, a)) / w, 0.0, 1.0);
+  }
 `;
 
 // ------------------------------------------------------------------ noise texture
