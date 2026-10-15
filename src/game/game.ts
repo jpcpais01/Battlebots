@@ -957,6 +957,15 @@ export class Game {
       // skipped steps: only what changes the picture from here on
       if (type === 'ko') this.director.focusKO(data.loser.index);
       if (type === 'detach' && this.seeking) this.seekTears.push(data as DetachInfo);
+      // dents stay where the skipped blows landed (posed as the robot stood when it took them)
+      if (type === 'hit') {
+        const h = data as HitInfo;
+        const md = this.models[h.defender.index];
+        if (md && !h.shielded) {
+          md.update(h.defender, 1, this.time);
+          md.dent(h, true);
+        }
+      }
       this.director.cue(type, data);
       this.cb.onMatchEvent?.(type, data);
       return;
@@ -997,6 +1006,8 @@ export class Game {
         }
         if (h.move.vfx === 'shock' && !h.blocked) fx.arc(h.defender.body.pos[J.Head], 0.9);
         this.partHit(h);
+        // the metal gives where it struck
+        this.models[h.defender.index]?.dent(h);
         if (h.knockdown) {
           this.director.shake(0.6);
           this.director.punch(4);

@@ -57,6 +57,78 @@ function weld(g: THREE.BufferGeometry): Weld {
   return w;
 }
 
+/**
+ * Longest edge left on a robot, in rest-space metres: a dent is several corners across. Everything
+ * is split (the inner frame, joints and glowing strips too), so what lies under or along a dented
+ * plate bends with it instead of poking through.
+ */
+const DENT_EDGE = 0.038;
+/** Most triangles one piece may grow to. */
+const TESS_CAP = 6000;
+
+/**
+ * Split every edge longer than `maxEdge` at its middle, repeatedly, until none is. Whether an
+ * edge splits depends only on the edge, so the two triangles sharing it always agree and no
+ * crack (T-junction) opens; corners duplicated along a hard edge (same place, different normal)
+ * split at the very same point. New corners take the normalised mean normal. Grows P and N.
+ */
+function tessellate(P: number[], N: number[], T: number[], maxEdge: number) {
+  const max2 = maxEdge * maxEdge;
+  for (let pass = 0; pass < 6 && T.length / 3 < TESS_CAP; pass++) {
+    const mids = new Map<number, number>();
+    let split = false;
+    const mid = (a: number, b: number) => {
+      const dx = P[a * 3] - P[b * 3], dy = P[a * 3 + 1] - P[b * 3 + 1], dz = P[a * 3 + 2] - P[b * 3 + 2];
+      if (dx * dx + dy * dy + dz * dz <= max2) return -1;
+      const key = a < b ? a * 4194304 + b : b * 4194304 + a;
+      let m = mids.get(key);
+      if (m !== undefined) return m;
+      m = P.length / 3;
+      for (let c = 0; c < 3; c++) P.push((P[a * 3 + c] + P[b * 3 + c]) * 0.5);
+      let nx = N[a * 3] + N[b * 3], ny = N[a * 3 + 1] + N[b * 3 + 1], nz = N[a * 3 + 2] + N[b * 3 + 2];
+      const l = Math.hypot(nx, ny, nz) || 1;
+      nx /= l;
+      ny /= l;
+      nz /= l;
+      N.push(nx, ny, nz);
+      mids.set(key, m);
+      split = true;
+      return m;
+    };
+    const out: number[] = [];
+    const v = [0, 0, 0];
+    const e = [0, 0, 0];
+    for (let k = 0; k < T.length; k += 3) {
+      v[0] = T[k];
+      v[1] = T[k + 1];
+      v[2] = T[k + 2];
+      // e[i]: the middle of edge v[i] -> v[i + 1], or -1
+      let cut = 0;
+      for (let i = 0; i < 3; i++) {
+        e[i] = mid(v[i], v[(i + 1) % 3]);
+        if (e[i] >= 0) cut++;
+      }
+      if (cut === 0) out.push(v[0], v[1], v[2]);
+      else if (cut === 3) out.push(v[0], e[0], e[2], e[0], v[1], e[1], e[2], e[1], v[2], e[0], e[1], e[2]);
+      else if (cut === 1) {
+        const i = e[0] >= 0 ? 0 : e[1] >= 0 ? 1 : 2;
+        const a = v[i], b = v[(i + 1) % 3], c = v[(i + 2) % 3], m = e[i];
+        out.push(a, m, c, m, b, c);
+      } else {
+        // two edges split: start at the corner after the whole edge
+        const whole = e[0] < 0 ? 0 : e[1] < 0 ? 1 : 2;
+        const i = (whole + 1) % 3;
+        const a = v[i], b = v[(i + 1) % 3], c = v[(i + 2) % 3];
+        const mab = e[i], mbc = e[(i + 1) % 3];
+        out.push(mab, b, mbc, a, mab, mbc, a, mbc, c);
+      }
+    }
+    T = out;
+    if (!split) break;
+  }
+  return T;
+}
+
 /** Bounding radius of a primitive as placed: what decides how small a detail it is. */
 function pieceRadius(e: Entry) {
   if (!e.geo.boundingSphere) e.geo.computeBoundingSphere();
@@ -150,26 +222,37 @@ export class SkinBuilder {
       const nv = w.pos.length / 3;
       nm.getNormalMatrix(m);
       const s = opaque ? this.surfaces[p.e.key as keyof Surfaces] : null;
+      const P: number[] = [];
+      const N: number[] = [];
       for (let i = 0; i < nv; i++) {
         v.fromArray(w.pos, i * 3).applyMatrix4(m);
-        pos.push(v.x, v.y, v.z);
+        P.push(v.x, v.y, v.z);
+        if (w.nor) v.fromArray(w.nor, i * 3).applyMatrix3(nm).normalize();
+        else v.set(0, 1, 0);
+        N.push(v.x, v.y, v.z);
+      }
+      // mirrored pieces would turn inside out: swap two corners of every triangle
+      const flip = m.determinant() < 0;
+      const ix = w.index;
+      let T: number[] = [];
+      for (let k = 0; k < ix.length; k += 3) {
+        if (flip) T.push(ix[k], ix[k + 2], ix[k + 1]);
+        else T.push(ix[k], ix[k + 1], ix[k + 2]);
+      }
+      // enough corners for a dent to bend the metal's shape (stretched bones never dent)
+      if (p.r !== Infinity) T = tessellate(P, N, T, DENT_EDGE);
+      const n = P.length / 3;
+      for (let i = 0; i < n; i++) {
+        pos.push(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
         if (opaque) {
-          if (w.nor) v.fromArray(w.nor, i * 3).applyMatrix3(nm).normalize();
-          else v.set(0, 1, 0);
-          nor.push(v.x, v.y, v.z);
+          nor.push(N[i * 3], N[i * 3 + 1], N[i * 3 + 2]);
           col.push(s!.color.r, s!.color.g, s!.color.b);
           mr.push(s!.metal, s!.rough);
         } else ech.push(p.ch);
         bone.push(p.bone);
         part.push(p.part);
       }
-      // mirrored pieces would turn inside out: swap two corners of every triangle
-      const flip = m.determinant() < 0;
-      const ix = w.index;
-      for (let k = 0; k < ix.length; k += 3) {
-        if (flip) index.push(base + ix[k], base + ix[k + 2], base + ix[k + 1]);
-        else index.push(base + ix[k], base + ix[k + 1], base + ix[k + 2]);
-      }
+      for (const t of T) index.push(base + t);
       if (radii.length && radii[radii.length - 1] === p.r) ends[ends.length - 1] = index.length;
       else {
         radii.push(p.r);

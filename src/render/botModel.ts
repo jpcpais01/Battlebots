@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { J } from '../sim/body';
 import type { Fighter } from '../sim/fighter';
+import type { HitInfo } from '../sim/match';
 import { ITEM_BY_ID, RARITIES, SLOTS, type Loadout, type Slot } from '../game/items';
 import { FINISHES, FRAMES, type Paint } from '../game/paint';
 import {
@@ -28,7 +29,7 @@ import { makerSurfaces, surf, vertexPBR, type GlowKey, type Surfaces } from './b
 import { CH_CORE, CH_GLOW, CH_RARITY, rigid, rigidDepth, SkinBuilder, type DetailLod } from './skin';
 import { contactAO } from './ao';
 import { contactStats, Hull, partRadius, pushOut, samplePB, tally, type PlacedHull } from './contact';
-import { damageUniforms, patchDamage, patchDamageGlow, MARKS, MARK_OIL, MARK_SOCKET, type DamageUniforms } from './damageLook';
+import { damageDepthMaterial, damageUniforms, patchDamage, patchDamageGlow, DENTS, MARKS, MARK_OIL, MARK_SOCKET, type DamageUniforms } from './damageLook';
 import { P, PART_COUNT } from '../sim/damage';
 
 /**
@@ -362,6 +363,19 @@ export class BotModel {
   readonly anchors: (THREE.Vector3 | null)[] = Array.from({ length: 16 }, () => null);
   private sockets = 0;
   private oilNext = SOCKET_SLOTS;
+  /** The shadow pass's material: bent the same way as the plating. */
+  private depthMat: THREE.MeshDepthMaterial;
+  /** Bones carrying each body part's armour (the ones a blow to it can dent). */
+  private partBones: number[][] = Array.from({ length: PART_COUNT }, () => []);
+  /** Per bone, the corners of its plating (built the first time it is dented). */
+  private boneVerts = new Map<number, Uint32Array>();
+  /** Per dent slot: the depth it is settling to, the depth shown, and how fast that moves. */
+  private dentTarget = new Float32Array(DENTS);
+  private dentShown = new Float32Array(DENTS);
+  private dentVel = new Float32Array(DENTS);
+  /** Unit push direction per dent slot (the uniform carries it scaled by the shown depth). */
+  private dentDir = new Float32Array(DENTS * 3);
+  private dentTime = -1;
   /** Brightens the accent and core lights (the home scenes flare them when the robot gets the call). */
   glowBoost = 1;
 
@@ -372,6 +386,11 @@ export class BotModel {
     const look = (slot: Slot) => ITEM_BY_ID.get(loadout[slot].id)!.look;
     const rar = (slot: Slot) => loadout[slot].rarity;
     const sb = new SkinBuilder(botSurfaces(paint), STRETCHED);
+    const sbAdd = sb.add.bind(sb);
+    sb.add = (pb, bone, slot, part) => {
+      if (!STRETCHED.has(bone) && !this.partBones[part].includes(bone)) this.partBones[part].push(bone);
+      sbAdd(pb, bone, slot, part);
+    };
 
     const torsoPB = buildTorso(look('chest'), rar('chest'));
     const corePB = buildCore(look('core'), look('chest'), rar('core'));
@@ -456,6 +475,8 @@ export class BotModel {
       this.root.add(mesh);
     }
     this.opaque.castShadow = true;
+    this.depthMat = rigid(damageDepthMaterial(this.dmg));
+    this.opaque.customDepthMaterial = this.depthMat;
     this.detailLevels(opaqueLod, emissiveLod);
 
     // Aegis bubble
@@ -487,7 +508,8 @@ export class BotModel {
     const eg = this.emissive.geometry;
     const shadowCount = opaqueLod.count(SHADOW_DETAIL[RenderSettings.quality] / this.size);
     this.opaque.onBeforeShadow = (_r, _o, _c, _sc, _g, depthMaterial) => {
-      rigidDepth(depthMaterial);
+      // (point-light shadows in the home scenes still draw with three's own material)
+      if (depthMaterial !== this.depthMat) rigidDepth(depthMaterial);
       og.drawRange.count = shadowCount;
     };
     this.opaque.onBeforeRender = (renderer, _s, camera) => {
@@ -712,6 +734,8 @@ export class BotModel {
     // battle damage shading follows the parts' condition
     const wear = this.dmg.uWear.value;
     for (let i = 0; i < PART_COUNT; i++) wear[i] = 1 - f.parts.cond[i];
+    this.settleDents(this.dentTime < 0 ? 0 : time - this.dentTime);
+    this.dentTime = time;
     this.dmg.uTime.value = time;
     // Aegis shield bubble
     const sm = this.shieldMesh.material as THREE.ShaderMaterial;
@@ -747,6 +771,8 @@ export class BotModel {
     if (!bones) return null;
     const set = new Set<number>(bones.filter((b) => !this.hidden.has(b)));
     if (!set.size) return null;
+    // (a head the camera is looking out of is collapsed until the next frame: open it back up)
+    for (const b of set) if (this.bones[b].scale.x === 0) this.bones[b].scale.setScalar(this.size);
     this.root.updateMatrixWorld(true);
     const opaque = this.extract(this.opaque.geometry, set, true);
     const glow = this.extract(this.emissive.geometry, set, false);
@@ -756,8 +782,10 @@ export class BotModel {
     g.position.copy(opaque.center);
     const om = new THREE.Mesh(opaque.geo, this.opaque.material);
     om.castShadow = true;
+    om.customDepthMaterial = this.depthMat;
     om.frustumCulled = false;
     g.add(om);
+    this.dmg.uPieceScale.value = this.size;
     if (glow) {
       glow.geo.translate(glow.center.x - opaque.center.x, glow.center.y - opaque.center.y, glow.center.z - opaque.center.z);
       const em = new THREE.Mesh(glow.geo, this.emissive.material);
@@ -780,9 +808,7 @@ export class BotModel {
   /** Put a damage mark on `bone` at a world point (stored in the bone's own frame, so it moves with it). */
   private mark(slot: number, bone: B, at: THREE.Vector3, radius: number, kind: number, strength: number) {
     if (this.hidden.has(bone)) return;
-    const b = this.bones[bone];
-    this.root.updateMatrixWorld(true);
-    _mk.copy(at).applyMatrix4(_mi.copy(b.matrixWorld).invert());
+    this.toBone(bone, _mk.copy(at));
     const m = this.dmg.uMark.value;
     const mb = this.dmg.uMarkB.value;
     m[slot * 4] = _mk.x;
@@ -819,6 +845,187 @@ export class BotModel {
     this.oilNext = this.oilNext + 1 >= MARKS ? SOCKET_SLOTS : this.oilNext + 1;
   }
 
+  /** A world point into `bone`'s rest frame (the frame its plating is modelled in). */
+  private toBone(bone: number, p: THREE.Vector3) {
+    // from the bone's place and turn rather than its matrix: a collapsed bone (a hidden head)
+    // has a matrix that can't be inverted
+    const b = this.bones[bone];
+    this.root.updateWorldMatrix(true, false);
+    this.root.worldToLocal(p).sub(b.position).applyQuaternion(_dQ.copy(b.quaternion).invert());
+    return p.multiplyScalar(1 / this.size);
+  }
+
+  /** A world direction into `bone`'s rest frame (unit length). */
+  private dirToBone(bone: number, d: THREE.Vector3) {
+    this.root.getWorldQuaternion(_dQ);
+    d.applyQuaternion(_dQ.invert()).applyQuaternion(_dQ.copy(this.bones[bone].quaternion).invert());
+    return d.normalize();
+  }
+
+  /** The corners of `bone`'s plating (indices into the opaque geometry), cached. */
+  private cornersOf(bone: number) {
+    let list = this.boneVerts.get(bone);
+    if (!list) {
+      const si = this.opaque.geometry.attributes.skinIndex as THREE.BufferAttribute;
+      const o: number[] = [];
+      for (let i = 0; i < si.count; i++) if (si.getX(i) === bone) o.push(i);
+      list = new Uint32Array(o);
+      this.boneVerts.set(bone, list);
+    }
+    return list;
+  }
+
+  /**
+   * A blow landed: punch a dent into the plating where it struck, pushed in along the blow.
+   * Bigger and deeper for harder blows and for parts that are already battered (the metal is
+   * weaker); a blow landing on an earlier dent deepens and widens it instead. `instant` skips
+   * the punch-in (a replay jumping ahead puts the dents straight in).
+   */
+  dent(h: HitInfo, instant = false) {
+    if (h.shielded) return;
+    const bones = this.partBones[h.part];
+    if (!bones || !bones.length) return;
+    const pos = this.opaque.geometry.attributes.position as THREE.BufferAttribute;
+    const nor = this.opaque.geometry.attributes.normal as THREE.BufferAttribute;
+    // the first plating the blow meets: cast back along it from a little way out, and take the
+    // nearest corner facing it that lies within a fist's width of that line
+    let best = -1, bestBone = -1, bestT = Infinity, bestLat = Infinity;
+    const reach = 0.075 / this.size;
+    for (const bone of bones) {
+      if (this.hidden.has(bone)) continue;
+      this.dirToBone(bone, _dD.set(h.dir.x, h.dir.y, h.dir.z));
+      if (!(_dD.lengthSq() > 0.5)) continue;
+      this.toBone(bone, _dO.set(h.point.x, h.point.y, h.point.z)).addScaledVector(_dD, -0.4);
+      const list = this.cornersOf(bone);
+      for (let k = 0; k < list.length; k++) {
+        const i = list[k];
+        if (nor.getX(i) * _dD.x + nor.getY(i) * _dD.y + nor.getZ(i) * _dD.z > 0.1) continue;
+        _dV.fromBufferAttribute(pos, i).sub(_dO);
+        const t = _dV.dot(_dD);
+        if (t < 0) continue;
+        const lat = _dV.addScaledVector(_dD, -t).lengthSq();
+        const inside = lat < reach * reach;
+        // inside the fist's line: the first one along it; otherwise whatever lies closest to the line
+        if (inside ? bestLat >= reach * reach || t < bestT : bestLat >= reach * reach && lat < bestLat) {
+          best = i;
+          bestBone = bone;
+          bestT = t;
+          bestLat = lat;
+        }
+      }
+    }
+    if (best < 0) return;
+    const bone = bestBone;
+    this.dirToBone(bone, _dD.set(h.dir.x, h.dir.y, h.dir.z));
+    _dC.fromBufferAttribute(pos, best);
+    _dN.fromBufferAttribute(nor, best);
+    // the metal goes in mostly square to the plate, leaning the way the blow travelled
+    _dN.multiplyScalar(-1.2).add(_dD).normalize();
+    const wear = 1 - h.partCond;
+    const kick = h.move.kind === 'kick';
+    let r = Math.min(0.15, Math.max(0.06, 0.05 + h.damage * 0.0012)) * (kick ? 1.15 : 1);
+    let depth = r * (0.13 + 0.25 * wear) * (h.crit ? 1.3 : 1) * (h.heavy ? 1.15 : 1);
+    if (h.blocked) {
+      r *= 0.85;
+      depth *= 0.5;
+    }
+    r /= this.size;
+    depth /= this.size;
+    const P = this.dmg.uDentP.value;
+    const N = this.dmg.uDentN.value;
+    // land on an earlier dent: it goes deeper and wider, and creeps towards the new blow
+    const T = this.dentTarget;
+    let same = -1, near = Infinity, empty = -1, shallow = -1;
+    for (let k = 0; k < DENTS; k++) {
+      const b = N[k * 4 + 3];
+      if (b < 0) {
+        if (empty < 0) empty = k;
+        continue;
+      }
+      // (a torn-off piece keeps its dents)
+      if (!this.hidden.has(b) && (shallow < 0 || T[k] < T[shallow])) shallow = k;
+      if (b !== bone) continue;
+      const d = Math.hypot(P[k * 4] - _dC.x, P[k * 4 + 1] - _dC.y, P[k * 4 + 2] - _dC.z) / Math.max(P[k * 4 + 3], r);
+      if (d < near) {
+        near = d;
+        same = k;
+      }
+    }
+    let slot: number;
+    let merge = false;
+    if (same >= 0 && near <= 0.6) {
+      slot = same;
+      merge = true;
+    } else if (empty >= 0) slot = empty;
+    else if (same >= 0 && near <= 1.6) {
+      // no room for another: the nearest dent takes it
+      slot = same;
+      merge = true;
+    } else if (shallow >= 0) slot = shallow;
+    else return;
+    if (merge) {
+      const old = T[slot];
+      const w = depth / (old + depth);
+      const or = P[slot * 4 + 3];
+      P[slot * 4] += (_dC.x - P[slot * 4]) * w * 0.5;
+      P[slot * 4 + 1] += (_dC.y - P[slot * 4 + 1]) * w * 0.5;
+      P[slot * 4 + 2] += (_dC.z - P[slot * 4 + 2]) * w * 0.5;
+      P[slot * 4 + 3] = Math.min((0.17 / this.size), Math.max(or, r) * 1.05 + r * 0.1);
+      const D = this.dentDir;
+      _dV.set(D[slot * 3], D[slot * 3 + 1], D[slot * 3 + 2]).multiplyScalar(old).addScaledVector(_dN, depth).normalize();
+      _dV.toArray(D, slot * 3);
+      this.dentTarget[slot] = Math.min(P[slot * 4 + 3] * 0.42, old + depth * 0.8);
+    } else {
+      P[slot * 4] = _dC.x;
+      P[slot * 4 + 1] = _dC.y;
+      P[slot * 4 + 2] = _dC.z;
+      P[slot * 4 + 3] = r;
+      _dN.toArray(this.dentDir, slot * 3);
+      N[slot * 4 + 3] = bone;
+      this.dentTarget[slot] = Math.min(r * 0.42, depth);
+      this.dentShown[slot] = 0;
+      this.dentVel[slot] = 0;
+    }
+    if (instant) {
+      this.dentShown[slot] = this.dentTarget[slot];
+      this.dentVel[slot] = 0;
+    } else {
+      // the blow drives it in: it starts moving at full speed
+      this.dentVel[slot] = Math.max(this.dentVel[slot], (this.dentTarget[slot] - this.dentShown[slot]) * 32);
+    }
+    this.writeDent(slot);
+  }
+
+  /** Let punched-in dents settle (a spring per dent: in past its depth, then a little back). */
+  private settleDents(dt: number) {
+    dt = Math.min(dt, 1 / 20);
+    if (dt <= 0) return;
+    const T = this.dentTarget, S = this.dentShown, V = this.dentVel;
+    for (let k = 0; k < DENTS; k++) {
+      if (S[k] === T[k] && V[k] === 0) continue;
+      // two half steps keep the stiff spring stable at low frame rates
+      for (let n = 0; n < 2; n++) {
+        const h = dt / 2;
+        V[k] += ((T[k] - S[k]) * DENT_K - V[k] * DENT_C) * h;
+        S[k] = Math.max(0, S[k] + V[k] * h);
+      }
+      if (Math.abs(T[k] - S[k]) < 1e-5 && Math.abs(V[k]) < 1e-4) {
+        S[k] = T[k];
+        V[k] = 0;
+      }
+      this.writeDent(k);
+    }
+  }
+
+  private writeDent(k: number) {
+    const N = this.dmg.uDentN.value;
+    const D = this.dentDir;
+    const s = this.dentShown[k];
+    N[k * 4] = D[k * 3] * s;
+    N[k * 4 + 1] = D[k * 3 + 1] * s;
+    N[k * 4 + 2] = D[k * 3 + 2] * s;
+  }
+
   /** Oily grime over the whole robot, 0..1. */
   get grime() {
     return this.dmg.uGrime.value;
@@ -842,9 +1049,13 @@ export class BotModel {
     const out = new Float32Array(idx.length * 3);
     const nor = opaque ? new Float32Array(idx.length * 3) : null;
     const dpos = new Float32Array(idx.length * 3);
+    // each corner's bone and that bone's rotation, so the piece keeps bending with its dents
+    const dbone = new Float32Array(idx.length);
+    const dq = new Float32Array(idx.length * 4);
     const center = new THREE.Vector3();
     const v = new THREE.Vector3();
     const nm = new THREE.Matrix3();
+    this.root.getWorldQuaternion(_dpR);
     const srcN = src.attributes.normal as THREE.BufferAttribute | undefined;
     for (let k = 0; k < idx.length; k++) {
       const i = idx[k];
@@ -853,6 +1064,8 @@ export class BotModel {
       dpos[k * 3] = v.x;
       dpos[k * 3 + 1] = v.y;
       dpos[k * 3 + 2] = v.z;
+      dbone[k] = si.getX(i);
+      _dpQ.copy(_dpR).multiply(bone.quaternion).toArray(dq, k * 4);
       v.applyMatrix4(bone.matrixWorld);
       out[k * 3] = v.x;
       out[k * 3 + 1] = v.y;
@@ -876,6 +1089,8 @@ export class BotModel {
     geo.setAttribute('position', new THREE.BufferAttribute(out, 3));
     if (nor) geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
     geo.setAttribute('dpos', new THREE.BufferAttribute(dpos, 3));
+    geo.setAttribute('dbone', new THREE.BufferAttribute(dbone, 1));
+    geo.setAttribute('dq', new THREE.BufferAttribute(dq, 4));
     for (const name of opaque ? ['color', 'mr', 'part'] : ['ech', 'part']) {
       const a = src.attributes[name] as THREE.BufferAttribute;
       const w = a.itemSize;
@@ -892,6 +1107,7 @@ export class BotModel {
     this.emissive.geometry.dispose();
     (this.opaque.material as THREE.Material).dispose();
     (this.emissive.material as THREE.Material).dispose();
+    this.depthMat.dispose();
     this.opaque.skeleton.dispose();
     this.shieldMesh.geometry.dispose();
     (this.shieldMesh.material as THREE.Material).dispose();
@@ -899,8 +1115,18 @@ export class BotModel {
 }
 
 const _mk = new THREE.Vector3();
+const _dpQ = new THREE.Quaternion();
+const _dpR = new THREE.Quaternion();
+const _dO = new THREE.Vector3();
+const _dD = new THREE.Vector3();
+const _dV = new THREE.Vector3();
+const _dN = new THREE.Vector3();
+const _dC = new THREE.Vector3();
+const _dQ = new THREE.Quaternion();
+/** Dent springs: stiff and a little under-damped, so a dent punches in past its depth and springs back. */
+const DENT_K = 1400;
+const DENT_C = 34;
 const _mo = new THREE.Vector3();
-const _mi = new THREE.Matrix4();
 const _hot = new THREE.Color();
 function _hotScaled() {
   return _hot.copy(HOT).multiplyScalar(RenderSettings.glow(6));
