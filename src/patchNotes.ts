@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-15 20:00",
+    title: "Rare and Epic gear on the way",
+    notes: [
+      "Getting ready for Rare and Epic gear: every maker now has a Common, Rare and Epic part for each slot in the catalogue, each with its own stats and passive. They switch on with their new looks very soon.",
+    ],
+  },
+  {
     hour: "2026-10-15 15:00",
     title: "No shadows at night",
     notes: [
