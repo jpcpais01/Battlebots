@@ -16,6 +16,10 @@
   pointer-events: none;
 }
 .screen.map .topbar > * {
+  pointer-events: none;
+}
+/* only while the map is up: the hidden map screen stays in the page over the home screen */
+.screen.map.show .topbar > * {
   pointer-events: auto;
 }
 .map-title {
@@ -150,6 +154,8 @@
 .map-card.on {
   opacity: 1;
   transform: none;
+}
+.screen.map.show .map-card.on {
   pointer-events: auto !important;
 }
 .mc-head {
