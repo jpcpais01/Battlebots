@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import type { Game } from '../game/game';
-import { EVENTS, EVENT_BY_ID, progressOf, titlesHeld, titlesNeeded, type EventDef, type EventsRecord } from '../game/events';
+import { EVENTS, EVENT_BY_ID, defenceOf, progressOf, titlesHeld, titlesNeeded, type EventDef, type EventsRecord } from '../game/events';
+import { RARITIES } from '../game/items';
+import { EARNABLE } from '../game/catalogue';
+import { credits, epicOdds, purse, rankOf, titleBonus, type CareerState } from '../game/career';
+import type { BotSpec } from '../game/loadout';
+import { coins, rivalCard } from './careerUi';
 import { button, el, esc, hex } from './dom';
 import { ICON } from './icons';
 import './mapScreen.css';
@@ -14,6 +19,12 @@ import './mapScreen.css';
 export interface MapHooks {
   game: Game;
   events: () => EventsRecord;
+  career: () => CareerState;
+  player: () => BotSpec;
+  /** The rival waiting in an event's round (with its gear for the player's title defences). */
+  rival: (e: EventDef, round: number) => BotSpec;
+  market: () => void;
+  trophies: () => void;
   tap: (kind?: 'tap' | 'select' | 'back' | 'start') => void;
   back: () => void;
   fight: (e: EventDef) => void;
@@ -34,6 +45,9 @@ export class MapScreen {
   private loading: HTMLElement;
   private bar: HTMLElement;
   private chip: HTMLElement;
+  private cash: HTMLElement;
+  private rank: HTMLElement;
+  private title: HTMLElement;
   private timeBtn: HTMLButtonElement;
   private picked: string | null = null;
   private attached = false;
@@ -50,8 +64,22 @@ export class MapScreen {
       h.tap('back');
       h.back();
     }, left).title = 'Back';
-    el('div', 'map-title', '<span class="kicker">World</span><b>Cups &amp; Championships</b>', left);
-    this.chip = el('div', 'map-chip', '', bar);
+    this.title = el('div', 'map-title', '', left);
+    const chips = el('div', 'map-chips', '', bar);
+    this.cash = el('div', 'map-chip cash', '', chips);
+    this.chip = el('div', 'map-chip', '', chips);
+    // bottom left: the career rank, the Parts Market and the trophy room
+    const dock = el('div', 'map-dock', '', s);
+    this.rank = el('div', 'map-rank', '', dock);
+    const row = el('div', 'map-dock-row', '', dock);
+    button('btn small', `${ICON.market}Parts Market`, () => {
+      h.tap('select');
+      h.market();
+    }, row);
+    button('btn small', `${ICON.trophy}Trophies`, () => {
+      h.tap('select');
+      h.trophies();
+    }, row);
     const zoom = el('div', 'map-zoom', '', s);
     this.timeBtn = button('icon-btn map-time', ICON.moon, () => {
       const w = this.h.game.worldMap;
@@ -123,7 +151,13 @@ export class MapScreen {
   /** Pins and the card from the saved progress. */
   refresh() {
     const rec = this.h.events();
+    const c = this.h.career();
+    const rank = rankOf(c.fame);
+    this.title.innerHTML = `<span class="kicker">Career · ${esc(rank.name)}</span><b>Cups &amp; Championships</b>`;
+    this.cash.innerHTML = coins(c.credits);
+    this.cash.title = 'Credits: win fights to earn them, spend them at the Parts Market';
     this.chip.innerHTML = `${ICON.crown}<b>${titlesHeld(rec)}</b><span>/ ${EVENTS.length} titles</span>`;
+    this.rank.innerHTML = `<div class="rk"><span>${ICON.rank}<b>${esc(rank.name)}</b></span><em>${rank.next ? `${credits(rank.toNext)} fame to ${esc(rank.next)}` : 'Top of the sport'}</em></div><i class="bar"><i style="--k:${rank.k.toFixed(3)}"></i></i>`;
     for (const e of EVENTS) {
       const pin = this.pins.get(e.id)!;
       const p = progressOf(rec, e.id);
@@ -176,19 +210,30 @@ export class MapScreen {
     const rec = this.h.events();
     const p = progressOf(rec, e.id);
     const need = titlesNeeded(rec, e);
+    const def = defenceOf(rec, e);
     const c = this.card;
     c.replaceChildren();
     c.style.setProperty('--c', hex(e.color));
     const head = el('div', 'mc-head', '', c);
-    el('div', 'mc-title', `<span class="kicker">${e.kind === 'cup' ? 'Cup' : 'Championship'} · ${e.region}</span><h2>${esc(e.name)}</h2><span class="mc-venue">${ICON.map}${esc(e.venue)}</span>`, head);
+    const kind = e.kind === 'cup' ? 'Cup' : 'Championship';
+    el('div', 'mc-title', `<span class="kicker">${kind} · ${e.region}${def ? ` · Title defence ${def}` : ''}</span><h2>${esc(e.name)}</h2><span class="mc-venue">${ICON.map}${esc(e.venue)}</span>`, head);
     button('icon-btn small', ICON.close, () => this.pick(null), head).title = 'Close';
     el('p', 'mc-blurb', esc(e.blurb), c);
     const ladder = el('ol', 'mc-ladder', '', c);
-    e.rivals.forEach((name, i) => {
+    e.rivals.forEach((r, i) => {
       const state = i < p.run ? 'done' : i === p.run && !need ? 'next' : '';
       const tag = i < p.run ? ICON.check : i === e.rivals.length - 1 ? '<em>Final</em>' : i === p.run && !need ? '<em>Next</em>' : '';
-      el('li', state, `<span class="n">${i + 1}</span><b>${esc(name)}</b>${tag}`, ladder);
+      el('li', state, `<span class="n">${i + 1}</span><b>${esc(r.name)}<small>${esc(r.style)}</small></b>${tag}`, ladder);
     });
+    if (!need) {
+      // who's next, and what beating them pays
+      const round = p.run;
+      const last = round === e.rivals.length - 1;
+      const odds = Math.round(epicOdds(e, def) * 100);
+      const crate = odds >= 100 ? `${RARITIES[2].name} crate` : odds ? `crate (${odds}% ${RARITIES[2].name})` : `${RARITIES[1].name} crate`;
+      const pays = `<span>${coins(purse(e, round, def))} purse</span>${last ? `<span class="crate" style="--rc:${RARITIES[odds >= 50 ? 2 : 1].color}">${ICON.crate}Title: ${credits(titleBonus(e, def))}${EARNABLE.length ? ` + ${crate}` : ''}</span>` : ''}`;
+      rivalCard(c, e.rivals[round], this.h.rival(e, round), this.h.player(), pays);
+    }
     const foot = el('div', 'mc-foot', '', c);
     if (p.titles) el('span', 'mc-won', `${ICON.crown}Won ${p.titles === 1 ? 'once' : `${p.titles} times`}`, foot);
     else el('span', 'mc-won muted', `${e.rivals.length} rounds, one loss ends the run`, foot);
@@ -196,7 +241,8 @@ export class MapScreen {
       const b = button('btn', `${ICON.lock}Win ${need} more title${need > 1 ? 's' : ''}`, () => {}, foot);
       b.disabled = true;
     } else {
-      button('btn primary', `${ICON.swords}${p.run ? `Round ${p.run + 1}` : 'Fight'}`, () => this.h.fight(e), foot);
+      const label = p.run ? `Round ${p.run + 1}` : p.titles ? 'Defend the title' : 'Fight';
+      button('btn primary', `${ICON.swords}${label}`, () => this.h.fight(e), foot);
     }
   }
 

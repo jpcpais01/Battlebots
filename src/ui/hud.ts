@@ -155,6 +155,8 @@ export class Hud {
   private vs: HTMLElement | null = null;
   private presents: HTMLElement[] = [];
   private shownPresent = -1;
+  /** A career rival's billing for the intro: how it fights and what it says (set before attach). */
+  rivalIntro: { style: string; taunt: string } | null = null;
   private speedBtn!: HTMLButtonElement;
   private zoomBtn!: HTMLButtonElement;
   private match: Match | null = null;
@@ -454,9 +456,11 @@ export class Hud {
       const spec = m.specs[i];
       const card = botCardHtml(this.game, spec, m.fighters[i].build, { side: i ? 'r' : 'l', tag: tag(i), delay: 0.3 });
       const corner = i ? 'And in the orange corner' : 'In the blue corner';
-      const style = m.brains[i].traits.style;
+      const rv = i === 1 ? this.rivalIntro : null;
+      const style = rv?.style ?? m.brains[i].traits.style;
+      const taunt = rv ? `<q class="taunt">${esc(rv.taunt)}</q>` : '';
       return `<div class="present ${i ? 'r' : 'l'}" style="--paint:${paintOf(spec)}">${card}
-        <div class="banner"><span class="corner">${corner}</span><b class="pname">${esc(spec.name)}</b><span class="style">${esc(style)}</span><span class="tune">${esc(WALK_ON_NAME[walkOnFor(spec)])}</span></div></div>`;
+        <div class="banner"><span class="corner">${corner}</span><b class="pname">${esc(spec.name)}</b><span class="style">${esc(style)}</span>${taunt}<span class="tune">${esc(WALK_ON_NAME[walkOnFor(spec)])}</span></div></div>`;
     };
     this.vs = el('div', `vs${on ? '' : ' interactive'}`, `${panel(0)}${panel(1)}`, this.root);
     this.presents = [...this.vs.querySelectorAll<HTMLElement>('.present')];

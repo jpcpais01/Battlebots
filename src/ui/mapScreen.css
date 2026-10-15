@@ -309,3 +309,91 @@
   -webkit-background-clip: text;
   background-clip: text;
 }
+
+/* ------------------------------------------------------------ career on the map */
+.map-chips {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+}
+.map-chip.cash {
+  color: var(--text);
+}
+.map-chip.cash svg {
+  color: #ffd24a;
+}
+.mc-ladder li b small {
+  display: block;
+  font-size: 0.74em;
+  font-weight: 500;
+  color: var(--muted);
+}
+.mc-ladder li.next b small {
+  color: var(--text-2);
+}
+
+/* bottom left: rank and fame, the market and the trophy room */
+.map-dock {
+  position: absolute;
+  left: var(--pad);
+  bottom: var(--bottom);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  width: min(19em, 38vw);
+  pointer-events: none;
+}
+.screen.map.show .map-dock > * {
+  pointer-events: auto;
+}
+.map-rank {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+  padding: 0.6em 0.8em;
+  border-radius: var(--rad);
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+.map-rank .rk {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6em;
+}
+.map-rank .rk span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  color: #ffd98a;
+}
+.map-rank .rk svg {
+  width: 1.1em;
+  height: 1.1em;
+}
+.map-rank .rk b {
+  font-weight: 800;
+}
+.map-rank em {
+  font-style: normal;
+  font-size: 0.74em;
+  color: var(--muted);
+  text-align: right;
+}
+.map-dock-row {
+  display: flex;
+  gap: 0.45em;
+}
+.map-dock-row .btn {
+  flex: 1;
+}
+/* while an event's card is open on a narrow screen the dock steps aside */
+@media (max-width: 760px) {
+  .screen.map:has(.map-card.on) .map-dock {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .screen.map:has(.map-card.on) .map-dock > * {
+    pointer-events: none;
+  }
+}
