@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BLOCK, CITY_Y, GRID_X0, GRID_Z0, coast, cityWeight, fbm, height, inPark, noise, smoothstep, river, AVENUE, STREET } from './layout';
+import { BLOCK, CITY_Y, GRID_X0, GRID_Z0, clamp, coast, cityWeight, fbm, height, inPark, noise, smoothstep, river, AVENUE, STREET } from './layout';
 import { farm, forest, type Plan } from './plan';
 import { MAP_GLSL, MAP_OUT, SHADOW_HALF, SUN, SUN_TAN, mapMaterial, type MapUniforms } from './kit';
 
@@ -45,8 +45,8 @@ const C = {
   bank: new THREE.Color(0x6f9a4c),
   sand: new THREE.Color(0xe8d4a2),
   wetSand: new THREE.Color(0xc8ad80),
-  rock: new THREE.Color(0x9c907f),
-  cliff: new THREE.Color(0x857a6c),
+  rock: new THREE.Color(0x9a948a),
+  cliff: new THREE.Color(0x7f7a73),
   snow: new THREE.Color(0xf4f2ef),
   city: new THREE.Color(0xa69c8f),
   farm: new THREE.Color(0xa9b062),
@@ -54,8 +54,11 @@ const C = {
 };
 const _c = new THREE.Color();
 
-/** Ground colour at a point (before the shader's streets and fields), and its masks. */
-function ground(x: number, z: number, h: number, nY: number, out: THREE.Color) {
+/**
+ * Ground colour at a point (before the shader's streets and fields), and its masks. `curv` is how
+ * hollow the ground is there (+ in gullies and hollows, - on spurs and crests, per metre).
+ */
+function ground(x: number, z: number, h: number, nY: number, curv: number, out: THREE.Color) {
   const c = coast(x, z);
   const slope = Math.sqrt(Math.max(0, 1 - nY * nY)) / Math.max(0.05, nY);
   const city = cityWeight(x, z);
@@ -67,11 +70,17 @@ function ground(x: number, z: number, h: number, nY: number, out: THREE.Color) {
   // under the woods the ground goes darker
   const f = forest(x, z, h, c);
   out.lerp(C.forest, f * 0.75);
-  // high meadows go olive, then rock, then snow on the peaks
-  out.lerp(C.alpine, smoothstep(160, 260, h) * 0.7);
-  out.lerp(C.rock, smoothstep(240, 320, h + noise(x * 0.02, z * 0.02) * 25));
-  out.lerp(C.cliff, smoothstep(0.75, 1.3, slope));
-  out.lerp(C.snow, smoothstep(350, 400, h + noise(x * 0.015, z * 0.015) * 30) * smoothstep(1.4, 0.8, slope));
+  // high meadows go olive, then bare rock on the tops and the steep faces, then snow on the peaks.
+  // The gullies keep their green longest and the spurs between them weather to rock first, which
+  // is what makes a mountainside read as carved by water
+  const hill = smoothstep(40, 140, h);
+  const spur = clamp(-curv * 22, -1, 1) * hill;
+  out.lerp(C.alpine, smoothstep(160, 280, h + spur * 30) * 0.7);
+  out.lerp(C.rock, smoothstep(255, 345, h + noise(x * 0.02, z * 0.02) * 25 + spur * 50));
+  out.lerp(C.cliff, smoothstep(0.95, 1.6, slope + spur * 0.3));
+  out.lerp(C.snow, smoothstep(345, 395, h + noise(x * 0.015, z * 0.015) * 30 + spur * 25) * smoothstep(1.5, 0.9, slope));
+  // and the hollows hold a little shade
+  out.multiplyScalar(1 - smoothstep(0, 0.07, curv) * 0.3 * hill);
   // fields
   out.lerp(C.farm, fm);
   // beaches
@@ -250,7 +259,8 @@ export function buildGround(u: MapUniforms): Ground {
       const x = -FINE + i * CELL, z = -FINE + j * CELL;
       const h = grid.h[k];
       if (h < -3) continue;
-      const m = ground(x, z, h, _v.y, _c);
+      const curv = (hl + hr + hd + hu - 4 * h) / (CELL * CELL);
+      const m = ground(x, z, h, _v.y, curv, _c);
       col.set([_c.r, _c.g, _c.b], k * 3);
       mask.set([m.city, m.farm, m.park], k * 3);
     }
@@ -314,39 +324,52 @@ export function buildGround(u: MapUniforms): Ground {
   return { group, grid, depth: depthTexture(grid), shadows: (plan, extra) => shadowMap(grid, plan, extra) };
 }
 
-/** Hills and mountains past the fine area, out to the haze. */
+/**
+ * Hills and mountains past the fine area, out to the haze: a 40 m grid round the fine terrain
+ * (the ranges behind the falls are in plain view from the map), then 100 m on to the horizon.
+ * Coloured like the fine terrain, so the two meet without a seam.
+ */
 function farRing(u: MapUniforms) {
-  const step = 100;
-  const M = Math.round((2 * FAR) / step);
+  const group = new THREE.Group();
+  const mat = farMaterial(u);
+  group.add(ringMesh(mat, 40, 2800, FINE, 2, -0.4));
+  // (the outer ring tucks one cell under the inner one, and a little lower, so no gap shows)
+  group.add(ringMesh(mat, 100, FAR, 2700, 1, -1.6));
+  return group;
+}
+
+/** A square ring of terrain from ±hole to ±half on a `step` grid, `detail` gully octaves. */
+function ringMesh(mat: THREE.Material, step: number, half: number, hole: number, detail: number, sink: number) {
+  const M = Math.round((2 * half) / step), V = M + 1;
+  // heights on the whole grid (with a border for the normals)
+  const H = new Float32Array((V + 2) * (V + 2));
+  const hAt = (i: number, j: number) => H[(j + 1) * (V + 2) + i + 1];
+  for (let j = -1; j <= V; j++) for (let i = -1; i <= V; i++) H[(j + 1) * (V + 2) + i + 1] = height(-half + i * step, -half + j * step, detail);
   const pos: number[] = [], nn: number[] = [], cc: number[] = [], idx: number[] = [];
-  const at = new Map<number, number>();
+  const at = new Int32Array(V * V).fill(-1);
+  const _n = new THREE.Vector3();
   const vert = (i: number, j: number) => {
-    const key = j * (M + 1) + i;
-    let v = at.get(key);
-    if (v !== undefined) return v;
-    const x = -FAR + i * step, z = -FAR + j * step;
-    const h = height(x, z);
-    const e = 30;
-    const nx = height(x - e, z) - height(x + e, z), nz = height(x, z - e) - height(x, z + e);
-    const l = Math.hypot(nx, 2 * e, nz);
-    v = pos.length / 3;
+    const key = j * V + i;
+    if (at[key] >= 0) return at[key];
+    const x = -half + i * step, z = -half + j * step, h = hAt(i, j);
+    const hl = hAt(i - 1, j), hr = hAt(i + 1, j), hd = hAt(i, j - 1), hu = hAt(i, j + 1);
+    _n.set(hl - hr, 2 * step, hd - hu).normalize();
+    ground(x, z, h, _n.y, (hl + hr + hd + hu - 4 * h) / (step * step), _c);
+    at[key] = pos.length / 3;
     pos.push(x, h, z);
-    nn.push(nx / l, (2 * e) / l, nz / l);
-    _c.copy(C.grass).lerp(C.forest, 0.6 * smoothstep(20, 80, h));
-    _c.lerp(C.alpine, smoothstep(160, 260, h) * 0.7).lerp(C.rock, smoothstep(250, 330, h)).lerp(C.snow, smoothstep(360, 420, h));
-    _c.lerp(C.sand, smoothstep(4, 1.5, h));
+    nn.push(_n.x, _n.y, _n.z);
     cc.push(_c.r, _c.g, _c.b);
-    at.set(key, v);
-    return v;
+    return at[key];
   };
   for (let j = 0; j < M; j++)
     for (let i = 0; i < M; i++) {
-      const x0 = -FAR + i * step, z0 = -FAR + j * step;
-      // the fine terrain covers the middle
-      if (x0 >= -FINE && x0 + step <= FINE && z0 >= -FINE && z0 + step <= FINE) continue;
+      const x0 = -half + i * step, z0 = -half + j * step;
+      if (x0 >= -hole && x0 + step <= hole && z0 >= -hole && z0 + step <= hole) continue;
+      if (Math.max(hAt(i, j), hAt(i + 1, j), hAt(i, j + 1), hAt(i + 1, j + 1)) < -1) continue;
       const a = vert(i, j), b = vert(i + 1, j), c = vert(i, j + 1), d = vert(i + 1, j + 1);
-      if (Math.max(pos[a * 3 + 1], pos[b * 3 + 1], pos[c * 3 + 1], pos[d * 3 + 1]) < -1) continue;
-      idx.push(a, c, b, b, c, d);
+      // split each quad along the diagonal that follows the ground better
+      if (Math.abs(pos[a * 3 + 1] - pos[d * 3 + 1]) < Math.abs(pos[b * 3 + 1] - pos[c * 3 + 1])) idx.push(a, c, d, a, d, b);
+      else idx.push(a, c, b, b, c, d);
     }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -354,9 +377,11 @@ function farRing(u: MapUniforms) {
   g.setAttribute('color', new THREE.Float32BufferAttribute(cc, 3));
   g.setIndex(idx);
   g.computeBoundingSphere();
-  // (sunk a touch where it meets the fine terrain, which overlaps it)
-  const mesh = new THREE.Mesh(g, farMaterial(u));
-  mesh.position.y = -0.4;
+  // (sunk a touch where it meets the finer terrain, which overlaps it)
+  const mesh = new THREE.Mesh(g, mat);
+  mesh.position.y = sink;
+  mesh.updateMatrix();
+  mesh.matrixAutoUpdate = false;
   return mesh;
 }
 
