@@ -71,8 +71,9 @@ export class ArenaShow {
   private time = 0;
   private mono = new THREE.Color();
 
-  constructor(quality: 'low' | 'med' | 'high', private u: Uniforms) {
-    if (quality !== 'low') this.buildBeams();
+  /** `beams`: the moving heads on the roof catwalk (venues without a roof go without). */
+  constructor(quality: 'low' | 'med' | 'high', private u: Uniforms, beams = true) {
+    if (quality !== 'low' && beams) this.buildBeams();
     for (let i = 0; i < EMITTERS; i++) this.emit.push(new THREE.Vector4(0, 0, -99, 0));
     this.fireMat = this.buildPyro(quality);
     const confetti = this.buildConfetti(quality === 'low' ? 700 : quality === 'med' ? 1300 : 2000);

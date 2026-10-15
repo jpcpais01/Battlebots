@@ -132,6 +132,8 @@ export class App {
   private sceneBtn: HTMLButtonElement | null = null;
   /** The Fight button's cinematic way out of a home scene is playing. */
   private leaving = false;
+  /** An event whose venue is being put up before its fight starts. */
+  private venueWait: string | null = null;
   private homeCard: HTMLElement | null = null;
   private homeRecord: HTMLElement | null = null;
   private soundBtns: HTMLButtonElement[] = [];
@@ -1325,9 +1327,12 @@ export class App {
     this.closeResults();
     if (!sameOpponent || !this.opponent) this.opponent = this.makeOpponent();
     const seed = (Math.random() * 2 ** 32) >>> 0;
+    // an event's rounds are fought in its own venue, everything else indoors
+    const arena = (this.eventRun && EVENT_BY_ID.get(this.eventRun.id)?.arena) || 'grand';
     // copies, so a later trip to the garage can't change the fight a replay shows
-    this.lastFight = { a: structuredClone(this.player), b: structuredClone(this.opponent), seed, cut: -1, coach: [], end: -1, marks: [] };
+    this.lastFight = { a: structuredClone(this.player), b: structuredClone(this.opponent), seed, cut: -1, coach: [], end: -1, marks: [], arena };
     this.replaying = false;
+    this.game.setArena(arena);
     const m = this.game.startMatch(this.player, this.opponent, seed);
     this.hud.resetSpeed();
     this.hud.attach(m);
@@ -1336,19 +1341,43 @@ export class App {
 
   /** The next round of a map event: its rival for that round, then into the arena. */
   private fightEvent(e: EventDef) {
-    if (this.online.active) return;
+    if (this.online.active || this.venueWait) return;
     const round = progressOf(this.record.events, e.id).run;
     this.eventRun = { id: e.id, round };
     this.opponent = rival(e, round, this.player);
     this.tap('start');
     void enterLandscape();
-    this.startFight(true);
+    // the venue is put up first (the first time, its code comes down too), so the walkout is in it
+    const from = this.current;
+    this.venueWait = e.id;
+    const go = () => {
+      if (this.venueWait !== e.id) return;
+      this.venueWait = null;
+      if (this.current === from) this.startFight(true);
+    };
+    this.game.loadVenue(e.arena).then(go, go);
   }
 
   /** Watch the last fight again, from the walkout to the celebration. */
   private replay() {
     const r = this.lastFight;
-    if (!r) return;
+    if (!r || this.venueWait) return;
+    if (r.arena && r.arena !== 'grand') {
+      // an event's venue goes up first (its code may still have to come down)
+      const from = this.current;
+      this.venueWait = r.arena;
+      const go = () => {
+        if (this.venueWait !== r.arena) return;
+        this.venueWait = null;
+        if (this.current === from && this.lastFight === r) this.playTape(r);
+      };
+      this.game.loadVenue(r.arena).then(go, go);
+      return;
+    }
+    this.playTape(r);
+  }
+
+  private playTape(r: Tape) {
     this.tap('start');
     void enterLandscape();
     this.closeResults();
@@ -2007,6 +2036,8 @@ export class App {
     this.closeModal();
     this.closeResults();
     this.leaveNetFight();
+    this.eventRun = null;
+    this.game.setArena('grand');
     const m = this.game.startMatch(a, b, seed, true, s.me);
     // the tape for its replay: the coach calls from both corners come from the match's log
     this.lastFight = { a: structuredClone(a), b: structuredClone(b), seed, cut: -1, coach: [], end: -1, marks: [], online: true, me: s.me };

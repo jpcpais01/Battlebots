@@ -41,6 +41,7 @@ import { ArenaShow } from './show';
 import { cornerAngle } from './ring';
 import { RING_CORNER } from '../sim/body';
 import { batchStatic } from './batch';
+import type { LightLook } from './stage';
 
 /**
  * The indoor arena around the ring: a two-tier seating bowl with a suite level, LED ribbon
@@ -94,14 +95,14 @@ class Strips {
   }
 }
 
-function canvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
+export function canvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
   return [c, c.getContext('2d')!];
 }
 
-function tex(c: HTMLCanvasElement, repeat = true) {
+export function tex(c: HTMLCanvasElement, repeat = true) {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   if (repeat) t.wrapS = THREE.RepeatWrapping;
@@ -120,7 +121,7 @@ const _m = new THREE.Matrix4();
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 /** A thin box from one point to another (rails, posts, cables). */
-function bar(ax: number, ay: number, az: number, bx: number, by: number, bz: number, w: number, h = w) {
+export function bar(ax: number, ay: number, az: number, bx: number, by: number, bz: number, w: number, h = w) {
   _a.set(ax, ay, az);
   _b.set(bx, by, bz);
   const len = _a.distanceTo(_b);
@@ -244,7 +245,7 @@ function skirtTexture(label: string, colour: string): THREE.CanvasTexture {
 }
 
 /** The centre-hung screens: the arena logo between fights, the live score while one is on. */
-class Scoreboard {
+export class Scoreboard {
   readonly texture: THREE.CanvasTexture;
   private g: CanvasRenderingContext2D;
   private key = '';
@@ -573,7 +574,7 @@ function tunnelLedMaterial(time: { value: number }) {
  * It hides whatever is behind it, and ripples where something passes through (`uHit`: world
  * point, strength).
  */
-function gateMaterial(colour: THREE.Color, time: { value: number }, hw: number, h: number) {
+export function gateMaterial(colour: THREE.Color, time: { value: number }, hw: number, h: number) {
   return new THREE.ShaderMaterial({
     uniforms: {
       uTime: time,
@@ -606,7 +607,7 @@ function gateMaterial(colour: THREE.Color, time: { value: number }, hw: number, 
  * every few seconds with a wipe (staggered per segment). Both strobe on big moments.
  * `len`, `speed` and `glow` are per vertex (see led()), so all the panels of a kind are one draw.
  */
-function ledMaterial(map: THREE.Texture, ads = false) {
+export function ledMaterial(map: THREE.Texture, ads = false) {
   const m = new THREE.ShaderMaterial({
     defines: ads ? { ADS: '', AD_COLS: AD_COLS.toFixed(1), AD_ROWS: AD_ROWS.toFixed(1), AD_COUNT: AD_COUNT.toFixed(1) } : {},
     uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uMap: { value: null } }]),
@@ -660,7 +661,7 @@ function ledMaterial(map: THREE.Texture, ads = false) {
 }
 
 /** An LED panel's settings for ledMaterial, on every vertex: segment length (m), scroll speed, brightness. */
-function led(geo: THREE.BufferGeometry, len: number, speed: number, glow = 1.4) {
+export function led(geo: THREE.BufferGeometry, len: number, speed: number, glow = 1.4) {
   const n = geo.attributes.position.count;
   const a = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) a.set([len, speed, RenderSettings.glow(glow)], i * 3);
@@ -688,8 +689,38 @@ function ringsideDesks() {
   return out;
 }
 
-export class Venue {
+/**
+ * What the game needs from whatever surrounds the ring: the indoor arena below, or one of the
+ * world map's outdoor venues (render/venues). They all keep the bowl's footprint (floor height,
+ * front row, tunnels east and west), so the cameras, the debris and the stretcher work in any.
+ */
+export interface VenueLike {
+  readonly group: THREE.Group;
+  readonly crowd: Crowd;
+  /** The floor round the stage (drawn in the floor layer). */
+  readonly floorMesh: THREE.Mesh;
+  /** How the place is lit, or null for the stage's own arena lighting. */
+  readonly look: LightLook | null;
+  /** The camera's far clip plane here. */
+  readonly far: number;
+  /** Whether the light shafts under the ring's truss show. */
+  readonly beams: boolean;
+  /** Height of whatever lies past the front of the stands' top tier (debris lands on it), or null: the bowl's. */
+  readonly outer: number | null;
+  setPixelScale(h: number): void;
+  event(type: string, data?: unknown): void;
+  score(dt: number, s: ScoreState | null): void;
+  gateHit(p: THREE.Vector3 | null): void;
+  strobe(k: number): void;
+  update(dt: number, time: number, hype: number): void;
+}
+
+export class Venue implements VenueLike {
   readonly group = new THREE.Group();
+  readonly look = null;
+  readonly far = 120;
+  readonly beams = true;
+  readonly outer = null;
   readonly crowd: Crowd;
   readonly floor: FloorShow;
   /** The arena floor round the stage. */

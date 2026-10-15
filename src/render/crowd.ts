@@ -1075,6 +1075,8 @@ const vert = /* glsl */ `
   ${HOUSE_GLSL}
   uniform vec2 uJoy, uDismay;
   uniform vec4 uSpots[3];
+  uniform float uDay;
+  uniform vec3 uDayLight;
   uniform vec4 uHot[${HOT}];  // where a torn-off part came down among the fans: xyz, how wild
   uniform vec3 uSkin[7];
   uniform vec3 uPants[8];
@@ -1193,6 +1195,8 @@ const vert = /* glsl */ `
     L += mix(vec3(1.0, 0.45, 0.12), vec3(0.15, 0.7, 1.0), sx * 0.5 + 0.5) * (0.2 * (1.0 - hgt * 0.6));
     // the house is dark: only spill from the ring reaches the seats (the spots below cut through it)
     L *= houseLight(iPos);
+    // out in the open the sky lights every row alike (a little less at the back, under the rim)
+    L = mix(L, uDayLight * (1.0 - 0.18 * hgt), uDay);
     for (int i = 0; i < 3; i++) {
       vec4 sp = uSpots[i];
       float k = smoothstep(sp.z, sp.z * 0.55, distance(iPos.xz, sp.xy));
@@ -1271,6 +1275,8 @@ export class Crowd {
     seats: (Seat & { role?: Role; team?: number; walk?: boolean })[],
     quality: 'low' | 'med' | 'high',
     uniforms: { uTime: { value: number }; uHype: { value: number }; uFlash: { value: number } },
+    /** Out of doors: how far daylight replaces the house lights (0..1), and its colour. */
+    daylight: { day: number; light: THREE.Color } = { day: 0, light: new THREE.Color(1, 1, 1) },
   ) {
     const k = quality === 'high' ? 1 : quality === 'med' ? 0.8 : 0.6;
     const atlas = paintAtlas(Math.round(84 * k), Math.round(196 * k));
@@ -1405,6 +1411,8 @@ export class Crowd {
           uJoy: { value: new THREE.Vector2() },
           uDismay: { value: new THREE.Vector2() },
           uSpots: { value: null },
+          uDay: { value: daylight.day },
+          uDayLight: { value: daylight.light },
           uHot: { value: null },
           uSkin: { value: SKIN.map((h) => new THREE.Color(h)) },
           uPants: { value: PANTS.map((h) => new THREE.Color(h)) },
@@ -1484,6 +1492,8 @@ export class Crowd {
     this.lightsMat = glowPoints({ uTime: uniforms.uTime, uHype: uniforms.uHype }, false);
     const pts = new THREE.Points(lg, this.lightsMat);
     pts.frustumCulled = false;
+    // (nobody holds a phone light up in broad daylight)
+    pts.visible = daylight.day < 0.5;
     this.group.add(pts);
   }
 

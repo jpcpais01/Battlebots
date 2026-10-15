@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RING_CORNER, ROPE_LINE, ropeSide, SIDE_NX, SIDE_NZ } from '../sim/body';
-import { AX, AZ, BACK_D, FLOOR, RC, ROOF_Y, ROWS, TUNNEL_OPEN_HW, TUNNEL_ROWS, TUNNEL_W } from './bowl';
+import { AX, AZ, BACK_D, FLOOR, LOWER_ROWS, RC, ROOF_Y, ROWS, TUNNEL_OPEN_HW, TUNNEL_ROWS, TUNNEL_W } from './bowl';
 import type { Fx } from './fx';
 
 /**
@@ -62,6 +62,12 @@ function bowlD(x: number, z: number) {
  * stage base, the arena floor, the ringside barrier, the stepped rows of both tiers (the suite
  * wall between them is just the jump up to the upper tier) and the tunnel blocks.
  */
+/**
+ * Out of doors: the height of whatever lies past the top of the lower tier (the venue sets it), or
+ * null in the indoor bowl.
+ */
+export const outerGround = { y: null as number | null };
+
 export function groundAt(x: number, z: number): number {
   const side = ropeSide(x, z);
   const oct = x * SIDE_NX[side] + z * SIDE_NZ[side];
@@ -72,6 +78,7 @@ export function groundAt(x: number, z: number): number {
   // the barrier with its ad boards (open at the tunnel mouths)
   if (d < -0.35) return Math.abs(z) < TUNNEL_OPEN_HW && Math.abs(x) > AX - 1 ? FLOOR : 0.42;
   if (d < 0) return FLOOR;
+  if (outerGround.y !== null && d >= ROWS[LOWER_ROWS].d) return outerGround.y;
   if (d >= BACK_D) return ROOF_Y;
   if (Math.abs(z) < TUNNEL_W / 2 && Math.abs(x) > AX && d < TUNNEL_D) return ROWS[TUNNEL_ROWS].y;
   for (let i = ROWS.length - 1; i >= 0; i--) if (ROWS[i].d <= d) return ROWS[i].y;

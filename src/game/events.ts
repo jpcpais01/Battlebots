@@ -11,6 +11,7 @@ import { SCHEMES, contrastingPaint, paintsContrast, type Paint } from './paint';
 
 /** Where an event is fought. 'grand' is the indoor arena that quick fights and online use. */
 export type ArenaId = 'grand' | 'harbor' | 'grove' | 'island' | 'rooftop' | 'falls';
+export const ARENAS: readonly ArenaId[] = ['grand', 'harbor', 'grove', 'island', 'rooftop', 'falls'];
 
 export interface EventDef {
   id: string;
