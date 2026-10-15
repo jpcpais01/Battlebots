@@ -6,6 +6,7 @@ import { SITES } from '../map/layout';
 import { buildPlan } from '../map/plan';
 import { SKYDECK_Y } from '../map/sites';
 import { buildGround } from '../map/terrain';
+import { buildRoads } from '../map/roads';
 import { buildSea } from '../map/sea';
 import { buildCity, type City } from '../map/city';
 import { buildTowers, type MegaTowers } from '../map/towers';
@@ -740,6 +741,7 @@ function cityBelow(venue: OutdoorVenue, quality: 'low' | 'med' | 'high') {
   const sea = buildSea(mu, ground.depth);
   const towers: MegaTowers = buildTowers(mu);
   const city: City = buildCity(mu, plan, towers.beacons);
+  const roads = buildRoads(mu, plan, ground.grid);
   // (nothing beamed or hung off the tower itself: it would come up through the deck)
   const holo: Holograms = buildHolograms(
     mu,
@@ -748,7 +750,7 @@ function cityBelow(venue: OutdoorVenue, quality: 'low' | 'med' | 'high') {
   const trees: Forest | null = quality === 'low' ? null : buildTrees(mu, plan);
   const group = new THREE.Group();
   group.position.copy(SHIFT);
-  group.add(ground.group, sea, city.group, towers.group, holo.group);
+  group.add(ground.group, roads.group, sea, city.group, towers.group, holo.group);
   if (trees) group.add(trees.group);
   group.updateMatrixWorld(true);
 
@@ -760,6 +762,7 @@ function cityBelow(venue: OutdoorVenue, quality: 'low' | 'med' | 'high') {
     update(dt: number, t: number) {
       mu.uTime.value = t;
       city.update(dt, t);
+      roads.update(t);
       towers.update(t);
       holo.update(t);
     },
@@ -771,6 +774,7 @@ function cityBelow(venue: OutdoorVenue, quality: 'low' | 'med' | 'high') {
     },
     setPixelScale(h: number) {
       city.setPixelScale(h);
+      roads.setPixelScale(h);
     },
   };
 }

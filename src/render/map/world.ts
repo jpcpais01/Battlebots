@@ -11,6 +11,7 @@ import { buildSites, type Sites } from './sites';
 import { MapCamera } from './mapCamera';
 import { buildTowers, type MegaTowers } from './towers';
 import { buildHolograms, type Holograms } from './holo';
+import { buildRoads, type Roads } from './roads';
 
 /**
  * The world map: a coastal city at golden hour and the country round it, with every cup and
@@ -64,6 +65,7 @@ export class WorldMap {
     private towers: MegaTowers,
     private holo: Holograms,
     private trees: Forest,
+    private roads: Roads,
     readonly sites: Sites,
     camera: THREE.PerspectiveCamera,
     ground: (x: number, z: number) => number,
@@ -122,6 +124,7 @@ export class WorldMap {
     progress(0.55);
     await tick();
     const sea = buildSea(u, ground.depth);
+    const roads = buildRoads(u, plan, ground.grid);
     const sites = buildSites(u, plan);
     progress(0.65);
     await tick();
@@ -152,8 +155,8 @@ export class WorldMap {
       const i = Math.floor(x / RC + RN / 2), j = Math.floor(z / RC + RN / 2);
       return i < 0 || j < 0 || i >= RN || j >= RN ? 0 : roofsGrid[j * RN + i];
     };
-    const map = new WorldMap(u, city, towers, holo, trees, sites, camera, (x, z) => ground.grid.at(x, z), roofs);
-    map.group.add(ground.group, sea, city.group, towers.group, holo.group, trees.group, sites.group, clouds);
+    const map = new WorldMap(u, city, towers, holo, trees, roads, sites, camera, (x, z) => ground.grid.at(x, z), roofs);
+    map.group.add(ground.group, roads.group, sea, city.group, towers.group, holo.group, trees.group, sites.group, clouds);
     map.group.updateMatrixWorld(true);
     progress(1);
     return map;
@@ -167,6 +170,7 @@ export class WorldMap {
 
   setPixelScale(h: number) {
     this.city.setPixelScale(h);
+    this.roads.setPixelScale(h);
   }
 
   update(dt: number, time: number, camera: THREE.Camera) {
@@ -178,6 +182,7 @@ export class WorldMap {
     }
     this.cam.update(dt);
     this.city.update(dt, time);
+    this.roads.update(time);
     this.towers.update(time);
     this.holo.update(time);
     this.sites.update(dt, time);

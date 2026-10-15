@@ -3,19 +3,23 @@ import {
   BLOCK,
   CITY,
   CITY_Y,
+  DOCKS,
   DOWNTOWN,
   GRID_X0,
   GRID_Z0,
   ISLAND,
   LAKE,
+  LIGHTHOUSE,
   POND,
   SITES,
   STREET,
+  TURBINES,
   WORLD,
   cityWeight,
   clamp,
   coast,
   fbm,
+  hash2,
   height,
   inPark,
   isAvenue,
@@ -25,6 +29,7 @@ import {
   river,
   smoothstep,
 } from './layout';
+import { HALF, Kind, VILLAGES, roadNet, streetLines } from './roadnet';
 
 /**
  * Where everything on the world map goes: every building, house, tree, container and sign, as
@@ -171,6 +176,8 @@ export interface Plan {
   lamps: number[];
   /** Street lines for traffic: [x0, z0, x1, z1, lanes]. */
   streets: number[][];
+  /** Alleys through the blocks of small buildings: x0, z, x1 (running east-west). */
+  alleys: number[][];
 }
 
 /** Is (x, z) kept clear for an event site (with `pad` metres extra)? */
@@ -183,82 +190,18 @@ export function nearSite(x: number, z: number, pad = 0, skip = '') {
   return false;
 }
 
-/** The harbour district: container yards and piers instead of city blocks. */
-export const DOCKS = { x0: 150, z0: 30, x1: 400, z1: 135 };
 const inDocks = (x: number, z: number, pad = 0) => x > DOCKS.x0 - pad && x < DOCKS.x1 + pad && z > DOCKS.z0 - pad && z < DOCKS.z1 + pad;
 
 /** The maglev loop round downtown (rounded rectangle along streets) and its deck height. */
 export const MAGLEV = { x0: -298, z0: -298, x1: 350, z1: 62, r: 60, y: 26 };
 
-/** Roads out into the country: polylines. */
-export const ROADS: [number, number][][] = [
-  // north up the river valley to the falls
-  [
-    [-226, -298],
-    [-260, -420],
-    [-300, -560],
-    [-268, -690],
-    [-232, -760],
-    [-236, -808],
-  ],
-  // west through the hills to the grove
-  [
-    [-298, -82],
-    [-420, -60],
-    [-540, -120],
-    [-640, -200],
-    [-700, -240],
-  ],
-  // east along the coast to the lighthouse
-  [
-    [350, -10],
-    [430, 40],
-    [470, 150],
-    [452, 260],
-    [430, 340],
-  ],
-  // north-east through the farms
-  [
-    [278, -298],
-    [380, -380],
-    [520, -430],
-    [640, -520],
-    [720, -640],
-  ],
-];
-
-/** The lighthouse, the Ferris wheel and the wind farm. */
-export const LIGHTHOUSE = { x: 432, z: 352 };
+/** The Ferris wheel. */
 export const WHEEL = { x: -14, z: 160, r: 30 };
-export const TURBINES: [number, number][] = [
-  [-560, -470],
-  [-610, -420],
-  [-655, -370],
-  [-700, -320],
-  [-520, -520],
-  [-470, -560],
-  [-880, -120],
-  [-930, -60],
-  [-980, 0],
-];
+export { DOCKS, LIGHTHOUSE, TURBINES };
 
 function pick<T>(r: () => number, arr: readonly T[]): T {
   return arr[Math.floor(r() * arr.length)];
 }
-
-/** Distance from a point to a polyline. */
-export function distToLine(x: number, z: number, line: [number, number][]) {
-  let best = Infinity;
-  for (let i = 0; i < line.length - 1; i++) {
-    const [ax, az] = line[i], [bx, bz] = line[i + 1];
-    const ex = bx - ax, ez = bz - az;
-    const t = clamp(((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez), 0, 1);
-    best = Math.min(best, Math.hypot(x - ax - ex * t, z - az - ez * t));
-  }
-  return best;
-}
-
-const onRoad = (x: number, z: number, pad: number) => ROADS.some((r) => distToLine(x, z, r) < pad);
 
 /** Slope (rise per metre) of the ground at a point. */
 export function slope(x: number, z: number) {
@@ -307,6 +250,12 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
   const masts: number[] = [];
   const lamps: number[] = [];
   const streets: number[][] = [];
+  const alleys: number[][] = [];
+  const net = roadNet();
+  const lines = streetLines();
+  const onRoad = (x: number, z: number, pad: number) => net.near(x, z, pad);
+  /** Is there a street along x-line i at z? */
+  const streetAt = (i: number, z: number) => lines.some((l) => l.axis === 0 && l.k === i && z > l.a && z < l.b);
   const treeK = quality === 'high' ? 1 : quality === 'med' ? 0.72 : 0.5;
 
   // ------------------------------------------------------------ city blocks
@@ -336,7 +285,10 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
         continue;
       }
       if (Math.abs(cx - HOLO_PLAZA.x) < 1 && Math.abs(cz - HOLO_PLAZA.z) < 1) continue;
-      fillBlock(x0, z0, x1, z1, hMax, core);
+      // the small-building blocks often have an alley through the middle, east to west
+      const alley = core <= 0.18 && hash2(i * 7 + 3, j * 13 + 5) < 0.6 && streetAt(i, cz) && streetAt(i + 1, cz);
+      fillBlock(x0, z0, x1, z1, hMax, core, alley);
+      if (alley) alleys.push([bx0 + half(i) - 3, cz, bx0 + BLOCK - half(i + 1) + 3]);
     }
 
   /**
@@ -344,7 +296,7 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
    * a perimeter block, buildings round the edge and a garden courtyard in the middle. Out towards
    * the edge: rows of small buildings with the odd garden.
    */
-  function fillBlock(x0: number, z0: number, x1: number, z1: number, hMax: number, core: number) {
+  function fillBlock(x0: number, z0: number, x1: number, z1: number, hMax: number, core: number, alley: boolean) {
     const w = x1 - x0, d = z1 - z0;
     if (core > 0.55) {
       const podH = 9 + r() * 9;
@@ -389,19 +341,20 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
       for (let k = 0; k < 3; k++) trees.push({ x: gx + (r() - 0.5) * (w - 2 * depth - 6), y: CITY_Y, z: gz + (r() - 0.5) * (d - 2 * depth - 6), s: 0.6 + r() * 0.35, kind: r() < 0.3 ? TreeKind.Blossom : TreeKind.Broad, col: r() });
       return;
     }
-    // rows of small buildings
-    const nx = r() < 0.5 ? 3 : 2, nz = 3;
-    const lw = w / nx, ld = d / nz;
+    // rows of small buildings (two rows either side of an alley, if there's one)
+    const nx = r() < 0.5 ? 3 : 2, nz = alley ? 2 : 3;
+    const lw = w / nx, gap = alley ? 2 * HALF[Kind.Alley] : 0, ld = (d - gap) / nz;
     for (let a = 0; a < nx; a++)
       for (let b = 0; b < nz; b++) {
-        if (a > 0 && a < nx - 1 && b > 0 && b < nz - 1 && r() < 0.6) {
+        const lz0 = z0 + b * ld + (alley && b > 0 ? gap : 0);
+        if (!alley && a > 0 && a < nx - 1 && b > 0 && b < nz - 1 && r() < 0.6) {
           // inner lots are gardens more often than not
-          trees.push({ x: x0 + (a + 0.5) * lw, y: CITY_Y, z: z0 + (b + 0.5) * ld, s: 0.7 + r() * 0.4, kind: r() < 0.25 ? TreeKind.Blossom : TreeKind.Broad, col: r() });
+          trees.push({ x: x0 + (a + 0.5) * lw, y: CITY_Y, z: lz0 + ld / 2, s: 0.7 + r() * 0.4, kind: r() < 0.25 ? TreeKind.Blossom : TreeKind.Broad, col: r() });
           continue;
         }
-        if (r() < 0.08) continue;
+        if (r() < (alley ? 0.05 : 0.08)) continue;
         const g = 1.2 + r() * 1.6;
-        lot(x0 + a * lw + g / 2, z0 + b * ld + g / 2, x0 + (a + 1) * lw - g / 2, z0 + (b + 1) * ld - g / 2, hMax * (0.5 + 0.5 * r()), core);
+        lot(x0 + a * lw + g / 2, lz0 + g / 2, x0 + (a + 1) * lw - g / 2, lz0 + ld - g / 2, hMax * (0.5 + 0.5 * r()), core);
       }
   }
 
@@ -563,27 +516,9 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
   }
 
   // ------------------------------------------------------------ street lines for traffic
-  for (let i = i0; i <= i0 + 2 * n; i++) {
-    const x = GRID_X0 + i * BLOCK;
-    let zA = Infinity, zB = -Infinity;
-    for (let z = CITY.z - CITY.r - 120; z < CITY.z + CITY.r + 120; z += 12) {
-      if (cityWeight(x, z) > 0.55 && coast(x, z) > 30 && river(x, z).d > river(x, z).w + 20) {
-        zA = Math.min(zA, z);
-        zB = Math.max(zB, z);
-      }
-    }
-    if (zB - zA > 100) streets.push([x, zA, x, zB, isAvenue(i) ? 2 : 1]);
-  }
-  for (let j = j0; j <= j0 + 2 * n; j++) {
-    const z = GRID_Z0 + j * BLOCK;
-    let xA = Infinity, xB = -Infinity;
-    for (let x = CITY.x - CITY.r - 120; x < CITY.x + CITY.r + 120; x += 12) {
-      if (cityWeight(x, z) > 0.55 && coast(x, z) > 30) {
-        xA = Math.min(xA, x);
-        xB = Math.max(xB, x);
-      }
-    }
-    if (xB - xA > 100) streets.push([xA, z, xB, z, isAvenue(j) ? 2 : 1]);
+  for (const l of lines) {
+    if (l.b <= l.a) continue;
+    streets.push(l.axis === 0 ? [l.at, l.a, l.at, l.b, l.avenue ? 2 : 1] : [l.a, l.at, l.b, l.at, l.avenue ? 2 : 1]);
   }
 
   // ------------------------------------------------------------ street lamps (where the ground shader pools their light)
@@ -615,19 +550,7 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
       }
     }
   }
-  for (const road of ROADS)
-    for (let i = 0; i < road.length - 1; i++) {
-      const [ax, az] = road[i], [bx, bz] = road[i + 1];
-      const L = Math.hypot(bx - ax, bz - az);
-      for (let t = 0; t < L; t += 3) {
-        const x = ax + ((bx - ax) * t) / L, z = az + ((bz - az) * t) / L;
-        const rv = river(x, z);
-        if (rv.d < 1.5) {
-          bridges.push({ x, z, len: rv.w * 2 + 22, w: 9, y: Math.max(rv.y + 3.5, height(x + (bx - ax) / L * (rv.w + 12), z + (bz - az) / L * (rv.w + 12))), rot: Math.atan2(bx - ax, bz - az) - Math.PI / 2 });
-          break;
-        }
-      }
-    }
+  bridges.push(...net.bridges);
 
   // ------------------------------------------------------------ trees
   // street trees along the avenues and round the city's edge, parks thick with them
@@ -651,6 +574,17 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
         trees.push({ x, y: CITY_Y, z, s: 0.55 + r() * 0.2, kind: dd > 260 && r() < 0.2 ? TreeKind.Blossom : TreeKind.Broad, col: r() });
       }
     }
+    // the avenues' planted medians: a row of small trees down the middle
+    if (s[4] < 2) continue;
+    for (let t = 9; t < L - 9; t += 14) {
+      const x = along === 'z' ? s[0] : s[0] + t, z = along === 'z' ? s[1] + t : s[1];
+      if (r() > 0.8 * treeK + 0.1 || nearSite(x, z, 4)) continue;
+      const rv = river(x, z);
+      if (rv.d < rv.w + 6 || coast(x, z) < 20) continue;
+      const gx = ((((x - GRID_X0) % BLOCK) + BLOCK) % BLOCK), gz = ((((z - GRID_Z0) % BLOCK) + BLOCK) % BLOCK);
+      if ((along === 'z' ? gz : gx) < 22 || (along === 'z' ? gz : gx) > BLOCK - 22) continue;
+      trees.push({ x, y: CITY_Y + 0.25, z, s: 0.42 + r() * 0.12, kind: r() < 0.35 ? TreeKind.Blossom : TreeKind.Broad, col: r() });
+    }
   }
   // the woods, meadows and mountainsides
   const step = 13 / Math.sqrt(treeK);
@@ -662,7 +596,7 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
       const c = coast(px, pz);
       if (c < 0) continue;
       const h = height(px, pz);
-      if (nearSite(px, pz, 2) || onRoad(px, pz, 8)) continue;
+      if (nearSite(px, pz, 2) || onRoad(px, pz, 3)) continue;
       if (park) {
         if (Math.hypot(px - POND.x, pz - POND.z) < POND.r + 6) continue;
         // lawns between the clumps
@@ -693,15 +627,6 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
     }
 
   // ------------------------------------------------------------ villages and farmhouses
-  const villages: [number, number, number][] = [
-    [-560, -40, 70],
-    [-610, 150, 55],
-    [470, -430, 70],
-    [600, -300, 50],
-    [380, -560, 45],
-    [-470, -330, 40],
-    [560, 120, 40],
-  ];
   /** A house, and now and then a tree in its back garden. */
   const addHouse = (o: Omit<House, 'kind' | 'seed'>, kind: HouseKind = HouseKind.House) => {
     const seed = r();
@@ -713,13 +638,13 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
       trees.push({ x, y: height(x, z), z, s: 0.5 + r() * 0.3, kind: r() < 0.3 ? TreeKind.Blossom : TreeKind.Broad, col: r() });
     }
   };
-  for (const [vx, vz, vr] of villages) {
+  for (const [vx, vz, vr] of VILLAGES) {
     // farm villages: a barn, silos and greenhouses at the edge, out in the fields
     if (farm(vx, vz, height(vx, vz)) > 0.2) {
       for (let k = 0; k < 5; k++) {
         const a = r() * Math.PI * 2, d = vr * (0.85 + r() * 0.4);
         const x = vx + Math.cos(a) * d, z = vz + Math.sin(a) * d;
-        if (coast(x, z) < 15 || nearSite(x, z, 10) || onRoad(x, z, 9) || slope(x, z) > 0.3) continue;
+        if (coast(x, z) < 15 || nearSite(x, z, 10) || onRoad(x, z, 8) || slope(x, z) > 0.3) continue;
         const rv = river(x, z);
         if (rv.d < rv.w + 12) continue;
         const y = height(x, z), rot = Math.round(r() * 4) * (Math.PI / 2);
@@ -732,7 +657,7 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
       const a = r() * Math.PI * 2, d = Math.sqrt(r()) * vr;
       const x = vx + Math.cos(a) * d, z = vz + Math.sin(a) * d;
       const c = coast(x, z);
-      if (c < 15 || nearSite(x, z, 10) || onRoad(x, z, 7)) continue;
+      if (c < 15 || nearSite(x, z, 10) || onRoad(x, z, 4)) continue;
       const rv = river(x, z);
       if (rv.d < rv.w + 10) continue;
       const h = height(x, z);
@@ -749,7 +674,7 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
     const cw = cityWeight(x, z);
     if (cw > 0.45 || cw < 0.04) continue;
     const c = coast(x, z);
-    if (c < 20 || nearSite(x, z, 10) || inDocks(x, z, 10) || onRoad(x, z, 7) || inPark(x, z, 4)) continue;
+    if (c < 20 || nearSite(x, z, 10) || inDocks(x, z, 10) || onRoad(x, z, 4) || inPark(x, z, 4)) continue;
     const rv = river(x, z);
     if (rv.d < rv.w + 14) continue;
     const h = height(x, z);
@@ -757,5 +682,5 @@ export function buildPlan(quality: 'low' | 'med' | 'high'): Plan {
     addHouse({ x, y: h, z, w: 8 + r() * 5, d: 7 + r() * 4, h: 4.5 + r() * 4, rot: Math.round(r() * 4) * (Math.PI / 2), wall: pick(r, WALLS), roof: pick(r, ROOFS) });
   }
 
-  return { boxes, houses, trees, signs, docks, bridges, beacons, masts, lamps, streets };
+  return { boxes, houses, trees, signs, docks, bridges, beacons, masts, lamps, streets, alleys };
 }
