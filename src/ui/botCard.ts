@@ -31,11 +31,11 @@ export function botCardInner(game: Game, spec: BotSpec, build: FighterBuild, o: 
     const item = ITEM_BY_ID.get(eq.id)!;
     let src = '';
     try {
-      src = game.thumbs.get(item, eq.rarity, spec.paint, spec.loadout);
+      src = game.thumbs.get(item, item.tier, spec.paint, spec.loadout);
     } catch {
       // no WebGL thumbnail: fall back to the slot icon
     }
-    return `<div class="g" style="--rc:${partTint(item, eq.rarity)};--d:${(d0 + k * 0.05).toFixed(2)}s" title="${esc(item.name)}${MAX_RARITY ? ` (${RARITIES[eq.rarity].name})` : ''}">${src ? `<img src="${src}" alt="">` : SLOT_ICON[slot]}</div>`;
+    return `<div class="g" style="--rc:${partTint(item)};--d:${(d0 + k * 0.05).toFixed(2)}s" title="${esc(item.name)}${MAX_RARITY ? ` (${RARITIES[item.tier].name})` : ''}">${src ? `<img src="${src}" alt="">` : SLOT_ICON[slot]}</div>`;
   }).join('');
   // makers whose set bonus is live: logo and piece count
   const sets = build.sets

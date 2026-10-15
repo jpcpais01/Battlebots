@@ -1,483 +1,43 @@
-import * as THREE from 'three';
+import { DESIGNS } from './gear';
+import type { GearDesign } from './gear/types';
+import { G, HP, PB, PI, band, bolt, hazard, lamellar, rivets, secAt, vent, arcFlat, type MatKey, type Sec } from './partKit';
+
+export { EMISSIVE_KEYS, G, PB, type Entry, type MatKey, type Sec } from './partKit';
 
 /**
- * Procedural robot parts. Parts are assembled from primitives in the local frame
- * of the bone they ride on; the bot model bakes every part of a bot into one
- * rigidly skinned mesh (plus one for glowing bits), so a whole robot costs two
- * draw calls and one shadow pass.
- *
- * The look is hard-surface: faceted, chamfered armour plates (lofts) layered over a
- * dark mechanical frame, with exposed joint drums, hydraulics, vents and bolts.
- *
- * Every builder takes the item's rarity tier `r` (0 Common … 4 Mythic). Higher tiers
- * bolt more onto the same silhouette, so a part reads its rarity at a glance:
- *  - Rare (1): the rarity light strip.
- *  - Epic (2): extra armour plates and bolts.
- *  - Legendary (3): chrome trim and more rarity lights.
- *  - Mythic (4): a signature fin, blade or crest edged in rarity light.
- *
- * Frames:
- *  - torso / pelvis / head / foot: X = bot's left, Y = up, Z = forward.
- *  - upper arm, thigh, shin: origin at the proximal joint, +Y down the limb,
- *    +Z the front of the limb, +X the bot's right (so "outward" is -X on the left).
- *  - forearm / fist: origin at elbow / hand, +Y towards the knuckles, +Z the back
- *    of the hand, thumb on +X for the left hand and -X for the right.
- * Limb parts (forearm, fist apart from the thumb, thigh, shin) are shared by both
- * sides, so they stay symmetric across X.
+ * Robot parts by design. A part's `look` is its item's design: maker (0 Ironhorse, 1 Lumen,
+ * 2 Longwei, 3 Martelli, 4 Kensei, 5 Strix) + 6 × tier (0 Common, 1 Rare, 2 Epic), so 0..17.
+ * The Common designs are built here; every Rare and Epic design is its own shape, in its maker's
+ * file under ./gear. Each builder lays the bare frame of its part (joints, bars, hand) and then
+ * the design's armour over it. Frames and primitives: see partKit.ts.
  */
-export type MatKey =
-  | 'paint'
-  | 'paint2'
-  | 'metal'
-  | 'chrome'
-  | 'dark'
-  | 'joint'
-  | 'brass'
-  | 'glass'
-  | 'rubber'
-  | 'steel'
-  | 'carbon'
-  | 'alu'
-  | 'glow'
-  | 'core'
-  | 'rarity';
-export const EMISSIVE_KEYS: ReadonlySet<MatKey> = new Set<MatKey>(['glow', 'core', 'rarity']);
+const designOf = (look: number): GearDesign | undefined => DESIGNS[look];
+const maker = (look: number) => ((look % 6) + 6) % 6;
 
-const PI = Math.PI;
-const HP = Math.PI / 2;
-
-const _q = new THREE.Quaternion();
-const _e = new THREE.Euler();
-const _s = new THREE.Vector3();
-const _p = new THREE.Vector3();
-const MIRROR_X = new THREE.Matrix4().makeScale(-1, 1, 1);
-
-const geoCache = new Map<string, THREE.BufferGeometry>();
-function cached(key: string, make: () => THREE.BufferGeometry) {
-  let g = geoCache.get(key);
-  if (!g) {
-    g = make();
-    if (g.index) g = g.toNonIndexed();
-    geoCache.set(key, g);
-  }
-  return g;
-}
-
-type P2 = [number, number];
-/** Loft section: [y, width (X), depth (Z), z offset?, x offset?]. */
-export type Sec = [number, number, number, number?, number?];
-
-/** Polygon in XY extruded along Z (centred), with a small chamfer. */
-function prismGeo(pts: P2[], depth: number, bevel: number) {
-  const shape = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
-  const b = Math.min(bevel, depth * 0.4);
-  const g = new THREE.ExtrudeGeometry(shape, {
-    depth: Math.max(0.001, depth - b * 2),
-    bevelEnabled: b > 0,
-    bevelThickness: b,
-    bevelSize: b,
-    bevelSegments: 1,
-    curveSegments: 4,
-  });
-  g.translate(0, 0, -depth / 2 + b);
-  return g;
-}
-
-/**
- * Flat-shaded convex polyhedron from its faces (each a convex point set, any order).
- * Faces are wound outward from the origin, which must lie inside.
- */
-function polyGeo(faces: THREE.Vector3[][]) {
-  const pos: number[] = [];
-  const nor: number[] = [];
-  const c = new THREE.Vector3(), n = new THREE.Vector3(), u = new THREE.Vector3(), w = new THREE.Vector3(), d = new THREE.Vector3();
-  for (const f of faces) {
-    c.set(0, 0, 0);
-    for (const p of f) c.add(p);
-    c.multiplyScalar(1 / f.length);
-    n.subVectors(f[1], f[0]).cross(d.subVectors(f[2], f[0])).normalize();
-    if (n.dot(c) < 0) n.negate();
-    u.subVectors(f[0], c).normalize();
-    w.crossVectors(n, u);
-    const ring = f
-      .map((p) => {
-        d.subVectors(p, c);
-        return { p, a: Math.atan2(d.dot(w), d.dot(u)) };
-      })
-      .sort((a, b) => a.a - b.a)
-      .map((o) => o.p);
-    for (let i = 1; i < ring.length - 1; i++)
-      for (const p of [ring[0], ring[i], ring[i + 1]]) {
-        pos.push(p.x, p.y, p.z);
-        nor.push(n.x, n.y, n.z);
-      }
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-  return g;
-}
-
-/**
- * Box with every edge and corner chamfered (26 flat faces). The thin bevels catch the
- * light along each edge, which is what makes plates read as machined metal, at well under
- * half the triangles of a rounded box.
- */
-function chamferBoxGeo(w: number, h: number, d: number, c: number) {
-  const H = [w / 2, h / 2, d / 2];
-  const ch = Math.max(1e-4, Math.min(c, Math.min(w, h, d) * 0.45));
-  const S: number[][] = [];
-  for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) S.push([sx, sy, sz]);
-  const pt = (s: number[], full: number) => new THREE.Vector3(s[0] * (full === 0 ? H[0] : H[0] - ch), s[1] * (full === 1 ? H[1] : H[1] - ch), s[2] * (full === 2 ? H[2] : H[2] - ch));
-  const faces: THREE.Vector3[][] = [];
-  for (let a = 0; a < 3; a++) for (const sg of [-1, 1]) faces.push(S.filter((s) => s[a] === sg).map((s) => pt(s, a)));
-  for (let a = 0; a < 3; a++)
-    for (let b = a + 1; b < 3; b++)
-      for (const sa of [-1, 1]) for (const sb of [-1, 1]) faces.push(S.filter((s) => s[a] === sa && s[b] === sb).flatMap((s) => [pt(s, a), pt(s, b)]));
-  for (const s of S) faces.push([pt(s, 0), pt(s, 1), pt(s, 2)]);
-  return polyGeo(faces);
-}
-
-/**
- * Faceted loft through chamfered rectangles (octagons) stacked along Y. Edges between
- * facets stay hard while normals are smoothed along the length, so plates read as
- * machined armour that still bulges. `cham` is the chamfer as a fraction of the smaller side.
- */
-function loftGeo(secs: Sec[], cham: number) {
-  const V = THREE.Vector3;
-  const rings = secs.map(([y, w, d, z = 0, x = 0]) => {
-    const c = Math.min(w, d) * cham;
-    const hw = w / 2, hd = d / 2;
-    const pts: P2[] = [
-      [hw, hd - c], [hw - c, hd], [-hw + c, hd], [-hw, hd - c],
-      [-hw, -hd + c], [-hw + c, -hd], [hw - c, -hd], [hw, -hd + c],
-    ];
-    return pts.map(([px, pz]) => new V(px + x, y, pz + z));
-  });
-  const centers = secs.map(([y, , , z = 0, x = 0]) => new V(x, y, z));
-  const n = rings.length;
-  // outward facet normals per band (between ring s and s+1) and facet k
-  const fn: THREE.Vector3[][] = [];
-  for (let s = 0; s < n - 1; s++) {
-    const row: THREE.Vector3[] = [];
-    const mid = new V().addVectors(centers[s], centers[s + 1]).multiplyScalar(0.5);
-    for (let k = 0; k < 8; k++) {
-      const k1 = (k + 1) % 8;
-      const a = rings[s][k], b = rings[s][k1], c = rings[s + 1][k1], d = rings[s + 1][k];
-      const nn = new V().subVectors(c, a).cross(new V().subVectors(d, b)).normalize();
-      const cen = new V().add(a).add(b).add(c).add(d).multiplyScalar(0.25).sub(mid);
-      if (nn.dot(cen) < 0) nn.negate();
-      row.push(nn);
-    }
-    fn.push(row);
-  }
-  const vn = (s: number, k: number) => {
-    const out = new V();
-    if (s > 0) out.add(fn[s - 1][k]);
-    if (s < n - 1) out.add(fn[s][k]);
-    return out.normalize();
-  };
-  const pos: number[] = [];
-  const nor: number[] = [];
-  const push = (p: THREE.Vector3, q: THREE.Vector3) => {
-    pos.push(p.x, p.y, p.z);
-    nor.push(q.x, q.y, q.z);
-  };
-  const tri = (p: THREE.Vector3[], q: THREE.Vector3[], outward: THREE.Vector3) => {
-    const fnrm = new V().subVectors(p[1], p[0]).cross(new V().subVectors(p[2], p[0]));
-    const order = fnrm.dot(outward) < 0 ? [0, 2, 1] : [0, 1, 2];
-    for (const i of order) push(p[i], q[i]);
-  };
-  for (let s = 0; s < n - 1; s++) {
-    for (let k = 0; k < 8; k++) {
-      const k1 = (k + 1) % 8;
-      const a = rings[s][k], b = rings[s][k1], c = rings[s + 1][k1], d = rings[s + 1][k];
-      const na = vn(s, k), nc = vn(s + 1, k);
-      tri([a, b, c], [na, na, nc], fn[s][k]);
-      tri([a, c, d], [na, nc, nc], fn[s][k]);
-    }
-  }
-  const cap = (s: number, dir: number) => {
-    const up = new V(0, dir, 0);
-    for (let k = 0; k < 8; k++) tri([centers[s], rings[s][k], rings[s][(k + 1) % 8]], [up, up, up], up);
-  };
-  cap(0, -1);
-  cap(n - 1, 1);
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-  return g;
-}
-
-/** Helix along Y (centred), for coil springs. */
-class Helix extends THREE.Curve<THREE.Vector3> {
-  constructor(
-    private R: number,
-    private h: number,
-    private turns: number,
-  ) {
-    super();
-  }
-  getPoint(t: number, out = new THREE.Vector3()) {
-    const a = t * this.turns * PI * 2;
-    return out.set(this.R * Math.cos(a), t * this.h - this.h / 2, this.R * Math.sin(a));
-  }
-}
-
-export const G = {
-  /** Box with chamfered edges and corners (hard-surface look). */
-  cbox: (w: number, h: number, d: number, c = 0.02) => cached(`cb${w},${h},${d},${c}`, () => chamferBoxGeo(w, h, d, c)),
-  box: (w: number, h: number, d: number) => cached(`b${w},${h},${d}`, () => new THREE.BoxGeometry(w, h, d)),
-  cyl: (rt: number, rb: number, h: number, seg = 12, open = false) =>
-    cached(`c${rt},${rb},${h},${seg},${open}`, () => new THREE.CylinderGeometry(rt, rb, h, seg, 1, open)),
-  sphere: (r: number, ws = 14, hs = 10) => cached(`s${r},${ws},${hs}`, () => new THREE.SphereGeometry(r, ws, hs)),
-  torus: (r: number, t: number, rs = 8, ts = 20, arc = Math.PI * 2) =>
-    cached(`t${r},${t},${rs},${ts},${arc}`, () => new THREE.TorusGeometry(r, t, rs, ts, arc)),
-  cone: (r: number, h: number, seg = 10) => cached(`k${r},${h},${seg}`, () => new THREE.ConeGeometry(r, h, seg)),
-  octa: (r: number) => cached(`o${r}`, () => new THREE.OctahedronGeometry(r, 0)),
-  ico: (r: number) => cached(`i${r}`, () => new THREE.IcosahedronGeometry(r, 0)),
-  prism: (pts: P2[], depth: number, bevel = 0.01) => cached(`p${pts.join(';')},${depth},${bevel}`, () => prismGeo(pts, depth, bevel)),
-  /** A prism turned edge-on: polygon (u, v) lies in the ZY plane (u = +Z, v = +Y), `t` thick along X. */
-  fin: (pts: P2[], t: number, bevel = 0.004) => cached(`f${pts.join(';')},${t},${bevel}`, () => prismGeo(pts, t, bevel).rotateY(-HP)),
-  loft: (secs: Sec[], cham = 0.25) => cached(`lf${secs.join(';')},${cham}`, () => loftGeo(secs, cham)),
-  /** Coil spring along Y (centred): coil radius R, wire radius r. */
-  coil: (R: number, r: number, h: number, turns: number) =>
-    cached(`co${R},${r},${h},${turns}`, () => new THREE.TubeGeometry(new Helix(R, h, turns), Math.ceil(turns * 12), r, 5, false)),
-};
-
-/** A prism and its mirror image across X, for symmetric plates. */
-function prismPair(pts: P2[], depth: number, bevel = 0.01): [THREE.BufferGeometry, THREE.BufferGeometry] {
-  const mirrored = pts.map(([x, y]) => [-x, y] as P2).reverse();
-  return [G.prism(pts, depth, bevel), G.prism(mirrored, depth, bevel)];
-}
-/** A loft and its mirror across X (x offsets flipped). */
-function loftPair(secs: Sec[], cham = 0.25): [THREE.BufferGeometry, THREE.BufferGeometry] {
-  return [G.loft(secs, cham), G.loft(secs.map(([y, w, d, z = 0, x = 0]) => [y, w, d, z, -x] as Sec), cham)];
-}
-
-export interface Entry {
-  geo: THREE.BufferGeometry;
-  key: MatKey;
-  /** May mirror (negative determinant); bakers flip the winding of such entries. */
-  m: THREE.Matrix4;
-}
-
-/** Part builder: a list of placed primitives with material keys. */
-export class PB {
-  entries: Entry[] = [];
-  add(geo: THREE.BufferGeometry, key: MatKey, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
-    _e.set(rx, ry, rz);
-    _q.setFromEuler(_e);
-    _p.set(x, y, z);
-    _s.set(sx, sy, sz);
-    this.entries.push({ geo, key, m: new THREE.Matrix4().compose(_p, _q, _s) });
-    return this;
-  }
-  /** Mirror an entry across X (left/right symmetric details). Geometry must itself be X-symmetric. */
-  addSym(geo: THREE.BufferGeometry, key: MatKey, x: number, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
-    this.add(geo, key, x, y, z, rx, ry, rz, sx, sy, sz);
-    this.add(geo, key, -x, y, z, rx, -ry, -rz, sx, sy, sz);
-    return this;
-  }
-  /** A prism plate (polygon on +X) and its mirror on -X. */
-  addPlatePair(pts: P2[], depth: number, key: MatKey, y = 0, z = 0, rx = 0, ry = 0, rz = 0, bevel = 0.01) {
-    const [a, b] = prismPair(pts, depth, bevel);
-    this.add(a, key, 0, y, z, rx, ry, rz);
-    this.add(b, key, 0, y, z, rx, -ry, -rz);
-    return this;
-  }
-  /** A loft on +X (via section x offsets) and its mirror. */
-  addLoftPair(secs: Sec[], key: MatKey, cham = 0.25, y = 0, z = 0, rx = 0, rz = 0) {
-    const [a, b] = loftPair(secs, cham);
-    this.add(a, key, 0, y, z, rx, 0, rz);
-    this.add(b, key, 0, y, z, rx, 0, -rz);
-    return this;
-  }
-  /** Cylinder lying along X. */
-  addAxle(r: number, len: number, key: MatKey, x: number, y: number, z: number, seg = 14) {
-    return this.add(G.cyl(r, r, len, seg), key, x, y, z, 0, 0, HP);
-  }
-  /** Cylinder lying along Z. */
-  addDisc(r: number, len: number, key: MatKey, x: number, y: number, z: number, seg = 14) {
-    return this.add(G.cyl(r, r, len, seg), key, x, y, z, HP, 0, 0);
-  }
-  /** Append another builder's entries, transformed (rotation in XYZ Euler order). */
-  merge(o: PB, x = 0, y = 0, z = 0, scale = 1, rx = 0, ry = 0, rz = 0) {
-    const m = new THREE.Matrix4().compose(_p.set(x, y, z), _q.setFromEuler(_e.set(rx, ry, rz)), _s.setScalar(scale));
-    for (const e of o.entries) this.entries.push({ geo: e.geo, key: e.key, m: m.clone().multiply(e.m) });
-    return this;
-  }
-  /** Build a sub-assembly in its own frame and place it. */
-  group(x: number, y: number, z: number, rx: number, ry: number, rz: number, fn: (g: PB) => void) {
-    const g = new PB();
-    fn(g);
-    return this.merge(g, x, y, z, 1, rx, ry, rz);
-  }
-  /** Build a sub-assembly on the +X side and add it plus its mirror image on -X. */
-  both(fn: (g: PB) => void) {
-    const g = new PB();
-    fn(g);
-    this.merge(g);
-    for (const e of g.entries) this.entries.push({ geo: e.geo, key: e.key, m: MIRROR_X.clone().multiply(e.m) });
-    return this;
-  }
-}
-
-// ======================================================================= DETAILS
-type Axis = 'x' | 'y' | 'z';
-/** Hex bolt head whose axis is `axis` (the surface normal it sits on). */
-function bolt(b: PB, x: number, y: number, z: number, axis: Axis = 'z', r = 0.008, key: MatKey = 'chrome') {
-  const g = G.cyl(r, r, r * 0.9, 6);
-  if (axis === 'z') b.add(g, key, x, y, z, HP, 0, 0);
-  else if (axis === 'x') b.add(g, key, x, y, z, 0, 0, HP);
-  else b.add(g, key, x, y, z);
-}
-
-/** Recessed vent facing +Z of its frame: a dark slot with `n` angled slats. */
-function vent(b: PB, w: number, h: number, n: number, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, slat: MatKey = 'metal') {
-  b.group(x, y, z, rx, ry, rz, (v) => {
-    v.add(G.cbox(w, h, 0.016, 0.004), 'dark');
-    const p = h / n;
-    for (let i = 0; i < n; i++) v.add(G.box(w * 0.84, p * 0.42, 0.012), slat, 0, -h / 2 + (i + 0.5) * p, 0.006, -0.55, 0, 0);
-  });
-}
-
-/** A loft's section interpolated at height y (clamped to its ends). */
-function secAt(secs: Sec[], y: number): [number, number, number, number, number] {
-  let i = 0;
-  while (i < secs.length - 2 && y > secs[i + 1][0]) i++;
-  const a = secs[i], c = secs[Math.min(i + 1, secs.length - 1)];
-  const t = c[0] === a[0] ? 0 : Math.min(1, Math.max(0, (y - a[0]) / (c[0] - a[0])));
-  const l = (p: number, q: number) => p + (q - p) * t;
-  return [y, l(a[1], c[1]), l(a[2], c[2]), l(a[3] ?? 0, c[3] ?? 0), l(a[4] ?? 0, c[4] ?? 0)];
-}
-
-/** A band hugging a loft between heights y0 and y1, standing `grow` proud of it. */
-function band(b: PB, secs: Sec[], y0: number, y1: number, grow: number, key: MatKey, cham: number) {
-  const s = [secAt(secs, y0), secAt(secs, y1)].map(([y, w, d, z, x]) => [y, w + grow * 2, d + grow * 2, z, x] as Sec);
-  b.add(G.loft(s, cham), key);
-}
-
-/** Clip a convex polygon to lo <= x <= hi. */
-function clipX(pts: P2[], lo: number, hi: number): P2[] {
-  const cut = (poly: P2[], keep: (x: number) => boolean, at: number): P2[] => {
-    const out: P2[] = [];
-    for (let i = 0; i < poly.length; i++) {
-      const a = poly[i], b = poly[(i + 1) % poly.length];
-      const ia = keep(a[0]), ib = keep(b[0]);
-      if (ia) out.push(a);
-      if (ia !== ib) {
-        const t = (at - a[0]) / (b[0] - a[0]);
-        out.push([at, a[1] + (b[1] - a[1]) * t]);
-      }
-    }
-    return out;
-  };
-  return cut(cut(pts, (x) => x >= lo, lo), (x) => x <= hi, hi);
-}
-
-/**
- * Bastion's hazard stripes: a w×h dark panel facing +Z of its frame, crossed by diagonal
- * paint2 bars that stand a hair proud of it.
- */
-function hazard(b: PB, w: number, h: number, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0) {
-  b.group(x, y, z, rx, ry, rz, (g) => {
-    g.add(G.cbox(w, h, 0.012, 0.003), 'dark');
-    const r = (v: number) => Math.round(v * 1e4) / 1e4;
-    const hh = h * 0.43, pitch = Math.min(0.05, Math.max(0.03, Math.min(w, h) * 1.6)), bar = pitch * 0.5, k = hh * 1.7;
-    for (let x0 = -w / 2 - k; x0 < w / 2; x0 += pitch) {
-      const poly = clipX([[x0, -hh], [x0 + bar, -hh], [x0 + bar + k, hh], [x0 + k, hh]], -w / 2 + 0.004, w / 2 - 0.004).map(([px, py]) => [r(px), r(py)] as P2);
-      if (poly.length >= 3) g.add(G.prism(poly, 0.008, 0.001), 'paint2', 0, 0, 0.006);
-    }
-  });
-}
-
-/** A row of chrome rivet heads from (x0, y0, z0) to (x1, y1, z1). */
-function rivets(b: PB, n: number, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, r = 0.008, key: MatKey = 'chrome') {
-  for (let i = 0; i < n; i++) {
-    const t = n > 1 ? i / (n - 1) : 0.5;
-    b.add(G.sphere(r, 6, 4), key, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, z0 + (z1 - z0) * t);
-  }
-}
-
-/** A torus arc lying flat (in the XZ plane), centred on +Z: visor bands and collars. */
-function arcFlat(b: PB, r: number, t: number, arc: number, key: MatKey, x: number, y: number, z: number, rs = 6) {
-  b.add(G.torus(r, t, rs, Math.max(8, Math.round(arc * 7)), arc), key, x, y, z, HP, 0, HP - arc / 2);
-}
-
-/**
- * One laced row of Kensei lamellar hugging a loft between heights yA and yB: `growA` and `growB`
- * set how far it stands off the loft at each end, so a row flares over the one below it.
- */
-function lamellar(b: PB, secs: Sec[], yA: number, yB: number, growA: number, growB: number, key: MatKey, cham: number) {
-  const s = [secAt(secs, yA), secAt(secs, yB)].map(([y, w, d, z, x], i) => {
-    const g = i ? growB : growA;
-    return [y, w + g * 2, d + g * 2, z, x] as Sec;
-  });
-  b.add(G.loft(s, cham), key);
-}
+/** Each maker's core light. */
+const CORE_COLORS = [0xff7a12, 0xd6ecff, 0x22dcff, 0xffbf3c, 0xff2d55, 0x6dff8e];
+/** The colour a core design glows. */
+export const coreColor = (look: number) => designOf(look)?.coreColor ?? CORE_COLORS[maker(look)];
 
 // ======================================================================= HEADS
-/** Where a head's crown, temples and brow are, so rarity add-ons sit on any helmet. */
-interface HeadFit {
-  /** Crown height. */
-  top: number;
-  /** Half-width at the temples. */
-  hw: number;
-  /** Front of the brow. */
-  front: number;
-  /** Brow height. */
-  brow: number;
-  /** Whether the crown is clear for a ridge (no crest or spike there). */
-  crown: boolean;
-}
-
 function neckSocket(b: PB, key: MatKey = 'metal') {
   b.add(G.cyl(0.048, 0.06, 0.036, 12), 'dark', 0, -0.094, -0.01);
   b.add(G.torus(0.052, 0.007, 4, 16), key, 0, -0.082, -0.01, HP, 0, 0);
-}
-
-function headTier(b: PB, r: number, f: HeadFit) {
-  if (r >= 2) {
-    // swept temple fins with a bolt
-    b.both((s) => {
-      s.add(G.fin([[0.012, 0], [-0.07, 0.006], [-0.095, 0.042], [-0.02, 0.026]], 0.014), 'paint2', f.hw + 0.002, f.brow - 0.012, -0.005, 0, 0, -0.12);
-      bolt(s, f.hw + 0.008, f.brow - 0.0, -0.012, 'x', 0.006);
-    });
-  }
-  if (r >= 3) {
-    if (f.crown) {
-      // chrome crown ridge with a rarity light set into it
-      b.add(G.cbox(0.024, 0.016, 0.15, 0.006), 'chrome', 0, f.top - 0.004, -0.03, 0.15, 0, 0);
-      b.add(G.cbox(0.01, 0.01, 0.07, 0.003), 'rarity', 0, f.top + 0.004, -0.03, 0.15, 0, 0);
-    } else {
-      // chrome cheek guards with rarity lights
-      b.both((s) => {
-        s.add(G.cbox(0.02, 0.05, 0.05, 0.005), 'chrome', f.hw + 0.004, f.brow - 0.075, 0.03);
-        s.add(G.box(0.006, 0.035, 0.006), 'rarity', f.hw + 0.015, f.brow - 0.075, 0.03);
-      });
-    }
-  }
-  if (r >= 4) {
-    // the mythic V-fin: twin blades rising from the brow, lit along their spines
-    b.add(G.cbox(0.04, 0.03, 0.025, 0.008), 'chrome', 0, f.brow, f.front + 0.004);
-    b.both((s) => {
-      s.group(0.006, f.brow + 0.006, f.front + 0.008, -0.25, 0, -0.62, (v) => {
-        v.add(G.prism([[-0.012, 0], [0.012, 0], [0.006, 0.16], [-0.004, 0.13]], 0.012, 0.003), 'paint2');
-        v.add(G.prism([[-0.003, 0.01], [0.004, 0.01], [0.004, 0.14], [-0.001, 0.12]], 0.016, 0.002), 'rarity');
-      });
-    });
-  }
 }
 
 /**
  * Head: origin at the head joint (centre of the skull), facing +Z. `look` is the maker:
  * 0 Ironhorse, 1 Lumen, 2 Longwei, 3 Martelli, 4 Kensei, 5 Strix (every builder below).
  */
-export function buildHead(look: number, r = 0): PB {
+export function buildHead(look: number): PB {
   const b = new PB();
-  let fit: HeadFit;
-  switch (look) {
+  const d = designOf(look);
+  if (d) {
+    neckSocket(b, d.socket ?? 'metal');
+    d.head(b);
+    return b;
+  }
+  switch (maker(look)) {
     case 0: {
       // Locomotive Helm (Ironhorse): a riveted steel cab with one big headlamp over a radiator
       // grille, a striped visor beam, a cowcatcher chin, hoses round the cheeks and twin stacks
@@ -517,7 +77,6 @@ export function buildHead(look: number, r = 0): PB {
         });
       });
       vent(b, 0.11, 0.05, 3, 0, 0.0, -0.112, 0, PI, 0, 'steel');
-      fit = { top: 0.15, hw: 0.14, front: 0.132, brow: 0.088, crown: false };
       break;
     }
     case 1: {
@@ -532,7 +91,6 @@ export function buildHead(look: number, r = 0): PB {
         s.add(G.cyl(0.024, 0.024, 0.014, 28), 'paint2', 0.107, 0.0, -0.012, 0, 0, HP);
       });
       b.add(G.torus(0.055, 0.008, 6, 28), 'alu', 0, -0.07, -0.01, HP, 0, 0);
-      fit = { top: 0.141, hw: 0.11, front: 0.116, brow: 0.06, crown: true };
       break;
     }
     case 2: {
@@ -556,7 +114,6 @@ export function buildHead(look: number, r = 0): PB {
         s.add(G.cyl(0.017, 0.017, 0.008, 16), 'alu', 0.128, -0.042, 0.0, 0, 0, HP);
       });
       vent(b, 0.1, 0.04, 3, 0, 0.0, -0.108, 0, PI, 0, 'alu');
-      fit = { top: 0.18, hw: 0.11, front: 0.114, brow: 0.05, crown: false };
       break;
     }
     case 3: {
@@ -590,7 +147,6 @@ export function buildHead(look: number, r = 0): PB {
       b.add(G.cbox(0.016, 0.016, 0.17, 0.004), 'brass', 0, 0.13, -0.015, -0.1, 0, 0);
       b.add(G.fin([[0.07, -0.025], [0.0, 0.0], [-0.1, -0.035], [-0.14, 0.02], [-0.12, 0.06], [-0.06, 0.085], [0.02, 0.09], [0.08, 0.07], [0.105, 0.03]], 0.018, 0.006), 'paint2', 0, 0.136, -0.01);
       for (let i = 0; i < 9; i++) b.add(G.box(0.022, 0.05, 0.003), 'dark', 0, 0.17, -0.1 + i * 0.024, 0, 0, 0, 1, 0.6 + 0.4 * Math.sin((i / 8) * PI), 1);
-      fit = { top: 0.2, hw: 0.105, front: 0.112, brow: 0.0, crown: false };
       break;
     }
     case 4: {
@@ -621,7 +177,6 @@ export function buildHead(look: number, r = 0): PB {
       // maedate: a gold crescent rising off a mount on the brow
       b.add(G.cbox(0.03, 0.026, 0.022, 0.006), 'brass', 0, 0.045, 0.1);
       b.add(G.torus(0.068, 0.008, 4, 22, PI * 1.25), 'brass', 0, 0.115, 0.108, 0, 0, 1.5 * PI - PI * 0.625, 1, 1, 0.6);
-      fit = { top: 0.135, hw: 0.105, front: 0.112, brow: 0.03, crown: true };
       break;
     }
     default: {
@@ -641,11 +196,9 @@ export function buildHead(look: number, r = 0): PB {
         });
       });
       b.add(G.prism([[-0.075, 0.03], [0.075, 0.03], [0.075, -0.02], [0.05, -0.04], [0.025, -0.02], [0.0, -0.04], [-0.025, -0.02], [-0.05, -0.04], [-0.075, -0.02]], 0.02, 0.004), 'carbon', 0, -0.035, -0.096);
-      fit = { top: 0.122, hw: 0.095, front: 0.12, brow: 0.05, crown: false };
       break;
     }
   }
-  headTier(b, r, fit);
   return b;
 }
 
@@ -676,22 +229,8 @@ export function buildSpine(): PB {
 }
 
 // ======================================================================= TORSO
-/** Where a chest's flanks, back and collar are, for rarity add-ons and the back reactor. */
-interface TorsoFit {
-  /** Half-width of the flanks at height `flank`. */
-  side: number;
-  flank: number;
-  /** Back surface z (where the reactor mounts). */
-  back: number;
-}
-const TORSO_FIT: TorsoFit[] = [
-  { side: 0.295, flank: -0.03, back: -0.24 },
-  { side: 0.24, flank: -0.04, back: -0.145 },
-  { side: 0.295, flank: -0.04, back: -0.245 },
-  { side: 0.29, flank: -0.04, back: -0.205 },
-  { side: 0.245, flank: -0.03, back: -0.165 },
-  { side: 0.22, flank: -0.04, back: -0.16 },
-];
+/** Back surface z of each Common chest (where the back reactor mounts). */
+const TORSO_BACK = [-0.24, -0.145, -0.245, -0.205, -0.165, -0.16];
 
 /** Where each chest seats the core unit: [y, z] of its housing. */
 const CORE_AT: [number, number][] = [
@@ -703,34 +242,8 @@ const CORE_AT: [number, number][] = [
   [0.05, 0.17],
 ];
 
-function torsoTier(b: PB, r: number, f: TorsoFit) {
-  if (r >= 2) {
-    // bolted flank armour
-    b.both((s) => {
-      s.add(G.cbox(0.03, 0.1, 0.14, 0.008), 'paint2', f.side + 0.008, f.flank, 0.0);
-      for (const dy of [-0.03, 0.03]) for (const dz of [-0.045, 0.045]) bolt(s, f.side + 0.025, f.flank + dy, dz, 'x', 0.007);
-      s.add(G.box(0.006, 0.07, 0.008), 'rarity', f.side + 0.025, f.flank, 0.0);
-    });
-  }
-  if (r >= 3) {
-    // a raised chrome neck collar ringed with rarity light
-    b.add(G.cyl(0.07, 0.085, 0.03, 14), 'chrome', 0, 0.255, -0.015);
-    b.add(G.torus(0.08, 0.005, 4, 20), 'rarity', 0, 0.258, -0.015, HP, 0, 0);
-  }
-  if (r >= 4) {
-    // swept dorsal fins, lit along their leading edges
-    b.both((s) =>
-      s.group(0.135, 0.13, f.back + 0.02, 0, 0, -0.38, (v) => {
-        v.add(G.fin([[0.0, 0.0], [-0.07, 0.0], [-0.17, 0.23], [-0.13, 0.24]], 0.02), 'paint');
-        v.add(G.fin([[-0.005, 0.02], [-0.02, 0.02], [-0.135, 0.225], [-0.125, 0.235]], 0.026, 0.002), 'rarity');
-        v.add(G.cbox(0.05, 0.05, 0.06, 0.01), 'metal', 0, 0.01, -0.02);
-      }),
-    );
-  }
-}
-
 /** Torso: origin at the chest joint. Shoulder joints sit at (±0.31, 0.1, 0), neck at (0, 0.22, 0). */
-export function buildTorso(look: number, r = 0): PB {
+export function buildTorso(look: number): PB {
   const b = new PB();
   // shared chassis: waist with a seal band and lumbar spine, inner frame, shoulder sockets, collar
   b.add(G.loft([[-0.37, 0.24, 0.19], [-0.25, 0.28, 0.21], [-0.12, 0.33, 0.23]], 0.3), 'metal', 0, 0, -0.005);
@@ -748,7 +261,12 @@ export function buildTorso(look: number, r = 0): PB {
   b.add(G.cyl(0.065, 0.08, 0.06, 12), 'metal', 0, 0.21, -0.015);
   b.add(G.torus(0.072, 0.011, 5, 16), 'dark', 0, 0.235, -0.015, HP, 0, 0);
   b.add(G.cbox(0.16, 0.04, 0.12, 0.012), 'dark', 0, -0.31, 0.06);
-  switch (look) {
+  const d = designOf(look);
+  if (d) {
+    d.torso(b);
+    return b;
+  }
+  switch (maker(look)) {
     case 0: {
       // Radiator Block (Ironhorse): a locomotive front of a chest, the core set like a headlamp in a
       // full-width radiator grille, a striped buffer beam with sprung buffers, riveted flank boxes, a
@@ -883,7 +401,6 @@ export function buildTorso(look: number, r = 0): PB {
       break;
     }
   }
-  torsoTier(b, r, TORSO_FIT[look] ?? TORSO_FIT[0]);
   return b;
 }
 
@@ -891,7 +408,7 @@ export function buildTorso(look: number, r = 0): PB {
  * Upper arm with the shoulder armour of the chest item. `out` is +1 for the right
  * arm and -1 for the left (local +X is the bot's right).
  */
-export function buildUpperArm(chestLook: number, out: number, r = 0): PB {
+export function buildUpperArm(chestLook: number, out: number): PB {
   const b = new PB();
   const o = out;
   b.add(G.sphere(0.074, 14, 10), 'joint', 0, 0, 0);
@@ -903,11 +420,14 @@ export function buildUpperArm(chestLook: number, out: number, r = 0): PB {
   b.add(G.cbox(0.06, 0.14, 0.025, 0.008), 'dark', 0, 0.17, 0.088);
   bolt(b, o * 0.077, 0.14, 0.03, 'x', 0.007);
   bolt(b, o * 0.077, 0.14, -0.03, 'x', 0.007);
+  const d = designOf(chestLook);
+  if (d) {
+    d.pauldron(b, o);
+    return b;
+  }
   const shell = (secs: Sec[], cham: number, key: MatKey = 'paint') =>
     b.add(G.loft(secs.map(([y, w, d, z = 0, x = 0]) => [y, w, d, z, x * o] as Sec), cham), key);
-  // pauldron rim height, outer face and a clear spot on it, for the tier add-ons
-  let rim = 0.1, rw = 0.14, rx = 0.065, face = 0.15, py = 0.02;
-  switch (chestLook) {
+  switch (maker(chestLook)) {
     case 0:
       // Ironhorse: a double slab pauldron, riveted, striped, with a work lamp on its front
       shell([[-0.1, 0.16, 0.2, 0, 0.0], [-0.04, 0.3, 0.28, 0, 0.045], [0.06, 0.3, 0.28, 0, 0.065], [0.125, 0.24, 0.23, 0, 0.075]], 0.12);
@@ -917,22 +437,12 @@ export function buildUpperArm(chestLook: number, out: number, r = 0): PB {
       rivets(b, 5, o * 0.212, 0.1, -0.1, o * 0.212, 0.1, 0.1, 0.008, 'steel');
       b.addDisc(0.022, 0.03, 'steel', o * 0.12, -0.01, 0.148, 12);
       b.addDisc(0.016, 0.006, 'glow', o * 0.12, -0.01, 0.164, 12);
-      rim = 0.15;
-      rw = 0.23;
-      rx = 0.075;
-      face = 0.215;
-      py = -0.03;
       break;
     case 1:
       // Lumen: a smooth dome split by a thin aluminium ring, a glass lozenge on its face
       shell([[-0.08, 0.13, 0.15, 0, 0.0], [-0.02, 0.215, 0.215, 0, 0.035], [0.06, 0.205, 0.205, 0, 0.05], [0.105, 0.15, 0.15, 0, 0.056]], 0.5);
       shell([[0.014, 0.218, 0.218, 0, 0.041], [0.022, 0.217, 0.217, 0, 0.042]], 0.5, 'alu');
       b.add(G.sphere(0.03, 16, 10), 'glass', o * 0.15, 0.06, 0, 0, 0, 0, 0.25, 0.8, 1.4);
-      rim = 0.1;
-      rw = 0.15;
-      rx = 0.056;
-      face = 0.155;
-      py = -0.03;
       break;
     case 2:
       // Longwei: an angular pauldron capped in carbon, a light line and an actuator disc on its face
@@ -941,11 +451,6 @@ export function buildUpperArm(chestLook: number, out: number, r = 0): PB {
       shell([[-0.095, 0.1, 0.13, 0, 0.0], [-0.075, 0.13, 0.15, 0, 0.012]], 0.2, 'carbon');
       b.add(G.box(0.006, 0.008, 0.13), 'glow', o * 0.189, 0.03, 0);
       b.add(G.cyl(0.028, 0.028, 0.012, 20), 'alu', o * 0.186, -0.025, 0, 0, 0, HP);
-      rim = 0.13;
-      rw = 0.2;
-      rx = 0.068;
-      face = 0.188;
-      py = 0.07;
       break;
     case 3:
       // Martelli: a big rounded pauldron edged in brass with two lames below and a brass boss
@@ -956,22 +461,12 @@ export function buildUpperArm(chestLook: number, out: number, r = 0): PB {
       b.add(G.cyl(0.032, 0.032, 0.012, 20), 'brass', o * 0.204, 0.0, 0, 0, 0, HP);
       b.add(G.sphere(0.014, 10, 6), 'brass', o * 0.211, 0.0, 0);
       rivets(b, 4, o * 0.172, 0.09, -0.08, o * 0.172, 0.09, 0.08, 0.007, 'brass');
-      rim = 0.12;
-      rw = 0.21;
-      rx = 0.072;
-      face = 0.205;
-      py = 0.06;
       break;
     case 4:
       // Kensei: a small cap under a sode, a flat shoulder board of laced rows hanging off the outside
       shell([[-0.08, 0.12, 0.15, 0, 0.0], [-0.025, 0.19, 0.19, 0, 0.03], [0.04, 0.18, 0.18, 0, 0.04]], 0.3, 'dark');
       for (let i = 0; i < 4; i++) b.add(G.cbox(0.018, 0.052, 0.21, 0.004), i === 0 ? 'paint2' : 'paint', o * (0.122 + i * 0.012), -0.05 + i * 0.046, 0, 0, 0, o * -0.12);
       for (const zz of [-0.06, 0.06]) b.add(G.box(0.006, 0.17, 0.006), 'dark', o * 0.156, 0.02, zz, 0, 0, o * -0.12);
-      rim = 0.04;
-      rw = 0.18;
-      rx = 0.04;
-      face = 0.16;
-      py = 0.0;
       break;
     default:
       // Strix: a slim faceted pauldron with a carbon wing raking up and back, edged in light
@@ -981,27 +476,7 @@ export function buildUpperArm(chestLook: number, out: number, r = 0): PB {
         v.add(G.fin([[-0.04, 0.012], [-0.055, 0.012], [-0.115, 0.105], [-0.1, 0.105]], 0.016, 0.002), 'glow');
       });
       b.add(G.box(0.006, 0.006, 0.09), 'glow', o * 0.123, 0.02, 0.0);
-      rim = 0.065;
-      rw = 0.145;
-      rx = 0.05;
-      face = 0.118;
-      py = 0.03;
       break;
-  }
-  if (r >= 2) {
-    // a second layer on the pauldron face
-    b.add(G.cbox(0.02, 0.05, 0.11, 0.006), 'paint2', o * (face + 0.004), py, 0);
-    b.add(G.box(0.006, 0.008, 0.05), 'rarity', o * (face + 0.016), py, 0);
-    bolt(b, o * (face + 0.016), py, 0.035, 'x', 0.006);
-    bolt(b, o * (face + 0.016), py, -0.035, 'x', 0.006);
-  }
-  if (r >= 3) b.add(G.loft([[rim - 0.004, rw, rw, 0, o * rx], [rim + 0.014, rw - 0.008, rw - 0.008, 0, o * rx]], 0.3), 'chrome');
-  if (r >= 4) {
-    // pauldron blade raking back over the shoulder
-    b.group(o * 0.1, -0.06, 0, 0, 0, o * 0.35, (v) => {
-      v.add(G.fin([[0.06, 0], [-0.07, 0.0], [-0.13, -0.13], [-0.09, -0.12]], 0.016), 'paint2');
-      v.add(G.fin([[0.03, -0.01], [-0.06, -0.01], [-0.11, -0.115], [-0.095, -0.115]], 0.022, 0.002), 'rarity');
-    });
   }
   return b;
 }
@@ -1011,14 +486,21 @@ export function buildUpperArm(chestLook: number, out: number, r = 0): PB {
 const CORE_BEZEL: MatKey[] = ['steel', 'alu', 'alu', 'brass', 'metal', 'carbon'];
 
 /** Power core on the chest and the matching reactor on the back (rides the torso bone). */
-export function buildCore(look: number, chestLook: number, r = 0): PB {
+export function buildCore(look: number, chestLook: number): PB {
   const b = new PB();
-  const [y, z] = CORE_AT[chestLook] ?? CORE_AT[0];
-  const bz = (TORSO_FIT[chestLook] ?? TORSO_FIT[0]).back;
+  const chest = designOf(chestLook);
+  const [y, z] = chest ? chest.coreAt : (CORE_AT[maker(chestLook)]);
+  const bz = chest ? chest.torsoBack : (TORSO_BACK[maker(chestLook)]);
+  const d = designOf(look);
+  if (d) {
+    d.core(b, y, z);
+    d.reactor(b, bz - 0.03);
+    return b;
+  }
   // the chest unit: housing, bezel, then the core itself
   b.addDisc(0.06, 0.05, 'dark', 0, y, z, 18);
-  b.add(G.torus(0.06, 0.012, 6, 22), CORE_BEZEL[look] ?? 'metal', 0, y, z + 0.022);
-  switch (look) {
+  b.add(G.torus(0.06, 0.012, 6, 22), CORE_BEZEL[maker(look)], 0, y, z + 0.022);
+  switch (maker(look)) {
     case 0:
       // Turbodiesel: a glowing turbo intake behind pitched steel vanes and a spinner, caged by a bar
       b.addDisc(0.046, 0.012, 'core', 0, y, z + 0.02, 18);
@@ -1071,20 +553,9 @@ export function buildCore(look: number, chestLook: number, r = 0): PB {
       b.add(G.sphere(0.007, 8, 6), 'brass', 0, y + 0.068, z + 0.03);
       break;
   }
-  if (r >= 2) for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * PI * 2;
-    bolt(b, Math.cos(a) * 0.06, y + Math.sin(a) * 0.06, z + 0.033, 'z', 0.006);
-  }
-  if (r >= 3) b.add(G.torus(0.074, 0.006, 4, 24), 'chrome', 0, y, z + 0.024);
-  if (r >= 4) {
-    // an orbit ring around the chest unit
-    b.add(G.torus(0.09, 0.0035, 4, 28), 'rarity', 0, y, z + 0.035, 0.95, 0.3, 0);
-    b.add(G.sphere(0.008, 8, 6), 'rarity', 0.088, y + 0.012, z + 0.06);
-  }
-
   // back reactor, matched to the core (everything here sits behind the chest, z < 0)
   const rz = bz - 0.03;
-  switch (look) {
+  switch (maker(look)) {
     case 0:
       // a diesel engine block: finned head, glowing grate, an exhaust pipe each side and hoses
       b.add(G.cbox(0.22, 0.18, 0.1, 0.012), 'steel', 0, 0.04, rz);
@@ -1156,18 +627,21 @@ export function buildCore(look: number, chestLook: number, r = 0): PB {
 
 // ======================================================================= ARMS
 /** Forearm armour: origin at the elbow, +Y towards the fist (rest length 0.33). */
-export function buildForearm(look: number, r = 0): PB {
+export function buildForearm(look: number): PB {
   const b = new PB();
   b.addAxle(0.056, 0.12, 'joint', 0, 0, 0, 14);
   b.addAxle(0.032, 0.135, 'chrome', 0, 0, 0, 10);
   b.addSym(G.torus(0.044, 0.006, 4, 14), 'metal', 0.062, 0, 0, 0, HP, 0);
   b.add(G.cbox(0.045, 0.06, 0.045, 0.012), 'metal', 0, -0.05, 0);
   b.add(G.cyl(0.035, 0.035, 0.28, 8), 'metal', 0, 0.15, 0);
-  // the main armour loft (tier add-ons fit themselves to it), its chamfer, and the sides' reach
+  const d = designOf(look);
+  if (d) {
+    d.forearm(b);
+    return b;
+  }
   let main: Sec[];
   let cham = 0.3;
-  let side = 0;
-  switch (look) {
+  switch (maker(look)) {
     case 0:
       // Piledriver (Ironhorse): a square bracer banded in steel, a hydraulic ram along the back
       // of the arm with its hose, riveted edges and stripes down the sides
@@ -1186,7 +660,6 @@ export function buildForearm(look: number, r = 0): PB {
         hazard(s, 0.12, 0.05, 0.111, 0.17, 0.0, 0, HP, 0);
         rivets(s, 3, 0.11, 0.12, 0.085, 0.11, 0.23, 0.085, 0.007, 'steel');
       });
-      side = 0.118;
       break;
     case 1:
       // Touch (Lumen): a smooth capsule sleeve with a glass panel along its back and a light ring
@@ -1196,7 +669,6 @@ export function buildForearm(look: number, r = 0): PB {
       b.add(G.sphere(0.05, 20, 12), 'glass', 0, 0.155, 0.064, 0, 0, 0, 0.75, 1.8, 0.24);
       band(b, main, 0.236, 0.242, 0.003, 'glow', cham);
       band(b, main, 0.05, 0.07, 0.003, 'alu', cham);
-      side = 0.068;
       break;
     case 2:
       // Jingang (Longwei): an angular sleeve with a carbon spine and a light line, aluminium
@@ -1212,7 +684,6 @@ export function buildForearm(look: number, r = 0): PB {
         s.add(G.cyl(0.021, 0.021, 0.02, 12), 'carbon', 0.086, 0.085, -0.02);
         s.add(G.cyl(0.021, 0.021, 0.02, 12), 'carbon', 0.086, 0.235, -0.02);
       });
-      side = 0.105;
       break;
     case 3:
       // Colosseo (Martelli): a vambrace flaring to a heavy cuff, brass bands, a raised ridge
@@ -1225,7 +696,6 @@ export function buildForearm(look: number, r = 0): PB {
       b.add(G.loft([[0.09, 0.05, 0.03], [0.24, 0.06, 0.03]], 0.4), 'paint2', 0, 0, 0.078);
       rivets(b, 4, 0, 0.11, 0.096, 0, 0.23, 0.096, 0.007, 'brass');
       b.addSym(G.cyl(0.022, 0.022, 0.01, 18), 'brass', 0.082, 0.17, 0.0, 0, 0, HP);
-      side = 0.09;
       break;
     case 4:
       // Kote Gauntlets (Kensei): lacquered splints laced over a dark sleeve, with a gold wrist ring
@@ -1237,7 +707,6 @@ export function buildForearm(look: number, r = 0): PB {
       }
       for (const y of [0.1, 0.21]) band(b, main, y, y + 0.008, 0.016, 'dark', cham);
       band(b, main, 0.245, 0.262, 0.008, 'brass', cham);
-      side = 0.072;
       break;
     default:
       // Sidewinder (Strix): a slim faceted launch sleeve, a carbon fin down its back, light slits
@@ -1252,38 +721,19 @@ export function buildForearm(look: number, r = 0): PB {
         s.add(G.cone(0.02, 0.04, 8), 'carbon', 0.05, -0.005, -0.05, PI, 0, 0);
         s.add(G.cyl(0.013, 0.013, 0.005, 10), 'glow', 0.05, -0.026, -0.05);
       });
-      side = 0.065;
       break;
-  }
-  const top = main[main.length - 1][0];
-  if (r >= 2) {
-    // bolted side plates
-    const [, w] = secAt(main, 0.16);
-    const x = Math.max(w / 2, side) + 0.004;
-    b.addSym(G.cbox(0.012, 0.08, 0.05, 0.004), 'paint2', x, 0.16, -0.01);
-    b.addSym(G.cyl(0.006, 0.006, 0.006, 6), 'chrome', x + 0.008, 0.16, -0.01, 0, 0, HP);
-  }
-  if (r >= 3) band(b, main, top - 0.03, top - 0.01, 0.006, 'chrome', cham);
-  if (r >= 4) {
-    // an elbow spike raking back off the joint, ringed in rarity light
-    b.group(0, 0.03, 0.045, 2.1, 0, 0, (v) => {
-      v.add(G.cyl(0.034, 0.038, 0.02, 10), 'metal');
-      v.add(G.torus(0.031, 0.005, 4, 14), 'rarity', 0, 0.012, 0, HP, 0, 0);
-      v.add(G.cone(0.027, 0.075, 8), 'paint2', 0, 0.048, 0);
-    });
   }
   return b;
 }
 
-/** How big each maker's fist is, where the back of the hand is and how high the knuckles stand. */
+/** How big each Common maker's fist is. */
 const FIST_BIG = [1.2, 1.0, 1.06, 1.14, 1.0, 0.94];
-const FIST_BACK = [0.096, 0.088, 0.09, 0.092, 0.091, 0.082];
-const FIST_KTOP = [0.13, 0.106, 0.11, 0.118, 0.103, 0.1];
 
 /** Fist: origin at the hand joint, knuckles +Y, back of hand +Z, thumb on `thumb` X side. */
-export function buildFist(look: number, thumb: number, r = 0): PB {
+export function buildFist(look: number, thumb: number): PB {
   const b = new PB();
-  const big = FIST_BIG[look] ?? 1.04;
+  const d = designOf(look);
+  const big = d ? d.fistScale : FIST_BIG[maker(look)];
   const f = new PB();
   // hand: palm block, two-segment curled fingers with knuckle caps, wrapped thumb, wrist drum
   f.add(G.loft([[-0.075, 0.13, 0.11], [0.03, 0.15, 0.13]], 0.25), 'dark', 0, 0, -0.005);
@@ -1298,7 +748,10 @@ export function buildFist(look: number, thumb: number, r = 0): PB {
   f.add(G.cbox(0.03, 0.03, 0.03, 0.008), 'paint2', thumb * 0.086, -0.03, -0.035);
   f.add(G.cyl(0.066, 0.062, 0.04, 10), 'joint', 0, -0.085, 0);
   f.add(G.torus(0.064, 0.006, 4, 14), 'metal', 0, -0.07, 0, HP, 0, 0);
-  switch (look) {
+  switch (d ? -1 : maker(look)) {
+    case -1:
+      d!.fist(f, thumb);
+      break;
     case 0:
       // Piledriver: a hammerhead block with a riveted steel striking face, a striped back plate
       // and banded sides
@@ -1351,24 +804,13 @@ export function buildFist(look: number, thumb: number, r = 0): PB {
       for (const x of [-0.03, 0.03]) f.add(G.fin([[0.0, -0.06], [0.0, 0.05], [0.04, -0.04], [0.035, -0.07]], 0.008, 0.002), 'carbon', x, 0.0, 0.08);
       break;
   }
-  // back-of-hand surface and knuckle top, for the tier add-ons
-  const back = FIST_BACK[look] ?? 0.085;
-  const ktop = FIST_KTOP[look] ?? 0.1;
-  if (r >= 2) f.add(G.cbox(0.06, 0.04, 0.012, 0.004), 'paint2', 0, 0.0, back + 0.006);
-  if (r >= 3) f.add(G.cbox(0.16, 0.012, 0.016, 0.004), 'chrome', 0, ktop + 0.004, 0.068);
-  if (r >= 4) {
-    // lit knuckles and a short spur raking back over the hand
-    f.add(G.cbox(0.15, 0.008, 0.01, 0.002), 'rarity', 0, ktop + 0.003, 0.0);
-    f.add(G.fin([[0.0, 0.04], [0.0, -0.03], [0.045, -0.075], [0.028, -0.01]], 0.012), 'paint2', 0, 0.0, back);
-    f.add(G.fin([[0.01, 0.02], [0.01, -0.03], [0.04, -0.068], [0.026, -0.012]], 0.016, 0.002), 'rarity', 0, 0.0, back);
-  }
   b.merge(f, 0, 0, 0, big);
   return b;
 }
 
 // ======================================================================= LEGS
 /** Pelvis: origin at the pelvis joint; hip joints at (±0.15, -0.07, 0). */
-export function buildPelvis(look: number, r = 0): PB {
+export function buildPelvis(look: number): PB {
   const b = new PB();
   b.add(G.loft([[-0.11, 0.22, 0.17], [-0.03, 0.31, 0.22], [0.035, 0.3, 0.21]], 0.3), 'paint2');
   b.add(G.loft([[0.035, 0.32, 0.22], [0.075, 0.3, 0.2]], 0.3), 'dark');
@@ -1379,9 +821,13 @@ export function buildPelvis(look: number, r = 0): PB {
   b.add(G.cbox(0.2, 0.09, 0.05, 0.015), 'paint', 0, -0.05, -0.1);
   vent(b, 0.12, 0.05, 3, 0, -0.05, -0.126, 0, PI, 0);
   b.add(G.cyl(0.07, 0.08, 0.06, 12), 'metal', 0, 0.09, 0);
-  // the tassets (hip armour) each leg item hangs, with their outer face and bottom edge
-  let tx = 0.19, ty = -0.13;
-  switch (look) {
+  // the tassets (hip armour) each leg item hangs
+  const d = designOf(look);
+  if (d) {
+    d.pelvis(b);
+    return b;
+  }
+  switch (maker(look)) {
     case 0:
       // Ironhorse: riveted slab tassets with a stack on each hip and a striped front plate
       b.addSym(G.cbox(0.07, 0.17, 0.22, 0.008), 'paint', 0.215, -0.07, 0);
@@ -1396,8 +842,6 @@ export function buildPelvis(look: number, r = 0): PB {
         });
       });
       hazard(b, 0.11, 0.026, 0, -0.035, 0.127);
-      tx = 0.251;
-      ty = -0.155;
       break;
     case 1:
       // Lumen: smooth tassets with a flush aluminium cap on each hip
@@ -1406,8 +850,6 @@ export function buildPelvis(look: number, r = 0): PB {
         s.add(G.cyl(0.034, 0.034, 0.01, 28), 'alu', 0.218, -0.05, 0, 0, 0, HP);
         s.add(G.cyl(0.022, 0.022, 0.012, 24), 'paint2', 0.219, -0.05, 0, 0, 0, HP);
       });
-      tx = 0.225;
-      ty = -0.12;
       break;
     case 2:
       // Longwei: angular carbon tassets with a light line and an actuator disc on each hip
@@ -1417,8 +859,6 @@ export function buildPelvis(look: number, r = 0): PB {
         s.add(G.box(0.006, 0.006, 0.12), 'glow', 0.236, -0.1, 0);
         s.add(G.cyl(0.028, 0.028, 0.012, 20), 'alu', 0.236, -0.045, 0, 0, 0, HP);
       });
-      tx = 0.236;
-      ty = -0.13;
       break;
     case 3:
       // Martelli: a brass belt over a skirt of pteruges hanging all the way round
@@ -1430,8 +870,6 @@ export function buildPelvis(look: number, r = 0): PB {
           g.add(G.sphere(0.007, 8, 5), 'brass', 0, -0.045, 0.012);
         });
       }
-      tx = 0.205;
-      ty = -0.115;
       break;
     case 4: {
       // Hakama (Kensei): kusazuri, laced panels of plate rows hanging front, back and over each hip
@@ -1443,8 +881,6 @@ export function buildPelvis(look: number, r = 0): PB {
       b.both((s) => panel(s, 0.2, 0, HP));
       panel(b, 0, 0.138, 0);
       panel(b, 0, -0.138, PI);
-      tx = 0.215;
-      ty = -0.14;
       break;
     }
     default:
@@ -1454,25 +890,24 @@ export function buildPelvis(look: number, r = 0): PB {
         s.add(G.fin([[0.04, 0.0], [-0.05, 0.0], [-0.12, -0.08], [-0.07, -0.08]], 0.012, 0.003), 'carbon', 0.215, -0.02, 0.0);
         s.add(G.box(0.006, 0.08, 0.006), 'glow', 0.214, -0.05, 0.06);
       });
-      tx = 0.212;
-      ty = -0.12;
       break;
   }
-  if (r >= 2) b.both((s) => s.add(G.cbox(0.014, 0.05, 0.1, 0.004), 'paint2', tx + 0.004, -0.06, 0));
-  if (r >= 3) b.add(G.loft([[0.0, 0.316, 0.226], [0.016, 0.314, 0.222]], 0.3), 'chrome');
-  if (r >= 4) b.both((s) => s.add(G.box(0.008, 0.008, 0.13), 'rarity', tx + 0.004, ty + 0.012, 0));
   return b;
 }
 
 /** Thigh: origin at the hip, +Y down to the knee (0.46), +Z the front. */
-export function buildThigh(look: number, r = 0): PB {
+export function buildThigh(look: number): PB {
   const b = new PB();
   b.add(G.cyl(0.048, 0.044, 0.42, 8), 'metal', 0, 0.22, 0);
   b.add(G.cbox(0.045, 0.05, 0.045, 0.012), 'metal', 0, 0.14, -0.072);
-  // the main armour loft; tier add-ons fit themselves to it
+  const d = designOf(look);
+  if (d) {
+    d.thigh(b);
+    return b;
+  }
   let main: Sec[];
   let cham = 0.3;
-  switch (look) {
+  switch (maker(look)) {
     case 0:
       // Crawler (Ironhorse): a square column of plate with steel bands and one big ram down the front
       main = [[0.05, 0.19, 0.19, 0.005], [0.12, 0.23, 0.225, 0.012], [0.3, 0.225, 0.215, 0.012], [0.38, 0.18, 0.17, 0.006], [0.42, 0.14, 0.13]];
@@ -1540,19 +975,11 @@ export function buildThigh(look: number, r = 0): PB {
       b.add(G.fin([[0.0, 0.0], [-0.07, 0.0], [-0.06, 0.16], [-0.02, 0.12]], 0.012, 0.003), 'carbon', 0, 0.1, -0.06);
       break;
   }
-  const [, mw] = secAt(main, 0.2);
-  if (r >= 2) b.addSym(G.cbox(0.014, 0.09, 0.07, 0.004), 'paint2', mw / 2 + 0.006, 0.2, 0.0);
-  if (r >= 3) {
-    // chrome knee guard
-    const [, , d, z] = secAt(main, 0.375);
-    b.add(G.cbox(0.07, 0.045, 0.016, 0.005), 'chrome', 0, 0.372, z + d / 2 + 0.004, -0.15, 0, 0);
-  }
-  if (r >= 4) b.addSym(G.box(0.006, 0.16, 0.006), 'rarity', mw / 2 + 0.015, 0.2, 0.025);
   return b;
 }
 
 /** Shin frame and calf armour of the legs item: origin at the knee, +Y down to the ankle (0.46). */
-export function buildShin(legLook: number, r = 0): PB {
+export function buildShin(legLook: number): PB {
   const b = new PB();
   b.addAxle(0.062, 0.15, 'joint', 0, 0, 0, 14);
   b.addAxle(0.037, 0.165, 'chrome', 0, 0, 0, 10);
@@ -1563,10 +990,14 @@ export function buildShin(legLook: number, r = 0): PB {
   b.add(G.cyl(0.04, 0.034, 0.4, 8), 'metal', 0, 0.24, 0);
   b.add(G.sphere(0.05, 12, 8), 'joint', 0, 0.46, 0);
   b.add(G.cyl(0.05, 0.056, 0.03, 12), 'dark', 0, 0.42, 0);
-  // the calf armour loft; tier add-ons fit themselves to it
+  const d = designOf(legLook);
+  if (d) {
+    d.calf(b);
+    return b;
+  }
   let calf: Sec[];
   let cham = 0.3;
-  switch (legLook) {
+  switch (maker(legLook)) {
     case 0: {
       // Crawler (Ironhorse): a slab calf carrying a rubber track loop on steel road wheels
       calf = [[0.06, 0.15, 0.15, -0.008], [0.15, 0.19, 0.18, -0.014], [0.32, 0.185, 0.17, -0.008], [0.42, 0.16, 0.15]];
@@ -1632,17 +1063,18 @@ export function buildShin(legLook: number, r = 0): PB {
       b.addSym(G.box(0.005, 0.14, 0.005), 'glow', secAt(calf, 0.24)[1] / 2 + 0.002, 0.24, -0.01);
       break;
   }
-  const [, cw] = secAt(calf, 0.17);
-  if (r >= 2) b.addSym(G.cbox(0.012, 0.07, 0.06, 0.004), 'paint2', cw / 2 + 0.004, 0.17, -0.02);
-  if (r >= 3) band(b, calf, 0.075, 0.09, 0.006, 'chrome', cham);
-  if (r >= 4) b.addSym(G.box(0.006, 0.14, 0.006), 'rarity', secAt(calf, 0.27)[1] / 2 + 0.003, 0.27, -0.02);
   return b;
 }
 
 /** Shin guard of the kick item, on the shin bone (same frame as buildShin). */
-export function buildShinGuard(kickLook: number, r = 0): PB {
+export function buildShinGuard(kickLook: number): PB {
   const b = new PB();
-  switch (kickLook) {
+  const d = designOf(kickLook);
+  if (d) {
+    d.shinGuard(b);
+    return b;
+  }
+  switch (maker(kickLook)) {
     case 0:
       // Dozer Blades (Ironhorse): a curved bulldozer blade down the shin with a toothed steel
       // cutting edge, striped across the top and pushed by two rams
@@ -1696,29 +1128,28 @@ export function buildShinGuard(kickLook: number, r = 0): PB {
       b.add(G.cyl(0.028, 0.028, 0.01, 12), 'glow', 0, 0.055, -0.1, -0.5, 0, 0);
       break;
   }
-  if (r >= 2) b.addSym(G.cyl(0.007, 0.007, 0.007, 6), 'chrome', 0.026, 0.38, 0.093, HP, 0, 0);
-  if (r >= 3) b.addSym(G.box(0.006, 0.17, 0.01), 'chrome', 0.05, 0.25, 0.092, 0, 0, 0.03);
-  if (r >= 4) {
-    // a lit keel down the guard and a small knee fin
-    b.add(G.box(0.01, 0.2, 0.01), 'rarity', 0, 0.25, 0.104);
-    b.add(G.fin([[0.0, 0.03], [0.0, -0.02], [0.045, -0.07], [0.03, 0.0]], 0.012), 'paint2', 0, 0.0, 0.08);
-  }
   return b;
 }
 
-/** Foot width per kick look. */
+/** Foot width of each Common kick. */
 const FOOT_W = [1.16, 0.96, 1.06, 1.04, 0.96, 0.9];
+const footW = (look: number) => designOf(look)?.footW ?? FOOT_W[maker(look)];
 
 /** Foot heel/ankle section: origin at the ankle; the sole sits at y = -0.08. */
-export function buildFoot(look: number, r = 0): PB {
+export function buildFoot(look: number): PB {
   const b = new PB();
-  const w = FOOT_W[look] ?? 1;
-  b.add(G.loft([[-0.058, 0.14 * w, 0.16, 0.0], [0.0, 0.12 * w, 0.13, -0.01], [0.02, 0.09 * w, 0.09, -0.01]], look === 1 ? 0.45 : 0.3), 'paint');
-  b.add(G.cbox(0.148 * w, 0.024, 0.165, 0.008), look === 0 ? 'rubber' : 'dark', 0, -0.068, -0.002);
+  const w = footW(look);
+  b.add(G.loft([[-0.058, 0.14 * w, 0.16, 0.0], [0.0, 0.12 * w, 0.13, -0.01], [0.02, 0.09 * w, 0.09, -0.01]], maker(look) === 1 ? 0.45 : 0.3), 'paint');
+  b.add(G.cbox(0.148 * w, 0.024, 0.165, 0.008), maker(look) === 0 ? 'rubber' : 'dark', 0, -0.068, -0.002);
   b.add(G.cbox(0.152 * w, 0.008, 0.16, 0.003), 'metal', 0, -0.058, -0.002);
   b.add(G.cbox(0.1, 0.048, 0.04, 0.01), 'metal', 0, -0.04, -0.085);
   b.addAxle(0.03, 0.12 * w, 'joint', 0, 0.0, -0.005, 12);
-  switch (look) {
+  const d = designOf(look);
+  if (d) {
+    d.foot(b, w);
+    return b;
+  }
+  switch (maker(look)) {
     case 0:
       // Ironhorse: a steel heel block with stripes, a lugged rubber sole and side plates
       b.add(G.cbox(0.13 * w, 0.05, 0.03, 0.006), 'steel', 0, -0.035, -0.092);
@@ -1757,19 +1188,22 @@ export function buildFoot(look: number, r = 0): PB {
       b.addSym(G.box(0.004, 0.004, 0.09), 'glow', 0.066 * w, -0.04, 0.0);
       break;
   }
-  if (r >= 2) b.addSym(G.cbox(0.012, 0.04, 0.06, 0.004), 'paint2', 0.07 * w + 0.004, -0.02, -0.01);
-  if (r >= 4) b.add(G.fin([[0.0, 0.0], [-0.05, 0.0], [-0.07, 0.05], [-0.03, 0.05]], 0.014, 0.002), 'rarity', 0, 0.0, -0.075);
   return b;
 }
 
 /** Toe section: origin at the ball of the foot; hinges for heel raises and pointed kicks. */
-export function buildToe(look: number, r = 0): PB {
+export function buildToe(look: number): PB {
   const b = new PB();
-  const w = FOOT_W[look] ?? 1;
-  b.add(G.loft([[-0.03, 0.142 * w, 0.115, 0.05], [0.012, 0.13 * w, 0.1, 0.045], [0.028, 0.1 * w, 0.06, 0.03]], look === 1 ? 0.45 : 0.3), 'paint');
-  b.add(G.cbox(0.146 * w, 0.02, 0.118, 0.006), look === 0 ? 'rubber' : 'dark', 0, -0.032, 0.052);
-  b.add(G.cbox(0.11 * w, 0.03, 0.018, 0.006), r >= 3 ? 'chrome' : 'metal', 0, -0.016, 0.106);
-  switch (look) {
+  const w = footW(look);
+  b.add(G.loft([[-0.03, 0.142 * w, 0.115, 0.05], [0.012, 0.13 * w, 0.1, 0.045], [0.028, 0.1 * w, 0.06, 0.03]], maker(look) === 1 ? 0.45 : 0.3), 'paint');
+  b.add(G.cbox(0.146 * w, 0.02, 0.118, 0.006), maker(look) === 0 ? 'rubber' : 'dark', 0, -0.032, 0.052);
+  b.add(G.cbox(0.11 * w, 0.03, 0.018, 0.006), 'metal', 0, -0.016, 0.106);
+  const d = designOf(look);
+  if (d) {
+    d.toe(b, w);
+    return b;
+  }
+  switch (maker(look)) {
     case 0:
       // a thick riveted steel toe cap
       b.add(G.cbox(0.14 * w, 0.042, 0.03, 0.008), 'steel', 0, -0.006, 0.1);
@@ -1795,7 +1229,6 @@ export function buildToe(look: number, r = 0): PB {
       b.add(G.box(0.006, 0.006, 0.05), 'glow', 0, 0.026, 0.04);
       break;
   }
-  if (r >= 4) b.add(G.box(0.1 * w, 0.006, 0.006), 'rarity', 0, -0.0, 0.117);
   return b;
 }
 

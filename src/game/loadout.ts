@@ -1,5 +1,5 @@
 import { Rng } from '../sim/math';
-import { COMPANIES, COMPANY_BY_ID, MAX_RARITY, SIZE_MAX, SIZE_MIN, SLOTS, capRarity, sanitizeSize, itemsForSlot, type Loadout, type Rarity } from './items';
+import { COMPANIES, COMPANY_BY_ID, ITEM_BY_ID, MAX_RARITY, SIZE_MAX, SIZE_MIN, SLOTS, equip, sanitizeSize, itemsForSlot, type Loadout, type Rarity } from './items';
 import type { EmotePicks } from '../sim/emote';
 import { DEFAULT_PAINT, SCHEMES, samePaint, type Paint } from './paint';
 
@@ -30,10 +30,12 @@ export function randomLoadout(rng: Rng, tier = 0.35): Loadout {
   // else bolts a lone diesel part on.
   const fan = rng.chance(0.45) ? rng.pick(COMPANIES) : null;
   for (const slot of SLOTS) {
-    const all = itemsForSlot(slot).filter((it) => !COMPANY_BY_ID.get(it.maker)!.needsFull);
-    const theirs = fan && (fan.needsFull || rng.chance(0.75)) ? itemsForSlot(slot).filter((it) => it.maker === fan.id) : [];
-    const item = rng.pick(theirs.length ? theirs : all);
-    out[slot] = { id: item.id, rarity: rollRarity(rng, tier) };
+    // every part is made at one rarity: roll the rarity, then pick a part made at it
+    const r = rollRarity(rng, tier);
+    const made = itemsForSlot(slot).filter((it) => it.tier === r);
+    const all = made.filter((it) => !COMPANY_BY_ID.get(it.maker)!.needsFull);
+    const theirs = fan && (fan.needsFull || rng.chance(0.75)) ? made.filter((it) => it.maker === fan.id) : [];
+    out[slot] = equip(rng.pick(theirs.length ? theirs : all));
   }
   return out as Loadout;
 }
@@ -68,11 +70,11 @@ export const DEFAULT_PLAYER: BotSpec = {
   paint: { ...DEFAULT_PAINT },
   size: 1,
   loadout: {
-    head: { id: 'tianyan', rarity: capRarity(1) },
-    fist: { id: 'colosseo', rarity: capRarity(1) },
-    core: { id: 'cell', rarity: capRarity(1) },
-    chest: { id: 'greatwall', rarity: capRarity(1) },
-    legs: { id: 'longma', rarity: capRarity(1) },
-    kick: { id: 'afterburner', rarity: capRarity(1) },
+    head: equip(ITEM_BY_ID.get('tianyan')!),
+    fist: equip(ITEM_BY_ID.get('colosseo')!),
+    core: equip(ITEM_BY_ID.get('cell')!),
+    chest: equip(ITEM_BY_ID.get('greatwall')!),
+    legs: equip(ITEM_BY_ID.get('longma')!),
+    kick: equip(ITEM_BY_ID.get('afterburner')!),
   },
 };
