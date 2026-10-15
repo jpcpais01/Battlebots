@@ -42,7 +42,10 @@ import { bytesOf, canVoiceToday, isVoiced, voicedNames, voiceName } from '../aud
 import { MAX_REPLAYS, ReplayShelf, isSaved, outdated, type SavedReplay } from './replays';
 import { Account, PASSWORD_MIN, USERNAME_MAX, type SyncState } from '../net/account';
 import { WALK_ONS, walkOnFor } from '../audio/walkOn';
-import { EVENT_BY_ID, progressOf, rival, type EventDef } from '../game/events';
+import { EVENT_BY_ID, defenceOf, progressOf, rival, type EventDef } from '../game/events';
+import { adoptWorn, fitOwned, isNewCareer, markSeen, settle, type Reward } from '../game/career';
+import { equipped } from '../game/catalogue';
+import { coins, marketView, rewardView, trophyView, type CareerHost } from './careerUi';
 import { MapScreen } from './mapScreen';
 
 type PaintPage = 'schemes' | 'primary' | 'secondary' | 'accent' | 'finish';
@@ -167,8 +170,11 @@ export class App {
   private accountView: (() => void) | null = null;
   /** The world map screen. */
   private map: MapScreen;
-  /** The fight on screen is a round of a map event: which event, and which round. */
-  private eventRun: { id: string; round: number } | null = null;
+  /** The fight on screen is a round of a map event: which event, which round, which title defence. */
+  private eventRun: { id: string; round: number; defence: number } | null = null;
+  /** What career mode needs from the app (the market, the trophy room, the results). */
+  private career: CareerHost;
+  private careerBtn: HTMLButtonElement | null = null;
 
   /** The constructor has run (until then a place is switched without the dip through black). */
   private booted = false;
@@ -185,6 +191,25 @@ export class App {
       game.sfx?.addName(v.name, clips);
     }
     this.record = loadRecord();
+    // a career just started keeps the parts already worn; after that, parts the player hasn't
+    // earned come off (the Common version goes on in their place)
+    if (isNewCareer(this.record.career)) {
+      adoptWorn(this.record.career, [this.player, ...loadSaves()]);
+      saveRecord(this.record);
+    }
+    if (fitOwned(this.player, this.record.career)) savePlayer(this.player);
+    this.career = {
+      record: () => this.record,
+      player: () => this.player,
+      thumb: (item, rarity) => this.thumb(item, rarity),
+      tap: (k) => this.tap(k),
+      save: () => {
+        saveRecord(this.record);
+        this.map.refresh();
+        this.refreshHome();
+      },
+      fit: (item) => this.fitPart(item),
+    };
     game.director.zoom = loadZoom();
     this.account = new Account({
       local: () => ({ bot: this.player, record: this.record }),
@@ -237,6 +262,11 @@ export class App {
     this.map = new MapScreen({
       game,
       events: () => this.record.events,
+      career: () => this.record.career,
+      player: () => this.player,
+      rival: (e, round) => rival(e, round, this.player, defenceOf(this.record.events, e)),
+      market: () => this.openModal('Parts Market', (box) => marketView(box, this.career, () => this.closeModal()), () => this.map.refresh()),
+      trophies: () => this.openModal('Trophy room', (box) => trophyView(box, this.career, () => this.closeModal())),
       tap: (k) => this.tap(k),
       back: () => this.go('home'),
       fight: (e) => this.fightEvent(e),
@@ -481,7 +511,7 @@ export class App {
       this.tap('select');
       this.go('online');
     }, sub);
-    button('btn wide map-btn', `${ICON.map}World map`, () => {
+    this.careerBtn = button('btn wide map-btn', '', () => {
       this.tap('select');
       this.go('map');
     }, sub);
@@ -555,6 +585,7 @@ export class App {
     const r = this.record;
     const stat = (n: number, label: string) => `<span><b>${n}</b>${label}</span>`;
     this.homeRecord!.innerHTML = stat(r.wins, 'Wins') + stat(r.losses, 'Losses') + (r.draws ? stat(r.draws, 'Draws') : '') + (r.streak > 1 ? stat(r.streak, 'Streak') : '');
+    if (this.careerBtn) this.careerBtn.innerHTML = `${ICON.map}Career<span class="career-cash">${coins(r.career.credits)}</span>`;
   }
 
   private toggleSound() {
@@ -602,6 +633,8 @@ export class App {
       this.tap('select');
       const b = randomBot(this.rng, this.rng.range(0.2, 0.8));
       this.player = { ...b, name: this.player.name, emotes: this.player.emotes, walkOn: this.player.walkOn };
+      // (only parts the player has: the rest roll back to Common)
+      fitOwned(this.player, this.record.career);
       this.commitPlayer();
       this.game.garagePulse();
     }, actions);
@@ -716,6 +749,7 @@ export class App {
         button('btn small primary', 'Use', () => {
           this.tap('select');
           this.player = structuredClone(bot);
+          fitOwned(this.player, this.record.career);
           this.commitPlayer();
           this.game.garagePulse();
           this.closeModal();
@@ -1378,6 +1412,10 @@ export class App {
     this.replaying = false;
     this.game.setArena(arena);
     const m = this.game.startMatch(this.player, this.opponent, seed);
+    // a career rival gets its billing in the intro: how it fights and what it has to say
+    const ev = this.eventRun && EVENT_BY_ID.get(this.eventRun.id);
+    const rv = ev && ev.rivals[this.eventRun!.round];
+    this.hud.rivalIntro = rv ? { style: rv.style, taunt: rv.taunt } : null;
     this.hud.resetSpeed();
     this.hud.attach(m);
     this.go('fight');
@@ -1387,8 +1425,9 @@ export class App {
   private fightEvent(e: EventDef) {
     if (this.online.active || this.venueWait) return;
     const round = progressOf(this.record.events, e.id).run;
-    this.eventRun = { id: e.id, round };
-    this.opponent = rival(e, round, this.player);
+    const defence = defenceOf(this.record.events, e);
+    this.eventRun = { id: e.id, round, defence };
+    this.opponent = rival(e, round, this.player, defence);
     this.tap('start');
     void enterLandscape();
     // the venue is put up first (the first time, its code comes down too), so the walkout is in it
@@ -1430,6 +1469,7 @@ export class App {
     this.replaying = true;
     this.resultsAfterSeek = false;
     const m = this.game.startReplay(r);
+    this.hud.rivalIntro = null;
     this.hud.resetSpeed();
     this.hud.attach(m, null, true);
     this.go('fight');
@@ -1531,8 +1571,8 @@ export class App {
         this.closeModal();
         if (this.game.match && this.game.match.phase !== 'end') {
           this.tally(false, false);
-          // walking out of an event's round ends the run
-          this.eventResult(false, false);
+          // walking out of an event's round ends the run (and pays nothing)
+          this.eventResult(false, false, null, true);
         }
         this.go(this.eventRun ? 'map' : 'home');
       }, box);
@@ -1618,7 +1658,7 @@ export class App {
           reset.textContent = 'Tap again to reset';
           return;
         }
-        this.record = { wins: 0, losses: 0, draws: 0, streak: 0, best: 0, events: this.record.events };
+        this.record = { wins: 0, losses: 0, draws: 0, streak: 0, best: 0, events: this.record.events, career: this.record.career };
         saveRecord(this.record);
         this.refreshHome();
         reset.classList.remove('armed');
@@ -1706,6 +1746,8 @@ export class App {
   private adoptCloud(bot: BotSpec, record: Record_) {
     this.player = bot;
     this.record = record;
+    if (isNewCareer(record.career)) adoptWorn(record.career, [bot]);
+    fitOwned(bot, record.career);
     savePlayer(bot);
     saveRecord(record);
     this.online.session?.setBot(bot);
@@ -1929,7 +1971,7 @@ export class App {
     const draw = out.winner < 0;
     const won = out.winner === me;
     // a round of a map event: how the run stands now
-    const ev = !net && !this.replaying && this.eventRun ? this.eventResult(won, draw) : null;
+    const ev = !net && !this.replaying && this.eventRun ? this.eventResult(won, draw, out.kind ?? null) : null;
     // the win record is for fights against the AI (and a replay was already counted)
     if (!net && !this.replaying) this.tally(won, draw);
     if (!this.replaying && tape) {
@@ -1988,13 +2030,18 @@ export class App {
       this.netResults(card, actions, room, keep);
       return;
     }
+    if (ev?.reward) {
+      // the prize money, the fame and any part that came with the fight
+      const r = ev.e.rivals[ev.round];
+      card.insertBefore(rewardView(card, ev.reward, this.career, r, !won && !draw, () => this.refreshHome()), actions);
+    }
     if (ev) {
       // the run goes on, starts over, or the title is won
       const e = ev.e;
       const next = progressOf(this.record.events, e.id).run;
       if (ev.title) button('btn primary', `${ICON.map}Map`, () => this.toMap(), actions);
       else {
-        const label = draw ? 'Fight again' : won ? `${next === e.rivals.length - 1 ? 'Final' : `Round ${next + 1}`}: ${esc(e.rivals[next])}` : 'Start over';
+        const label = draw ? 'Fight again' : won ? `${next === e.rivals.length - 1 ? 'Final' : `Round ${next + 1}`}: ${esc(e.rivals[next].name)}` : 'Start over';
         button('btn primary', `${ICON.swords}${label}`, () => this.fightEvent(e), actions);
         button('btn', `${ICON.map}Map`, () => this.toMap(), actions);
       }
@@ -2025,9 +2072,10 @@ export class App {
 
   /**
    * A round of the current map event is over: move the run on (a win), start it over (a loss) or
-   * leave it where it is (a draw), and count the title when the last round is won.
+   * leave it where it is (a draw), count the title when the last round is won, and pay out the
+   * career's prize money, fame and parts (nothing for walking out).
    */
-  private eventResult(won: boolean, draw: boolean) {
+  private eventResult(won: boolean, draw: boolean, kind: string | null, forfeit = false) {
     const r = this.eventRun;
     const e = r && EVENT_BY_ID.get(r.id);
     if (!r || !e) return null;
@@ -2043,9 +2091,27 @@ export class App {
       }
     } else if (!draw) p.run = 0;
     rec[e.id] = p;
+    let reward: Reward | null = null;
+    if (!forfeit && this.opponent) reward = settle(this.record.career, { e, round: r.round, defence: r.defence, won, draw, kind, title, rival: this.opponent }, this.rng);
     saveRecord(this.record);
     this.map.refresh();
-    return { e, round: r.round, title };
+    return { e, round: r.round, title, reward };
+  }
+
+  /** Fit a part the player has (from the results or the market) and save the bot. */
+  private fitPart(item: ItemDef) {
+    this.player.loadout[item.slot] = equipped(item);
+    markSeen(this.record.career, [item.id]);
+    saveRecord(this.record);
+    if (this.current === 'garage') this.commitPlayer();
+    else {
+      savePlayer(this.player);
+      this.online.session?.setBot(this.player);
+      // a fight on screen keeps its bots; the new part shows on the way back
+      if (this.current !== 'fight') this.game.showBot(this.player);
+    }
+    this.refreshHome();
+    this.map.refresh();
   }
 
   /** Save replay (or Saved, once it's on the shelf). */
@@ -2092,6 +2158,7 @@ export class App {
     this.eventRun = null;
     this.game.setArena('grand');
     const m = this.game.startMatch(a, b, seed, true, s.me);
+    this.hud.rivalIntro = null;
     // the tape for its replay: the coach calls from both corners come from the match's log
     this.lastFight = { a: structuredClone(a), b: structuredClone(b), seed, cut: -1, coach: [], end: -1, marks: [], online: true, me: s.me };
     this.replaying = false;

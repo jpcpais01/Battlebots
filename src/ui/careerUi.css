@@ -1,0 +1,817 @@
+/* ------------------------------------------------------------ career mode */
+.cr-coins {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  font-variant-numeric: tabular-nums;
+}
+.cr-coins svg {
+  width: 1.15em;
+  height: 1.15em;
+  color: #ffd24a;
+  flex: none;
+}
+.cr-coins b {
+  font-weight: 750;
+}
+.cr-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4em 0.85em;
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid var(--line);
+}
+
+/* six squares: a bot's parts in their tier colours */
+.cr-pips {
+  display: inline-flex;
+  gap: 3px;
+}
+.cr-pips i {
+  width: 0.72em;
+  height: 0.72em;
+  border-radius: 3px;
+  background: var(--rc);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--rc) 55%, transparent);
+}
+
+/* a fame bar */
+.cr-reward .bar,
+.sh-rank .bar,
+.map-rank .bar {
+  display: block;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.cr-reward .bar > i,
+.sh-rank .bar > i,
+.map-rank .bar > i {
+  display: block;
+  height: 100%;
+  width: calc(var(--k) * 100%);
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ffb43a, #ffe08a);
+}
+
+/* ------------------------------------------------------------ the rival on the event card */
+.cr-rival {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45em;
+  padding: 0.75em 0.85em;
+  border-radius: var(--rad);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--mc) 16%, transparent), var(--glass) 60%);
+  border: 1px solid color-mix(in srgb, var(--mc) 35%, transparent);
+}
+.rv-top {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+}
+.rv-top .lg {
+  width: 2.2em;
+  height: 2.2em;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--mc);
+  background: rgba(0, 0, 0, 0.35);
+}
+.rv-top .lg svg {
+  width: 1.35em;
+  height: 1.35em;
+}
+.rv-top div {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+.rv-top b {
+  font-size: 1.08em;
+  font-weight: 800;
+}
+.rv-top span {
+  font-size: 0.78em;
+  color: var(--text-2);
+}
+.rv-bio {
+  margin: 0;
+  font-size: 0.82em;
+  line-height: 1.35;
+  color: var(--text-2);
+}
+.cr-rival q,
+.cr-quote q {
+  font-style: italic;
+  font-weight: 650;
+  font-size: 0.9em;
+  color: var(--text);
+}
+.rv-gear {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  flex-wrap: wrap;
+  font-size: 0.8em;
+}
+.rv-pw {
+  color: var(--text-2);
+}
+.rv-pw b {
+  color: var(--text);
+}
+.rv-pw.tough b {
+  color: #ff7a8e;
+}
+.rv-pw.soft b {
+  color: var(--green);
+}
+.rv-pays {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35em 0.8em;
+  font-size: 0.8em;
+  color: var(--text-2);
+}
+.rv-pays > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+}
+.rv-pays svg {
+  width: 1.1em;
+  height: 1.1em;
+}
+.rv-pays .crate svg {
+  color: var(--rc, #3e9dff);
+}
+
+/* ------------------------------------------------------------ rewards on the results */
+.cr-reward {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  padding: 0.75em 0.85em;
+  border-radius: var(--rad);
+  background: rgba(255, 210, 74, 0.06);
+  border: 1px solid rgba(255, 210, 74, 0.18);
+}
+.cr-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+  font-size: 0.86em;
+}
+.cr-line {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-2);
+  animation: crLine 0.4s var(--ease) both;
+  animation-delay: var(--d);
+}
+@keyframes crLine {
+  from {
+    opacity: 0;
+    transform: translateX(0.6em);
+  }
+}
+.cr-total {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+  padding-top: 0.45em;
+  border-top: 1px solid var(--line);
+}
+.cr-total .tt {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6em;
+}
+.cr-total .tt .cr-coins {
+  font-size: 1.45em;
+}
+.cr-total .bal {
+  font-size: 0.8em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.cr-total .fm {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.6em;
+  font-size: 0.8em;
+  color: var(--text-2);
+}
+.cr-total .fm .kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  color: #ffd24a;
+}
+.cr-total .fm svg,
+.cr-rankup svg {
+  width: 1.2em;
+  height: 1.2em;
+}
+.cr-rankup {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.5em 0.75em;
+  border-radius: var(--rad-s);
+  color: #2a1d05;
+  background: linear-gradient(90deg, #ffe08a, #ffb43a);
+  animation: crPop 0.6s var(--ease) both 0.9s;
+}
+.cr-rankup div {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+.cr-rankup small {
+  font-size: 0.7em;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.cr-rankup b {
+  font-size: 1.15em;
+  font-weight: 850;
+}
+@keyframes crPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+/* the part a fight paid out: a card that flips in, glowing in its tier's colour */
+.cr-drop {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  padding: 0.55em 0.7em;
+  border-radius: var(--rad);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--rc) 28%, #141822), #141822 70%);
+  border: 1px solid color-mix(in srgb, var(--rc) 60%, transparent);
+  box-shadow: 0 0 28px color-mix(in srgb, var(--rc) 35%, transparent);
+  overflow: hidden;
+  flex-wrap: wrap;
+  animation: crFlip 0.7s var(--ease) both;
+  animation-delay: var(--d);
+}
+.cr-drop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.35) 50%, transparent 65%);
+  transform: translateX(-120%);
+  animation: crShine 1.4s ease both;
+  animation-delay: calc(var(--d) + 0.45s);
+  pointer-events: none;
+}
+.cr-drop.dupe {
+  box-shadow: none;
+  opacity: 0.85;
+}
+@keyframes crFlip {
+  from {
+    opacity: 0;
+    transform: perspective(500px) rotateY(80deg) scale(0.9);
+  }
+}
+@keyframes crShine {
+  to {
+    transform: translateX(120%);
+  }
+}
+.cr-drop .pic,
+.mk-tile .pic {
+  width: 3.4em;
+  height: 3.4em;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--rad-s);
+  background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--rc) 35%, transparent), rgba(0, 0, 0, 0.3) 70%);
+}
+.cr-drop .pic img,
+.mk-tile .pic img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.cr-drop .pic svg,
+.mk-tile .pic svg {
+  width: 55%;
+  height: 55%;
+}
+.cr-drop .tx {
+  flex: 1;
+  min-width: 9em;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.cr-drop small {
+  font-size: 0.72em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.cr-drop small em,
+.od-head em {
+  font-style: normal;
+  color: var(--rc);
+}
+.cr-drop b {
+  font-size: 1.05em;
+  font-weight: 800;
+}
+.cr-drop .tx span {
+  font-size: 0.78em;
+  color: var(--text-2);
+}
+.cr-quote {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1em;
+  font-size: 0.9em;
+}
+.cr-quote span {
+  font-size: 0.75em;
+  color: var(--muted);
+}
+.cr-quote span::before {
+  content: '— ';
+}
+
+/* ------------------------------------------------------------ the Parts Market */
+.modal .box.cr-market,
+.modal .box.cr-shelf {
+  width: min(52em, 100%);
+  height: 100%;
+  max-height: 34em;
+  pointer-events: auto;
+  gap: 0.6em;
+}
+.cr-market h2,
+.cr-shelf h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+}
+.cr-market h2 svg,
+.cr-shelf h2 svg {
+  width: 1.15em;
+  height: 1.15em;
+  color: #ffd24a;
+}
+.mk-right {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+}
+.mk-sub {
+  display: flex;
+  align-items: center;
+  gap: 0.8em;
+  flex-wrap: wrap;
+  font-size: 0.86em;
+  color: var(--text-2);
+}
+.mk-col {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 0.9em;
+}
+.mk-col > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+}
+.mk-col i {
+  width: 0.6em;
+  height: 0.6em;
+  border-radius: 2px;
+  background: var(--rc);
+}
+.mk-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 0.8em;
+}
+.mk-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 0.5em;
+  min-height: 0;
+}
+.mk-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25em;
+  padding: 0.5em 0.4em;
+  border-radius: var(--rad);
+  background: var(--glass);
+  border: 1px solid color-mix(in srgb, var(--rc) 40%, transparent);
+  color: var(--text);
+  text-align: center;
+  min-width: 0;
+  transition: transform 0.18s var(--ease), background 0.18s ease, box-shadow 0.18s ease;
+}
+.mk-tile.on {
+  background: var(--glass-hi);
+  box-shadow: inset 0 0 0 2px var(--rc), 0 0 20px color-mix(in srgb, var(--rc) 35%, transparent);
+}
+.mk-tile:active {
+  transform: scale(0.96);
+}
+.mk-tile b {
+  font-size: 0.78em;
+  font-weight: 700;
+  line-height: 1.15;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mk-tile .pr {
+  font-size: 0.78em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  color: var(--text-2);
+}
+.mk-tile .pr svg {
+  width: 1.05em;
+  height: 1.05em;
+}
+.mk-tile.sold .pr {
+  color: var(--green);
+}
+.mk-tile.sold .pic,
+.mk-tile.locked .pic {
+  filter: grayscale(0.8) brightness(0.7);
+}
+.mk-tile .deal {
+  position: absolute;
+  top: 0.35em;
+  right: 0.35em;
+  padding: 0.1em 0.45em;
+  border-radius: 999px;
+  font-style: normal;
+  font-size: 0.66em;
+  font-weight: 850;
+  color: #0a0d14;
+  background: var(--green);
+}
+.mk-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  padding: 0.8em 0.9em;
+  border-radius: var(--rad);
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--rc);
+  min-height: 0;
+}
+.od-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+}
+.od-head .lg {
+  width: 2.1em;
+  height: 2.1em;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--mc);
+  background: rgba(255, 255, 255, 0.06);
+}
+.od-head .lg svg {
+  width: 1.3em;
+  height: 1.3em;
+}
+.od-head div {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+.od-head small {
+  font-size: 0.74em;
+  font-weight: 700;
+  color: var(--text-2);
+}
+.od-head b {
+  font-size: 1.1em;
+  font-weight: 800;
+}
+.od-tag {
+  font-size: 0.82em;
+  color: var(--text-2);
+}
+.od-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em;
+}
+.od-stats span {
+  padding: 0.2em 0.55em;
+  border-radius: 999px;
+  font-size: 0.76em;
+  font-weight: 650;
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+  color: #bff5d9;
+}
+.od-stats span.neg {
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  color: #ffc7d0;
+}
+.od-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+  font-size: 0.82em;
+  color: var(--text-2);
+}
+.od-line svg {
+  width: 1.4em;
+  height: 1.4em;
+  flex: none;
+  color: var(--mc);
+}
+.od-line span {
+  display: flex;
+  flex-direction: column;
+}
+.od-line small {
+  font-weight: 750;
+  color: var(--text);
+}
+.od-cmp {
+  font-size: 0.82em;
+  color: var(--text-2);
+}
+.od-cmp.up b {
+  color: var(--green);
+}
+.od-cmp.down b {
+  color: #ff7a8e;
+}
+.od-foot {
+  position: sticky;
+  bottom: -0.8em;
+  margin: auto -0.9em -0.8em;
+  padding: 0.6em 0.9em 0.8em;
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  background: linear-gradient(transparent, #11141c 30%);
+}
+.od-foot .btn {
+  flex: 1;
+}
+.od-own {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  color: var(--green);
+  font-weight: 650;
+}
+.od-own svg {
+  width: 1.2em;
+  height: 1.2em;
+}
+.od-short {
+  font-size: 0.78em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------ the trophy room */
+.sh-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8em;
+  padding-right: 0.2em;
+}
+.sh-shelf {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.5em;
+  padding: 0.8em 0.6em 0.5em;
+  border-radius: var(--rad);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.07) 78%, rgba(0, 0, 0, 0.35) 78%, rgba(0, 0, 0, 0.2));
+}
+.sh-tr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15em;
+  text-align: center;
+  min-width: 0;
+}
+.sh-tr .tr-art {
+  width: 100%;
+  max-width: 6em;
+  aspect-ratio: 1;
+  filter: grayscale(1) brightness(0.35);
+  opacity: 0.7;
+}
+.sh-tr.won .tr-art {
+  filter: drop-shadow(0 0 14px color-mix(in srgb, var(--c) 45%, transparent));
+  opacity: 1;
+  animation: trIn 0.6s var(--ease) both;
+}
+@keyframes trIn {
+  from {
+    transform: translateY(0.4em) scale(0.9);
+    opacity: 0;
+  }
+}
+.sh-tr b {
+  font-size: 0.74em;
+  font-weight: 750;
+  line-height: 1.15;
+}
+.sh-tr span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  font-size: 0.68em;
+  color: var(--muted);
+}
+.sh-tr.won span {
+  color: #ffd98a;
+}
+.sh-tr span svg {
+  width: 1em;
+  height: 1em;
+}
+.sh-stats {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 0.6em;
+}
+.sh-rank {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3em;
+  padding: 0.7em 0.8em;
+  border-radius: var(--rad);
+  background: var(--glass);
+}
+.sh-rank b {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  font-size: 1.25em;
+  font-weight: 850;
+  color: #ffd98a;
+}
+.sh-rank b svg {
+  width: 1.1em;
+  height: 1.1em;
+}
+.sh-rank > span:last-child {
+  font-size: 0.78em;
+  color: var(--text-2);
+}
+.sh-nums {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4em;
+}
+.sh-nums div {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 0.5em 0.3em;
+  border-radius: var(--rad);
+  background: var(--glass);
+  text-align: center;
+}
+.sh-nums b {
+  font-size: 1.15em;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.sh-nums span {
+  font-size: 0.7em;
+  color: var(--muted);
+}
+.sh-k {
+  margin-top: 0.2em;
+}
+.sh-makers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4em;
+}
+.sh-mk {
+  display: flex;
+  align-items: center;
+  gap: 0.55em;
+  padding: 0.45em 0.7em;
+  border-radius: var(--rad-s);
+  background: var(--glass);
+  font-size: 0.86em;
+}
+.sh-mk .lg {
+  display: grid;
+  place-items: center;
+  color: var(--mc);
+}
+.sh-mk .lg svg {
+  width: 1.3em;
+  height: 1.3em;
+}
+.sh-mk b {
+  width: 5.5em;
+  font-weight: 700;
+}
+.sh-mk .dots {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.sh-mk .dots i {
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 3px;
+  border: 1px solid color-mix(in srgb, var(--rc) 55%, transparent);
+}
+.sh-mk .dots i.on {
+  background: var(--rc);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--rc) 60%, transparent);
+}
+.sh-mk em {
+  font-style: normal;
+  font-size: 0.85em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* a short phone: the market stacks its shelf over the detail, and the room scrolls */
+@media (max-height: 430px) {
+  .mk-tile .pic {
+    width: 2.5em;
+    height: 2.5em;
+  }
+  .sh-shelf {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .mk-body {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+  .sh-shelf {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .sh-stats,
+  .sh-makers {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* the home screen's Career button carries the credits */
+.map-btn .career-cash {
+  margin-left: 0.3em;
+  padding: 0.15em 0.55em;
+  border-radius: 999px;
+  font-size: 0.82em;
+  background: rgba(255, 210, 74, 0.12);
+  color: #ffe6a0;
+}
+.map-btn .career-cash svg {
+  width: 1.05em;
+  height: 1.05em;
+}

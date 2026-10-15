@@ -82,6 +82,16 @@ export const ICON = {
   moon: svg('<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>'),
   minus: svg('<path d="M5 12h14"/>'),
   trophy: svg('<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4"/>'),
+  // a credit chip: a coin with a bolt stamped in it
+  coin: svg('<circle cx="12" cy="12" r="8.5" fill="currentColor" fill-opacity=".18"/><circle cx="12" cy="12" r="5.6"/><path d="M12.8 8.6l-2.4 3.7h3.2l-2.4 3.7"/>'),
+  // the Parts Market: a shop awning over a counter
+  market: svg('<path d="M4 9.5l1.5-5h13l1.5 5"/><path d="M4 9.5c0 1.4 1.2 2.3 2.7 2.3s2.6-.9 2.6-2.3c0 1.4 1.2 2.3 2.7 2.3s2.7-.9 2.7-2.3c0 1.4 1.1 2.3 2.6 2.3S20 10.9 20 9.5"/><path d="M5.5 12v8h13v-8M10 20v-4.5h4V20"/>'),
+  // a crate with a band round it
+  crate: svg('<path d="M3.5 8l8.5-4.5L20.5 8v8.5L12 21l-8.5-4.5z" fill="currentColor" fill-opacity=".14"/><path d="M3.5 8L12 12.5 20.5 8M12 12.5V21"/><path d="M7.8 5.7l8.5 4.6"/>'),
+  // a championship belt: the big plate and the strap
+  belt: svg('<path d="M2 10.5h5M17 10.5h5M2 14h5M17 14h5"/><path d="M7 8.5a5 5 0 0 1 10 0v7a5 5 0 0 1-10 0z" fill="currentColor" fill-opacity=".2"/><circle cx="12" cy="12.2" r="2.2"/>'),
+  // a rank chevron stack
+  rank: svg('<path d="M6 11l6-4 6 4M6 15.5l6-4 6 4M6 20l6-4 6 4"/>'),
 };
 
 // two-tone glyph: a soft filled body under crisp strokes
