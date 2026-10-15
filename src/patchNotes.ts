@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: "2026-10-15 01:00",
     title: "A cosier lounge",
     notes: [
+      "The beach home screen now watches your robot from its left side, with the sea and sunset off to one side.",
       "Lounge: a knitted pouf with headphones, a basket of blankets, records on the floor, an open book on the sofa, cookies by the candles and slippers on the rug.",
     ],
   },

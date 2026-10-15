@@ -2031,13 +2031,15 @@ export class Beach implements HomeScene {
     return true;
   }
 
-  /** Over the robot's right shoulder, out across the sea to the low sun, drifting slowly. */
+  /** From the robot's left, swung about 10 degrees round towards its back, the sea and the low sun off to the left, drifting slowly. */
   private idleCam(k: SceneKit, time: number, snap = false) {
     const z = this.size;
-    const drift = Math.sin(time * 0.06);
+    // the robot's left is the world's -x, its back (the backrest end) the world's +z
+    const a = 0.17 + 0.06 * Math.sin(time * 0.06);
+    const r = (3.3 + 0.1 * Math.sin(time * 0.045)) * z;
     const c = k.cam;
-    c.look.set(-0.2 * z, 1.05 * z, -0.7 * z);
-    c.pos.set((1.45 + 0.2 * drift) * z, (1.42 + 0.06 * Math.sin(time * 0.09)) * z, (2.3 - 0.12 * drift) * z);
+    c.look.set(0, 0.8 * z, -0.12 * z);
+    c.pos.set(-Math.cos(a) * r, (1.5 + 0.06 * Math.sin(time * 0.09)) * z, c.look.z + Math.sin(a) * r);
     c.fov = 1;
     c.roll = 0;
     c.lambda = 1.5;
@@ -2132,7 +2134,7 @@ export class Beach implements HomeScene {
     cam.cut = false;
     cam.roll = 0;
     if (t < 1.35) {
-      // cut round to the front as the phone rings (the idle shot is behind the robot), then push in
+      // cut round to the front as the phone rings (the idle shot is from the robot's side), then push in
       const first = this.once('cutRing', 0);
       if (first) cam.pos.set(-2.2 * z, 1.45 * z, -1.95 * z);
       else cam.pos.set(-1.6 * z, 1.32 * z, -1.3 * z);
