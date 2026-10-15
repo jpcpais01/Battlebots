@@ -29,7 +29,7 @@ import { patchSurfaceDetail } from './surfaceDetail';
 import { makerSurfaces, surf, vertexPBR, type GlowKey, type Surfaces } from './bake';
 import { CH_CORE, CH_GLOW, CH_RARITY, rigid, rigidDepth, SkinBuilder, type DetailLod } from './skin';
 import { contactAO } from './ao';
-import { contactStats, Hull, partRadius, samplePB, solveLimb, tally, type PlacedHull } from './contact';
+import { contactStats, Hull, LimbSettle, partRadius, samplePB, solveLimb, tally, type PlacedHull } from './contact';
 import { damageDepthMaterial, damageUniforms, patchDamage, patchDamageGlow, DENTS, MARKS, MARK_OIL, MARK_SOCKET, type DamageUniforms } from './damageLook';
 import { P, PART_COUNT } from '../sim/damage';
 
@@ -144,6 +144,8 @@ const _tmp = new THREE.Vector3();
 const _tmp2 = new THREE.Vector3();
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
+const _mid0 = new THREE.Vector3();
+const _end0 = new THREE.Vector3();
 const _qa = new THREE.Quaternion();
 const _qb = new THREE.Quaternion();
 const _qc = new THREE.Quaternion();
@@ -208,6 +210,22 @@ function orientHeld(obj: THREE.Object3D, a: THREE.Vector3, b: THREE.Vector3, hin
   _x.crossVectors(_y, _z);
   setBasis(obj, _x, _y, _z);
   return len;
+}
+
+/**
+ * Contact hulls by the armour they were built from. A hull only depends on its part's look and
+ * rarity and is never changed once built, so robots wearing the same armour share one (building
+ * one takes a few milliseconds; the garage rebuilds the robot on every change).
+ */
+const hullCache = new Map<string, Hull>();
+function cachedHull(key: string, make: () => Hull) {
+  let h = hullCache.get(key);
+  if (h) hullCache.delete(key);
+  else h = make();
+  // most recently used last; a couple of dozen covers two fighters and a garage's worth of trying on
+  hullCache.set(key, h);
+  if (hullCache.size > 24) hullCache.delete(hullCache.keys().next().value!);
+  return h;
 }
 
 /** The plating, frame metal and trim of a robot wearing `paint`. */
@@ -276,10 +294,12 @@ export class BotModel {
   readonly size: number;
   /** World-space interpolated joints (valid after update); limbs are slid out of armour. */
   joints: THREE.Vector3[] = Array.from({ length: 16 }, () => new THREE.Vector3());
-  private hullPts = { torso: [] as number[], head: [] as number[], pelvis: [] as number[] };
   /** Armour hulls placed by their bones; read by the opponent's contact pass. */
   readonly hulls: { torso: PlacedHull; head: PlacedHull; pelvis: PlacedHull };
   readonly radii = { upper: 0.06, fore: 0.06, fist: 0.07, thigh: 0.08, shin: 0.07 };
+  /** Per limb (arms, then legs): how fast contact may move it (LimbSettle), and when it last ran. */
+  private readonly settle = [new LimbSettle(), new LimbSettle(), new LimbSettle(), new LimbSettle()];
+  private contactTime = -Infinity;
   private torsoX = new THREE.Vector3();
   private torsoZ = new THREE.Vector3();
   private torsoUp = new THREE.Vector3();
@@ -338,9 +358,12 @@ export class BotModel {
     sb.add(pelvisPB, B.Pelvis, 'legs', P.Torso);
     // contact hulls from the real armour (shoulder and hip axles belong to the limbs)
     const skipAxles = new Set<MatKey>(['joint']);
-    this.hullPts.torso = samplePB(corePB, undefined, samplePB(torsoPB, skipAxles));
-    this.hullPts.head = samplePB(headPB);
-    this.hullPts.pelvis = samplePB(pelvisPB, skipAxles);
+    const torsoKey = `${look('chest')}/${rar('chest')}/${look('core')}/${rar('core')}`;
+    const shapes = {
+      torso: cachedHull(`torso ${torsoKey}`, () => new Hull(samplePB(corePB, undefined, samplePB(torsoPB, skipAxles)))),
+      head: cachedHull(`head ${look('head')}/${rar('head')}`, () => new Hull(samplePB(headPB), 0.025)),
+      pelvis: cachedHull(`pelvis ${look('legs')}/${rar('legs')}`, () => new Hull(samplePB(pelvisPB, skipAxles))),
+    };
     const band = (pts: number[], lo: number, hi: number) => {
       const o: number[] = [];
       for (let i = 0; i < pts.length; i += 3) if (pts[i + 1] >= lo && pts[i + 1] <= hi) o.push(pts[i], pts[i + 1], pts[i + 2]);
@@ -387,11 +410,10 @@ export class BotModel {
       this.root.add(bone);
     }
     this.hulls = {
-      torso: { hull: new Hull(this.hullPts.torso), bone: this.bones[B.Torso], name: 'torso' },
-      head: { hull: new Hull(this.hullPts.head, 0.025), bone: this.bones[B.Head], name: 'head' },
-      pelvis: { hull: new Hull(this.hullPts.pelvis), bone: this.bones[B.Pelvis], name: 'pelvis' },
+      torso: { hull: shapes.torso, bone: this.bones[B.Torso], name: 'torso' },
+      head: { hull: shapes.head, bone: this.bones[B.Head], name: 'head' },
+      pelvis: { hull: shapes.pelvis, bone: this.bones[B.Pelvis], name: 'pelvis' },
     };
-    this.hullPts = { torso: [], head: [], pelvis: [] };
     const skeleton = new THREE.Skeleton(this.bones, this.bones.map(() => new THREE.Matrix4()));
     const { opaque, emissive, opaqueLod, emissiveLod } = sb.build();
 
@@ -495,7 +517,7 @@ export class BotModel {
 
   /** Resolve limb contacts (own armour and, if given, the opponent's), then place the limbs. */
   end(f: PoseSource, time: number, opp?: BotModel) {
-    this.solveContacts(f, opp);
+    this.solveContacts(f, opp, time);
     this.poseLimbs(f);
     for (const b of this.hidden) this.bones[b].scale.setScalar(0);
     this.effects(f, time);
@@ -537,21 +559,41 @@ export class BotModel {
   }
 
   /** Slide elbows, fists, knees and airborne feet out of armour they would pass through. */
-  private solveContacts(f: PoseSource, opp?: BotModel) {
+  private solveContacts(f: PoseSource, opp: BotModel | undefined, time: number) {
     if (!contactStats.enabled) return;
     const P = this.joints;
     const r = this.radii;
     const own = this.hulls;
     const arms = opp ? [own.torso, own.pelvis, own.head, opp.hulls.torso, opp.hulls.head, opp.hulls.pelvis] : [own.torso, own.pelvis, own.head];
+    const dt = time - this.contactTime;
+    this.contactTime = time;
+    const frame = this.bones[B.Torso].quaternion;
     let worst = 0;
     for (let side = 0; side < 2; side++) {
       const L = side === 0;
       const lead = (side === 0) === (f.stance < 0);
-      if (f.parts.armOut(side)) continue;
-      worst = Math.max(worst, solveLimb(P[L ? J.ShL : J.ShR], P[L ? J.ElL : J.ElR], P[L ? J.HandL : J.HandR], arms, 3, r.upper, r.fore, r.fist, 0.02, lead ? 'leadArm/' : 'rearArm/'));
-      if (f.footAir[side] > 0.3 && !f.parts.legOut(side)) {
-        const legs = opp ? [own.torso, opp.hulls.torso, opp.hulls.pelvis, opp.hulls.head] : [own.torso];
-        worst = Math.max(worst, solveLimb(P[L ? J.HipL : J.HipR], P[L ? J.KneeL : J.KneeR], P[L ? J.FootL : J.FootR], legs, 1, r.thigh, r.shin, r.shin, 0, 'leg/'));
+      const arm = this.settle[side];
+      if (f.parts.armOut(side)) arm.reset();
+      else {
+        const sh = P[L ? J.ShL : J.ShR], el = P[L ? J.ElL : J.ElR], hd = P[L ? J.HandL : J.HandR];
+        _mid0.copy(el);
+        _end0.copy(hd);
+        worst = Math.max(worst, solveLimb(sh, el, hd, arms, 3, r.upper, r.fore, r.fist, 0.02, lead ? 'leadArm/' : 'rearArm/'));
+        arm.apply(frame, sh, el, hd, _mid0, _end0, dt);
+      }
+      // legs only meet armour in the air (kicks, knees); when they come down, what contact did
+      // to them lets go at the settling speed rather than all at once
+      const leg = this.settle[2 + side];
+      if (f.parts.legOut(side)) leg.reset();
+      else {
+        const hip = P[L ? J.HipL : J.HipR], knee = P[L ? J.KneeL : J.KneeR], foot = P[L ? J.FootL : J.FootR];
+        _mid0.copy(knee);
+        _end0.copy(foot);
+        if (f.footAir[side] > 0.3) {
+          const legs = opp ? [own.torso, opp.hulls.torso, opp.hulls.pelvis, opp.hulls.head] : [own.torso];
+          worst = Math.max(worst, solveLimb(hip, knee, foot, legs, 1, r.thigh, r.shin, r.shin, 0, 'leg/'));
+        }
+        leg.apply(frame, hip, knee, foot, _mid0, _end0, dt);
       }
     }
     if (contactStats.by) {
@@ -592,13 +634,26 @@ export class BotModel {
       if (this.anchors[L ? J.HandL : J.HandR]) _tmp.copy(torsoZ);
       else _tmp.subVectors(hd, el).normalize();
       orientHeld(up, sh, el, _tmp, this.heldUp[side], torsoZ);
-      // forearm: the back of the hand turns from "outward" (vertical fist) by the roll. Outward
-      // is kept to its part across the forearm, unnormalised: its length is how much it says.
+      // forearm: the back of the hand turns from "outward" (vertical fist) by the roll. Outward is
+      // the bot's side for a forearm pointing straight ahead, carried round to wherever it points
+      // by the shortest turn from ahead. (Taken as the side axis's part across the forearm, it
+      // vanished whenever a forearm lay across the face, where guards, shells and drinks hold
+      // them, and spun the hand round there; this way it is only lost pointing straight back.)
+      // It is kept unnormalised and fades as the forearm turns back: its length is how much it
+      // says, and the forearm's last roll holds it where it says little.
       _tmp.subVectors(hd, el);
       const len = _tmp.length();
       _tmp.multiplyScalar(1 / Math.max(1e-5, len));
       const outward = _tmp2.copy(torsoX).multiplyScalar(L ? 1 : -1);
-      outward.addScaledVector(_tmp, -outward.dot(_tmp));
+      const ahead = torsoZ.dot(_tmp);
+      if (ahead > -0.999) {
+        // Rodrigues, with k = ahead x forearm: v c + k x v + k (k . v) / (1 + c)
+        _a.crossVectors(torsoZ, _tmp);
+        const kv = _a.dot(outward);
+        _b.crossVectors(_a, outward);
+        outward.multiplyScalar(ahead).add(_b).addScaledVector(_a, kv / (1 + ahead));
+      }
+      outward.addScaledVector(_tmp, -outward.dot(_tmp)).multiplyScalar(Math.min(1, (1 + ahead) * 2));
       _a.crossVectors(_tmp, outward);
       const phi = f.handRoll[side] * (Math.PI / 2) * (L ? 1 : -1);
       _b.copy(outward).multiplyScalar(Math.cos(phi)).addScaledVector(_a, Math.sin(phi));
