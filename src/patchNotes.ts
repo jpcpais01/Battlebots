@@ -17,6 +17,16 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 13:00",
+    title: "Smoother walking",
+    notes: [
+      "Bots no longer sink down while they walk: every stride now fits the legs, a trailing foot rolls up onto its toes instead of dragging the hips down, and a foot that gets left behind takes a quick catch step.",
+      "Steps land where they should: a stride re-aims mid-swing when the bot speeds up, slows or turns, and when a bot stops its last foot lands under it instead of out in front.",
+      "Setting off and pulling up look natural: bots ease into a walk and out of it instead of lurching, and they stay standing as they walked instead of shuffling back into a fighting stance.",
+      "Fight footwork keeps the hips level: the stance shortens a little on the move, and the small bob on each step is gentler.",
+    ],
+  },
+  {
+    hour: "2026-10-15 13:00",
     title: "Richer home scenes",
     notes: [
       "The beach is busier: robots sunbathe, play volleyball and walk a dog along the shore, with a tiki stand and lifeguard tower down the sand.",

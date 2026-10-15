@@ -291,6 +291,8 @@ class Foot {
   /** Driven by a kick (or airborne): position is set directly. */
   locked = false;
   arc = 0.08;
+  /** A walking stride: its landing spot follows the body while the foot is still low in the swing. */
+  walk = false;
   /** World yaw the toes point along while planted. */
   yaw = 0;
   fromYaw = 0;
@@ -408,6 +410,16 @@ export class Fighter {
   private gaitD = 0.38;
   /** Arms and hips on the walk: + when the right foot is out ahead (smoothed, from the feet). */
   private strideSwing = 0;
+  /** How much the body is on the move in its fighting stance (0..1): the stance shortens. */
+  private travelK = 0;
+  /** Nobody to fight close by (last step): the body walks, and gathers speed like a walker. */
+  private roomy = false;
+  /** The root's top speed and acceleration this step: where the steps expect the body to be. */
+  private rootMax = 0;
+  private rootAcc = 0;
+  /** How far the pelvis is held down to keep a foot in reach (drops at once, rises smoothly). */
+  private reachDrop = 0;
+  private _pv = new Vector3();
   private pivot = [0, 0];
   private heel = [0, 0];
   private _pivotT = [0, 0];
@@ -1215,6 +1227,12 @@ export class Fighter {
     }
     if (this.state === 'win') maxSpd *= 0.4;
     if (this.dodge && (this.dodge.type === 'backstep' || this.dodge.type === 'sidestep')) accel = 3;
+    // walking (nobody close to fight), the body gathers speed and slows over a step or two
+    // the way a walker does, instead of lurching off and leaving its feet behind
+    // (only its own walking: a shove or a knock still brakes as hard as ever)
+    else if (this.roomy && !s && this.state !== 'held' && this.rootVel.length() < maxSpd * 1.05) accel = Math.min(accel, 3.6 * legs);
+    this.rootMax = maxSpd;
+    this.rootAcc = accel;
 
     // footwork passive helps lateral movement
     _v.copy(this.intentVel);
@@ -1307,6 +1325,9 @@ export class Fighter {
     const wide = 1 + this.crouch * 0.8;
     if (isLead) out.set(sx * 0.15 * wide, FOOT_Y, 0.2 * wide);
     else out.set(sx * 0.17 * wide, FOOT_Y, -0.22 * wide);
+    // on the move the stance shortens, so a stride fits between the feet without either leg
+    // reaching out past it
+    out.z *= 1 - 0.45 * this.travelK;
     // walking, the stance squares up: the feet under the hips, so the strides pass each other
     const wk = this.walkK;
     if (wk > 0) {
@@ -1373,18 +1394,74 @@ export class Fighter {
    * follows the speed until it hits the leg's natural cadence (a pendulum: big frames step
    * slower, worn legs too). Side-on, the excursion shrinks so the feet never cross.
    */
-  private gaitTiming(vn: number, lat: number) {
+  private gaitTiming(vn: number, lat: number, lx: number, lz: number) {
     const wk = this.walkK;
-    const reach = lerp(0.15, 0.36, wk) * (1 - 0.55 * lat * lat);
+    const reach = lerp(0.13, 0.32, wk) * (1 - 0.55 * lat * lat);
     const swing = lerp(0.78, 0.72, wk);
     const pace = Math.sqrt(this.size / Math.sqrt(this.build.stats.agility * this.parts.mobility()));
     const k = (1 - swing * 0.5) * Math.max(0.05, vn);
     const p = clamp(reach / k, lerp(0.36, 0.4, wk) * pace, 0.62 * pace);
-    // going fast the steps quicken only as much as they must for a leg not to over-reach
-    // (side-on, where the feet can't pass each other, a little sooner)
-    const most = lerp(0.24, 0.42, wk) * (1 - 0.45 * lat);
+    // going fast the steps quicken only as much as they must for a leg not to over-reach:
+    // a foot can ride only so far out from under its hip along the travel, less what its
+    // place in the stance already puts it out (side-on, where the feet can't pass each
+    // other, a little sooner)
+    let most = 0.4;
+    for (let i = 0; i < 2; i++) {
+      this.stanceFoot(i, _u);
+      const ox = _u.x - (i === 0 ? -0.15 : 0.15);
+      const along = ox * lx + _u.z * lz;
+      const perp = ox * lz - _u.z * lx;
+      most = Math.min(most, Math.sqrt(Math.max(0, 0.42 * 0.42 - perp * perp)) - Math.abs(along));
+    }
+    most = Math.max(0.08, most) * (1 - 0.3 * lat);
     this.gaitP = Math.max(0.18, Math.min(p, most / k));
     this.gaitD = this.gaitP * swing;
+  }
+
+  /** The body's velocity t seconds from now, accelerating as updateRoot does towards its intent. */
+  private velIn(t: number, out: Vector3) {
+    out.copy(this.intentVel);
+    const l = out.length();
+    if (l > this.rootMax) out.multiplyScalar(this.rootMax / Math.max(1e-6, l));
+    out.sub(this.rootVel);
+    const dv = out.length(), m = this.rootAcc * t;
+    if (dv > m) out.multiplyScalar(m / dv);
+    return out.add(this.rootVel);
+  }
+
+  /**
+   * Where a stride of foot i landing in tr seconds should come down (world): where its hip
+   * will be, plus half the ground the body covers while it's planted, reckoned with the
+   * speed the body is heading for (setting off the strides open out; pulling up, the last
+   * foot comes down under the body rather than out in front of where it stops).
+   */
+  private strideTarget(i: number, tr: number, out: Vector3) {
+    this.stanceFoot(i, _u);
+    this.toWorld(_u, out, this.yaw);
+    const vEnd = this.velIn(tr, this._pv);
+    out.addScaledVector(this.rootVel, tr * 0.5).addScaledVector(vEnd, tr * 0.5 + this.gaitP - this.gaitD * 0.5);
+    return this.uncross(i, out);
+  }
+
+  /** The legs never cross: side-on, a foot landing at p closes up to the other one, not past it. */
+  private uncross(i: number, p: Vector3) {
+    // (against where the other foot will be, if it's on its way somewhere)
+    const o = this.feet[1 - i];
+    this.toLocal(o.stepping ? o.to : o.pos, _u, this.yaw);
+    this.toLocal(p, _bd, this.yaw);
+    const sx = i === 0 ? -1 : 1;
+    const minGap = Math.abs(_bd.z - _u.z) > 0.3 ? 0.06 : 0.15;
+    if (sx * (_bd.x - _u.x) < minGap) {
+      _bd.x = _u.x + sx * minGap;
+      this.toWorld(_bd, p, this.yaw);
+    }
+    return p;
+  }
+
+  /** How far planted foot i is from under its hip, flat on the canvas (body lengths). */
+  private reachOf(i: number) {
+    this.toLocal(this.feet[i].pos, _w, this.yaw);
+    return DM.hypot(_w.x - ((i === 0 ? -0.15 : 0.15) + this.pelvisOff.x), _w.z - this.pelvisOff.z);
   }
 
   private updateFeet(dt: number) {
@@ -1395,6 +1472,18 @@ export class Fighter {
       const f = this.feet[i];
       if (f.locked) continue;
       if (f.stepping) {
+        // a stride re-aims as it goes: if the body speeds up, slows or turns, the foot reaches
+        // for where it's now needed rather than where it was going when it lifted, holding its
+        // place on the way (the path's start moves instead)
+        if (f.walk && f.t < 0.6 && dt > 0 && this.legLost < 0) {
+          this.strideTarget(i, (1 - f.t) * f.dur, _q);
+          const a = 1 - DM.exp(-12 * dt);
+          f.to.x += (_q.x - f.to.x) * a;
+          f.to.z += (_q.z - f.to.z) * a;
+          const k0 = minJerk(f.t);
+          f.from.x = (f.pos.x - f.to.x * k0) / (1 - k0);
+          f.from.z = (f.pos.z - f.to.z * k0) / (1 - k0);
+        }
         f.t += dt / f.dur;
         const k = minJerk(f.t);
         f.pos.lerpVectors(f.from, f.to, k);
@@ -1409,7 +1498,7 @@ export class Fighter {
           // the knees give a little as the weight lands on the new foot; a hop lands
           // the whole body into the one knee
           const hop = this.legLost >= 0;
-          this.stepDip = Math.max(this.stepDip, hop ? 0.025 + (f.arc / this.size) * 0.35 : 0.008 + f.arc * 0.12);
+          this.stepDip = Math.max(this.stepDip, hop ? 0.025 + (f.arc / this.size) * 0.35 : 0.004 + (f.arc / this.size) * 0.06);
           if (hop) this.hopAt = this.hooksTime;
           this.landAt = this.hooksTime;
           this.landFoot = i;
@@ -1424,18 +1513,42 @@ export class Fighter {
     const sz = this.size;
     let walkT = 0;
     let lat = 0;
-    if (moving > 0.05) {
+    this.roomy = false;
+    if (moving > 0.05 || this.intentVel.lengthSq() > 0.01) {
       const cy = DM.cos(this.yaw), sy = DM.sin(this.yaw);
-      lat = Math.abs(-cy * this.rootVel.x + sy * this.rootVel.z) / moving;
+      lat = moving > 0.05 ? Math.abs(-cy * this.rootVel.x + sy * this.rootVel.z) / moving : 0;
       const o = this.opp;
       // (nobody to fight near it: far off, out of it, or hands down for a walk-in)
       const os = o?.state;
       const room = !o || os === 'down' || os === 'ko' || os === 'ready' || os === 'getup' || this.guardDrop > 0.3 || this.distTo(o) > 1.15 * (sz + o.size);
+      this.roomy = room;
       if (lost < 0 && !s && !d && room && (this.state === 'fight' || this.state === 'win'))
         walkT = smoothstep(0.35, 0.8, moving / sz) * (1 - smoothstep(0.55, 0.8, lat));
     }
+    // pulled up with nobody to fight, it stays standing as it walked rather than shuffling
+    // back into a fighting stance
+    if (walkT === 0 && moving < 0.35 && !s && !d && lost < 0) {
+      const o = this.opp;
+      const os = o?.state;
+      if (!o || os === 'down' || os === 'ko' || os === 'ready' || os === 'getup' || this.guardDrop > 0.3 || this.distTo(o) > 1.15 * (sz + o.size)) walkT = this.walkK;
+    }
     if (dt > 0) this.walkK = damp(this.walkK, walkT, walkT > this.walkK ? 2.5 : 4, dt);
-    this.gaitTiming(moving / sz, lat);
+    // (the fighting stance shortens on the move, in step with the travel)
+    const travelT = lost < 0 && !(s && s.phase !== 'recovery') && !d ? smoothstep(0.3, 1.0, moving / sz) : 0;
+    if (dt > 0) this.travelK = damp(this.travelK, travelT, 4, dt);
+    // the stride is planned for the speed the body is getting up to, so the first steps
+    // setting off aren't long slow ones the body then outruns
+    const vp = this.velIn(0.25, this._pv);
+    const plan = Math.max(moving, vp.length());
+    let lx = 0, lz = 1;
+    if (plan > 0.05) {
+      const pv = moving > 0.05 ? this.rootVel : vp;
+      const pl = pv.length();
+      const cy = DM.cos(this.yaw), sy = DM.sin(this.yaw);
+      lx = (-cy * pv.x + sy * pv.z) / pl;
+      lz = (sy * pv.x + cy * pv.z) / pl;
+    }
+    this.gaitTiming(plan / sz, lat, lx, lz);
     if (this.state === 'getup') return;
     // on one leg the support foot pivots (see updateRoot) instead of stepping; only at the
     // very start of a kick may it make a quick set step back under the body
@@ -1451,7 +1564,9 @@ export class Fighter {
     // planted, the weight rolls over it, and the next foot goes only after a moment with both
     // down. Each lands as far ahead of its hip as it will end up behind it, so the body rides
     // over a planted foot instead of the feet scurrying to catch up with it.
-    const travel = moving > 0.35 && lost < 0 && !(s && s.phase !== 'recovery') && this.sprawlK() <= 0;
+    // (thrown faster than it can walk, by a blow or a shove, the feet scramble instead)
+    // (setting off, the first step goes as the body starts to move, not once it's under way)
+    const travel = Math.max(moving, plan) > 0.35 && moving < this.rootMax * 1.15 + 0.2 && lost < 0 && !(s && s.phase !== 'recovery') && this.sprawlK() <= 0;
     const ahead = travel ? this.gaitP - this.gaitD * 0.5 : 0.12;
     for (let i = 0; i < 2; i++) {
       const f = this.feet[i];
@@ -1481,6 +1596,12 @@ export class Fighter {
       }
     }
     if (best < 0) return;
+    // a foot left too far from its hip (a shove, a sudden turn or change of direction) goes
+    // at once, whatever the rhythm says: a catch step, before the leg runs out of reach
+    // (one left out in front only matters if the body is moving away from it)
+    const reach = this.reachOf(best);
+    const fb = this.feet[best];
+    const late = reach > 0.58 || (reach > 0.5 && (fb.pos.x - this.root.x) * vx + (fb.pos.z - this.root.z) * vz <= 0);
     let thresh = moving > 0.4 ? 0.16 : 0.3;
     if (s && s.phase !== 'recovery') thresh = kick ? 0.12 : s.move.kind === 'grab' ? 0.14 : 0.45;
     if (this.sprawlK() > 0) thresh = 0.1;
@@ -1488,9 +1609,10 @@ export class Fighter {
     // a constant patter); one-legged, that's a little balancing hop
     else if (this.bounce > 0.5 && moving < 0.3 && this.rng.chance(dt * (lost >= 0 ? 0.25 : 0.32) * this.bounce)) thresh = 0.02;
     if (travel) {
-      if (anyStepping || this.hooksTime - this.landAt < this.gaitP - this.gaitD) return;
+      if (!late && (anyStepping || this.hooksTime - this.landAt < this.gaitP - this.gaitD)) return;
       thresh = 0.05;
     }
+    if (late) thresh = Math.min(thresh, 0.05);
     // emoting: set the feet exactly (a power stance, back to the stance after)
     if (!s && this.emote?.restep && moving < 0.3) thresh = Math.min(thresh, 0.07);
     if (lost >= 0) {
@@ -1502,12 +1624,12 @@ export class Fighter {
       else if (s) thresh = Math.min(thresh, 0.2);
     }
     // (a sprawl kicks both legs back together)
-    if (anyStepping && bestErr < 0.55 && this.sprawlK() <= 0) return;
+    if (anyStepping && bestErr < 0.55 && !late && this.sprawlK() <= 0) return;
     if (bestErr < thresh) return;
     const f = this.feet[best];
     this.stanceFoot(best, _p);
     this.toWorld(_p, _q, this.yaw);
-    if (travel) f.dur = this.gaitD;
+    if (travel) f.dur = late ? Math.min(this.gaitD, 0.26) : this.gaitD;
     else {
       // a placing step: a short one is quick, a long one takes its time; a big frame's legs
       // swing slower. Steps that set up a shot, a sprawl or a dodge are snappier.
@@ -1515,6 +1637,8 @@ export class Fighter {
       f.dur = (0.24 + 0.32 * Math.min(0.4, bestErr)) * pace;
       if (s && s.phase !== 'recovery') f.dur *= 0.75;
       if (d) f.dur *= 0.8;
+      // carried off faster than it can walk: quick scrambling steps to stay under itself
+      if (moving > 1.2) f.dur = Math.min(f.dur, 0.2 * pace);
       if (this.sprawlK() > 0) f.dur = Math.min(f.dur, 0.24);
       f.dur = clamp(f.dur, 0.12, kick ? 0.13 : 0.5);
     }
@@ -1532,20 +1656,13 @@ export class Fighter {
       if (moving > Math.min(wl, want)) _w.copy(this.rootVel);
       _q.addScaledVector(_w, f.dur * 0.8);
     } else {
-      // walking: where its hip will be when it lands, plus half the ground the body covers
-      // while it's planted; otherwise just behind where the body is going
-      _q.addScaledVector(this.rootVel, travel ? this.gaitP + this.gaitD * 0.5 : f.dur * 0.8);
-      // the legs never cross: side-on the trailing foot closes up to the other, not past it
-      const o = this.feet[1 - best];
-      this.toLocal(o.pos, _p, this.yaw);
-      this.toLocal(_q, _w, this.yaw);
-      const sx = best === 0 ? -1 : 1;
-      const minGap = Math.abs(_w.z - _p.z) > 0.3 ? 0.06 : 0.15;
-      if (sx * (_w.x - _p.x) < minGap) {
-        _w.x = _p.x + sx * minGap;
-        this.toWorld(_w, _q, this.yaw);
+      if (travel) this.strideTarget(best, f.dur, _q);
+      else {
+        _q.addScaledVector(this.rootVel, f.dur * 0.8);
+        this.uncross(best, _q);
       }
     }
+    f.walk = travel;
     f.from.copy(f.pos);
     f.to.copy(_q);
     f.to.y = FOOT_Y * this.size;
@@ -1596,6 +1713,16 @@ export class Fighter {
         if (f.stepping || f.locked) continue;
         const along = ((f.pos.x - this.root.x) * this.rootVel.x + (f.pos.z - this.root.z) * this.rootVel.z) / (mv * this.size);
         heel[i] += wk * 0.55 * smoothstep(0.12, 0.42, -along);
+      }
+    }
+    // any planted foot left well behind the hips rolls up onto its ball, so the leg still
+    // reaches it standing tall (rather than the whole body sinking to keep it)
+    if (this.state !== 'down' && this.state !== 'ko') {
+      for (let i = 0; i < 2; i++) {
+        const f = this.feet[i];
+        if (f.locked) continue;
+        this.toLocal(f.pos, _u, this.yaw);
+        heel[i] = Math.max(heel[i], 0.75 * smoothstep(0.3, 0.55, this.pelvisOff.z - _u.z));
       }
     }
 
@@ -1834,7 +1961,7 @@ export class Fighter {
       }
       pd.x -= sxF * 0.045 * sw * (0.4 + 0.6 * size);
       roll -= sxF * 0.03 * sw * size;
-      rise += 0.014 * sw * size;
+      rise += 0.009 * sw * size;
       hipTw -= sxF * fwd * 0.55 * sw * (1 - wk);
       shTw += sxF * fwd * 0.25 * sw * (1 - wk);
       swing += sxF * fwd * sw;
@@ -1915,7 +2042,8 @@ export class Fighter {
     const bob = -DM.cos(this.bobPhase) * bobAmp;
 
     // ---------- skeleton (local)
-    let pelvisH = PELVIS_H - this.crouch + bob + this.lift;
+    const standH = PELVIS_H - this.crouch + bob + this.lift;
+    let pelvisH = standH;
     // keep both legs within reach of planted feet
     for (let i = 0; i < 2; i++) {
       const f = this.feet[i];
@@ -1927,6 +2055,11 @@ export class Fighter {
       const maxH = _p.y + this.heelLift(i) + Math.sqrt(Math.max(0, reach * reach - horiz * horiz)) + 0.07;
       if (pelvisH > maxH) pelvisH = maxH;
     }
+    // the hips sink at once to keep a foot in reach (or the leg would stretch), but rise back
+    // smoothly: no jolt up as a trailing foot leaves the canvas
+    const drop = standH - pelvisH;
+    this.reachDrop = dt > 0 ? Math.max(drop, damp(this.reachDrop, drop, 9, dt)) : drop;
+    pelvisH = standH - this.reachDrop;
     pelvisH = Math.max(0.35, pelvisH);
     if (gu) pelvisH = lerp(pelvisH, gu.py, gu.w);
     L[J.Pelvis].set(this.pelvisOff.x, pelvisH, this.pelvisOff.z);
