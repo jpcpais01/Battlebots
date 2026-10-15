@@ -16,6 +16,14 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-15 14:00",
+    title: "Ray tracing fixes",
+    notes: [
+      "Fixed dark horizontal lines across the floor and other surfaces with ray tracing on. They showed up at some screen resolutions and not others, which is why they came and went between launches.",
+      "Soft shadows no longer show faint stripes on surfaces the light only grazes.",
+    ],
+  },
+  {
     hour: "2026-10-15 13:00",
     title: "Smoother walking and loading",
     notes: [

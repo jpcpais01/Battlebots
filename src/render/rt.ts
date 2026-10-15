@@ -66,7 +66,17 @@ const VIEW = /* glsl */ `
   uniform vec2 uNF;
   uniform vec2 uFull;
   float viewZ(float d) { return (uNF.x * uNF.y) / ((uNF.y - uNF.x) * d - uNF.y); }
-  float depthAt(vec2 uv) { return texture2D(tDepth, uv).r; }
+  // The depth buffer is only ever read one whole pixel at a time, and a position is always rebuilt
+  // from the centre of the very pixel its depth came from. (Filtered lookups at half-resolution
+  // texel centres land exactly on the line between two full-resolution rows; which row the GPU
+  // picks then flips with rounding, row by row, at some resolutions and not others, and a normal
+  // built from two taps that picked the same row is garbage: lines across the floor.)
+  ivec2 fullSize() { return textureSize(tDepth, 0); }
+  float depthPx(ivec2 p) { return texelFetch(tDepth, clamp(p, ivec2(0), fullSize() - 1), 0).r; }
+  vec2 pxUv(ivec2 p) { return (vec2(clamp(p, ivec2(0), fullSize() - 1)) + 0.5) / vec2(fullSize()); }
+  ivec2 uvPx(vec2 uv) { return ivec2(floor(uv * vec2(fullSize()))); }
+  /** The full-resolution pixel a half-resolution pixel stands for (the first of its 2×2 block). */
+  ivec2 homePx() { return ivec2(gl_FragCoord.xy) * 2; }
   vec3 viewPos(vec2 uv, float d) {
     float z = viewZ(d);
     vec2 ndc = uv * 2.0 - 1.0;
@@ -76,16 +86,26 @@ const VIEW = /* glsl */ `
     vec2 ndc = vec2(uProj.x * p.x + uProj.z * p.z, uProj.y * p.y + uProj.w * p.z) / -p.z;
     return ndc * 0.5 + 0.5;
   }
-  // the surface normal from the depth around the pixel: of the two neighbours on each axis, the
-  // one nearer in depth, so an edge doesn't bend the normal of the surface behind it
-  vec3 viewNormal(vec2 uv, vec3 p) {
-    vec3 l = viewPos(uv - vec2(uFull.x, 0.0), depthAt(uv - vec2(uFull.x, 0.0)));
-    vec3 r = viewPos(uv + vec2(uFull.x, 0.0), depthAt(uv + vec2(uFull.x, 0.0)));
-    vec3 b = viewPos(uv - vec2(0.0, uFull.y), depthAt(uv - vec2(0.0, uFull.y)));
-    vec3 t = viewPos(uv + vec2(0.0, uFull.y), depthAt(uv + vec2(0.0, uFull.y)));
-    vec3 dx = abs(r.z - p.z) < abs(p.z - l.z) ? r - p : p - l;
-    vec3 dy = abs(t.z - p.z) < abs(p.z - b.z) ? t - p : p - b;
-    return normalize(cross(dx, dy));
+  vec3 posPx(ivec2 p) { return viewPos(pxUv(p), depthPx(p)); }
+  /** The scene where a screen position lands: that pixel's own depth, at that pixel's centre. */
+  vec3 posAt(vec2 uv) { return posPx(uvPx(uv)); }
+  float zAt(vec2 uv) { return viewZ(depthPx(uvPx(uv))); }
+  // of two steps either side, the one nearer in depth (so an edge doesn't bend the surface behind
+  // it), but never a step of nothing (at the screen's edge a neighbour is the pixel itself)
+  vec3 pickStep(vec3 back, vec3 fwd) {
+    bool f = abs(fwd.z) < abs(back.z);
+    if (dot(fwd, fwd) < 1e-12) f = false;
+    if (dot(back, back) < 1e-12) f = true;
+    return f ? fwd : back;
+  }
+  // the surface normal from the depth of the pixels around pixel c
+  vec3 viewNormal(ivec2 c, vec3 p) {
+    vec3 dx = pickStep(p - posPx(c - ivec2(1, 0)), posPx(c + ivec2(1, 0)) - p);
+    vec3 dy = pickStep(p - posPx(c - ivec2(0, 1)), posPx(c + ivec2(0, 1)) - p);
+    vec3 n = cross(dx, dy);
+    float len = length(n);
+    // (a degenerate spot faces the camera rather than turning into NaN)
+    return len > 1e-12 ? n / len : vec3(0.0, 0.0, 1.0);
   }
   // a 4×4 ordered pattern: every 4×4 block of pixels holds each offset once, so the 4×4 blur
   // averages it out exactly and the noise never crawls
@@ -122,10 +142,12 @@ const LIGHT = /* glsl */ `
   varying vec2 vUv;
   const int N = SAMPLES;
   void main() {
-    float d = depthAt(vUv);
+    ivec2 home = homePx();
+    float d = depthPx(home);
     if (d >= 0.99999) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
-    vec3 p = viewPos(vUv, d);
-    vec3 n = viewNormal(vUv, p);
+    vec2 uv0 = pxUv(home);
+    vec3 p = viewPos(uv0, d);
+    vec3 n = viewNormal(home, p);
     float jit = bayer(gl_FragCoord.xy);
     float rot = jit * 6.2831853;
     // the radius on screen, in full-resolution pixels: wide up close, never the whole screen
@@ -137,9 +159,9 @@ const LIGHT = /* glsl */ `
       float a = (float(i) + jit) / float(N);
       float ang = a * 7.0 * 6.2831853 + rot;
       float rad = a * a * rPx + 1.5;
-      vec2 suv = vUv + vec2(cos(ang), sin(ang)) * rad * uFull;
-      if (suv.x < 0.0 || suv.y < 0.0 || suv.x > 1.0 || suv.y > 1.0) continue;
-      vec3 q = viewPos(suv, depthAt(suv));
+      vec2 suv = uv0 + vec2(cos(ang), sin(ang)) * rad * uFull;
+      if (suv.x < 0.0 || suv.y < 0.0 || suv.x >= 1.0 || suv.y >= 1.0) continue;
+      vec3 q = posAt(suv);
       vec3 v = q - p;
       float vv = dot(v, v);
       float cosv = dot(v, n) * inversesqrt(vv + 1e-4);
@@ -163,14 +185,13 @@ const LIGHT = /* glsl */ `
           float t = (float(i) + jit) * (CS_LEN / float(CS_STEPS)) + 0.02;
           vec3 s = p + n * 0.01 + l * t;
           vec2 suv = project(s);
-          if (suv.x < 0.0 || suv.y < 0.0 || suv.x > 1.0 || suv.y > 1.0) break;
-          float sz = viewZ(depthAt(suv));
-          float dz = sz - s.z;
+          if (suv.x < 0.0 || suv.y < 0.0 || suv.x >= 1.0 || suv.y >= 1.0) break;
+          float dz = zAt(suv) - s.z;
           // something solid sits between this point and the light (but not far behind it)
           if (dz > 0.015 && dz < 0.25) { lit = mix(0.12, 0.55, t / CS_LEN); break; }
         }
         // a stretch shorter than a pixel says nothing
-        shade = mix(1.0, lit, clamp(length(project(p + l * CS_LEN) - vUv) * uHalfPx.y * 0.5, 0.0, 1.0));
+        shade = mix(1.0, lit, clamp(length(project(p + l * CS_LEN) - uv0) * uHalfPx.y * 0.5, 0.0, 1.0));
       }
     }
     gl_FragColor = vec4(bounce, ao * shade);
@@ -187,15 +208,16 @@ const REFLECT = /* glsl */ `
   uniform float uRingR;
   varying vec2 vUv;
   void main() {
-    float d = depthAt(vUv);
+    ivec2 home = homePx();
+    float d = depthPx(home);
     if (d >= 0.99999) { gl_FragColor = vec4(0.0); return; }
-    vec3 p = viewPos(vUv, d);
+    vec3 p = viewPos(pxUv(home), d);
     vec3 w = (uViewInv * vec4(p, 1.0)).xyz;
     float k = 0.0, rough = 1.0;
     if (abs(w.y) < 0.03 && length(w.xz) < uRingR) { k = uCanvas.x; rough = uCanvas.y; }
     else if (uFloor.x > 0.0 && abs(w.y - uFloor.z) < 0.04) { k = uFloor.x; rough = uFloor.y; }
     // only the flat, upward-facing tops: not the robots' feet or the stage's rounded edge
-    if (k > 0.0 && dot(viewNormal(vUv, p), uUp) < 0.92) k = 0.0;
+    if (k > 0.0 && dot(viewNormal(home, p), uUp) < 0.92) k = 0.0;
     if (k <= 0.0) { gl_FragColor = vec4(0.0); return; }
     vec3 vdir = normalize(p);
     // a rough surface scatters its reflection: tilt the normal by a jittered amount, the 4×4 blur
@@ -219,16 +241,15 @@ const REFLECT = /* glsl */ `
       vec3 s = p + r * t;
       if (s.z > -uNF.x) break;
       vec2 suv = project(s);
-      if (suv.x < 0.0 || suv.y < 0.0 || suv.x > 1.0 || suv.y > 1.0) break;
-      float sz = viewZ(depthAt(suv));
-      float dz = sz - s.z;
+      if (suv.x < 0.0 || suv.y < 0.0 || suv.x >= 1.0 || suv.y >= 1.0) break;
+      float dz = zAt(suv) - s.z;
       if (dz > 0.0 && dz < 0.12 + (t - prevT) * 1.5) {
         // passed behind a surface: home in on where the ray met it
         float lo = prevT, hi = t;
         for (int j = 0; j < 4; j++) {
           float m = (lo + hi) * 0.5;
           vec3 ms = p + r * m;
-          if (viewZ(depthAt(project(ms))) - ms.z > 0.0) hi = m; else lo = m;
+          if (zAt(project(ms)) - ms.z > 0.0) hi = m; else lo = m;
         }
         tHit = hi;
         vec2 huv = project(p + r * hi);
@@ -252,22 +273,22 @@ const REFLECT = /* glsl */ `
 const BLUR = /* glsl */ `
   ${VIEW}
   uniform sampler2D tSrc;
-  uniform vec2 uHalf;
-  varying vec2 vUv;
   void main() {
-    float z0 = viewZ(depthAt(vUv));
+    // whole texels only, each with the depth of the pixel it was traced from
+    ivec2 c = ivec2(gl_FragCoord.xy);
+    ivec2 top = textureSize(tSrc, 0) - 1;
+    float z0 = viewZ(depthPx(c * 2));
     vec4 acc = vec4(0.0);
     float wsum = 0.0;
     for (int y = -2; y < 2; y++) {
       for (int x = -2; x < 2; x++) {
-        vec2 uv = vUv + (vec2(float(x), float(y)) + 0.5) * uHalf;
-        float z = viewZ(depthAt(uv));
-        float w = max(0.0, 1.0 - abs(z - z0) / (0.03 * -z0 + 0.02));
-        acc += texture2D(tSrc, uv) * w;
+        ivec2 q = clamp(c + ivec2(x, y), ivec2(0), top);
+        float w = max(0.0, 1.0 - abs(viewZ(depthPx(q * 2)) - z0) / (0.03 * -z0 + 0.02));
+        acc += texelFetch(tSrc, q, 0) * w;
         wsum += w;
       }
     }
-    gl_FragColor = wsum > 0.0 ? acc / wsum : texture2D(tSrc, vUv);
+    gl_FragColor = wsum > 0.0 ? acc / wsum : texelFetch(tSrc, c, 0);
   }`;
 
 /**
@@ -279,24 +300,30 @@ export const RT_COMPOSITE = /* glsl */ `
   uniform sampler2D tLight;
   uniform sampler2D tRefl;
   uniform vec2 uNF;
-  uniform vec2 uHalfTexel;
   uniform vec4 uRTk;
-  float rtZ(vec2 uv) { float d = texture2D(tDepth, uv).r; return (uNF.x * uNF.y) / ((uNF.y - uNF.x) * d - uNF.y); }
+  // whole pixels and texels only, as the passes read them (see VIEW in rt.ts)
+  float rtZ(ivec2 p) {
+    float d = texelFetch(tDepth, clamp(p, ivec2(0), textureSize(tDepth, 0) - 1), 0).r;
+    return (uNF.x * uNF.y) / ((uNF.y - uNF.x) * d - uNF.y);
+  }
   void rtFetch(vec2 uv, out vec4 light, out vec3 refl) {
-    vec2 px = uv / uHalfTexel - 0.5;
-    vec2 base = (floor(px) + 0.5) * uHalfTexel;
-    vec2 f = fract(px);
-    float z0 = rtZ(uv);
+    ivec2 full = textureSize(tDepth, 0);
+    ivec2 px = clamp(ivec2(floor(uv * vec2(full))), ivec2(0), full - 1);
+    // half texel j was traced at full pixel 2j: this pixel sits at j = px / 2, between two of them
+    ivec2 j0 = px / 2;
+    vec2 f = vec2(px - j0 * 2) * 0.5;
+    ivec2 top = textureSize(tLight, 0) - 1;
+    float z0 = rtZ(px);
     light = vec4(0.0);
     refl = vec3(0.0);
     float ws = 0.0;
     for (int i = 0; i < 4; i++) {
-      vec2 o = vec2(float(i - (i / 2) * 2), float(i / 2));
-      vec2 tuv = base + o * uHalfTexel;
-      float bw = (o.x > 0.5 ? f.x : 1.0 - f.x) * (o.y > 0.5 ? f.y : 1.0 - f.y);
-      float w = (bw + 1e-3) / (1e-3 + abs(rtZ(tuv) - z0) / (0.02 * -z0 + 0.01));
-      light += texture2D(tLight, tuv) * w;
-      refl += texture2D(tRefl, tuv).rgb * w;
+      ivec2 o = ivec2(i - (i / 2) * 2, i / 2);
+      ivec2 t = min(j0 + o, top);
+      float bw = (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y);
+      float w = (bw + 1e-3) / (1e-3 + abs(rtZ(t * 2) - z0) / (0.02 * -z0 + 0.01));
+      light += texelFetch(tLight, t, 0) * w;
+      refl += texelFetch(tRefl, t, 0).rgb * w;
       ws += w;
     }
     light /= ws;
@@ -359,7 +386,6 @@ export class ScreenSpaceLighting {
   readonly compositeUniforms = {
     tLight: { value: null as THREE.Texture | null },
     tRefl: { value: null as THREE.Texture | null },
-    uHalfTexel: { value: new THREE.Vector2() },
     // AO strength, bounce strength, reflection strength (all off until the first trace)
     uRTk: { value: new THREE.Vector4(0, 0, 0, 0) },
   };
@@ -411,7 +437,7 @@ export class ScreenSpaceLighting {
       },
       { STEPS: t.steps, MAX_DIST: '9.0' },
     );
-    this.blurMat = mat(BLUR, { ...this.view, tSrc: { value: null }, uHalf: { value: new THREE.Vector2() } });
+    this.blurMat = mat(BLUR, { ...this.view, tSrc: { value: null } });
     this.compositeUniforms.tLight.value = this.lightBlur.texture;
     this.compositeUniforms.tRefl.value = this.reflBlur.texture;
   }
@@ -427,9 +453,7 @@ export class ScreenSpaceLighting {
     for (const t of [this.color, this.light, this.lightBlur, this.refl, this.reflBlur]) t.setSize(hw, hh);
     this.view.uFull.value.set(1 / w, 1 / h);
     (this.copy.uniforms.uStep.value as THREE.Vector2).set(0.5 / w, 0.5 / h);
-    (this.blurMat.uniforms.uHalf.value as THREE.Vector2).set(1 / hw, 1 / hh);
     (this.lightMat.uniforms.uHalfPx.value as THREE.Vector2).set(hw, hh);
-    this.compositeUniforms.uHalfTexel.value.set(1 / hw, 1 / hh);
   }
 
   /** Trace the lighting for the frame just drawn into `scene` (colour) and `depth`. */

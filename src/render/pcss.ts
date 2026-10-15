@@ -74,9 +74,9 @@ const NEW_PCF = /* glsl */ `
 						float dBlock = clamp( sum / max( total, 1e-3 ), 0.02, zr - uPcss.x );
 						// half the penumbra's width where the receiver is, as a share of the shadow map
 						float pen = 0.5 * uPcss.z * dBlock / max( zr - dBlock, 0.1 ) * uPcss.w / zr;
-						radius = clamp( pen, texelSize.x * 1.2, texelSize.x * 28.0 );
-					} else {
-						radius = max( radius, texelSize.x * 1.2 );
+						// (never tighter than three's own filter: a narrower one lets the shadow map's
+						// texel steps show as stripes on surfaces the light grazes)
+						radius = clamp( pen, radius, texelSize.x * 28.0 );
 					}
 
 					shadow = 0.0;
