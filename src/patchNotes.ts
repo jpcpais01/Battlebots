@@ -17,6 +17,13 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 11:00",
+    title: "Steady city lights",
+    notes: [
+      "Fixed windows on the world map's buildings and towers sparkling with static: every window is now cleanly lit or dark, and far-off houses' windows no longer flicker against their walls.",
+    ],
+  },
+  {
+    hour: "2026-10-15 11:00",
     title: "Real dents and performance stats",
     notes: [
       "Robots now dent for real. Every blow that lands punches a dent where it struck, pushed in the way the blow travelled, with a lip of bent metal around it and the paint knocked off its floor. Hit the same spot again and it caves in deeper and wider, so a chest that keeps eating hooks ends up visibly crushed.",

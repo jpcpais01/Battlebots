@@ -215,7 +215,9 @@ export function windowMaterial(u: MapUniforms) {
     side: THREE.DoubleSide,
   });
   m.polygonOffset = true;
-  m.polygonOffsetFactor = -1;
-  m.polygonOffsetUnits = -2;
+  // (the panes sit a few centimetres off the walls: pulled well forward in depth, so far-off
+  // houses' windows don't fight their walls)
+  m.polygonOffsetFactor = -2;
+  m.polygonOffsetUnits = -8;
   return m;
 }
