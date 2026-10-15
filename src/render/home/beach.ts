@@ -7,11 +7,12 @@ import type { LightLook, Quality } from '../stage';
 import { J } from '../../sim/body';
 import { PoseCh, sample } from './puppet';
 import * as BP from './beachPoses';
+import { BeachCrowd, rallyX, rallyZ, type Slot } from './beachCrowd';
 import { box, canvas, fbm, glowAt, hash, noiseTexture, normalTexture, put, putS, ramp, seg, smooth, texture, type HomeScene, type SceneKit } from './scene';
 
-/** Water level, and the sun (direction towards it): low over the sea, late in the afternoon. */
+/** Water level, and the sun (direction towards it): high over the sea on a bright summer day, off to the left of the idle shot. */
 const SEA = -0.12;
-const SUN = new THREE.Vector3(-0.51, 0.19, -0.84).normalize();
+const SUN = new THREE.Vector3(-0.4, 0.64, -0.66).normalize();
 
 /** Sand height. The beach is flat round the lounger, shelves into the sea and rises into dunes behind. */
 function sandH(x: number, z: number) {
@@ -69,18 +70,59 @@ function trunkAt([x, z, h, ly, lean]: readonly number[], y: number, out: THREE.V
   return out.set(x + Math.sin(ly) * k, sandH(x, z) - 0.1 + y, z + Math.cos(ly) * k);
 }
 
+/** The crab's legs, front to back: hip on the shell and the foot's resting spot on the sand (x on the right side; mirrored on the left). */
+const CRAB_LEGS: readonly (readonly [number, number, number, number])[] = [
+  [0.06, 0.032, 0.15, 0.085],
+  [0.072, 0.012, 0.172, 0.03],
+  [0.074, -0.01, 0.17, -0.03],
+  [0.065, -0.03, 0.145, -0.088],
+];
+const CRAB_HIP_Y = 0.058, CRAB_L1 = 0.075, CRAB_L2 = 0.085;
+
+/**
+ * The crab's beat at the tide line, looping every 16 s: [time, place along its stretch of sand
+ * (0..1), heading]. It scuttles, stops to feed, raises its claws, turns, scuttles on, comes back.
+ */
+const CRAB_KEYS: readonly (readonly [number, number, number])[] = [
+  [0, 0, -0.4],
+  [2.0, 0.5, -0.4],
+  [4.7, 0.5, -0.4],
+  [5.4, 0.5, 0.3],
+  [6.8, 1.0, 0.3],
+  [8.5, 1.0, 0.3],
+  [9.2, 1.0, -0.4],
+  [10.4, 0.55, -0.4],
+  [11.0, 0.55, -0.4],
+  [12.4, 0.0, -0.4],
+  [16, 0, -0.4],
+];
+
+/** What the robot dog's up to. */
+type DogMode = 'heel' | 'gallop' | 'bow' | 'swash' | 'shake' | 'sniff';
+/** Its outings from heel, in turn. */
+const DOG_PLAN: readonly DogMode[] = ['gallop', 'swash', 'sniff', 'gallop', 'sniff', 'swash', 'bow'];
+/** The dog's hips on its body (front left, front right, back left, back right), thigh and shin, and the ankle's height over a planted paw. */
+const DOG_HIPS: readonly (readonly [number, number])[] = [[-0.085, 0.17], [0.085, 0.17], [-0.085, -0.17], [0.085, -0.17]];
+const DOG_L1 = 0.15, DOG_L2 = 0.15, DOG_ANKLE = 0.028, DOG_BODY_Y = 0.33, DOG_HIP_Y = -0.04;
+/** Each leg's place in the stride (same order): a walk (one foot at a time), a trot (diagonal pairs), a gallop (front pair, then back pair). */
+const DOG_WALK = [0.25, 0.75, 0, 0.5], DOG_TROT = [0, 0.5, 0.5, 0], DOG_GALLOP = [0.5, 0.6, 0, 0.1];
+
+/** 0 → 1 → 0: up over a quarter second from a, back down over the quarter second to b. */
+const pulse = (t: number, a: number, b: number) => ramp(t, a, a + 0.25) * (1 - ramp(t, b - 0.25, b));
+
 /** The kite's stake in the sand at the water's edge. */
 const KITE_STAKE = [0.4, -2.9] as const;
 
 const LOOK: LightLook = {
-  background: 0xbfd3e0,
-  fog: 0xd8d8d0,
-  fogDensity: 0.0072,
-  envIntensity: 0.95,
-  hemi: { sky: 0xb4cff0, ground: 0xe8c99a, intensity: 1.05 },
+  background: 0x8fc4ee,
+  fog: 0xc4dff4,
+  fogDensity: 0.0058,
+  envIntensity: 1.1,
+  hemi: { sky: 0xa8d2ff, ground: 0xf2dfb8, intensity: 1.35 },
   key: {
-    color: 0xffcf98,
-    intensity: 4.4,
+    color: 0xfff6e8,
+    intensity: 3.9,
+
     pos: [SUN.x * 30, 0.5 + SUN.y * 30, SUN.z * 30],
     target: [0, 0.5, 0],
     angle: 1.15,
@@ -90,22 +132,23 @@ const LOOK: LightLook = {
     focus: 0.27,
   },
   rims: [
-    // warm bounce off the sea on the sun's side, and a cool fill from behind the robot
-    { color: 0xffc27a, intensity: 6, distance: 8, pos: [-1.6, 0.6, -2.6] },
-    { color: 0x9cc4ff, intensity: 7, distance: 10, pos: [2.2, 2.8, 2.8] },
+    // sunlight bouncing up off the bright sand on the sea side, and the blue sky filling in from behind the robot
+    { color: 0xfff1dc, intensity: 4, distance: 8, pos: [-1.6, 0.4, -2.6] },
+    { color: 0xa9d2ff, intensity: 7, distance: 10, pos: [2.2, 2.8, 2.8] },
+
   ],
 };
 
 const COL = {
-  zenith: new THREE.Color(0x2b6cc4),
-  horizon: new THREE.Color(0xb9d3e3),
-  glow: new THREE.Color(0xffbf86),
-  sun: new THREE.Color(0xffe0b0),
-  shallow: new THREE.Color(0x4fd6c4),
-  mid: new THREE.Color(0x169fb3),
-  deep: new THREE.Color(0x0a4a7e),
-  foam: new THREE.Color(0xf6fbff),
-  sss: new THREE.Color(0x3fe0b8),
+  zenith: new THREE.Color(0x1d63d0),
+  horizon: new THREE.Color(0xa4d0f2),
+  glow: new THREE.Color(0xfff2dc),
+  sun: new THREE.Color(0xfff7ea),
+  shallow: new THREE.Color(0x3ee8d4),
+  mid: new THREE.Color(0x10b4cc),
+  deep: new THREE.Color(0x0b3f96),
+  foam: new THREE.Color(0xf8fcff),
+  sss: new THREE.Color(0x46f0cf),
 };
 
 const S = {
@@ -132,8 +175,6 @@ const S = {
   sand: surf(0xe2c895, 0, 0.95),
   wetSand: surf(0xa88c5e, 0, 0.3),
   rock: surf(0x7d756b, 0, 0.9),
-  island: surf(0x6f8a62, 0, 0.95),
-  islandSand: surf(0xe6d3a8, 0, 0.95),
   sail: surf(0xf6f3ea, 0, 0.6),
   gold: surf(0xd8ad52, 1, 0.24),
   lens: surf(0x07080a, 0.9, 0.06),
@@ -153,7 +194,6 @@ const S = {
   nutYellow: surf(0xb59a3c, 0, 0.6),
   husk: surf(0x8c7048, 0, 0.95),
   gullGrey: surf(0x9ea7b1, 0, 0.7),
-  jungle: surf(0x4c6b40, 0, 0.95),
   jungleLight: surf(0x6c8a52, 0, 0.95),
   agave: surf(0x6f9a64, 0, 0.6),
   glassGreen: surf(0x2f7d4a, 0.2, 0.12),
@@ -165,6 +205,171 @@ const S = {
 };
 
 const glow = (hex: number, k: number) => new THREE.Color(hex).multiplyScalar(RenderSettings.glow(k));
+
+/** Paint and fittings for the boats. */
+const HULL = {
+  white: surf(0xf8f8f5, 0.05, 0.22),
+  navy: surf(0x1b2d5a, 0.05, 0.3),
+  antifoul: surf(0x8a2c26, 0, 0.75),
+  antifoulBlue: surf(0x22335c, 0, 0.75),
+  teak: surf(0xc29a62, 0, 0.7),
+  nonskid: surf(0xe9e6dc, 0, 0.85),
+  cream: surf(0xefe7d2, 0, 0.6),
+  green: surf(0x1d6a70, 0.05, 0.28),
+  teal: surf(0x18a5a8, 0.05, 0.35),
+  red: surf(0xc8322b, 0.05, 0.4),
+  glass: surf(0x0f1720, 0.6, 0.06),
+  graphite: surf(0x34383e, 0.4, 0.45),
+  canvas: surf(0x2c5aa0, 0, 0.8),
+  rope: surf(0xe8dcc0, 0, 0.9),
+  rubber: surf(0x3c4046, 0, 0.7),
+  orange: surf(0xff7a1f, 0.05, 0.45),
+  mesh: surf(0x22262c, 0, 0.9),
+};
+/** Sailcloth, in two tones so the cloths' seams show. */
+const CLOTH = [surf(0xfbf9f2, 0, 0.6), surf(0xeeebe1, 0, 0.66)] as const;
+
+/** The breeze: off the land and out to sea (the kite flies out over the water), from this direction. */
+const WIND_FROM = new THREE.Vector3(-0.2, 0, 1).normalize();
+
+/**
+ * A wake's ribbon: from z0 back along -z for len, w0 wide at the stern opening to w1; uv.x runs
+ * aft, uv.y across (the arms of the V at its edges, the churn down its middle).
+ */
+function wakeGeo(z0: number, len: number, w0: number, w1: number, n = 20) {
+  const wp: number[] = [], wu: number[] = [], wi: number[] = [];
+  for (let i = 0; i <= n; i++) {
+    const u = i / n, z = z0 - u * len, hw = (w0 + u * (w1 - w0)) / 2;
+    wp.push(-hw, 0, z, hw, 0, z);
+    wu.push(u, 0, u, 1);
+    if (i < n) wi.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(wp, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(wu, 2));
+  g.setIndex(wi);
+  return g;
+}
+
+/** The bow wave: foam peeling off both sides of a hull's entry at the waterline, flaring out aft. */
+function bowWaveGeo(h: HullSpec, x0 = 0) {
+  const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+  const N = 8;
+  for (const side of [-1, 1]) {
+    const o = pos.length / 3;
+    for (let i = 0; i <= N; i++) {
+      const s = i / N, u = 1 - 0.45 * s;
+      const l = hullLines(h, u), bw = l.b / h.flare;
+      const z = -h.L / 2 + h.L * u + h.rake * Math.pow(u, 5) * (l.k / (l.s + l.k));
+      const w = 0.1 + (0.35 * s * h.B) / 2;
+      pos.push(x0 + side * (bw + 0.02), 0, z, x0 + side * (bw + 0.02 + w), 0, z - w * 0.7);
+      uv.push(s, 0.5, s, side > 0 ? 1 : 0);
+      if (i < N) {
+        const a = o + i * 2;
+        idx.push(a, a + 1, a + 3, a, a + 3, a + 2);
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
+}
+
+/** The boats' names, one per row: [name, text colour]. */
+const NAMES: readonly (readonly [string, string])[] = [
+  ['SUNNY DAZE', '#1b2d5a'],
+  ['BLUE BYTE', '#1b2d5a'],
+  ['NAUTI BOT', '#1b2d5a'],
+  ['REEL STEEL', '#f4f1e6'],
+  ['CATBOT', '#1b2d5a'],
+];
+function namesTexture() {
+  const { c, g } = canvas(512, 64 * NAMES.length);
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = 'italic bold 40px Georgia, "Times New Roman", serif';
+  NAMES.forEach(([name, col], i) => {
+    g.fillStyle = col;
+    g.fillText(name, 256, 64 * i + 34, 490);
+  });
+  return texture(c);
+}
+
+/**
+ * A boat's name on both bows, following the topsides: name row `row`, from u0 to u1 along the hull,
+ * between v0 and v1 up it. Reads from the bow aft on either side.
+ */
+function nameGeo(h: HullSpec, row: number, u0: number, u1: number, v0: number, v1: number, x0 = 0) {
+  const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+  const n = NAMES.length, N = 8;
+  const top = 1 - row / n, bot = 1 - (row + 1) / n;
+  for (const side of [-1, 1]) {
+    const o = pos.length / 3;
+    for (let i = 0; i <= N; i++) {
+      const u = u0 + ((u1 - u0) * i) / N;
+      for (const [v, tv] of [[v0, bot], [v1, top]] as const) {
+        hullPt(h, u, v, side, _hs);
+        pos.push(x0 + _hs.x + side * 0.012, _hs.y, _hs.z);
+        uv.push(side > 0 ? 1 - i / N : i / N, tv);
+      }
+      if (i < N) {
+        const a = o + i * 2;
+        idx.push(a, a + 2, a + 3, a, a + 3, a + 1);
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/** A boat afloat: its track on the water (place, heading) holding the hull that rides the swell, and how it moves. */
+interface Craft {
+  track: THREE.Group;
+  hull: THREE.Group;
+  L: number;
+  B: number;
+  ph: number;
+  /** Cruising round an ellipse: centre x, z, radii x, z, angular speed, phase. */
+  loop: readonly [number, number, number, number, number, number] | null;
+  /** At anchor: x, z, and the heading it swings about (by `swing`). */
+  moor: readonly [number, number, number] | null;
+  swing: number;
+  /** Sails on their own pivots (main, then jib), sheeted to the breeze; which side they fill to; the boom's angle. */
+  sails: THREE.Object3D[];
+  side: number;
+  boom: number;
+  /** How strong its wake and bow wave are (from its speed). */
+  foam: { value: number };
+  /** Lifts its bow as it gets up to speed (motor boats). */
+  plane: number;
+  /** A steady heel. */
+  heel: number;
+}
+
+/** A little far-off robot crew member (simple: they're tens of metres out), feet at (x, y, z) of frame f. */
+function crewIn(b: Baker, f: THREE.Matrix4, x: number, y: number, z: number, yaw: number, paint: Surface, visor: THREE.Color, pose: 'stand' | 'sit' | 'lie') {
+  const m = new THREE.Matrix4().multiplyMatrices(f, frame(x, y, z, yaw));
+  if (pose === 'lie') m.multiply(new THREE.Matrix4().makeTranslation(0, 0.11, 0.55)).multiply(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
+  const sit = pose === 'sit';
+  const hip = sit ? 0.05 : 0.5;
+  for (const s of [-1, 1]) {
+    if (sit) {
+      tubeIn(b, m, s * 0.08, hip, 0, s * 0.09, hip, 0.36, 0.05, 0.045, S.steel, 5);
+      tubeIn(b, m, s * 0.09, hip, 0.36, s * 0.09, hip - 0.4, 0.4, 0.045, 0.04, S.steel, 5);
+    } else tubeIn(b, m, s * 0.08, 0, 0.02, s * 0.08, hip, 0, 0.045, 0.05, S.steel, 5);
+    tubeIn(b, m, s * 0.19, hip + 0.42, 0, s * 0.21, hip + 0.12, 0.06, 0.035, 0.03, S.steel, 5);
+  }
+  putIn(b, m, G.cbox(0.3, 0.12, 0.18, 0.03), S.black, 0, hip + 0.04, 0);
+  putIn(b, m, G.cbox(0.34, 0.38, 0.22, 0.06), paint, 0, hip + 0.3, 0);
+  putIn(b, m, G.sphere(0.12, 10, 8), S.white, 0, hip + 0.62, 0);
+  glowIn(b, m, G.box(0.16, 0.04, 0.03), visor, 0, hip + 0.64, 0.1);
+}
 
 // ------------------------------------------------------------------ textures
 
@@ -631,19 +836,23 @@ const SKY_COMMON = /* glsl */ `
   vec3 skyCol(vec3 d) {
     float h = max(d.y, 0.0);
     float s = max(dot(d, uSun), 0.0);
-    vec3 col = mix(uHorizon, uZenith, pow(h, 0.42));
-    // the horizon burns gold on the sun's side, with a wide halo round the sun
+    // deep summer blue overhead, paling towards the horizon, with a thin bright haze right along it
+    vec3 col = mix(uHorizon, uZenith, pow(h, 0.5));
+    col = mix(col, vec3(0.86, 0.93, 1.0), exp(-h * 38.0) * 0.45);
+    // a faint warm-white haze on the sun's side, and the glare round the high sun
     float side = max(dot(normalize(d.xz + vec2(1e-5)), normalize(uSun.xz)), 0.0);
-    col = mix(col, uGlow, pow(1.0 - h, 6.0) * (0.18 + 0.62 * side * side * side));
-    col += uSunCol * (pow(s, 5.0) * 0.22 + pow(s, 48.0) * 0.55 + pow(s, 600.0) * 2.4);
+    col = mix(col, uGlow, pow(1.0 - h, 8.0) * 0.18 * side * side);
+    col += uSunCol * (pow(s, 6.0) * 0.12 + pow(s, 64.0) * 0.4 + pow(s, 900.0) * 2.0);
     return col;
   }
+
   vec2 cloudUV(vec3 d) { return d.xz / (max(d.y, 0.0) + 0.08) * 0.2 + vec2(uTime * 0.0035, uTime * 0.0012); }
   // two octaves for the shapes, and a fine third that frays their edges into wisps and knots
   float cloudD(vec2 uv) {
     return texture2D(uNoise, uv).r * 0.66 + texture2D(uNoise, uv * 2.7 + 0.37).g * 0.34 + (texture2D(uNoise, uv * 7.9 + 0.71).b - 0.5) * 0.13;
   }
-  float cloudCover(float h) { return mix(0.5, 0.63, smoothstep(0.02, 0.45, h)); }
+  float cloudCover(float h) { return mix(0.47, 0.64, smoothstep(0.02, 0.45, h)); }
+
 `;
 
 const SKY_VERT = /* glsl */ `
@@ -664,7 +873,8 @@ const SKY_FRAG = /* glsl */ `
     float s = max(dot(d, uSun), 0.0);
     float a = 0.0;
     if (h > 0.0) {
-      // cumulus: lit on the sun's side, shadowed underneath, silver-edged near the sun
+      // fair-weather cumulus: bright white tops, soft blue-grey bellies, silver-edged near the sun
+
       vec2 uv = cloudUV(d);
       float dens = cloudD(uv);
       float cov = cloudCover(h);
@@ -672,8 +882,9 @@ const SKY_FRAG = /* glsl */ `
       float toSun = cloudD(uv + normalize(uSun.xz) * 0.04);
       float lit = clamp(0.55 + (dens - toSun) * 6.0, 0.0, 1.0);
       float thick = smoothstep(cov, cov + 0.4, dens);
-      vec3 shade = mix(vec3(0.5, 0.55, 0.68), uHorizon * 0.8, 0.35);
-      vec3 bright = mix(vec3(1.06, 1.02, 0.98), uGlow * 1.15, 0.3 + 0.4 * pow(s, 3.0));
+      vec3 shade = mix(vec3(0.66, 0.72, 0.84), uHorizon, 0.3);
+      vec3 bright = vec3(1.14, 1.13, 1.1) + uSunCol * 0.12 * pow(s, 3.0);
+
       vec3 cc = mix(shade, bright, clamp(lit * (1.0 - 0.5 * thick) + 0.2, 0.0, 1.0));
       cc += uSunCol * pow(s, 9.0) * (1.0 - thick) * 3.0;
       // far clouds melt into the haze
@@ -759,7 +970,8 @@ const SEA_FRAG = /* glsl */ `
     vec3 water = mix(uShallow, uMid, smoothstep(0.04, 0.9, depth));
     water = mix(water, uDeep, smoothstep(1.0, 5.0, depth));
     water *= 0.7 + 0.4 * max(dot(n, uSun), 0.0);
-    // the low sun shining through the backs of the waves
+    // sunlight shining through the backs of the waves
+
     float back = pow(max(dot(normalize(-V.xz), normalize(uSun.xz)), 0.0), 6.0);
     float crest = clamp(0.5 + vSwell * 0.5 + dot(slope, normalize(uSun.xz)) * 2.0, 0.0, 1.0);
     water += uSss * back * crest * 0.35 * smoothstep(0.1, 1.0, depth);
@@ -780,6 +992,13 @@ const SEA_FRAG = /* glsl */ `
     float glint = pow(max(dot(nf, H), 0.0), 1800.0) * 60.0 * detail;
     float spec = pow(NH, 700.0) * 14.0 + pow(NH, 90.0) * 1.2 + pow(NH, 12.0) * 0.12;
     col += uSunCol * (spec + glint) * smoothstep(0.0, 0.25, depth);
+    #ifndef LOW
+    // a glitter of sparkles all over the water, twinkling as the ripples slide across each other
+    float tw1 = texture2D(uNoise, p * 1.7 + vec2(t * 0.09, -t * 0.07)).r;
+    float tw2 = texture2D(uNoise, p * 2.3 - vec2(t * 0.06, t * 0.08)).g;
+    float sparkle = smoothstep(0.8, 0.9, tw1 * tw2 * 1.25 + 0.15 * NH) * pow(max(dot(nf, H), 0.0), 2.0);
+    col += uSunCol * sparkle * 2.5 * detail * smoothstep(60.0, 6.0, dist) * smoothstep(0.0, 0.25, depth);
+    #endif
 
     // foam: the swash's frothy edge, and breakers rolling in over the shallows, trailing froth
     float fn = texture2D(uNoise, p * vec2(0.9, 1.6) + vec2(0.0, t * 0.05)).r;
@@ -908,10 +1127,12 @@ const WAKE_FRAG = /* glsl */ `
   uniform sampler2D uNoise;
   uniform float uTime;
   uniform vec3 uFoam;
+  uniform float uAmt;
   varying vec2 vUv;
   varying vec3 vW;
   void main() {
     float u = vUv.x;
+
     float v = vUv.y * 2.0 - 1.0;
     float n = texture2D(uNoise, vW.xz * 0.35 + vec2(uTime * 0.02, 0.0)).r;
     float n2 = texture2D(uNoise, vW.xz * 1.1 - vec2(0.0, uTime * 0.03)).g;
@@ -920,7 +1141,8 @@ const WAKE_FRAG = /* glsl */ `
     float churn = exp(-v * v * 9.0) * exp(-u * 3.5);
     float f = (arms * 0.8 + churn) * smoothstep(0.3, 0.75, n * 0.6 + n2 * 0.5);
     f *= (1.0 - u) * (1.0 - u);
-    gl_FragColor = vec4(uFoam, clamp(f, 0.0, 1.0) * 0.85);
+    gl_FragColor = vec4(uFoam, clamp(f, 0.0, 1.0) * 0.85 * uAmt);
+
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }`;
@@ -935,14 +1157,12 @@ function backlit(mat: THREE.MeshStandardMaterial, k: number, sunView: { value: T
       .replace('#include <common>', '#include <common>\nuniform vec3 uSunView;')
       .replace(
         '#include <opaque_fragment>',
-        `outgoingLight += diffuseColor.rgb * vec3(1.0, 0.82, 0.55) * ${k.toFixed(2)} * pow(max(dot(normalize(-vViewPosition), uSunView), 0.0), 4.0);
+        `outgoingLight += diffuseColor.rgb * vec3(1.0, 0.95, 0.78) * ${k.toFixed(2)} * pow(max(dot(normalize(-vViewPosition), uSunView), 0.0), 4.0);
+
         #include <opaque_fragment>`,
       );
   };
 }
-
-/** A beachgoer's parts, kept apart so a walker's legs and arms can swing. */
-type Part = 'body' | 'legL' | 'legR' | 'armL' | 'armR';
 
 /** Every palm's fronds, gathered into one swaying mesh. */
 type Fronds = { pos: number[]; uv: number[]; sway: number[]; col: number[]; idx: number[] };
@@ -1052,23 +1272,488 @@ function joinTagged(parts: { g: THREE.BufferGeometry; tag: number[] }[], name: s
   return out;
 }
 
+// ------------------------------------------------------------------ lofts, hulls, sails and hills
+
+const _hs = new THREE.Vector3();
+const _ho = new THREE.Vector3();
+const _hu = new THREE.Vector3();
+const _hv = new THREE.Vector3();
+const _hw = new THREE.Vector3();
+
+/** Indexed geometry from positions and triangles, every triangle wound like triangle `test`, turned to face along `out`; smooth normals. */
+function wound(pos: number[], idx: number[], test: number, out: THREE.Vector3, uv?: number[]) {
+  const t = test * 3;
+  const a = _hu.fromArray(pos, idx[t] * 3), b = _hv.fromArray(pos, idx[t + 1] * 3), c = _hw.fromArray(pos, idx[t + 2] * 3);
+  b.sub(a);
+  c.sub(a);
+  if (b.cross(c).dot(out) < 0) {
+    for (let k = 0; k < idx.length; k += 3) {
+      const s = idx[k + 1];
+      idx[k + 1] = idx[k + 2];
+      idx[k + 2] = s;
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  if (uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/** A row-by-column grid of points (from `at`) as one surface facing along `out` at its middle. */
+function gridGeo(rows: number, cols: number, at: (i: number, j: number, p: THREE.Vector3) => void, out: THREE.Vector3) {
+  const pos: number[] = [], idx: number[] = [];
+  for (let i = 0; i <= rows; i++) {
+    for (let j = 0; j <= cols; j++) {
+      at(i, j, _hs);
+      pos.push(_hs.x, _hs.y, _hs.z);
+    }
+  }
+  for (let i = 0; i < rows; i++) {
+    for (let j = 0; j < cols; j++) {
+      const a = i * (cols + 1) + j, b = a + 1, c = a + cols + 1, d = c + 1;
+      idx.push(a, b, d, a, d, c);
+    }
+  }
+  return wound(pos, idx, ((rows >> 1) * cols + (cols >> 1)) * 2, out);
+}
+
 /**
- * Legs (and arms) that swing as the phase turns: each vertex is tagged (swing, pivot height), and
- * shears forward or back about its pivot. The body (swing 0) stays put.
+ * A smooth loft along +z through rounded-rectangle sections [z, half width, half height, centre y,
+ * centre x?] (z increasing), capped flat at both ends. `p` is the squareness: 2 an ellipse, 4 a soft box.
  */
-function gaitMaterial(phase: { value: number }, amp: number) {
-  const m = vertexPBR(new THREE.MeshStandardMaterial(), 'beach-gait');
-  const prev = m.onBeforeCompile;
-  m.onBeforeCompile = (sh, r) => {
-    prev.call(m, sh, r);
-    sh.uniforms.uGait = phase;
-    sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec2 gait;\nuniform float uGait;')
-      .replace('#include <begin_vertex>', `#include <begin_vertex>
-        transformed.z += (gait.y - transformed.y) * gait.x * ${amp.toFixed(2)} * sin(uGait);`);
+function superLoft(secs: readonly (readonly number[])[], p = 2.6, n = 16) {
+  const pos: number[] = [], idx: number[] = [];
+  const e = 2 / p;
+  const ring = (s: readonly number[]) => {
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a);
+      pos.push((s[4] ?? 0) + s[1] * Math.sign(c) * Math.pow(Math.abs(c), e), s[3] + s[2] * Math.sign(sn) * Math.pow(Math.abs(sn), e), s[0]);
+    }
   };
-  m.customProgramCacheKey = () => `beach-gait-${amp.toFixed(2)}`;
-  return m;
+  secs.forEach(ring);
+  for (let i = 0; i < secs.length - 1; i++) {
+    for (let k = 0; k < n; k++) {
+      const a = i * n + k, b = i * n + ((k + 1) % n), c = a + n, d = b + n;
+      idx.push(a, b, d, a, d, c);
+    }
+  }
+  // flat caps on their own vertices, so their edges stay crisp
+  for (const end of [0, secs.length - 1]) {
+    const s = secs[end];
+    if (s[1] < 1e-4 || s[2] < 1e-4) continue;
+    const c0 = pos.length / 3;
+    pos.push(s[4] ?? 0, s[3], s[0]);
+    ring(s);
+    for (let k = 0; k < n; k++) {
+      const a = c0 + 1 + k, b = c0 + 1 + ((k + 1) % n);
+      if (end === 0) idx.push(c0, b, a);
+      else idx.push(c0, a, b);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/** Both faces of a thin surface (sails, flags, nets): the geometry, and again turned inside out. */
+function bothSides(g: THREE.BufferGeometry) {
+  const f = g.index ? g.toNonIndexed() : g;
+  const p = f.attributes.position.array as Float32Array, n = f.attributes.normal.array as Float32Array;
+  const cnt = p.length / 3;
+  const pos = new Float32Array(p.length * 2), nor = new Float32Array(n.length * 2);
+  pos.set(p);
+  nor.set(n);
+  const swap = [0, 2, 1];
+  for (let i = 0; i < cnt; i += 3) {
+    for (let k = 0; k < 3; k++) {
+      const s = (i + swap[k]) * 3, d = (cnt + i + k) * 3;
+      for (let c = 0; c < 3; c++) {
+        pos[d + c] = p[s + c];
+        nor[d + c] = -n[s + c];
+      }
+    }
+  }
+  if (f !== g) f.dispose();
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  return out;
+}
+
+/** Bake a smooth tube through points of the local frame f (rails, lifelines, wishbones). */
+function railIn(b: Baker, f: THREE.Matrix4, pts: THREE.Vector3[], r: number, s: Surface, sides = 5) {
+  const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), Math.max(4, pts.length * 4), r, sides, false);
+  b.geo(g, f, s);
+  g.dispose();
+}
+
+/**
+ * A boat's lines. Bow to +z, beam across x, the waterline at y = 0. L length, B beam, D freeboard
+ * amidships, T draft of the canoe body, rise the sheer's spring towards the bow, stern the transom's
+ * beam (a fraction of B), rake how far the stem leans forward at the top, bilge the sections'
+ * squareness (1 a sharp vee, 2 round, 3 or more a flat-bottomed box), flare the topsides' flare.
+ */
+interface HullSpec {
+  L: number;
+  B: number;
+  D: number;
+  T: number;
+  rise: number;
+  stern: number;
+  rake: number;
+  bilge: number;
+  flare: number;
+}
+
+/** Half-beam at the sheer, sheer height and draft at u along the hull (0 the transom, 1 the stem). */
+function hullLines(h: HullSpec, u: number) {
+  const w = u <= 0.45 ? h.stern + (1 - h.stern) * Math.sin(((u / 0.45) * Math.PI) / 2) : Math.pow(Math.max(0, 1 - Math.pow((u - 0.45) / 0.55, 2.2)), 0.75);
+  return { b: (h.B / 2) * w, s: h.D + h.rise * u * u, k: h.T * (0.35 + 0.65 * Math.sin(Math.min(1, 0.1 + u * 0.9) * Math.PI)) };
+}
+
+/** A point on the hull's skin: u along (0 transom, 1 stem), v round the section (0 keel, 0.5 the waterline, 1 the sheer), side ±1. */
+function hullPt(h: HullSpec, u: number, v: number, side: number, out: THREE.Vector3) {
+  const { b, s, k } = hullLines(h, u);
+  const bw = b / h.flare;
+  let x: number, y: number;
+  if (v <= 0.5) {
+    const a = (v / 0.5) * (Math.PI / 2), e = 2 / h.bilge;
+    x = bw * Math.pow(Math.sin(a), e);
+    y = -k * Math.pow(Math.cos(a), e);
+  } else {
+    const t = (v - 0.5) / 0.5;
+    x = bw + (b - bw) * t * (2 - t);
+    y = s * t;
+  }
+  const hgt = (y + k) / Math.max(1e-4, s + k);
+  return out.set(side * x, y, -h.L / 2 + h.L * u + h.rake * Math.pow(u, 5) * hgt);
+}
+
+/** A hull's paint: antifouling below the boot stripe, the topsides, a sheer stripe, the deck, the cockpit's insides. */
+interface HullPaint {
+  bottom: Surface;
+  boot: Surface;
+  top: Surface;
+  stripe: Surface;
+  deck: Surface;
+  inside: Surface;
+  rub: Surface;
+  /** An open cockpit sunk into the deck: from u0 to u1, this deep. */
+  well?: readonly [number, number, number];
+}
+
+/** Bake a lofted hull in the local frame f: its skin in bands of paint, a cambered deck (with a cockpit well), the transom and a rubbing strake. */
+function bakeHull(b: Baker, f: THREE.Matrix4, h: HullSpec, c: HullPaint) {
+  const NU = 22;
+  const band = (v0: number, v1: number, nv: number, s: Surface) => {
+    for (const side of [-1, 1]) {
+      const g = gridGeo(NU, nv, (i, j, p) => hullPt(h, i / NU, v0 + ((v1 - v0) * j) / nv, side, p), _ho.set(side, v1 <= 0.5 ? -1 : 0, 0));
+      b.geo(g, f, s);
+      g.dispose();
+    }
+  };
+  band(0, 0.5, 7, c.bottom);
+  band(0.5, 0.545, 1, c.boot);
+  band(0.545, 0.86, 4, c.top);
+  band(0.86, 1, 1, c.stripe);
+  const camber = 0.02 * h.B, th = Math.min(0.06, 0.04 * h.B);
+  const sheerZ = (u: number) => hullPt(h, u, 1, 1, _hs).z;
+  const deck = (u0: number, u1: number, drop: number, inset: number, s: Surface) => {
+    const rows = Math.max(2, Math.round((u1 - u0) * NU));
+    const g = gridGeo(rows, 6, (i, j, p) => {
+      const u = u0 + ((u1 - u0) * i) / rows, l = hullLines(h, u), cc = -1 + j / 3;
+      p.set(cc * Math.max(0, l.b - inset), l.s - drop + (drop ? 0 : camber * (1 - cc * cc)), sheerZ(u));
+    }, _ho.set(0, 1, 0));
+    b.geo(g, f, s);
+    g.dispose();
+  };
+  const w = c.well;
+  if (!w) deck(0, 1, 0, 0, c.deck);
+  else {
+    const [u0, u1, dep] = w;
+    if (u0 > 0) deck(0, u0, 0, 0, c.deck);
+    deck(u0, u1, dep, th, c.inside);
+    deck(u1, 1, 0, 0, c.deck);
+    const rows = Math.max(2, Math.round((u1 - u0) * NU));
+    for (const side of [-1, 1]) {
+      // the cockpit's sides, and the gunwale capping them
+      let g = gridGeo(rows, 1, (i, j, p) => {
+        const u = u0 + ((u1 - u0) * i) / rows, l = hullLines(h, u);
+        p.set(side * (l.b - th), l.s - dep * j, sheerZ(u));
+      }, _ho.set(-side, 0, 0));
+      b.geo(g, f, c.inside);
+      g.dispose();
+      g = gridGeo(rows, 1, (i, j, p) => {
+        const u = u0 + ((u1 - u0) * i) / rows, l = hullLines(h, u);
+        p.set(side * (l.b - th * j), l.s, sheerZ(u));
+      }, _ho.set(0, 1, 0));
+      b.geo(g, f, c.deck);
+      g.dispose();
+    }
+    // its forward bulkhead, and the aft one (the inside of the transom when the well runs right aft)
+    for (const [u, face] of [[u1, -1], [u0, 1]] as const) {
+      const l = hullLines(h, u), z = sheerZ(u) + (u === 0 ? 0.01 : 0);
+      const g = gridGeo(1, 1, (i, j, p) => p.set((j * 2 - 1) * (l.b - th), l.s - dep * (1 - i), z), _ho.set(0, 0, face));
+      b.geo(g, f, c.inside);
+      g.dispose();
+    }
+  }
+  // the transom: a fan from its middle, round the section and across the top
+  const ring: number[] = [];
+  for (let j = 0; j <= 8; j++) ring.push(...hullPt(h, 0, j / 8, 1, _hs).toArray());
+  for (let j = 8; j >= 0; j--) ring.push(...hullPt(h, 0, j / 8, -1, _hs).toArray());
+  let cx = 0, cy = 0, cz = 0;
+  const nr = ring.length / 3;
+  for (let k = 0; k < nr; k++) {
+    cx += ring[k * 3] / nr;
+    cy += ring[k * 3 + 1] / nr;
+    cz += ring[k * 3 + 2] / nr;
+  }
+  const tp = [cx, cy, cz, ...ring], ti: number[] = [];
+  for (let k = 1; k < nr; k++) ti.push(0, k, k + 1);
+  ti.push(0, nr, 1);
+  const tg = wound(tp, ti, Math.floor(nr / 4), _ho.set(0, 0, -1));
+  b.geo(tg, f, c.top);
+  tg.dispose();
+  // a rubbing strake along each sheer, meeting at the stem
+  for (const side of [-1, 1]) {
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= 12; i++) pts.push(hullPt(h, i / 12, 0.97, side, new THREE.Vector3()).add(_ho.set(side * 0.012 * (1 - i / 12), 0, 0)));
+    railIn(b, f, pts, Math.max(0.018, 0.012 * h.B), c.rub, 5);
+  }
+}
+
+/**
+ * A sail baked two-sided in the local frame f: the luff from `tack` to `head`, the leech from `clew`
+ * to `head` bowed aft (-z) by `roach`, the cloth bellied out to +x by `belly` of each chord (deepest
+ * a little aft of the luff), in horizontal cloths of alternating tone.
+ */
+function sailIn(b: Baker, f: THREE.Matrix4, tack: THREE.Vector3, head: THREE.Vector3, clew: THREE.Vector3, roach: number, belly: number, cloths: readonly Surface[], rows = 8, cols = 6) {
+  const P = (a: number, c: number, out: THREE.Vector3) => {
+    const lx = tack.x + (head.x - tack.x) * a, ly = tack.y + (head.y - tack.y) * a, lz = tack.z + (head.z - tack.z) * a;
+    const rx = clew.x + (head.x - clew.x) * a, ry = clew.y + (head.y - clew.y) * a, rz = clew.z + (head.z - clew.z) * a - roach * Math.sin(Math.PI * a);
+    const chord = Math.hypot(rx - lx, ry - ly, rz - lz);
+    out.set(lx + (rx - lx) * c, ly + (ry - ly) * c, lz + (rz - lz) * c);
+    out.x += belly * chord * Math.sin(Math.PI * Math.pow(c, 0.75)) * (1 - 0.35 * a);
+    return out;
+  };
+  for (let r = 0; r < rows; r++) {
+    const a0 = r / rows, a1 = (r + 1) / rows;
+    const g = gridGeo(1, cols, (i, j, p) => P(i ? a1 : a0, j / cols, p), _ho.set(1, 0, 0));
+    const two = bothSides(g);
+    b.geo(two, f, cloths[r % cloths.length]);
+    two.dispose();
+    g.dispose();
+  }
+}
+
+/** The open sea's swell under (x, z) at time t, as the sea shader raises it (in units of its 0.09 m height). */
+function swellAt(x: number, z: number, t: number) {
+  const off = smooth((-z - 3) / 23);
+  return (Math.sin(x * 0.21 + z * 0.43 - t * 1.1) * 0.5 + Math.sin(-x * 0.33 + z * 0.29 - t * 0.85 + 1.7) * 0.35 + Math.sin(z * 0.71 + x * 0.08 - t * 1.6) * 0.2) * off;
+}
+
+/** Smooth value noise in 0..1, and ridged fractal noise built on it (sharp crests, rounded valleys). */
+function vnoise(x: number, y: number) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const h = (a: number, b: number) => hash(a * 57.31 + b * 113.7 + 0.5);
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  const a = h(ix, iy) + (h(ix + 1, iy) - h(ix, iy)) * ux;
+  const c = h(ix, iy + 1) + (h(ix + 1, iy + 1) - h(ix, iy + 1)) * ux;
+  return a + (c - a) * uy;
+}
+function ridged(x: number, y: number, octaves = 5) {
+  let s = 0, amp = 0.55, f = 1, w = 1;
+  for (let o = 0; o < octaves; o++) {
+    let n = 1 - Math.abs(vnoise(x * f + o * 7.1, y * f - o * 3.7) * 2 - 1);
+    n *= n * w;
+    w = Math.min(1, n * 1.8);
+    s += n * amp;
+    amp *= 0.5;
+    f *= 2.07;
+  }
+  return s;
+}
+
+/** The idle camera's spot on the sand (for placing the far scenery by bearing and distance). */
+const EYE_X = -3.25, EYE_Z = 0.44;
+
+/** A point of the far land: its height, the beach or sea floor under it, and how deep a gully it sits in. */
+interface Ground {
+  y: number;
+  ground: number;
+  gully: number;
+}
+
+/** The headland's spine, from its point out in the sea back inland along the dunes (world x, z). */
+const HEAD_SPINE: readonly (readonly [number, number])[] = [[80, -9], [86, 0], [89, 12], [88, 26], [84, 40], [78, 52], [72, 64]];
+
+/** V-shaped gullies: 1 along the lines where u is a multiple of pi, falling away to 0 between them. */
+const gullyAt = (u: number) => {
+  const k = 1 - Math.abs(Math.sin(u));
+  return k * k * k * k;
+};
+
+/**
+ * The land closing the bay: a low green headland running out to sea from the far end of the beach,
+ * and behind it a taller range curving round the horizon (placed by bearing and distance from the
+ * camera, so it stays inside the far clip plane), dropping to the sea in cliffs off to the left.
+ * Below the hills it carries on as the beach (hidden under the sand mesh up to x = 90).
+ */
+function landAt(x: number, z: number, o: Ground) {
+  // the headland: a ridge along its spine, rounded across it, cliffs where it faces the open sea
+  let best = 1e9, s = 0, len = 0;
+  for (let i = 0; i < HEAD_SPINE.length - 1; i++) {
+    const [ax, az] = HEAD_SPINE[i], [bx, bz] = HEAD_SPINE[i + 1];
+    const ex = bx - ax, ez = bz - az, l = Math.hypot(ex, ez);
+    const u = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / (l * l)));
+    const dx = x - ax - ex * u, dz = z - az - ez * u, dd = dx * dx + dz * dz;
+    if (dd < best) {
+      best = dd;
+      s = len + u * l;
+    }
+    len += l;
+  }
+  const t = s / len, k = Math.sqrt(best) / (7.5 + 4.5 * smooth(t / 0.4));
+  let head = 0, hg = 0;
+  if (k < 1.2) {
+    const crest = 2.8 + 4 * smooth(t / 0.35) - 1.2 * smooth((t - 0.65) / 0.35) + 1.4 * (vnoise(s * 0.06, 7.3) - 0.5);
+    const dome = Math.max(0, 1 - k * k);
+    const prof = dome + (smooth((1.04 - k) / 0.2) - dome) * smooth((-z - 1) / 7);
+    hg = gullyAt(s * 0.43 + 2.4 * vnoise(x * 0.07 + 3, z * 0.07)) * 4 * prof * (1 - prof);
+    head = crest * prof * (0.55 + 0.6 * ridged(x * 0.075, z * 0.075, 5)) - 0.8 * hg;
+  }
+  // the range behind: ridges and summits along the horizon, gullies down its face, cliffs at its seaward end
+  const ex = x - EYE_X, ez = EYE_Z - z;
+  const r = Math.hypot(ex, ez), th = Math.atan2(ez, ex), arc = th * 112;
+  const ends = smooth((th + 0.72) / 0.12) * smooth((0.3 - th) / 0.07);
+  const front = smooth((r - 99) / 12);
+  let range = 0, rg = 0;
+  if (ends > 0 && front > 0) {
+    const peaks = 7 + 9 * vnoise(arc * 0.022, 2.2) + 2.5 * vnoise(arc * 0.08, 5.1);
+    rg = gullyAt(arc * 0.36 + 2.6 * vnoise(x * 0.05, z * 0.05)) * 4 * front * (1 - front) * ends;
+    range = front * (1 - 0.45 * smooth((r - 113) / 5)) * ends * peaks * (0.5 + 0.65 * ridged(x * 0.042 + 11, z * 0.042, 5)) - 1.4 * rg;
+    if (range > 11) range = 11 + (range - 11) * 0.4;
+  }
+  // the two blend where they meet; trees rumple the skyline below the bare tops
+  const gap = Math.max(0, 2 - Math.abs(head - range));
+  const h = Math.max(head, range) + (gap * gap) / 8;
+  const trees = 0.35 * vnoise(x * 0.9, z * 0.9) * smooth((h - 2) / 2) * (1 - smooth((h - 11) / 2));
+  // the beach (or sea floor) under it, and a strip of sand or rocks round the foot of the cliffs
+  const cove = 0.45 + 0.6 * smooth((vnoise(x * 0.08 + 5, z * 0.08) - 0.3) / 0.4);
+  const ground = Math.max(sandH(x, z) - 0.3 * smooth(90.5 - x), Math.min(SEA + 0.22, SEA - 0.9 + 1.25 * smooth(h / 1.4) * cove));
+  o.ground = ground;
+  o.y = Math.max(ground, h - 1.2 + trees);
+  o.gully = Math.max(hg, rg);
+}
+
+/** Islands out on the horizon, by bearing (degrees, + towards the sea), distance, half-width, depth, peak and seed. They sit beyond the boats' lanes. */
+const ISLES: readonly (readonly [number, number, number, number, number, number])[] = [
+  [23, 113.5, 7.5, 3.5, 6.5, 1.3],
+  [34.5, 113, 11, 4.4, 9, 4.1],
+  [45, 116, 5, 2, 3.6, 7.7],
+];
+
+function isleAt(x: number, z: number, o: Ground) {
+  const ex = x - EYE_X, ez = EYE_Z - z;
+  const r = Math.hypot(ex, ez), th = Math.atan2(ez, ex);
+  let h = -1, skirt = 0, gully = 0;
+  for (const [deg, rc, rt, rr, peak, seed] of ISLES) {
+    const dt = (th - (deg * Math.PI) / 180) * rc, dr = r - rc;
+    const q = Math.hypot(dt / rt, dr / rr);
+    if (q > 1.5) continue;
+    const core = smooth((1 - q) / 0.8);
+    const g = gullyAt(Math.atan2(dr / rr, dt / rt) * 4.5 + 2 * vnoise(x * 0.1 + seed, z * 0.1)) * 4 * core * (1 - core);
+    h = Math.max(h, peak * Math.pow(core, 1.2) * (0.5 + 0.7 * ridged(x * 0.08 + seed * 13, z * 0.08, 4)) - 0.7 * g);
+    skirt = Math.max(skirt, smooth((1.25 - q) / 0.25));
+    gully = Math.max(gully, g);
+  }
+  o.ground = SEA - 0.6 + 0.95 * skirt;
+  o.y = Math.max(o.ground, SEA - 0.1 + h);
+  o.gully = gully;
+}
+
+/**
+ * A heightfield on a fan of rays out from the camera (so its detail is even across the screen),
+ * coloured once: sand, rock and forest by height and slope, lit by the sun and the sky, then faded
+ * into the summer haze with distance (aerial perspective). Unlit and shadowless: it is all far off.
+ * Quads with every corner hidden (under the sand mesh, or deep under the sea) are left out.
+ */
+function polarLand(th0: number, th1: number, nt: number, r0: number, r1: number, nr: number, at: (x: number, z: number, o: Ground) => void, hide: (x: number, z: number, o: Ground) => boolean) {
+  const nv = (nt + 1) * (nr + 1);
+  const pos = new Float32Array(nv * 3), ground = new Float32Array(nv), gully = new Float32Array(nv);
+  const hidden = new Uint8Array(nv);
+  const o: Ground = { y: 0, ground: 0, gully: 0 };
+  for (let j = 0; j <= nr; j++) {
+    const r = r0 + ((r1 - r0) * j) / nr;
+    for (let i = 0; i <= nt; i++) {
+      const th = ((th0 + ((th1 - th0) * i) / nt) * Math.PI) / 180;
+      const x = EYE_X + r * Math.cos(th), z = EYE_Z - r * Math.sin(th);
+      at(x, z, o);
+      const v = j * (nt + 1) + i;
+      pos[v * 3] = x;
+      pos[v * 3 + 1] = o.y;
+      pos[v * 3 + 2] = z;
+      ground[v] = o.ground;
+      gully[v] = o.gully;
+      hidden[v] = hide(x, z, o) ? 1 : 0;
+    }
+  }
+  const idx: number[] = [];
+  for (let j = 0; j < nr; j++) {
+    for (let i = 0; i < nt; i++) {
+      const a = j * (nt + 1) + i, b = a + 1, c = a + nt + 1, d = c + 1;
+      if (hidden[a] && hidden[b] && hidden[c] && hidden[d]) continue;
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const nrm = geo.getAttribute('normal');
+  const col = new Float32Array(nv * 3);
+  const C = (h: number) => new THREE.Color(h);
+  const sand = C(0xf0dcae), wet = C(0xb59866), grass = C(0x9aa65e);
+  const lush = C(0x4f8a3a), lush2 = C(0x356f2c), dry = C(0x8d9a52), meadow = C(0xa8ad62);
+  const rock = C(0x9a8a72), rock2 = C(0x6f675c);
+  const haze = COL.horizon.clone().lerp(new THREE.Color(0.86, 0.93, 1.0), 0.45);
+  const c = new THREE.Color(), v = new THREE.Color(), m = new THREE.Color();
+  for (let k = 0; k < nv; k++) {
+    const x = pos[k * 3], y = pos[k * 3 + 1], z = pos[k * 3 + 2];
+    const nx = nrm.getX(k), ny = nrm.getY(k), nz = nrm.getZ(k);
+    const n1 = vnoise(x * 0.11, z * 0.11);
+    // the ground: dry sand, wet sand where the sea washes it, grass inland behind the dunes
+    c.copy(sand).lerp(wet, smooth((SEA + 0.16 - y) / 0.14));
+    c.lerp(grass, smooth((z - 12) / 14) * smooth((y - 0.6) / 0.6));
+    // forest, drier and thinner the higher it climbs, open meadows here and there; rock where it is too steep to hold, and on the tops
+    v.copy(lush).lerp(lush2, n1).lerp(dry, smooth((y - 5) / 8) * 0.8);
+    v.lerp(meadow, smooth((vnoise(x * 0.05 + 9, z * 0.05) - 0.62) / 0.15) * 0.6);
+    v.multiplyScalar(0.82 + 0.3 * hash(k * 0.731 + 0.17));
+    m.copy(rock).lerp(rock2, smooth((n1 - 0.3) / 0.4));
+    v.lerp(m, Math.max(smooth((0.62 - ny) / 0.2), smooth((y - 12) / 3)));
+    c.lerp(v, smooth((y - ground[k] - 0.2) / 0.6));
+    c.multiplyScalar(1 - 0.38 * gully[k]);
+    // lit by the high sun out over the sea, and by the blue sky all round
+    const sun = Math.max(0, nx * SUN.x + ny * SUN.y + nz * SUN.z), sky = 0.36 + 0.2 * ny;
+    c.r *= 0.86 * sun + 0.8 * sky;
+    c.g *= 0.84 * sun + 0.88 * sky;
+    c.b *= 0.8 * sun + 1.0 * sky;
+    // paler and bluer with distance, a little mist lying in the low ground far off
+    const d = Math.hypot(x - EYE_X, z - EYE_Z);
+    c.lerp(haze, Math.min(0.85, 0.03 + 0.42 * smooth((d - 84) / 30) + 0.14 * Math.exp(-Math.max(0, y) / 3) * smooth((d - 90) / 20)));
+    col[k * 3] = c.r;
+    col[k * 3 + 1] = c.g;
+    col[k * 3 + 2] = c.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.deleteAttribute('normal');
+  geo.computeBoundingSphere();
+  return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true }));
 }
 
 /** Things afloat riding the swell: every vertex tagged (phase, size of the bob), drifting a little. */
@@ -1190,7 +1875,16 @@ export class Beach implements HomeScene {
   private gullWing: THREE.InstancedMesh;
   private boat = new THREE.Group();
   private crab = new THREE.Group();
-  private crabLegs: THREE.Mesh[] = [];
+  /** The crab's shell (bobbing and rocking on its legs), its eyes, claws and their movable fingers, and its legs (two segments each, instanced). */
+  private crabBody = new THREE.Group();
+  private crabEyes = new THREE.Group();
+  private crabClaws: THREE.Group[] = [];
+  private crabFingers: THREE.Group[] = [];
+  private crabLegs!: THREE.InstancedMesh;
+  /** The crab's gait clock, and where it was last frame (for its speed and turning). */
+  private crabGait = 0;
+  private crabPrev = new THREE.Vector3(NaN, 0, 0);
+  private crabPrevYaw = 0;
   private buoys: THREE.InstancedMesh;
   /** Swim-zone buoys: x, z, size. */
   private buoyAt: [number, number, number][] = [];
@@ -1217,21 +1911,61 @@ export class Beach implements HomeScene {
   private eq!: THREE.InstancedMesh;
   private eqBase: THREE.Vector3[] = [];
   private eqLevel = 1;
-  private walker = new THREE.Group();
   private dog = new THREE.Group();
-  private walkPhase = { value: 0 };
-  private dogPhase = { value: 0 };
-  private dogPrev = new THREE.Vector3();
-  private dogYaw = Math.PI / 2;
-  private players: THREE.Group[] = [];
+  /**
+   * The robot dog: its body (bobbing, pitching and rolling over its legs), the head with its ears and
+   * eyes (plain, or happy arcs), the tail, and the legs (thighs, shins and paws, four of each,
+   * instanced and posed by IK each frame); and what it's up to.
+   */
+  private dogBody = new THREE.Group();
+  private dogHead = new THREE.Group();
+  private dogEars: THREE.Group[] = [];
+  private dogTail = new THREE.Group();
+  private dogEyes!: THREE.Mesh;
+  private dogHappy!: THREE.Mesh;
+  private dogLegs: THREE.InstancedMesh[] = [];
+  private dogS = { mode: 'heel' as DogMode, t: 0, dur: 4, sub: 0, plan: 0, x: 0, z: 0, vx: 0, vz: 0, yaw: Math.PI / 2, gait: 0, init: false, blink: 2 };
+  /**
+   * Where the robot walking the tide line is (its feet on the sand), and its heading (yaw, +z
+   * forward): the dog keeps to it. Written in life() from the walk's path; drive it from anywhere.
+   */
+  readonly walkerAt = new THREE.Vector3(18, 0, -3.7);
+  /** The other robots on the beach (real bots, a new mix each visit) and where they go. */
+  private people: BeachCrowd;
+  private crowdSlots: Slot[] = [];
+  private visits = 0;
+  walkerYaw = Math.PI / 2;
   private vball!: THREE.Mesh;
   private birds!: THREE.InstancedMesh;
   private surfer = new THREE.Group();
   private sails: THREE.Group[] = [];
+  private cat = new THREE.Group();
+  private fisher = new THREE.Group();
+  /** Everything afloat that rides the swell (see afloatStep). */
+  private craft: Craft[] = [];
+  private boatMat!: THREE.MeshStandardMaterial;
+  private sailMat!: THREE.MeshStandardMaterial;
+  private nameMat!: THREE.MeshStandardMaterial;
+  private surfRig = new THREE.Group();
+  private surfSail!: THREE.Mesh;
+  private surfWake = { value: 0 };
+  /**
+   * Where riders go, for real bots to be posed on: feet (+z the way they face) and hands. The
+   * paddler's on the board (child of `paddler`), its hands on the paddle (children of `paddle`, top
+   * grip first); the windsurfer's on the board, its hands on the boom (children of the rig, front
+   * hand first); a fisher's spot in the fishing boat's cockpit (child of its hull).
+   */
+  readonly paddlerSpot = new THREE.Object3D();
+  readonly paddleGrips: THREE.Object3D[] = [];
+  readonly surferSpot = new THREE.Object3D();
+  readonly boomGrips: THREE.Object3D[] = [];
+  readonly fisherSpot = new THREE.Object3D();
 
   constructor(renderer: THREE.WebGLRenderer, quality: Quality) {
     const g = this.group;
     g.visible = false;
+    this.people = new BeachCrowd(quality);
+    g.add(this.people.group);
 
     // ------------------------------------------------------------ sky
     // one set of sky uniforms, shared by the dome, the sea's reflections and the lens flare
@@ -1305,7 +2039,7 @@ export class Beach implements HomeScene {
       roughness: 0.96,
       metalness: 0,
     });
-    // wet sand at the water's edge turns glossy and mirrors the low sun; dry grains glint as the eye moves
+    // wet sand at the water's edge turns glossy and mirrors the sun; dry grains glint as the eye moves
     sandMat.onBeforeCompile = (sh) => {
       sh.uniforms.uSandNoise = { value: noise };
       sh.vertexShader = sh.vertexShader
@@ -1383,7 +2117,8 @@ export class Beach implements HomeScene {
     this.bar(far, 6.8, 7.8);
     this.lifeguard(far, -9.5, 3.4);
     this.shoreBits(far);
-    this.islands(far);
+    this.islands();
+
     this.hammock(far);
     this.beachBits(far);
     this.volleyball(far, 12.6, 3.8);
@@ -1519,25 +2254,8 @@ export class Beach implements HomeScene {
     this.gullBody.frustumCulled = this.gullWing.frustumCulled = false;
     g.add(this.gullBody, this.gullWing);
 
-    const bb = new Baker();
-    putS(bb, G.sphere(1, 12, 6), 0, 0.12, 0, S.white, 0.42, 0.22, 1.6);
-    box(bb, 0.7, 0.08, 2.6, 0, 0.3, 0, S.wood);
-    seg(bb, new THREE.Vector3(0, 0.3, 0.3), new THREE.Vector3(0, 4.2, 0.3), 0.04, 0.03, S.steel, 6);
-    const sail = new THREE.Shape();
-    sail.moveTo(0, 0);
-    sail.lineTo(0, 3.7);
-    sail.lineTo(1.9, 0);
-    sail.closePath();
-    const sailGeo = new THREE.ShapeGeometry(sail);
-    sailGeo.rotateY(Math.PI / 2);
-    bb.geo(sailGeo, new THREE.Matrix4().makeTranslation(0.02, 0.45, 0.25), S.sail);
-    bb.geo(sailGeo, new THREE.Matrix4().makeTranslation(-0.02, 0.45, 0.25).multiply(new THREE.Matrix4().makeScale(-1, 1, 1)), S.sail);
-    const boat = new THREE.Mesh(bb.build().opaque!, vertexPBR(new THREE.MeshStandardMaterial(), 'beach-boat'));
-    this.boat.add(boat);
-    this.boat.position.set(-24, SEA, -46);
-    this.boat.rotation.y = 1.1;
-    g.add(this.boat);
-    this.traffic(boat);
+    // boats: at anchor, sailing, cruising and fishing, and far sails on the horizon
+    this.boats();
 
     // swim-zone buoys bobbing in a line, big orange markers at the ends
     for (let i = 0; i < 15; i++) this.buoyAt.push([-6 + i, -12.2 - 0.9 * Math.sin((i / 14) * Math.PI), i === 0 || i === 14 ? 2.2 : 1]);
@@ -1548,70 +2266,54 @@ export class Beach implements HomeScene {
     g.add(this.buoys);
 
     // a crab scuttling along the tide line
-    const cr = new Baker();
-    putS(cr, G.sphere(1, 12, 8), 0, 0.05, 0, S.crab, 0.09, 0.045, 0.07);
-    for (const s of [-1, 1]) {
-      seg(cr, new THREE.Vector3(s * 0.02, 0.07, 0.05), new THREE.Vector3(s * 0.025, 0.11, 0.06), 0.005, 0.005, S.crab, 4);
-      put(cr, G.sphere(0.012, 6, 4), s * 0.025, 0.115, 0.06, S.black);
-      seg(cr, new THREE.Vector3(s * 0.06, 0.05, 0.04), new THREE.Vector3(s * 0.08, 0.05, 0.085), 0.01, 0.01, S.crab, 4);
-      putS(cr, G.sphere(1, 8, 6), s * 0.085, 0.05, 0.1, S.crab, 0.032, 0.022, 0.042);
-    }
-    const crabMat = vertexPBR(new THREE.MeshStandardMaterial(), 'beach-crab');
-    const body = new THREE.Mesh(cr.build().opaque!, crabMat);
-    body.castShadow = true;
-    this.crab.add(body);
-    for (const s of [-1, 1]) {
-      const lb = new Baker();
-      for (const lz of [-0.035, 0, 0.035]) seg(lb, new THREE.Vector3(0, 0, lz), new THREE.Vector3(s * 0.07, -0.04, lz * 1.6), 0.007, 0.005, S.crab, 4);
-      const legs = new THREE.Mesh(lb.build().opaque!, crabMat);
-      legs.position.set(s * 0.07, 0.045, 0);
-      this.crab.add(legs);
-      this.crabLegs.push(legs);
-    }
-    this.crab.scale.setScalar(1.5);
-    g.add(this.crab);
+    this.buildCrab();
 
     // more life: a robot walking its dog along the tide line, a volleyball rally, birds on the
     // sand, swimmers and a flamingo float, a windsurfer, and far sails on the horizon
-    this.walkers();
+    this.robodog();
     this.rally();
     this.shorebirds();
     this.floaters();
     this.windsurfer();
-    this.farSails(boat);
+    this.paddleboard();
 
     // reflections for the robot's metal: this sky over this sand
     const envScene = new THREE.Scene();
     envScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), this.sky));
     const groundGeo = new THREE.CircleGeometry(9, 24);
     groundGeo.rotateX(-Math.PI / 2);
-    const ground = new THREE.Mesh(groundGeo, new THREE.MeshBasicMaterial({ color: 0x8d7b5c }));
+    const ground = new THREE.Mesh(groundGeo, new THREE.MeshBasicMaterial({ color: 0xc4ae86 }));
+
     ground.position.y = -1.2;
     envScene.add(ground);
     const pmrem = new THREE.PMREMGenerator(renderer);
     this.env = pmrem.fromScene(envScene, 0.03).texture;
     pmrem.dispose();
     groundGeo.dispose();
+    // the other robots on the beach: real bots, on the spots laid out above
+    this.people.populate(this.crowdSlots, this.rides(), sandH);
     // place everyone that moves before the first frame, so nothing waits at the origin
+    this.people.update(0, 0);
     this.life(0, 0);
-    this.dogPrev.set(0, 0, 0);
   }
 
   /** The sun's lens flare: glows, rings and ghosts along the line through the middle of the screen. */
   private flare(sky: Record<string, { value: unknown }>) {
     // along the line (0 sun, 1 centre, 2 mirrored), size, shape (0 glow, 1 ring, 2 ghost, 3 streak), strength, colour
+    // (a gentle midday glare: whiter and fainter than a low sun's)
     const els: [number, number, number, number, number][] = [
-      [0, 0.5, 0, 0.3, 0xffc890],
-      [0, 0.16, 0, 0.7, 0xfff0d8],
-      [0, 0.09, 3, 0.45, 0xffd7a8],
-      [0.22, 0.045, 2, 0.15, 0xffb060],
-      [0.38, 0.085, 2, 0.09, 0x8fe0b0],
-      [0.52, 0.03, 0, 0.2, 0xffe0a0],
-      [0.68, 0.15, 1, 0.07, 0x9a8cff],
-      [0.86, 0.06, 2, 0.11, 0x7cc0ff],
-      [1.08, 0.22, 1, 0.05, 0xffa070],
-      [1.28, 0.1, 2, 0.07, 0xffd080],
+      [0, 0.45, 0, 0.16, 0xfff1dc],
+      [0, 0.14, 0, 0.4, 0xfffaf0],
+      [0, 0.08, 3, 0.2, 0xfff0dc],
+      [0.22, 0.04, 2, 0.06, 0xffe0b0],
+      [0.38, 0.075, 2, 0.04, 0xa8f0d0],
+      [0.52, 0.03, 0, 0.08, 0xfff0d0],
+      [0.68, 0.14, 1, 0.03, 0xa8b8ff],
+      [0.86, 0.055, 2, 0.05, 0x9ad0ff],
+      [1.08, 0.2, 1, 0.025, 0xffd8b8],
+      [1.28, 0.09, 2, 0.03, 0xffe8b0],
     ];
+
     const pos: number[] = [], corner: number[] = [], el: number[] = [], tint: number[] = [], idx: number[] = [];
     const c = new THREE.Color();
     els.forEach(([along, size, shape, k, hex], i) => {
@@ -1821,12 +2523,9 @@ export class Beach implements HomeScene {
     put(b, G.cyl(0.11, 0.11, 0.07, 8), kx + 0.32, ky + 0.035, kz + 0.1, S.sand);
   }
 
-  /** Islands out on the horizon. */
-  private islands(b: Baker) {
-    putS(b, G.sphere(1, 16, 8), -70, -4, -96, S.island, 28, 9, 12);
-    putS(b, G.sphere(1, 16, 8), -70, -1.2, -94, S.islandSand, 30, 2, 13);
-    putS(b, G.sphere(1, 16, 8), 58, -3, -104, S.island, 20, 7, 10);
-    putS(b, G.sphere(1, 16, 8), 82, -2, -98, S.island, 12, 4.5, 8);
+  /** Islands out on the horizon beyond the boats' lanes: forest on their tops, beaches and rocks round their feet. */
+  private islands() {
+    this.group.add(polarLand(17, 48, 150, 104, 118.5, 26, isleAt, (_x, _z, o) => o.y < SEA - 0.45));
   }
 
   /** A hammock slung between two palms. */
@@ -1868,23 +2567,8 @@ export class Beach implements HomeScene {
       const lz = -0.71 + k * 0.284;
       box(b, 0.85, 0.012, 0.284, tx + Math.sin(tr) * lz, sandH(tx, tz) + 0.01, tz + Math.cos(tr) * lz, s, 0, tr, 0);
     });
-    const cx = -1.55, cz = -0.55, cy = sandH(cx, cz);
-    // the cooler, its lid propped open on ice, bottles and cans
-    const cf = frame(cx, cy, cz, 0.2);
-    putIn(b, cf, G.cbox(0.52, 0.32, 0.36, 0.03), S.blue, 0, 0.16, 0);
-    putIn(b, cf, G.box(1, 1, 1), S.white, 0, 0.305, 0, 0, 0, 0, 0.53, 0.03, 0.37);
-    putIn(b, cf, G.cbox(0.55, 0.06, 0.39, 0.02), S.white, 0, 0.495, 0.27, 1.9);
-    for (const s of [-1, 1]) putIn(b, cf, G.torus(0.05, 0.012, 4, 10, Math.PI), S.black, s * 0.27, 0.22, 0, 0, Math.PI / 2);
-    for (let i = 0; i < 14; i++) putS(b, G.ico(1), cx + (hash(i * 3.1) - 0.5) * 0.4, cy + 0.32, cz + (hash(i * 5.7) - 0.5) * 0.26, S.ice, 0.045, 0.03, 0.04, hash(i) * 3, hash(i * 2) * 3, 0);
-    const drinks = [S.glassGreen, S.glassBrown, S.glassGreen, S.red, S.silver, S.yellow];
-    drinks.forEach((sf, i) => {
-      const dx = -0.17 + i * 0.068, dz = (i % 2 ? 0.06 : -0.05);
-      if (i < 3) {
-        putIn(b, cf, G.cyl(0.03, 0.035, 0.12, 8), sf, dx, 0.33, dz, 0.15 * (i - 1));
-        putIn(b, cf, G.cyl(0.012, 0.025, 0.08, 8), sf, dx + 0.015 * (i - 1), 0.42, dz, 0.15 * (i - 1));
-        putIn(b, cf, G.cyl(0.014, 0.014, 0.012, 8), S.gold, dx + 0.022 * (i - 1), 0.465, dz, 0.15 * (i - 1));
-      } else putIn(b, cf, G.cyl(0.033, 0.033, 0.1, 10), sf, dx, 0.335, dz, 0.3, 0, 0.2);
-    });
+    this.cooler(b, -1.55, -0.55, 0.2);
+
     const ballCols = [S.red, S.white, S.blue, S.yellow, S.white, S.teal];
     ballCols.forEach((s, k) => {
       const wedge = new THREE.SphereGeometry(0.2, 4, 10, (k * Math.PI) / 3, Math.PI / 3);
@@ -1911,6 +2595,259 @@ export class Beach implements HomeScene {
         putS(b, G.cone(0.035, 0.11, 5), x + Math.cos(a) * 0.06, y, z + Math.sin(a) * 0.06, s, 0.45, 1, 1, 0, -a, -Math.PI / 2);
       }
     }
+  }
+
+  /**
+   * A cooler standing open on the sand: a hollow tub (floor, walls, a white lip and a pale liner)
+   * packed with ice to a hand below the rim, bottles and cans standing in the ice, and the lid swung
+   * back on its hinges along the far (sea-side) edge, so the idle shot looks down into it.
+   */
+  private cooler(b: Baker, x: number, z: number, yaw: number) {
+    const cf = frame(x, sandH(x, z), z, yaw);
+    const W = 0.52, D = 0.36, H = 0.32, T = 0.028;
+    const liner = surf(0xe6edf2, 0, 0.35);
+    const iceB = surf(0xc6e9fb, 0.05, 0.08);
+    const BOX = G.box(1, 1, 1);
+    // the tub
+    putIn(b, cf, G.cbox(W, 0.05, D, 0.015), S.blue, 0, 0.025, 0);
+    const wallH = H - 0.05;
+    for (const s of [-1, 1]) {
+      putIn(b, cf, G.cbox(W, wallH, T, 0.008), S.blue, 0, 0.02 + wallH / 2, s * (D / 2 - T / 2));
+      putIn(b, cf, G.cbox(T, wallH, D - 2 * T, 0.008), S.blue, s * (W / 2 - T / 2), 0.02 + wallH / 2, 0);
+      // the white lip round the top, proud of the walls inside and out
+      putIn(b, cf, G.cbox(W + 0.008, 0.03, T + 0.008, 0.008), S.white, 0, H - 0.015, s * (D / 2 - T / 2));
+      putIn(b, cf, G.cbox(T + 0.008, 0.03, D - 2 * T - 0.004, 0.008), S.white, s * (W / 2 - T / 2), H - 0.015, 0);
+      // the liner showing above the ice
+      putIn(b, cf, BOX, liner, 0, H - 0.07, s * (D / 2 - T - 0.002), 0, 0, 0, W - 2 * T - 0.004, 0.08, 0.004);
+      putIn(b, cf, BOX, liner, s * (W / 2 - T - 0.002), H - 0.07, 0, 0, 0, 0, 0.004, 0.08, D - 2 * T - 0.004);
+      // swing handles on the ends, on little bosses
+      putIn(b, cf, G.torus(0.055, 0.01, 5, 12, Math.PI), S.black, s * (W / 2 + 0.016), 0.215, 0, 0, Math.PI / 2);
+      for (const e of [-1, 1]) putIn(b, cf, G.cyl(0.014, 0.014, 0.018, 8), S.white, s * (W / 2 + 0.008), 0.215, e * 0.055, 0, 0, Math.PI / 2);
+    }
+    // a white band and badge on the front, a drain plug at the bottom corner
+    putIn(b, cf, BOX, S.white, 0, 0.17, D / 2 + 0.001, 0, 0, 0, W - 0.12, 0.05, 0.004);
+    putIn(b, cf, G.cyl(0.018, 0.018, 0.004, 12), S.red, -0.12, 0.17, D / 2 + 0.004, Math.PI / 2);
+    putIn(b, cf, G.cyl(0.014, 0.016, 0.012, 8), S.black, 0.2, 0.045, D / 2 + 0.004, Math.PI / 2);
+    // the ice: a bed, and cubes heaped on it, all inside the walls
+    const ix = W / 2 - T - 0.03, iz = D / 2 - T - 0.03;
+    putIn(b, cf, BOX, S.ice, 0, 0.2, 0, 0, 0, 0, W - 2 * T - 0.004, 0.03, D - 2 * T - 0.004);
+    for (let i = 0; i < 36; i++) {
+      const u = ((i % 6) + 0.2 + 0.6 * hash(i * 3.1)) / 6, v = (Math.floor(i / 6) + 0.2 + 0.6 * hash(i * 5.7)) / 6;
+      putIn(b, cf, G.cbox(0.042, 0.036, 0.04, 0.008), i % 3 ? S.ice : iceB, (u * 2 - 1) * ix, 0.222 + hash(i * 7.3) * 0.03, (v * 2 - 1) * iz, hash(i) * 3, hash(i * 2) * 3, hash(i * 9.1) * 3);
+    }
+    // drinks standing in the ice: bottles (glass body, label, shoulder, neck, cap all on one tilted axis) and cans
+    const fr = new THREE.Matrix4();
+    const at = (dx: number, dy: number, dz: number, rx: number, rz: number) =>
+      fr.multiplyMatrices(cf, _tm.compose(_ta.set(dx, dy, dz), _tq.setFromEuler(_le.set(rx, 0, rz)), ONE));
+    const bottle = (dx: number, dz: number, rx: number, rz: number, glass: Surface, label: Surface, cap: Surface) => {
+      const f = at(dx, 0.11, dz, rx, rz);
+      putIn(b, f, G.cyl(0.031, 0.031, 0.15, 10), glass, 0, 0.075, 0);
+      putIn(b, f, G.cyl(0.0325, 0.0325, 0.06, 10), label, 0, 0.09, 0);
+      putIn(b, f, G.cyl(0.013, 0.031, 0.045, 10), glass, 0, 0.1725, 0);
+      putIn(b, f, G.cyl(0.012, 0.013, 0.055, 8), glass, 0, 0.2225, 0);
+      putIn(b, f, G.cyl(0.0145, 0.0145, 0.014, 8), cap, 0, 0.255, 0);
+    };
+    bottle(-0.14, -0.05, 0.1, -0.15, S.glassGreen, S.cream, S.gold);
+    bottle(-0.06, 0.06, -0.15, 0.12, S.glassBrown, S.yellow, S.red);
+    bottle(0.03, -0.07, 0.18, -0.08, S.glassGreen, S.white, S.gold);
+    const can = (dx: number, dy: number, dz: number, rx: number, rz: number, paint: Surface) => {
+      const f = at(dx, dy, dz, rx, rz);
+      putIn(b, f, G.cyl(0.033, 0.033, 0.115, 12), paint, 0, 0, 0);
+      putIn(b, f, G.cyl(0.028, 0.033, 0.01, 12), S.silver, 0, 0.0625, 0);
+      putIn(b, f, BOX, S.silver, 0.008, 0.068, 0, 0, 0, 0, 0.018, 0.003, 0.01);
+    };
+    can(0.12, 0.2, 0.05, 0, 0, S.red);
+    can(0.17, 0.21, -0.07, 0.35, 0, S.silver);
+    can(-0.17, 0.2, 0.085, 0, -0.25, S.teal);
+    // the lid, hinged along the back edge and swung up and over past upright
+    const lf = new THREE.Matrix4().multiplyMatrices(cf, _tm.compose(_ta.set(0, H + 0.004, -D / 2 - 0.006), _tq.setFromEuler(_le.set(-1.85, 0, 0)), ONE));
+    putIn(b, lf, G.cbox(W + 0.012, 0.05, D + 0.012, 0.015), S.white, 0, 0.025, D / 2);
+    putIn(b, lf, BOX, liner, 0, -0.002, D / 2, 0, 0, 0, W - 0.06, 0.008, D - 0.06);
+    putIn(b, lf, G.cbox(W - 0.08, 0.012, D - 0.08, 0.004), S.blue, 0, 0.052, D / 2);
+    putIn(b, lf, BOX, S.black, 0, 0.022, D + 0.008, 0, 0, 0, 0.07, 0.03, 0.012);
+    for (const s of [-1, 1]) putIn(b, lf, G.cyl(0.011, 0.011, 0.07, 8), S.steel, s * 0.15, 0.0, -0.004, 0, 0, Math.PI / 2);
+  }
+
+  /**
+   * The robot dog: a sleek shell (white, a yellow saddle with a glowing status strip, panel lines,
+   * joint housings, a collar and tag), a head with a black visor and LED eyes, a yellow muzzle and
+   * pricked ears, a wagging tail, and jointed legs (hip, thigh, knee, shin, ankle, paw).
+   */
+  private robodog() {
+    const V = THREE.Vector3;
+    const I = new THREE.Matrix4();
+    const mat = vertexPBR(new THREE.MeshStandardMaterial(), 'beach-dog');
+    const shell = surf(0xf4f2ec, 0.1, 0.3), joint = surf(0x2e3238, 0.6, 0.4), yel = surf(0xffc52e, 0.1, 0.4);
+    const cyan = glow(0x7ff4ff, 2.4);
+    const BOX = G.box(1, 1, 1);
+    const add = (b: Baker, parent: THREE.Object3D, shadow = true) => {
+      const { opaque, emissive } = b.build();
+      if (opaque) {
+        const m = new THREE.Mesh(opaque, mat);
+        m.castShadow = shadow;
+        parent.add(m);
+      }
+      if (emissive) parent.add(new THREE.Mesh(emissive, bakedGlowMaterial()));
+    };
+    const loft = (b: Baker, secs: number[][], s: Surface, p = 2.8) => {
+      const g = superLoft(secs, p);
+      b.geo(g, I, s);
+      g.dispose();
+    };
+    // the body (its frame: the middle of the torso, +z forward)
+    const b = new Baker();
+    loft(b, [[-0.26, 0.05, 0.045, 0.01], [-0.23, 0.09, 0.075, 0], [-0.12, 0.105, 0.085, 0], [0.06, 0.1, 0.085, 0], [0.19, 0.095, 0.08, 0.005], [0.25, 0.07, 0.065, 0.01], [0.275, 0.035, 0.035, 0.015]], shell);
+    loft(b, [[-0.2, 0.078, 0.03, -0.064], [0.2, 0.078, 0.03, -0.064]], joint, 3);
+    loft(b, [[-0.17, 0.055, 0.02, 0.074], [-0.1, 0.07, 0.025, 0.075], [0.1, 0.066, 0.025, 0.076], [0.16, 0.05, 0.02, 0.074]], yel, 3);
+    glowIn(b, I, G.cbox(0.014, 0.008, 0.2, 0.003), cyan, 0, 0.1, -0.005);
+    for (const [z, w, h, y] of [[-0.08, 0.104, 0.085, 0], [0.1, 0.0985, 0.0835, 0.002]]) loft(b, [[z - 0.003, w + 0.002, h + 0.002, y], [z + 0.003, w + 0.002, h + 0.002, y]], joint);
+    for (const s of [-1, 1]) {
+      putIn(b, I, BOX, joint, s * 0.103, 0.0, 0.0, 0, 0, 0, 0.006, 0.03, 0.09);
+      for (const z of [0.17, -0.17]) {
+        putIn(b, I, G.cyl(0.046, 0.046, 0.03, 16), joint, s * 0.098, DOG_HIP_Y, z, 0, 0, Math.PI / 2);
+        putIn(b, I, G.cyl(0.03, 0.03, 0.012, 14), yel, s * 0.115, DOG_HIP_Y, z, 0, 0, Math.PI / 2);
+      }
+    }
+    // the neck, collar and tag; a sensor in the chest; the tail's socket
+    tubeIn(b, I, 0, 0.04, 0.2, 0, 0.115, 0.275, 0.034, 0.03, joint, 8);
+    putIn(b, I, G.torus(0.04, 0.009, 6, 16), S.red, 0, 0.08, 0.24, -Math.PI / 4);
+    putIn(b, I, G.cyl(0.012, 0.012, 0.004, 10), S.gold, 0, 0.043, 0.285, Math.PI / 2 - 0.3);
+    putS(b, G.sphere(1, 12, 8), 0, 0.0, 0.272, S.lens, 0.03, 0.022, 0.012);
+    put(b, G.sphere(0.022, 10, 8), 0, 0.05, -0.25, joint);
+    add(b, this.dogBody);
+    // the head (its frame: the top of the neck)
+    const hb = new Baker();
+    loft(hb, [[-0.06, 0.04, 0.045, 0.045], [-0.03, 0.06, 0.06, 0.05], [0.04, 0.065, 0.06, 0.05], [0.09, 0.055, 0.05, 0.045], [0.12, 0.035, 0.032, 0.035]], shell, 2.6);
+    loft(hb, [[0.06, 0.06, 0.035, 0.06], [0.1, 0.055, 0.032, 0.058], [0.128, 0.04, 0.024, 0.055]], S.lens, 3);
+    loft(hb, [[0.05, 0.036, 0.022, 0.0], [0.14, 0.03, 0.02, 0.006], [0.165, 0.018, 0.012, 0.011]], yel, 2.6);
+    put(hb, G.sphere(0.012, 8, 6), 0, 0.016, 0.164, S.black);
+    for (let i = -1; i <= 1; i++) putIn(hb, I, BOX, joint, i * 0.01, -0.012, 0.15, 0, 0, 0, 0.004, 0.01, 0.02);
+    for (const s of [-1, 1]) put(hb, G.sphere(0.014, 8, 6), s * 0.062, 0.05, 0.0, joint);
+    add(hb, this.dogHead);
+    // the eyes: rounded bars of light, and happy arcs for when it's pleased with itself
+    const eb = new Baker(), hp = new Baker();
+    for (const s of [-1, 1]) {
+      glowIn(eb, I, G.cbox(0.022, 0.018, 0.004, 0.004), cyan, s * 0.02, 0, 0);
+      glowIn(hp, I, G.torus(0.011, 0.003, 4, 10, Math.PI), cyan, s * 0.02, -0.005, 0);
+    }
+    this.dogEyes = new THREE.Mesh(eb.build().emissive!, bakedGlowMaterial());
+    this.dogHappy = new THREE.Mesh(hp.build().emissive!, bakedGlowMaterial());
+    for (const m of [this.dogEyes, this.dogHappy]) {
+      m.position.set(0, 0.058, 0.129);
+      this.dogHead.add(m);
+    }
+    this.dogHappy.visible = false;
+    // the ears, pricked up, on their own pivots
+    const ab = new Baker();
+    putS(ab, G.cone(1, 1, 10), 0, 0.035, 0, yel, 0.026, 0.07, 0.011);
+    putS(ab, G.cone(1, 1, 10), 0, 0.03, 0.006, joint, 0.016, 0.05, 0.006);
+    const earGeo = ab.build().opaque!;
+    for (const s of [-1, 1]) {
+      const ear = new THREE.Group();
+      ear.position.set(s * 0.042, 0.098, -0.012);
+      const m = new THREE.Mesh(earGeo, mat);
+      m.castShadow = true;
+      ear.add(m);
+      this.dogHead.add(ear);
+      this.dogEars.push(ear);
+    }
+    this.dogHead.position.set(0, 0.115, 0.275);
+    this.dogHead.rotation.order = 'YXZ';
+    this.dogBody.add(this.dogHead);
+    // the tail: a jointed whip up and back, a yellow ball at its tip
+    const tb = new Baker();
+    railIn(tb, I, [new V(0, 0, 0), new V(0, 0.04, -0.05), new V(0, 0.1, -0.08), new V(0, 0.15, -0.085)], 0.012, joint, 6);
+    put(tb, G.sphere(0.02, 10, 8), 0, 0.155, -0.085, yel);
+    add(tb, this.dogTail);
+    this.dogTail.position.set(0, 0.05, -0.25);
+    this.dogBody.add(this.dogTail);
+    this.dog.add(this.dogBody);
+    // the legs (each along -y from its joint): thigh with the hip and knee joints, shin with the ankle, paw
+    const lb = [new Baker(), new Baker(), new Baker()];
+    const legLoft = (k: number, secs: number[][], s: Surface) => {
+      const g = superLoft(secs, 3);
+      g.rotateX(Math.PI / 2);
+      lb[k].geo(g, I, s);
+      g.dispose();
+    };
+    putIn(lb[0], I, G.cyl(0.038, 0.038, 0.05, 14), joint, 0, 0, 0, 0, 0, Math.PI / 2);
+    legLoft(0, [[0.0, 0.024, 0.032, 0], [0.04, 0.03, 0.045, 0.004], [0.11, 0.025, 0.035, 0], [DOG_L1, 0.018, 0.024, -0.002]], yel);
+    putIn(lb[0], I, G.cyl(0.026, 0.026, 0.05, 12), joint, 0, -DOG_L1, 0, 0, 0, Math.PI / 2);
+    legLoft(1, [[0.0, 0.018, 0.024, 0], [0.04, 0.021, 0.028, -0.004], [0.12, 0.015, 0.018, 0], [DOG_L2, 0.012, 0.014, 0]], shell);
+    put(lb[1], G.sphere(0.017, 10, 8), 0, -DOG_L2, 0, joint);
+    putS(lb[2], G.sphere(1, 12, 8), 0, -0.012, 0.01, S.rubber, 0.026, 0.016, 0.034);
+    putS(lb[2], G.sphere(1, 10, 6), 0, -0.006, 0.036, yel, 0.022, 0.011, 0.014);
+    for (const k of lb) {
+      const leg = new THREE.InstancedMesh(k.build().opaque!, mat, 4);
+      leg.castShadow = true;
+      leg.frustumCulled = false;
+      this.dog.add(leg);
+      this.dogLegs.push(leg);
+    }
+    this.group.add(this.dog);
+  }
+
+  /** A crab: a broad shell frilled along its front edge, eyes on stalks, two pincers (the right one the bigger), eight jointed legs. */
+  private buildCrab() {
+    const V = THREE.Vector3;
+    const mat = vertexPBR(new THREE.MeshStandardMaterial(), 'beach-crab');
+    const dark = surf(0xb3401f, 0.05, 0.42);
+    const b = new Baker();
+    putS(b, G.sphere(1, 20, 12), 0, 0.06, 0, S.crab, 0.085, 0.03, 0.062);
+    putS(b, G.sphere(1, 16, 8), 0, 0.05, -0.004, S.cream, 0.078, 0.022, 0.054);
+    putS(b, G.sphere(1, 14, 8), 0, 0.072, 0.008, dark, 0.05, 0.017, 0.036);
+    for (let i = 0; i < 9; i++) {
+      const a = -1.15 + i * (2.3 / 8);
+      seg(b, new V(Math.sin(a) * 0.075, 0.063, Math.cos(a) * 0.052), new V(Math.sin(a) * 0.093, 0.064, Math.cos(a) * 0.066), 0.006, 0.0008, S.crab, 4);
+    }
+    for (const [x, z] of [[-0.03, 0.0], [0.03, 0.0], [0, -0.025], [-0.045, -0.02], [0.045, -0.02], [0, 0.025]]) put(b, G.sphere(0.008, 6, 4), x, 0.088 - Math.abs(x) * 0.25, z, dark);
+    box(b, 0.03, 0.012, 0.01, 0, 0.052, 0.058, S.cream, 0.3);
+    const shell = new THREE.Mesh(b.build().opaque!, mat);
+    shell.castShadow = true;
+    this.crabBody.add(shell);
+    // the eyes on their stalks
+    const eb = new Baker();
+    for (const s of [-1, 1]) {
+      seg(eb, new V(s * 0.014, 0, 0), new V(s * 0.019, 0.028, 0.006), 0.0045, 0.0038, S.crab, 5);
+      put(eb, G.sphere(0.0075, 8, 6), s * 0.019, 0.032, 0.007, S.black);
+      put(eb, G.sphere(0.0025, 4, 3), s * 0.021, 0.035, 0.012, S.white);
+    }
+    this.crabEyes.add(new THREE.Mesh(eb.build().opaque!, mat));
+    this.crabEyes.position.set(0, 0.075, 0.046);
+    this.crabBody.add(this.crabEyes);
+    // the claws: arm, hand and fixed finger; the movable finger on its own hinge
+    for (const s of [-1, 1]) {
+      const cb = new Baker();
+      seg(cb, new V(0, 0, 0), new V(s * 0.03, -0.003, 0.028), 0.009, 0.008, S.crab, 6);
+      seg(cb, new V(s * 0.03, -0.003, 0.028), new V(s * 0.022, 0.002, 0.058), 0.008, 0.009, S.crab, 6);
+      putS(cb, G.sphere(1, 12, 8), s * 0.022, 0.003, 0.08, S.crab, 0.017, 0.014, 0.028);
+      seg(cb, new V(s * 0.022, -0.004, 0.1), new V(s * 0.019, -0.002, 0.128), 0.0075, 0.0012, dark, 5);
+      const claw = new THREE.Group();
+      claw.position.set(s * 0.058, 0.055, 0.045);
+      claw.scale.setScalar(s > 0 ? 1.25 : 1);
+      const cm = new THREE.Mesh(cb.build().opaque!, mat);
+      cm.castShadow = true;
+      claw.add(cm);
+      const fb = new Baker();
+      seg(fb, new V(0, 0, 0), new V(-s * 0.002, 0.002, 0.03), 0.0065, 0.001, dark, 5);
+      const finger = new THREE.Group();
+      finger.position.set(s * 0.022, 0.009, 0.098);
+      finger.add(new THREE.Mesh(fb.build().opaque!, mat));
+      claw.add(finger);
+      this.crabBody.add(claw);
+      this.crabClaws.push(claw);
+      this.crabFingers.push(finger);
+    }
+    this.crab.add(this.crabBody);
+    // the legs: thigh and shin per leg, sixteen instances of one tapered bar, posed each frame
+    const lg = new THREE.CylinderGeometry(0.0045, 0.008, 1, 6);
+    lg.translate(0, 0.5, 0);
+    this.crabLegs = new THREE.InstancedMesh(lg, new THREE.MeshStandardMaterial({ color: S.crab.color, roughness: 0.5, metalness: 0.05 }), 16);
+    this.crabLegs.castShadow = true;
+    this.crabLegs.frustumCulled = false;
+    this.crab.add(this.crabLegs);
+    this.crab.scale.setScalar(1.3);
+    this.group.add(this.crab);
   }
 
   /** A volleyball net and court. */
@@ -2212,46 +3149,19 @@ export class Beach implements HomeScene {
     this.group.add(pts);
   }
 
-  /** Out at sea: a second sail on the horizon, a motor yacht crossing with its wake, a robot on a paddleboard. */
-  private traffic(boat: THREE.Mesh) {
-    const V = THREE.Vector3;
-    const far = new THREE.Mesh(boat.geometry, boat.material);
-    this.boat2.add(far);
-    this.boat2.position.set(-46, SEA, -72);
-    this.boat2.rotation.y = -0.7;
-    this.boat2.scale.setScalar(1.15);
-    this.group.add(this.boat2);
+  /** Meshes for a baker's opaque and glowing parts, added to parent. */
+  private addBaked(b: Baker, parent: THREE.Object3D, mat: THREE.Material) {
+    const { opaque, emissive } = b.build();
+    if (opaque) parent.add(new THREE.Mesh(opaque, mat));
+    if (emissive) parent.add(new THREE.Mesh(emissive, bakedGlowMaterial()));
+  }
 
-    // the yacht, built bow to +z (it runs along +x)
-    const yb = new Baker();
-    box(yb, 1.3, 0.5, 4.0, 0, 0.2, -0.2, S.white, 0, 0, 0, 0.12);
-    putS(yb, G.sphere(1, 16, 8), 0, 0.2, 1.8, S.white, 0.65, 0.25, 1.3);
-    box(yb, 1.32, 0.1, 4.02, 0, 0.12, -0.2, S.blue);
-    putS(yb, G.sphere(1, 16, 8), 0, 0.12, 1.8, S.blue, 0.66, 0.05, 1.31);
-    box(yb, 1.24, 0.04, 3.9, 0, 0.47, -0.2, S.wood);
-    box(yb, 1.0, 0.5, 1.8, 0, 0.72, -0.4, S.white, 0, 0, 0, 0.08);
-    box(yb, 1.02, 0.14, 1.6, 0, 0.8, -0.35, S.lens);
-    box(yb, 0.9, 0.06, 1.1, 0, 1.0, -0.55, S.white);
-    seg(yb, new V(0, 1.03, -0.7), new V(0, 1.6, -0.8), 0.025, 0.02, S.steel, 6);
-    box(yb, 0.3, 0.03, 0.06, 0, 1.5, -0.78, S.steel);
-    const ym = new THREE.Mesh(yb.build().opaque!, vertexPBR(new THREE.MeshStandardMaterial(), 'beach-yacht'));
-    this.yacht.add(ym);
-    const N = 20;
-    const wp: number[] = [], wu: number[] = [], wi: number[] = [];
-    for (let i = 0; i <= N; i++) {
-      const u = i / N, z = -2.8 - u * 20, hw = 0.6 + u * 6;
-      wp.push(-hw, 0, z, hw, 0, z);
-      wu.push(u, 0, u, 1);
-      if (i < N) wi.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
-    }
-    const wg = new THREE.BufferGeometry();
-    wg.setAttribute('position', new THREE.Float32BufferAttribute(wp, 3));
-    wg.setAttribute('uv', new THREE.Float32BufferAttribute(wu, 2));
-    wg.setIndex(wi);
-    const wake = new THREE.Mesh(
-      wg,
+  /** A wake (or bow wave) ribbon of foam riding the swell, as strong as `amt`. */
+  private foamMesh(geo: THREE.BufferGeometry, amt: { value: number }) {
+    const m = new THREE.Mesh(
+      geo,
       new THREE.ShaderMaterial({
-        uniforms: { uTime: this.time, uNoise: { value: noiseTexture() }, uFoam: { value: COL.foam } },
+        uniforms: { uTime: this.time, uNoise: { value: noiseTexture() }, uFoam: { value: COL.foam }, uAmt: amt },
         vertexShader: WAKE_VERT,
         fragmentShader: WAKE_FRAG,
         transparent: true,
@@ -2259,37 +3169,373 @@ export class Beach implements HomeScene {
         side: THREE.DoubleSide,
       }),
     );
-    wake.frustumCulled = false;
-    this.yacht.add(wake);
-    this.yacht.rotation.y = Math.PI / 2;
-    this.yacht.scale.setScalar(1.4);
-    this.group.add(this.yacht);
+    m.frustumCulled = false;
+    return m;
+  }
 
-    // a little robot paddleboarding beyond the buoys
-    const pb = new Baker();
-    putS(pb, G.sphere(1, 14, 6), 0, 0.02, 0, S.coral, 0.33, 0.05, 1.45);
-    putS(pb, G.sphere(1, 14, 6), 0, 0.035, 0, S.white, 0.1, 0.03, 1.3);
-    for (const sx of [-1, 1]) seg(pb, new V(sx * 0.11, 0.05, 0), new V(sx * 0.1, 0.74, 0), 0.05, 0.045, S.steel, 6);
-    box(pb, 0.3, 0.14, 0.2, 0, 0.74, 0, S.black, 0, 0, 0, 0.03);
-    box(pb, 0.38, 0.44, 0.25, 0, 1.0, 0, S.yellow, 0, 0, 0, 0.05);
-    put(pb, G.sphere(0.13, 12, 8), 0, 1.36, 0, S.white);
-    glowAt(pb, G.box(0.17, 0.04, 0.03), 0, 1.38, 0.115, glow(0x7ff4ff, 2.4));
-    const props = (b: Baker, parent: THREE.Object3D, key: string) => {
-      const { opaque, emissive } = b.build();
-      if (opaque) parent.add(new THREE.Mesh(opaque, vertexPBR(new THREE.MeshStandardMaterial(), key)));
-      if (emissive) parent.add(new THREE.Mesh(emissive, bakedGlowMaterial()));
+  /** A boat's name on its bows. */
+  private nameOn(parent: THREE.Object3D, geo: THREE.BufferGeometry) {
+    const m = new THREE.Mesh(geo, this.nameMat);
+    m.renderOrder = 1;
+    parent.add(m);
+  }
+
+  /** Set a boat afloat: its track (place and heading on the water) holding the hull that rides the swell. */
+  private afloat(track: THREE.Group, L: number, B: number, how: Partial<Craft>) {
+    const hull = new THREE.Group();
+    track.add(hull);
+    this.group.add(track);
+    const c: Craft = { track, hull, L, B, ph: hash(L * 3.7 + B) * 6.28, loop: null, moor: null, swing: 0.18, sails: [], side: 1, boom: 0.4, foam: { value: 0 }, plane: 0, heel: 0, ...how };
+    this.craft.push(c);
+    return c;
+  }
+
+  /**
+   * A cruising sloop (bow +z, waterline y = 0) baked into b in frame f: a lofted hull, a cabin trunk
+   * ringed with windows, a cockpit with its wheel and benches, the mast with spreaders, stays and
+   * shrouds, pulpits and lifelines on stanchions, and an ensign astern. Returns where its gear goes.
+   */
+  private sloop(b: Baker, f: THREE.Matrix4, bottom: Surface, top: Surface, stripe: Surface, cabin: Surface) {
+    const V = THREE.Vector3;
+    const BOX = G.box(1, 1, 1);
+    const h: HullSpec = { L: 7.6, B: 2.55, D: 0.78, T: 0.42, rise: 0.28, stern: 0.74, rake: 0.45, bilge: 2.3, flare: 1.06 };
+    const well = [0.06, 0.3, 0.36] as const;
+    bakeHull(b, f, h, { bottom, boot: HULL.white, top, stripe, deck: HULL.nonskid, inside: HULL.cream, rub: HULL.teak, well });
+    const zOf = (u: number) => -h.L / 2 + h.L * u;
+    const sAt = (u: number) => hullLines(h, u).s;
+    // the cabin trunk, a band of dark windows round it, a hatch and handrails on top
+    const y0 = sAt(0.45);
+    const cab: [number, number, number, number][] = [[zOf(0.31), 0.8, 0.2, y0 + 0.1], [zOf(0.38), 0.84, 0.21, y0 + 0.11], [zOf(0.58), 0.74, 0.2, y0 + 0.12], [zOf(0.66), 0.46, 0.14, y0 + 0.1]];
+    let g = superLoft(cab, 3.4);
+    b.geo(g, f, cabin);
+    g.dispose();
+    g = superLoft([[zOf(0.33), 0.825, 0.045, y0 + 0.2], [zOf(0.38), 0.852, 0.05, y0 + 0.2], [zOf(0.58), 0.752, 0.05, y0 + 0.2], [zOf(0.63), 0.577, 0.04, y0 + 0.19]], 4);
+    b.geo(g, f, HULL.glass);
+    g.dispose();
+    putIn(b, f, G.cbox(0.55, 0.06, 0.6, 0.02), cabin, 0, y0 + 0.335, zOf(0.5));
+    for (const s of [-1, 1]) tubeIn(b, f, s * 0.55, y0 + 0.36, zOf(0.36), s * 0.5, y0 + 0.36, zOf(0.56), 0.015, 0.015, HULL.teak, 4);
+    putIn(b, f, BOX, HULL.glass, 0, y0 + 0.13, zOf(0.31) - 0.004, 0, 0, 0, 0.46, 0.26, 0.02);
+    // the cockpit: benches along its sides, the wheel on its pedestal, winches on the coamings
+    const lw = hullLines(h, 0.18), floor = sAt(0.18) - well[2];
+    for (const s of [-1, 1]) {
+      putIn(b, f, G.cbox(0.34, 0.4, zOf(0.29) - zOf(0.07), 0.03), HULL.cream, s * (lw.b - 0.06 - 0.2), floor + 0.18, (zOf(0.29) + zOf(0.07)) / 2);
+      putIn(b, f, G.cyl(0.07, 0.085, 0.13, 10), S.silver, s * (hullLines(h, 0.26).b - 0.1), sAt(0.26) + 0.065, zOf(0.26));
+    }
+    const zc = zOf(0.11);
+    tubeIn(b, f, 0, floor, zc, 0, floor + 0.6, zc + 0.05, 0.05, 0.04, HULL.graphite, 6);
+    putIn(b, f, G.torus(0.34, 0.025, 6, 22), S.silver, 0, floor + 0.66, zc + 0.08);
+    // the mast on the cabin top: spreaders, a masthead light and windex
+    const mz = zOf(0.56), mb = y0 + 0.31, mh = 9.2;
+    tubeIn(b, f, 0, mb, mz, 0, mb + mh, mz, 0.065, 0.045, S.silver, 8);
+    for (const y of [0.42, 0.7]) tubeIn(b, f, -0.8 * (1 - y * 0.5), mb + mh * y, mz - 0.05, 0.8 * (1 - y * 0.5), mb + mh * y, mz - 0.05, 0.02, 0.016, S.silver, 4);
+    putIn(b, f, BOX, S.silver, 0, mb + mh + 0.04, mz - 0.05, 0, 0, 0, 0.12, 0.08, 0.3);
+    tubeIn(b, f, 0, mb + mh + 0.08, mz, 0, mb + mh + 0.55, mz - 0.05, 0.008, 0.005, S.black, 4);
+    glowIn(b, f, G.sphere(0.04, 6, 4), glow(0xffffff, 1.2), 0, mb + mh + 0.1, mz + 0.08);
+    // standing rigging: the forestay to the stem head, the backstay to the transom, shrouds over the spreaders
+    const stem = hullPt(h, 1, 1, 1, new V());
+    stem.y += 0.04;
+    const fTop = new V(0, mb + mh * 0.9, mz);
+    tubeIn(b, f, fTop.x, fTop.y, fTop.z, stem.x, stem.y, stem.z, 0.011, 0.011, S.steel, 4);
+    tubeIn(b, f, 0, mb + mh, mz - 0.05, 0, sAt(0) + 0.05, zOf(0) + 0.05, 0.011, 0.011, S.steel, 4);
+    for (const s of [-1, 1]) {
+      const cp = hullPt(h, 0.54, 1, s, new V());
+      cp.x -= s * 0.08;
+      const sp = new V(s * 0.8 * (1 - 0.42 * 0.5), mb + mh * 0.42, mz - 0.05), sp2 = new V(s * 0.8 * (1 - 0.7 * 0.5), mb + mh * 0.7, mz - 0.05);
+      tubeIn(b, f, cp.x, cp.y, cp.z, sp.x, sp.y, sp.z, 0.009, 0.009, S.steel, 4);
+      tubeIn(b, f, sp.x, sp.y, sp.z, sp2.x, sp2.y, sp2.z, 0.009, 0.009, S.steel, 4);
+      tubeIn(b, f, sp2.x, sp2.y, sp2.z, 0, mb + mh * 0.95, mz, 0.009, 0.009, S.steel, 4);
+      tubeIn(b, f, cp.x, cp.y, cp.z, 0, mb + mh * 0.4, mz, 0.009, 0.009, S.steel, 4);
+    }
+    // stanchions and two lifelines down each side, a pulpit round the bow and another round the stern
+    const rail = (u: number, s: number, up: number) => hullPt(h, u, 1, s, new V()).add(_ho.set(-s * 0.07, up, 0));
+    for (const s of [-1, 1]) {
+      const hi: THREE.Vector3[] = [], lo: THREE.Vector3[] = [];
+      for (let i = 0; i <= 8; i++) {
+        const u = 0.08 + i * 0.095, p = rail(u, s, 0);
+        tubeIn(b, f, p.x, p.y, p.z, p.x, p.y + 0.62, p.z, 0.013, 0.012, S.silver, 4);
+        hi.push(rail(u, s, 0.62));
+        lo.push(rail(u, s, 0.34));
+      }
+      railIn(b, f, hi, 0.008, S.silver, 4);
+      railIn(b, f, lo, 0.008, S.silver, 4);
+    }
+    const pul = [rail(0.84, -1, 0.62), rail(0.92, -1, 0.64), new V(0, stem.y + 0.62, stem.z - 0.12), rail(0.92, 1, 0.64), rail(0.84, 1, 0.62)];
+    railIn(b, f, pul, 0.016, S.silver, 5);
+    for (const p of pul.slice(1, 4)) tubeIn(b, f, p.x, p.y, p.z, p.x * 0.9, p.y - 0.6, p.z - 0.04, 0.014, 0.014, S.silver, 4);
+    const sp = [rail(0.08, -1, 0.65), rail(0.0, -1, 0.66).setZ(zOf(0) + 0.06), rail(0.0, 1, 0.66).setZ(zOf(0) + 0.06), rail(0.08, 1, 0.65)];
+    railIn(b, f, sp, 0.016, S.silver, 5);
+    for (const p of sp.slice(1, 3)) tubeIn(b, f, p.x, p.y, p.z, p.x, p.y - 0.64, p.z, 0.014, 0.014, S.silver, 4);
+    // an ensign on its staff over the transom
+    const st = rail(0.0, 1, 0).setZ(zOf(0) + 0.1);
+    tubeIn(b, f, st.x - 0.1, st.y, st.z, st.x - 0.1, st.y + 1.0, st.z - 0.25, 0.012, 0.01, HULL.teak, 4);
+    putIn(b, f, BOX, S.red, st.x - 0.1, st.y + 0.86, st.z - 0.48, 0.05, 0, -0.12, 0.012, 0.28, 0.42);
+    putIn(b, f, BOX, S.white, st.x - 0.1, st.y + 0.86, st.z - 0.48, 0.05, 0, -0.12, 0.014, 0.08, 0.42);
+    return { h, mz, mb, mh, stem, fTop, floor, goose: new V(0, mb + 0.85, mz - 0.08), zOf, sAt };
+  }
+
+  /**
+   * Boats: a sloop at anchor and another sailing far out, a motor yacht cruising round the bay with
+   * its wake, a catamaran reaching across, a fishing boat anchored off the beach, a paddleboard, and
+   * sails far out towards the horizon. All of them out on the water, clear of the beach.
+   */
+  private boats() {
+    const V = THREE.Vector3;
+    const BOX = G.box(1, 1, 1);
+    const I = new THREE.Matrix4();
+    this.boatMat = vertexPBR(new THREE.MeshStandardMaterial(), 'beach-boats');
+    this.sailMat = vertexPBR(new THREE.MeshStandardMaterial(), 'beach-sails');
+    backlit(this.sailMat, 0.7, this.sunView);
+    this.nameMat = new THREE.MeshStandardMaterial({
+      map: namesTexture(),
+      transparent: true,
+      depthWrite: false,
+      roughness: 0.35,
+      metalness: 0,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    const visor = glow(0x7ff4ff, 2.2), visorB = glow(0xffd36b, 2.2);
+    /** A sail on its own pivot (main: the mast; jib: the stem head), sheeted by sail(). */
+    const sailGroup = (parent: THREE.Object3D, x: number, y: number, z: number, build: (sb: Baker, gb: Baker) => void) => {
+      const sg = new THREE.Group();
+      sg.position.set(x, y, z);
+      const sb = new Baker(), gb = new Baker();
+      build(sb, gb);
+      this.addBaked(sb, sg, this.sailMat);
+      if (!gb.empty) this.addBaked(gb, sg, this.boatMat);
+      parent.add(sg);
+      return sg;
     };
-    props(pb, this.paddler, 'beach-paddler');
-    // the arms and the paddle swing together from the shoulders
-    const ab = new Baker();
-    seg(ab, new V(0.2, 0.08, 0), new V(0.04, 0.22, 0.3), 0.035, 0.03, S.steel, 5);
-    seg(ab, new V(-0.2, 0.08, 0), new V(0.02, -0.25, 0.32), 0.035, 0.03, S.steel, 5);
-    seg(ab, new V(0.04, 0.32, 0.3), new V(0.02, -1.15, 0.33), 0.016, 0.016, S.black, 5);
-    box(ab, 0.16, 0.36, 0.02, 0.02, -1.3, 0.33, S.teal, 0, 0, 0, 0.01);
-    props(ab, this.paddle, 'beach-paddle');
-    this.paddle.position.y = 1.08;
-    this.paddler.add(this.paddle);
-    this.group.add(this.paddler);
+
+    // ---- a sloop at anchor off to the left, sails furled, a dinghy on its painter astern
+    {
+      const c = this.afloat(this.boat, 7.6, 2.55, { moor: [58, -54, 1.2] });
+      const b = new Baker();
+      const k = this.sloop(b, I, HULL.antifoulBlue, HULL.white, HULL.navy, HULL.white);
+      const g0 = k.goose;
+      tubeIn(b, I, 0, g0.y, g0.z, 0, g0.y + 0.03, g0.z - 3.05, 0.05, 0.045, S.silver, 6);
+      railIn(b, I, [new V(0, g0.y + 0.1, g0.z - 0.12), new V(0, g0.y + 0.17, g0.z - 1.2), new V(0, g0.y + 0.12, g0.z - 2.75)], 0.13, HULL.canvas, 7);
+      tubeIn(b, I, k.stem.x, k.stem.y + 0.12, k.stem.z - 0.03, k.fTop.x, k.fTop.y - 0.5, k.fTop.z + 0.12, 0.08, 0.03, CLOTH[0], 6);
+      tubeIn(b, I, k.stem.x, k.stem.y + 0.4, k.stem.z - 0.12, k.fTop.x, k.fTop.y - 2.5, k.fTop.z + 0.6, 0.085, 0.05, HULL.canvas, 6);
+      // the anchor rode down into the water ahead
+      tubeIn(b, I, 0, k.stem.y - 0.05, k.stem.z + 0.08, 0, -0.5, k.stem.z + 3.4, 0.014, 0.014, HULL.rope, 4);
+      // the dinghy: an inflatable with a wooden floor and a little outboard, on its painter
+      const zd = -k.h.L / 2 - 2.8;
+      putIn(b, I, G.torus(0.62, 0.19, 8, 22), HULL.rubber, 0, 0.12, zd, Math.PI / 2, 0, 0, 1, 1.45, 1);
+      putIn(b, I, BOX, HULL.teak, 0, 0.05, zd, 0, 0, 0, 0.8, 0.04, 1.4);
+      putIn(b, I, G.cbox(0.2, 0.3, 0.22, 0.04), S.black, 0, 0.32, zd - 0.98);
+      tubeIn(b, I, 0, 0.2, zd + 0.85, 0, k.sAt(0) - 0.3, -k.h.L / 2, 0.01, 0.01, HULL.rope, 4);
+      // someone sunbathing on the foredeck, someone in the cockpit
+      crewIn(b, I, 0.25, k.sAt(0.76) + 0.01, k.zOf(0.82), Math.PI, S.coral, visor, 'lie');
+      crewIn(b, I, 0.7, k.floor + 0.38, k.zOf(0.18), -Math.PI / 2, S.yellow, visorB, 'sit');
+      this.addBaked(b, c.hull, this.boatMat);
+      this.nameOn(c.hull, nameGeo(k.h, 0, 0.55, 0.84, 0.62, 0.8));
+    }
+
+    // ---- a second sloop sailing a long loop far out, main and jib drawing
+    {
+      const c = this.afloat(this.boat2, 7.6, 2.55, { loop: [25, -74, 50, 5, 0.06, 0.4] });
+      const b = new Baker();
+      const k = this.sloop(b, I, HULL.antifoul, HULL.navy, HULL.white, HULL.white);
+      crewIn(b, I, -0.65, k.floor + 0.38, k.zOf(0.12), Math.PI / 2, S.teal, visor, 'sit');
+      crewIn(b, I, 0.65, k.floor + 0.38, k.zOf(0.22), -Math.PI / 2, S.pink, visorB, 'sit');
+      this.addBaked(b, c.hull, this.boatMat);
+      this.nameOn(c.hull, nameGeo(k.h, 1, 0.55, 0.84, 0.62, 0.8));
+      const g0 = k.goose;
+      c.sails.push(
+        sailGroup(c.hull, 0, g0.y, k.mz, (sb, gb) => {
+          sailIn(sb, I, new V(0, 0.06, -0.09), new V(0, k.mh - 1.1, -0.09), new V(0, 0.08, -3.0), 0.3, 0.1, CLOTH);
+          tubeIn(gb, I, 0, 0, -0.06, 0, 0.03, -3.1, 0.05, 0.045, S.silver, 6);
+        }),
+        sailGroup(c.hull, k.stem.x, k.stem.y, k.stem.z, (sb) => {
+          sailIn(sb, I, new V(0, 0.12, -0.05), new V(0, k.fTop.y - k.stem.y - 0.5, k.fTop.z - k.stem.z + 0.17), new V(0, 0.45, k.mz - k.stem.z - 0.6), 0, 0.12, CLOTH, 7, 5);
+        }),
+      );
+    }
+
+    // ---- a motor yacht cruising round the bay: flybridge, radar arch, swim platform, a wake and bow wave
+    {
+      const c = this.afloat(this.yacht, 13, 3.9, { loop: [15, -54, 70, 9, -0.065, 1.0], plane: 1 });
+      const b = new Baker();
+      const h: HullSpec = { L: 13, B: 3.9, D: 1.35, T: 0.75, rise: 0.55, stern: 0.86, rake: 1.4, bilge: 1.35, flare: 1.1 };
+      bakeHull(b, I, h, { bottom: HULL.antifoulBlue, boot: HULL.graphite, top: HULL.white, stripe: HULL.navy, deck: HULL.teak, inside: HULL.teak, rub: S.chrome, well: [0, 0.16, 0.5] });
+      const zOf = (u: number) => -h.L / 2 + h.L * u, sAt = (u: number) => hullLines(h, u).s;
+      // long dark ports in the topsides
+      for (const s of [-1, 1]) {
+        for (const u of [0.36, 0.45, 0.54]) {
+          const p = hullPt(h, u, 0.74, s, new V());
+          putIn(b, I, BOX, HULL.glass, p.x + s * 0.012, p.y, p.z, 0, 0, s * 0.09, 0.03, 0.14, 0.95);
+        }
+      }
+      // the saloon, ringed by tinted glass, the flybridge on top under a bimini, the radar arch
+      let g = superLoft([[-4.4, 1.45, 0.5, 1.85], [-3.6, 1.55, 0.52, 1.88], [0.6, 1.5, 0.5, 1.9], [2.2, 1.1, 0.38, 1.8], [2.9, 0.6, 0.2, 1.65]], 4);
+      b.geo(g, I, HULL.white);
+      g.dispose();
+      g = superLoft([[-4.3, 1.47, 0.15, 2.02], [-3.6, 1.565, 0.16, 2.02], [0.6, 1.515, 0.16, 2.04], [2.2, 1.12, 0.15, 1.95]], 4);
+      b.geo(g, I, HULL.glass);
+      g.dispose();
+      g = superLoft([[-3.2, 1.2, 0.22, 2.6], [0.2, 1.25, 0.24, 2.62], [1.0, 0.9, 0.16, 2.56]], 4);
+      b.geo(g, I, HULL.white);
+      g.dispose();
+      putIn(b, I, G.cbox(0.9, 0.42, 0.5, 0.06), HULL.white, 0, 3.05, 0.35);
+      putIn(b, I, BOX, HULL.glass, 0, 3.2, 0.61, -0.4, 0, 0, 0.7, 0.18, 0.02);
+      for (const [px, pz] of [[-1.0, -2.2], [1.0, -2.2], [-1.0, 0.0], [1.0, 0.0]]) tubeIn(b, I, px, 2.84, pz, px, 4.3, pz, 0.03, 0.03, S.chrome, 5);
+      putIn(b, I, G.cbox(2.3, 0.06, 2.6, 0.03), HULL.navy, 0, 4.32, -1.1);
+      railIn(b, I, [new V(-1.05, 2.82, -2.9), new V(-0.85, 3.9, -2.8), new V(0, 4.45, -2.75), new V(0.85, 3.9, -2.8), new V(1.05, 2.82, -2.9)], 0.07, HULL.white, 6);
+      putIn(b, I, G.cyl(0.26, 0.26, 0.16, 14), HULL.white, 0, 4.6, -2.75);
+      putIn(b, I, G.sphere(0.26, 14, 6), HULL.white, 0, 4.68, -2.75, 0, 0, 0, 1);
+      for (const s of [-1, 1]) tubeIn(b, I, s * 0.5, 4.35, -2.78, s * 0.62, 5.6, -2.95, 0.012, 0.006, S.black, 4);
+      glowIn(b, I, G.sphere(0.05, 6, 4), glow(0xffffff, 1.2), 0, 4.88, -2.75);
+      // the swim platform and its ladder, the bow rail, a sunpad on the foredeck
+      putIn(b, I, G.cbox(3.3, 0.08, 0.9, 0.02), HULL.teak, 0, 0.32, zOf(0) - 0.42);
+      for (const s of [-0.25, 0.25]) tubeIn(b, I, 1.2 + s, 0.34, zOf(0) - 0.82, 1.2 + s, -0.6, zOf(0) - 0.9, 0.015, 0.015, S.chrome, 4);
+      const rail = (u: number, s: number) => hullPt(h, u, 1, s, new V()).add(_ho.set(-s * 0.1, 0.62, 0));
+      const br = [rail(0.5, -1), rail(0.62, -1), rail(0.74, -1), rail(0.86, -1), rail(0.95, -1), rail(0.99, 0), rail(0.95, 1), rail(0.86, 1), rail(0.74, 1), rail(0.62, 1), rail(0.5, 1)];
+      railIn(b, I, br, 0.025, S.chrome, 5);
+      for (const p of br) tubeIn(b, I, p.x, p.y, p.z, p.x, p.y - 0.62, p.z, 0.016, 0.016, S.chrome, 4);
+      putIn(b, I, G.cbox(1.8, 0.14, 1.5, 0.06), S.cream, 0, sAt(0.8) + 0.07, zOf(0.8));
+      // the crew: someone on the sunpad, the skipper at the flybridge helm, a guest on the aft deck
+      crewIn(b, I, 0.3, sAt(0.8) + 0.14, zOf(0.8) - 0.15, Math.PI, S.pink, visorB, 'lie');
+      crewIn(b, I, -0.35, 2.86, -0.05, 0, S.blue, visor, 'stand');
+      crewIn(b, I, 0.7, sAt(0.08) - 0.5, zOf(0.08), -0.5, S.yellow, visor, 'stand');
+      this.addBaked(b, c.hull, this.boatMat);
+      this.nameOn(c.hull, nameGeo(h, 2, 0.62, 0.86, 0.6, 0.74));
+      c.track.add(this.foamMesh(wakeGeo(-6.6, 26, 2.8, 12), c.foam));
+      c.track.add(this.foamMesh(bowWaveGeo(h), c.foam));
+    }
+
+    // ---- a sailing catamaran reaching back and forth across the bay
+    {
+      const c = this.afloat(this.cat, 9.2, 5.3, { loop: [30, -34, 55, 4, 0.075, 2.5] });
+      const b = new Baker();
+      const h: HullSpec = { L: 9.2, B: 1.05, D: 0.78, T: 0.3, rise: 0.25, stern: 0.55, rake: 0.2, bilge: 1.7, flare: 1.04 };
+      for (const s of [-1, 1]) {
+        bakeHull(b, new THREE.Matrix4().makeTranslation(s * 2.1, 0, 0), h, { bottom: HULL.antifoulBlue, boot: HULL.white, top: HULL.white, stripe: HULL.teal, deck: HULL.nonskid, inside: HULL.nonskid, rub: HULL.graphite });
+      }
+      // the bridgedeck cabin between the hulls, windows round it, a hardtop; the beams and the trampoline
+      let g = superLoft([[-2.8, 1.62, 0.3, 1.1], [-1.6, 1.7, 0.42, 1.15], [0.8, 1.66, 0.42, 1.15], [1.7, 1.4, 0.3, 1.05]], 3.2);
+      b.geo(g, I, HULL.white);
+      g.dispose();
+      g = superLoft([[-1.5, 1.715, 0.09, 1.3], [0.7, 1.675, 0.09, 1.3], [1.5, 1.46, 0.07, 1.2]], 4);
+      b.geo(g, I, HULL.glass);
+      g.dispose();
+      putIn(b, I, G.cbox(3.3, 0.08, 2.9, 0.03), HULL.white, 0, 1.6, -0.9);
+      tubeIn(b, I, -2.1, 0.95, 3.3, 2.1, 0.95, 3.3, 0.09, 0.09, HULL.white, 8);
+      tubeIn(b, I, -2.1, 0.92, -3.9, 2.1, 0.92, -3.9, 0.08, 0.08, HULL.white, 8);
+      quad(b, new V(-1.62, 0.93, 1.6), new V(1.62, 0.93, 1.6), new V(1.62, 0.93, 3.25), new V(-1.62, 0.93, 3.25), HULL.mesh);
+      // the mast, its shrouds out to the hulls and its forestay bridle
+      const mz = 1.5, mt = 12.4;
+      tubeIn(b, I, 0, 1.62, mz, 0, mt, mz, 0.08, 0.055, S.silver, 8);
+      tubeIn(b, I, -0.9, 7.5, mz - 0.05, 0.9, 7.5, mz - 0.05, 0.02, 0.02, S.silver, 4);
+      for (const s of [-1, 1]) {
+        tubeIn(b, I, s * 2.1, 0.92, mz - 0.6, s * 0.9, 7.5, mz - 0.05, 0.01, 0.01, S.steel, 4);
+        tubeIn(b, I, s * 0.9, 7.5, mz - 0.05, 0, mt - 0.3, mz, 0.01, 0.01, S.steel, 4);
+        tubeIn(b, I, s * 2.1, 0.95, 3.3, 0, 1.05, 3.6, 0.01, 0.01, S.steel, 4);
+      }
+      tubeIn(b, I, 0, 1.05, 3.6, 0, mt - 1.0, mz, 0.011, 0.011, S.steel, 4);
+      // the crew: one at the helm on the port hull, one lazing on the trampoline
+      crewIn(b, I, -2.1, hullLines(h, 0.15).s + 0.02, -h.L / 2 + h.L * 0.15, Math.PI / 2, S.teal, visor, 'sit');
+      crewIn(b, I, 0.7, 0.95, 2.0, Math.PI - 0.3, S.coral, visorB, 'lie');
+      this.addBaked(b, c.hull, this.boatMat);
+      for (const s of [-1, 1]) this.nameOn(c.hull, nameGeo(h, 4, 0.56, 0.86, 0.6, 0.84, s * 2.1));
+      const coral = surf(0xff6b5a, 0, 0.6);
+      c.sails.push(
+        sailGroup(c.hull, 0, 2.35, mz - 0.08, (sb, gb) => {
+          sailIn(sb, I, new V(0, 0.05, -0.1), new V(0, mt - 2.6, -0.15), new V(0, 0.1, -4.5), 1.1, 0.09, [CLOTH[0], CLOTH[1], CLOTH[0], CLOTH[1], CLOTH[0], CLOTH[1], coral, coral]);
+          tubeIn(gb, I, 0, 0, -0.06, 0, 0.02, -4.6, 0.06, 0.05, S.silver, 6);
+        }),
+        sailGroup(c.hull, 0, 1.05, 3.6, (sb) => {
+          sailIn(sb, I, new V(0, 0.1, -0.02), new V(0, mt - 2.2 - 1.05, mz - 3.6 + 0.25), new V(0, 0.5, mz - 3.6 - 0.9), 0, 0.12, CLOTH, 7, 5);
+        }),
+      );
+      c.track.add(this.foamMesh(wakeGeo(-4.7, 22, 5.6, 13), c.foam));
+      for (const s of [-1, 1]) c.track.add(this.foamMesh(bowWaveGeo(h, s * 2.1), c.foam));
+    }
+
+    // ---- a fishing boat anchored off the beach: wheelhouse, outboard, fenders, rods out astern
+    {
+      const c = this.afloat(this.fisher, 6.8, 2.45, { moor: [30, -19, 0.5] });
+      const b = new Baker();
+      const h: HullSpec = { L: 6.8, B: 2.45, D: 0.82, T: 0.4, rise: 0.38, stern: 0.86, rake: 0.5, bilge: 1.6, flare: 1.1 };
+      const well = [0, 0.52, 0.42] as const;
+      bakeHull(b, I, h, { bottom: HULL.antifoul, boot: HULL.white, top: HULL.green, stripe: HULL.white, deck: HULL.cream, inside: HULL.cream, rub: HULL.teak, well });
+      const zOf = (u: number) => -h.L / 2 + h.L * u, sAt = (u: number) => hullLines(h, u).s;
+      // the wheelhouse: windows all round, a door aft, the roof with radar, a mast and lights
+      const wz = zOf(0.64);
+      putIn(b, I, G.cbox(1.6, 1.25, 1.5, 0.05), HULL.white, 0, 1.52, wz);
+      putIn(b, I, BOX, HULL.glass, 0, 1.8, wz + 0.755, 0, 0, 0, 1.36, 0.42, 0.03);
+      for (const s of [-1, 1]) putIn(b, I, BOX, HULL.glass, s * 0.805, 1.8, wz, 0, 0, 0, 0.03, 0.4, 1.1);
+      putIn(b, I, BOX, HULL.glass, 0.3, 1.45, wz - 0.755, 0, 0, 0, 0.55, 0.95, 0.03);
+      putIn(b, I, BOX, HULL.glass, -0.4, 1.8, wz - 0.755, 0, 0, 0, 0.42, 0.34, 0.03);
+      putIn(b, I, G.cbox(1.8, 0.08, 1.85, 0.03), HULL.green, 0, 2.18, wz - 0.05);
+      putIn(b, I, G.cyl(0.24, 0.24, 0.16, 14), HULL.white, 0.35, 2.3, wz + 0.3);
+      tubeIn(b, I, -0.4, 2.22, wz - 0.3, -0.4, 3.4, wz - 0.3, 0.035, 0.025, HULL.white, 6);
+      tubeIn(b, I, -0.75, 3.1, wz - 0.3, -0.05, 3.1, wz - 0.3, 0.02, 0.02, HULL.white, 4);
+      glowIn(b, I, G.sphere(0.04, 6, 4), glow(0xffffff, 1.2), -0.4, 3.45, wz - 0.3);
+      putIn(b, I, BOX, S.red, -0.4, 3.3, wz - 0.55, 0, 0, 0, 0.012, 0.16, 0.42);
+      tubeIn(b, I, 0.6, 2.22, wz - 0.6, 0.72, 4.3, wz - 0.7, 0.012, 0.006, S.black, 4);
+      putIn(b, I, G.torus(0.2, 0.05, 6, 16), HULL.orange, -0.42, 1.32, wz - 0.8);
+      // the outboard on the transom
+      const zt = zOf(0);
+      putIn(b, I, BOX, HULL.graphite, 0, 0.72, zt - 0.06, 0, 0, 0, 0.3, 0.3, 0.12);
+      putIn(b, I, G.cbox(0.44, 0.58, 0.62, 0.09), S.black, 0, 1.0, zt - 0.38);
+      putIn(b, I, G.cbox(0.45, 0.07, 0.63, 0.02), S.white, 0, 0.92, zt - 0.38);
+      putIn(b, I, G.cbox(0.14, 0.95, 0.22, 0.03), HULL.graphite, 0, 0.36, zt - 0.3);
+      putIn(b, I, BOX, HULL.graphite, 0, -0.06, zt - 0.32, 0, 0, 0, 0.36, 0.02, 0.32);
+      // fenders hung over the sides, rods out astern with their lines, gear in the cockpit, the anchor rode
+      for (const s of [-1, 1]) {
+        for (const u of [0.18, 0.3, 0.42]) {
+          const l = hullLines(h, u), z = zOf(u);
+          putIn(b, I, G.cyl(0.075, 0.075, 0.36, 10), HULL.white, s * (l.b + 0.09), l.s - 0.38, z);
+          for (const e of [-1, 1]) putIn(b, I, G.sphere(0.075, 10, 5), HULL.canvas, s * (l.b + 0.09), l.s - 0.38 + e * 0.18, z, 0, 0, 0, 1);
+          tubeIn(b, I, s * (l.b - 0.04), l.s + 0.02, z, s * (l.b + 0.09), l.s - 0.18, z, 0.008, 0.008, HULL.rope, 3);
+        }
+        const l = hullLines(h, 0.1), z = zOf(0.1);
+        const base = new V(s * (l.b - 0.08), l.s - 0.1, z), tip = new V(s * (l.b + 0.9), l.s + 1.9, z - 1.3);
+        tubeIn(b, I, base.x, base.y, base.z, tip.x, tip.y, tip.z, 0.016, 0.005, S.black, 4);
+        putIn(b, I, G.cyl(0.045, 0.045, 0.06, 8), S.silver, base.x + s * 0.12, base.y + 0.3, base.z - 0.15, 0, 0, Math.PI / 2);
+        tubeIn(b, I, tip.x, tip.y, tip.z, tip.x + s * 1.6, -0.05, tip.z - 3.2, 0.004, 0.004, S.white, 3);
+      }
+      const fl = sAt(0.25) - well[2];
+      putIn(b, I, G.cbox(0.62, 0.36, 0.42, 0.04), HULL.white, -0.45, fl + 0.18, zOf(0.3));
+      putIn(b, I, G.cyl(0.13, 0.11, 0.28, 10), S.blue, 0.5, fl + 0.14, zOf(0.36));
+      putIn(b, I, G.torus(0.16, 0.04, 6, 14), HULL.rope, 0.45, fl + 0.04, zOf(0.16), Math.PI / 2);
+      putIn(b, I, G.sphere(1, 10, 6), S.orange, -0.4, fl + 0.06, zOf(0.12), 0, 0.4, 0, 0.42, 0.14, 0.3);
+      const stem = hullPt(h, 1, 1, 1, new V());
+      putIn(b, I, BOX, S.steel, 0, stem.y + 0.03, stem.z - 0.12, 0, 0, 0, 0.12, 0.06, 0.34);
+      tubeIn(b, I, 0, stem.y + 0.02, stem.z + 0.02, 0.3, -0.5, stem.z + 4.2, 0.014, 0.014, HULL.rope, 4);
+      for (const s of [-1, 1]) railIn(b, I, [hullPt(h, 0.7, 1, s, new V()).add(_ho.set(-s * 0.06, 0.45, 0)), hullPt(h, 0.86, 1, s, new V()).add(_ho.set(-s * 0.06, 0.5, 0)), new V(0, stem.y + 0.5, stem.z - 0.15)], 0.018, S.silver, 5);
+      this.addBaked(b, c.hull, this.boatMat);
+      this.nameOn(c.hull, nameGeo(h, 3, 0.52, 0.84, 0.62, 0.8));
+      // where a fisher stands in the cockpit, watching the rods
+      this.fisherSpot.position.set(0.15, fl, zOf(0.2));
+      this.fisherSpot.rotation.y = Math.PI - 0.35;
+      c.hull.add(this.fisherSpot);
+    }
+
+    // ---- sails far out towards the horizon (one shared sloop, sails set)
+    {
+      const b = new Baker(), sb = new Baker();
+      const k = this.sloop(b, I, HULL.antifoulBlue, HULL.white, HULL.teal, HULL.white);
+      const f = new THREE.Matrix4().compose(new V(0, k.goose.y, k.mz), new THREE.Quaternion().setFromAxisAngle(UP, 0.45), ONE);
+      sailIn(sb, f, new V(0, 0.06, -0.09), new V(0, k.mh - 1.1, -0.09), new V(0, 0.08, -3.0), 0.3, 0.1, CLOTH, 6, 4);
+      tubeIn(b, f, 0, 0, -0.06, 0, 0.03, -3.1, 0.05, 0.045, S.silver, 6);
+      const jf = new THREE.Matrix4().compose(k.stem, new THREE.Quaternion().setFromAxisAngle(UP, 0.35), ONE);
+      sailIn(sb, jf, new V(0, 0.12, -0.05), new V(0, k.fTop.y - k.stem.y - 0.5, k.fTop.z - k.stem.z + 0.17), new V(0, 0.45, k.mz - k.stem.z - 0.6), 0, 0.12, CLOTH, 5, 4);
+      const hullGeo = b.build(), sailGeo = sb.build();
+      for (const [x, z, ry, sc] of [[88.9, -22.5, 1.9, 1.0], [91.8, -41.9, -1.2, 1.15], [78, -66, 2.3, 1.1]] as const) {
+        const track = new THREE.Group();
+        track.scale.setScalar(sc);
+        const c = this.afloat(track, 7.6 * sc, 2.55 * sc, { moor: [x, z, ry], swing: 0 });
+        c.heel = 0.1;
+        if (hullGeo.opaque) c.hull.add(new THREE.Mesh(hullGeo.opaque, this.boatMat));
+        if (hullGeo.emissive) c.hull.add(new THREE.Mesh(hullGeo.emissive, bakedGlowMaterial()));
+        if (sailGeo.opaque) c.hull.add(new THREE.Mesh(sailGeo.opaque, this.sailMat));
+        this.sails.push(track);
+      }
+    }
   }
 
   /** A kite flying over the shallows, tied off to a stake by the water. */
@@ -2524,11 +3770,12 @@ export class Beach implements HomeScene {
     put(b, G.torus(0.23, 0.009, 5, 24), tx, 0.49, -tz, S.chrome, Math.PI / 2, 0, 0);
     seg(b, new THREE.Vector3(tx, 0, -tz), new THREE.Vector3(tx, 0.48, -tz), 0.025, 0.025, S.chrome, 8);
     put(b, G.cyl(0.16, 0.18, 0.025, 14), tx, 0.012, -tz, S.chrome);
-    // a sun cream bottle and a book
+    // a sun cream bottle on the table; the book's been put down on the sand by it, out of the
+    // phone's way
     put(b, G.cyl(0.03, 0.035, 0.15, 8), tx - 0.1, 0.585, -tz + 0.08, S.yellow);
     put(b, G.cyl(0.018, 0.022, 0.03, 8), tx - 0.1, 0.675, -tz + 0.08, S.coral);
-    for (const y of [0.51, 0.535]) box(b, 0.14, 0.005, 0.2, tx + 0.02, y, -tz - 0.1, S.blue, 0, 0.4, 0);
-    box(b, 0.132, 0.021, 0.192, tx + 0.018, 0.5225, -tz - 0.1, S.page, 0, 0.4, 0);
+    for (const y of [0.0025, 0.0275]) box(b, 0.14, 0.005, 0.2, -0.6, y, 0.3, S.blue, 0, 0.9, 0);
+    box(b, 0.132, 0.021, 0.192, -0.602, 0.015, 0.3, S.page, 0, 0.9, 0);
     // a boombox in the sand
     const bx = 1.05, bz = 0.95, by = -0.5;
     const bf = frame(bx, 0, bz, by);
@@ -2564,23 +3811,35 @@ export class Beach implements HomeScene {
 
   /** A spare lounger further down the beach, its own parasol over it. */
   private spareLounger(b: Baker, x: number, z: number, ry: number) {
-    const c = Math.cos(ry), s = Math.sin(ry);
-    const at = (lx: number, lz: number) => [x + lx * c + lz * s, z - lx * s + lz * c] as const;
-    for (const sx of [-1, 1]) {
-      const [ax, az] = at(sx * 0.36, -0.4);
-      box(b, 0.05, 0.07, 1.6, ax, 0.3, az, S.white, 0, ry, 0);
+    // local frame: x across, z along it, the head end towards +z; the backrest hinges up off
+    // the seat's head end and leans back over the head end (its +z end raised)
+    const f = frame(x, sandH(x, z), z, ry);
+    const BOX = G.box(1, 1, 1);
+    const a = 0.78, L = 0.82, hz = 0.42, rail = 0.3;
+    const up = Math.sin(a), along = Math.cos(a);
+    const cushion = ry > 0 ? S.coral : S.teal;
+    for (const s of [-1, 1]) {
+      // side rail, legs, and the backrest's rail with the strut that props it
+      putIn(b, f, BOX, S.white, s * 0.34, rail, -0.16, 0, 0, 0, 0.045, 0.06, 1.24);
+      for (const lz of [-0.72, 0.38]) putIn(b, f, BOX, S.white, s * 0.34, rail / 2, lz, 0, 0, 0, 0.045, rail, 0.045);
+      putIn(b, f, BOX, S.white, s * 0.34, rail + up * L * 0.5, hz + along * L * 0.5, -a, 0, 0, 0.045, 0.05, L);
+      tubeIn(b, f, s * 0.34, rail, hz + 0.32, s * 0.34, rail + up * L * 0.55 - 0.03, hz + along * L * 0.55 + 0.04, 0.012, 0.012, S.steel, 5);
+      putIn(b, f, G.cyl(0.055, 0.055, 0.03, 10), S.rubber, s * 0.37, 0.055, -0.72, 0, 0, Math.PI / 2);
     }
-    const [cx, cz] = at(0, -0.4);
-    box(b, 0.7, 0.08, 1.4, cx, 0.38, cz, S.teal, 0, ry, 0);
-    const [bx, bz] = at(0, 0.6);
-    box(b, 0.7, 0.07, 0.8, bx, 0.62, bz, S.teal, 0.8, ry, 0);
-    for (const [lx, lz] of [[-0.36, -1.1], [0.36, -1.1], [-0.36, 0.3], [0.36, 0.3]]) {
-      const [px, pz] = at(lx, lz);
-      box(b, 0.05, 0.3, 0.05, px, 0.15, pz, S.white, 0, ry, 0);
+    for (let i = 0; i < 11; i++) putIn(b, f, BOX, S.white, 0, rail + 0.035, -0.74 + i * 0.112, 0, 0, 0, 0.68, 0.02, 0.07);
+    for (let i = 0; i < 7; i++) {
+      const d = 0.06 + i * 0.115;
+      putIn(b, f, BOX, S.white, 0, rail + up * d, hz + along * d, -a, 0, 0, 0.68, 0.02, 0.07);
     }
-    const [ux, uz] = at(-0.8, 0.2);
-    seg(b, new THREE.Vector3(ux, -0.1, uz), new THREE.Vector3(ux, 2.2, uz), 0.025, 0.025, S.white, 6);
-    put(b, G.cone(1.15, 0.38, 10), ux, 2.25, uz, ry > 0 ? S.coral : S.yellow);
+    // cushions on the seat and on the backrest's front (facing up and back over the seat)
+    putIn(b, f, G.cbox(0.62, 0.06, 1.12, 0.025), cushion, 0, rail + 0.075, -0.17);
+    putIn(b, f, G.cbox(0.62, 0.06, L - 0.06, 0.025), cushion, 0, rail + up * L * 0.5 + along * 0.06, hz + along * L * 0.5 - up * 0.06, -a, 0, 0);
+    // a folded towel at the foot
+    putIn(b, f, G.cbox(0.4, 0.05, 0.28, 0.02), ry > 0 ? S.yellow : S.white, 0.02, rail + 0.13, -0.55, 0, 0.1, 0);
+    // its parasol, pole in the sand beside the head end
+    const [ux, uy, uz] = [-0.8, 0, 0.2];
+    tubeIn(b, f, ux, uy - 0.1, uz, ux, uy + 2.2, uz, 0.025, 0.025, S.white, 6);
+    putIn(b, f, G.cone(1.15, 0.38, 10), ry > 0 ? S.coral : S.yellow, ux, 2.25, uz);
   }
 
   /** Striped, puffed-up cushions on the robot's lounger, piped round the edges, and a towel thrown over the backrest. */
@@ -3057,75 +4316,14 @@ export class Beach implements HomeScene {
     });
   }
 
-  /**
-   * A robot beachgoer in the local frame f, facing its +z: standing, sitting on the sand, lying on
-   * its back, or arms up for a spike. Its parts go to the bakers B names, so a walker's legs and arms
-   * can swing; a still one puts them all in one baker.
-   */
-  private bot(B: (part: Part) => Baker, f: THREE.Matrix4, pose: 'stand' | 'sit' | 'lie' | 'spike', paint: Surface, visor: THREE.Color, hat = false) {
-    const BOX = G.box(1, 1, 1);
-    const head = G.sphere(0.13, 12, 8);
-    const torso = G.cbox(0.38, 0.44, 0.25, 0.05);
-    const vis = G.box(0.17, 0.04, 0.03);
-    const body = B('body');
-    const sides = [[-1, 'legL', 'armL'], [1, 'legR', 'armR']] as const;
-    const brim = (hx: number, hy: number, hz: number, rx: number) => {
-      if (!hat) return;
-      putIn(body, f, G.cyl(0.21, 0.21, 0.012, 14), S.straw, hx, hy + 0.1, hz, rx);
-      putIn(body, f, G.cyl(0.095, 0.115, 0.1, 12), S.straw, hx, hy + 0.15, hz, rx);
-      putIn(body, f, G.cyl(0.117, 0.117, 0.025, 12), S.red, hx, hy + 0.12, hz, rx);
-    };
-    if (pose === 'lie') {
-      putIn(body, f, torso, paint, 0, 0.15, -0.05, -Math.PI / 2);
-      putIn(body, f, BOX, S.black, 0, 0.09, 0.3, 0, 0, 0, 0.3, 0.16, 0.16);
-      putIn(body, f, head, S.white, 0, 0.14, -0.42);
-      glowIn(body, f, vis, visor, 0, 0.255, -0.44, -Math.PI / 2);
-      for (const [s, leg, arm] of sides) {
-        tubeIn(B(leg), f, s * 0.1, 0.07, 0.35, s * 0.1, 0.06, 0.95, 0.05, 0.045, S.steel);
-        putIn(B(leg), f, BOX, S.black, s * 0.1, 0.1, 0.99, 0, 0, 0, 0.1, 0.18, 0.07);
-        tubeIn(B(arm), f, s * 0.24, 0.1, -0.22, s * 0.27, 0.05, 0.22, 0.04, 0.035, S.steel);
-      }
-      return;
-    }
-    if (pose === 'sit') {
-      putIn(body, f, BOX, S.black, 0, 0.1, 0, 0, 0, 0, 0.3, 0.14, 0.22);
-      putIn(body, f, torso, paint, 0, 0.4, -0.04, -0.15);
-      putIn(body, f, head, S.white, 0, 0.77, -0.1);
-      glowIn(body, f, vis, visor, 0, 0.79, 0.012, -0.15);
-      brim(0, 0.77, -0.1, -0.15);
-      for (const [s, leg, arm] of sides) {
-        tubeIn(B(leg), f, s * 0.1, 0.12, 0.05, s * 0.11, 0.36, 0.36, 0.05, 0.045, S.steel);
-        tubeIn(B(leg), f, s * 0.11, 0.36, 0.36, s * 0.11, 0.05, 0.6, 0.045, 0.04, S.steel);
-        putIn(B(leg), f, BOX, S.black, s * 0.11, 0.035, 0.66, 0, 0, 0, 0.1, 0.07, 0.19);
-        tubeIn(B(arm), f, s * 0.23, 0.56, -0.08, s * 0.3, 0.04, -0.34, 0.04, 0.035, S.steel);
-      }
-      return;
-    }
-    putIn(body, f, BOX, S.black, 0, 0.76, 0, 0, 0, 0, 0.3, 0.14, 0.2);
-    putIn(body, f, torso, paint, 0, 1.0, 0);
-    putIn(body, f, head, S.white, 0, 1.36, 0);
-    glowIn(body, f, vis, visor, 0, 1.38, 0.115);
-    brim(0, 1.36, 0, 0);
-    for (const [s, leg, arm] of sides) {
-      tubeIn(B(leg), f, s * 0.1, 0.06, 0, s * 0.1, 0.72, 0, 0.05, 0.045, S.steel);
-      putIn(B(leg), f, BOX, S.black, s * 0.1, 0.035, 0.03, 0, 0, 0, 0.1, 0.07, 0.19);
-      putIn(B(arm), f, G.sphere(0.06, 8, 6), S.black, s * 0.22, 1.17, 0);
-      if (pose === 'spike') {
-        tubeIn(B(arm), f, s * 0.21, 1.17, 0, s * 0.17, 1.74, 0.1, 0.04, 0.035, S.steel);
-        putIn(B(arm), f, G.sphere(0.045, 8, 6), S.black, s * 0.17, 1.77, 0.1);
-      } else {
-        tubeIn(B(arm), f, s * 0.23, 1.17, 0, s * 0.27, 0.74, 0.04, 0.04, 0.035, S.steel);
-        putIn(B(arm), f, G.sphere(0.045, 8, 6), S.black, s * 0.27, 0.72, 0.04);
-      }
-    }
-  }
-
   /** On down the beach: rows of parasols and towels, robots sunbathing, chatting and building castles, windbreaks and a tiki stand. */
   private farBeach(b: Baker) {
     const V = THREE.Vector3;
-    const one = () => b;
-    const visors = [0x7ff4ff, 0xffd36b, 0xff6fb0, 0x9cff8a].map((h) => glow(h, 2.2));
-    const paints = [S.coral, S.teal, S.yellow, S.blue, S.pink, S.purple, S.white];
+    // the robots themselves are real bots, posed by beachCrowd.ts: here they get their spots
+    const bot = (kind: Slot['kind'], f: THREE.Matrix4, yaw: number) => {
+      const p = new V().setFromMatrixPosition(f);
+      this.crowdSlots.push({ kind, x: p.x, y: p.y, z: p.z, yaw, far: p.x > 40 });
+    };
     const spots: [number, number, Surface, Surface][] = [
       [16.5, -1.6, S.coral, S.white],
       [19.8, -2.2, S.yellow, S.teal],
@@ -3146,11 +4344,11 @@ export class Beach implements HomeScene {
       const ry = hash(i * 7.7 + 3) * 0.8 - 0.4 + Math.PI / 2;
       const tx = x + 0.55, tz = z - 0.35;
       this.towelAt(b, tx, tz, ry, towels[i % towels.length]);
-      const paint = paints[i % paints.length], vis = visors[i % visors.length];
       const what = i % 5;
-      if (what === 0) this.bot(one, frame(tx, sandH(tx, tz) + 0.012, tz, ry + Math.PI / 2), 'lie', paint, vis);
+      const lying = (['lie', 'lieHands', 'prop'] as const)[i % 3];
+      if (what === 0) bot(lying, frame(tx, sandH(tx, tz) + 0.012, tz, 0), ry + Math.PI / 2);
       else if (what === 1) {
-        this.bot(one, frame(tx, sandH(tx, tz) + 0.012, tz, -0.3 + Math.PI), 'sit', paint, vis, true);
+        bot(i % 2 ? 'hug' : 'sit', frame(tx, sandH(tx, tz) + 0.012, tz, 0), -0.3 + Math.PI);
         box(b, 0.46, 0.3, 0.32, x - 0.55, sandH(x, z) + 0.15, z + 0.3, S.red, 0, 0.4, 0, 0.03);
         box(b, 0.48, 0.05, 0.34, x - 0.55, sandH(x, z) + 0.32, z + 0.3, S.white, 0, 0.4, 0, 0.02);
       } else if (what === 2) {
@@ -3163,22 +4361,21 @@ export class Beach implements HomeScene {
         const P = (lx: number, ly: number, lz: number) => new V(lx, ly, lz).applyMatrix4(f);
         quad(b, P(-0.28, 0.72, -0.27), P(0.28, 0.72, -0.27), P(0.28, 0.22, 0.05), P(-0.28, 0.22, 0.05), c0);
         quad(b, P(-0.28, 0.22, 0.05), P(0.28, 0.22, 0.05), P(0.28, 0.3, 0.32), P(-0.28, 0.3, 0.32), c0);
-        const sf = f.clone().multiply(frame(0, 0.14, -0.02, 0));
-        this.bot(one, sf, 'sit', paint, vis);
+        bot('chair', f, Math.PI + 0.3);
       } else if (what === 3) {
         putS(b, G.sphere(1, 12, 6), tx + 0.2, sandH(tx, tz) + 0.03, tz + 0.1, S.straw, 0.2, 0.05, 0.2);
         put(b, G.cyl(0.1, 0.12, 0.09, 12), tx + 0.2, sandH(tx, tz) + 0.07, tz + 0.1, S.straw);
         put(b, G.cyl(0.11, 0.11, 0.025, 12), tx + 0.2, sandH(tx, tz) + 0.06, tz + 0.1, S.coral);
-        this.bot(one, frame(tx - 0.2, sandH(tx, tz) + 0.012, tz - 0.1, ry - Math.PI / 2), 'lie', paint, vis);
-      } else this.bot(one, frame(x + 0.5, sandH(x, z), z - 1.0, Math.PI + 0.6), 'stand', paint, vis, true);
+        bot(lying === 'prop' ? 'lie' : lying, frame(tx - 0.2, sandH(tx, tz) + 0.012, tz - 0.1, 0), ry - Math.PI / 2);
+      } else bot(i % 2 ? 'hips' : 'stand', frame(x + 0.5, sandH(x, z), z - 1.0, 0), Math.PI + 0.6);
     });
     // two robots chatting at the water's edge, one more watching the sea
-    this.bot(one, frame(23.4, sandH(23.4, -2.95), -2.95, 1.2), 'stand', S.teal, visors[0]);
-    this.bot(one, frame(24.2, sandH(24.2, -2.8), -2.8, -1.9), 'stand', S.pink, visors[2], true);
-    this.bot(one, frame(38.6, sandH(38.6, -3.0), -3.0, Math.PI + 0.2), 'stand', S.yellow, visors[1]);
+    bot('chat', frame(23.4, sandH(23.4, -2.95), -2.95, 0), 1.2);
+    bot('stand', frame(24.2, sandH(24.2, -2.8), -2.8, 0), -1.9);
+    bot('hips', frame(38.6, sandH(38.6, -3.0), -3.0, 0), Math.PI + 0.2);
     // a little one building a castle, bucket and spade beside it
     const kx = 18.6, kz = -2.4, ky = sandH(kx, kz);
-    this.bot(one, frame(kx, ky, kz, Math.PI - 0.4, 0.62), 'sit', S.orange, visors[3]);
+    bot('kid', frame(kx, ky, kz, 0), Math.PI - 0.32);
     const cx = kx - 0.25, cz = kz - 0.75;
     put(b, G.cyl(0.26, 0.32, 0.18, 10), cx, ky + 0.08, cz, S.sand);
     put(b, G.cyl(0.15, 0.18, 0.16, 10), cx, ky + 0.25, cz, S.sand);
@@ -3244,33 +4441,23 @@ export class Beach implements HomeScene {
     }
   }
 
-  /** The green headland closing the bay at the far end of the beach, a fringe of sand and palms round its point. */
+  /**
+   * The land closing the bay: the green headland at the far end of the beach and the range behind
+   * it (one heightfield, see landAt), with palms on the sand and the low slopes round the point.
+   */
   private headland(b: Baker) {
-    const ball = G.sphere(1, 20, 12);
-    const bump = G.sphere(1, 7, 5);
-    const masses: [number, number, number, number, number, number][] = [
-      [95, -1.5, 14, 16, 10, 26],
-      [85, -1.0, -8, 8, 5, 9],
-      [101, -3, 38, 11, 13, 18],
-    ];
-    putS(b, ball, 87, -0.6, 4, S.islandSand, 14, 0.9, 25);
-    for (const [x, y, z, rx, ry, rz] of masses) putS(b, ball, x, y, z, S.jungle, rx, ry, rz);
-    // the forest canopy, a rumple of tree crowns all over it
-    const tones = [S.jungle, S.jungleLight, S.green, S.island];
-    for (let i = 0; i < 140; i++) {
-      const [x, y, z, rx, ry, rz] = masses[i % 3 === 2 ? 1 : i % 5 === 4 ? 2 : 0];
-      const a = hash(i * 3.3 + 1) * Math.PI * 2, e = 0.15 + hash(i * 5.7 + 2) * 1.2;
-      const px = x + Math.cos(a) * Math.cos(e) * rx, py = y + Math.sin(e) * ry, pz = z + Math.sin(a) * Math.cos(e) * rz;
-      if (py < 0.4 || px > 108) continue;
-      const sc = (1.4 + hash(i * 7.9) * 1.9) * (rx > 10 ? 1 : 0.7);
-      putS(b, bump, px, py - sc * 0.25, pz, tones[Math.floor(hash(i * 9.1) * 4)], sc, sc * 0.8, sc);
-    }
-    // palms leaning out over the sand round the point
+    this.group.add(polarLand(-41, 19, 260, 74, 117, 58, landAt, (x, z, o) => o.y < SEA - 0.45 || (x < 89.5 && o.y < sandH(x, z) - 0.15)));
     const V = THREE.Vector3;
-    for (let i = 0; i < 9; i++) {
-      const x = 75.5 + hash(i * 2.9) * 9, z = -11 + hash(i * 4.7) * 14;
-      const lean = new V(-0.5 - hash(i) * 0.6, 0, -0.7 - hash(i * 3) * 0.4);
-      const foot = new V(x, -0.3, z), top = foot.clone().add(new V(lean.x * 2.2, 6 + hash(i * 5) * 2.5, lean.z * 2.2));
+    const o: Ground = { y: 0, ground: 0, gully: 0 };
+    const planted: [number, number][] = [];
+    for (let i = 0; i < 400 && planted.length < 14; i++) {
+      const x = 70 + hash(i * 2.9 + 0.3) * 26, z = -17 + hash(i * 4.7 + 0.1) * 26;
+      landAt(x, z, o);
+      const y = Math.max(o.y, x < 90.5 ? sandH(x, z) : -9);
+      if (y < SEA + 0.35 || y > 4 || y - o.ground > 2.6 || planted.some(([px, pz]) => Math.hypot(px - x, pz - z) < 2.5)) continue;
+      planted.push([x, z]);
+      const lean = new V(-0.4 - hash(i) * 0.5, 0, -0.7 - hash(i * 3) * 0.4);
+      const foot = new V(x, y - 0.15, z), top = foot.clone().add(new V(lean.x * 2.2, 6 + hash(i * 5) * 2.5, lean.z * 2.2));
       tube(b, foot, top, 0.22, 0.16, S.bark, 5);
       for (let k = 0; k < 7; k++) {
         const a = (k / 7) * Math.PI * 2 + i;
@@ -3470,60 +4657,8 @@ export class Beach implements HomeScene {
   }
 
   /** A robot walking its dog along the tide line. */
-  private walkers() {
-    const parts: Record<Part, Baker> = { body: new Baker(), legL: new Baker(), legR: new Baker(), armL: new Baker(), armR: new Baker() };
-    this.bot((p) => parts[p], new THREE.Matrix4(), 'stand', S.coral, glow(0x7ff4ff, 2.4), true);
-    const tags: Record<Part, number[]> = { body: [0, 0], legL: [1, 0.72], legR: [-1, 0.72], armL: [-0.7, 1.17], armR: [0.7, 1.17] };
-    const tagged = (bk: Record<string, Baker>, tg: Record<string, number[]>, parent: THREE.Group, phase: { value: number }, amp: number) => {
-      const geos: { g: THREE.BufferGeometry; tag: number[] }[] = [];
-      for (const k of Object.keys(bk)) {
-        const { opaque, emissive } = bk[k].build();
-        if (opaque) geos.push({ g: opaque, tag: tg[k] });
-        if (emissive) parent.add(new THREE.Mesh(emissive, bakedGlowMaterial()));
-      }
-      const m = new THREE.Mesh(joinTagged(geos, 'gait'), gaitMaterial(phase, amp));
-      m.castShadow = true;
-      parent.add(m);
-    };
-    tagged(parts, tags, this.walker, this.walkPhase, 0.42);
-    this.group.add(this.walker);
-
-    // a robot dog, built facing +z, trotting (diagonal legs together)
-    const d = { body: new Baker(), fl: new Baker(), fr: new Baker(), bl: new Baker(), br: new Baker() };
-    const I = new THREE.Matrix4();
-    putIn(d.body, I, G.cbox(0.2, 0.18, 0.5, 0.06), S.yellow, 0, 0.34, 0);
-    putIn(d.body, I, G.cbox(0.16, 0.15, 0.18, 0.04), S.yellow, 0, 0.47, 0.3);
-    putIn(d.body, I, G.box(1, 1, 1), S.black, 0, 0.43, 0.41, 0, 0, 0, 0.09, 0.07, 0.08);
-    for (const s of [-1, 1]) putIn(d.body, I, G.cone(0.035, 0.1, 5), S.black, s * 0.055, 0.58, 0.27, -0.2, 0, -s * 0.3);
-    glowIn(d.body, I, G.box(0.11, 0.025, 0.01), glow(0x7ff4ff, 2.4), 0, 0.5, 0.392);
-    tubeIn(d.body, I, 0, 0.4, -0.24, 0, 0.56, -0.4, 0.02, 0.012, S.steel, 5);
-    putIn(d.body, I, G.box(1, 1, 1), S.red, 0, 0.42, 0.21, 0, 0, 0, 0.17, 0.03, 0.03);
-    const legs = { fl: [-1, 1], fr: [1, 1], bl: [-1, -1], br: [1, -1] } as const;
-    for (const [k, [sx, sz]] of Object.entries(legs)) {
-      const bk = d[k as keyof typeof legs];
-      tubeIn(bk, I, sx * 0.07, 0.3, sz * 0.17, sx * 0.07, 0.04, sz * 0.17, 0.028, 0.022, S.steel, 5);
-      putIn(bk, I, G.box(1, 1, 1), S.black, sx * 0.07, 0.02, sz * 0.17 + 0.02, 0, 0, 0, 0.05, 0.04, 0.07);
-    }
-    tagged(d, { body: [0, 0], fl: [1, 0.3], fr: [-1, 0.3], bl: [-1, 0.3], br: [1, 0.3] }, this.dog, this.dogPhase, 0.75);
-    this.group.add(this.dog);
-  }
-
-  /** Two robots keeping a volleyball rally going over the net. */
+  /** The volleyball the two robots rally over the net (the players are real bots: beachCrowd.ts). */
   private rally() {
-    const cols = [S.blue, S.yellow];
-    for (let i = 0; i < 2; i++) {
-      const b = new Baker();
-      this.bot(() => b, new THREE.Matrix4(), 'spike', cols[i], glow(i ? 0xffd36b : 0x7ff4ff, 2.4));
-      const { opaque, emissive } = b.build();
-      const g = new THREE.Group();
-      const m = new THREE.Mesh(opaque!, vertexPBR(new THREE.MeshStandardMaterial(), 'beach-player'));
-      m.castShadow = true;
-      g.add(m);
-      if (emissive) g.add(new THREE.Mesh(emissive, bakedGlowMaterial()));
-      g.rotation.y = i ? Math.PI : 0;
-      this.group.add(g);
-      this.players.push(g);
-    }
     const bb = new Baker();
     [S.white, S.yellow, S.blue, S.white, S.yellow, S.blue].forEach((s, k) => {
       const wedge = new THREE.SphereGeometry(0.11, 4, 8, (k * Math.PI) / 3, Math.PI / 3);
@@ -3564,7 +4699,6 @@ export class Beach implements HomeScene {
       if (o) opaque.push({ g: o, tag: [ph, amp] });
       if (e) glows.push({ g: e, tag: [ph, amp] });
     };
-    const visor = glow(0x7ff4ff, 2.2);
     // the flamingo, a robot sitting back in its ring, facing the neck
     {
       const b = new Baker();
@@ -3576,7 +4710,8 @@ export class Beach implements HomeScene {
       putIn(b, f, G.cone(0.035, 0.12, 8), S.black, 0, 0.83, 0.57, Math.PI / 2 + 0.6);
       for (const s of [-1, 1]) putIn(b, f, G.sphere(0.018, 6, 4), S.black, s * 0.065, 0.9, 0.49);
       putIn(b, f, G.cone(0.12, 0.25, 8), S.pink, 0, 0.16, -0.52, -Math.PI / 2 - 0.5);
-      this.bot(() => b, f.clone().multiply(frame(0, 0.08, 0.05, Math.PI)), 'sit', S.teal, visor, true);
+      // its rider: a real bot (beachCrowd.ts), riding the same swell
+      this.crowdSlots.push({ kind: 'float', x: 30 + Math.sin(2.2) * 0.05, y: SEA + 0.1, z: -13.5 + Math.cos(2.2) * 0.05, yaw: 2.2 + Math.PI, far: true, bob: [0.3, 1] });
       add(b, 0.3, 1);
     }
     // swimmers, heads and shoulders out of the water, one in a ring
@@ -3587,13 +4722,13 @@ export class Beach implements HomeScene {
       [22, -12, 0.1, S.purple, false],
       [52, -15, -0.2, S.teal, true],
     ];
-    swim.forEach(([x, z, yaw, paint, ring], i) => {
+    swim.forEach(([x, z, yaw, , ring], i) => {
+      // the swimmers are real bots (beachCrowd.ts), treading water; their rubber rings bob here
+      this.crowdSlots.push({ kind: 'swim', x, y: SEA, z, yaw, far: true, bob: [1.7 + i * 1.9, 0.8] });
+      if (!ring) return;
       const b = new Baker();
       const f = frame(x, SEA, z, yaw);
-      putIn(b, f, G.sphere(1, 10, 6), paint, 0, 0.0, 0, 0, 0, 0, 0.22, 0.09, 0.14);
-      putIn(b, f, G.sphere(0.13, 12, 8), S.white, 0, 0.13, 0);
-      glowIn(b, f, G.box(0.17, 0.04, 0.03), visor, 0, 0.15, 0.115);
-      if (ring) putIn(b, f, G.torus(0.32, 0.085, 8, 20), i % 2 ? S.coral : S.yellow, 0, 0.02, 0, Math.PI / 2);
+      putIn(b, f, G.torus(0.44, 0.09, 8, 20), i % 2 ? S.coral : S.yellow, 0, 0.02, 0, Math.PI / 2);
       add(b, 1.7 + i * 1.9, 0.8);
     });
     // a beach ball adrift
@@ -3616,48 +4751,94 @@ export class Beach implements HomeScene {
     mk(glows, bobPatch(bakedGlowMaterial(), this.time, 'beach-bob-glow'));
   }
 
-  /** A windsurfer criss-crossing beyond the swimmers, its sail lit up by the low sun. */
+  /**
+   * A windsurfer criss-crossing beyond the swimmers: a lofted board with its pad and footstraps, and
+   * the rig (bent mast, banded sail full of wind, wishbone boom, uphaul) on a universal joint. The
+
+   * rider is a real bot posed elsewhere on surferSpot (feet) and boomGrips (hands); the rig leans to
+   * windward and swaps sides as the board turns, and the rider crosses the board with it.
+   */
   private windsurfer() {
     const V = THREE.Vector3;
-    const b = new Baker();
-    putS(b, G.sphere(1, 14, 6), 0, 0.03, 0, S.white, 0.32, 0.05, 1.3);
-    putS(b, G.sphere(1, 14, 6), 0, 0.045, 0, S.teal, 0.1, 0.03, 1.15);
-    const tack = new V(0, 0.08, 0.1), head = new V(0, 2.6, 0.18);
-    tube(b, tack, head, 0.025, 0.018, S.black, 5);
-    // the sail, in bands, bellied a little to leeward
-    const luff = (t: number) => tack.clone().lerp(head, t);
-    const leech = (t: number) => {
-      const p = t < 0.35 ? new V(0, 0.3, -0.9).lerp(new V(0, 1.3, -1.7), t / 0.35) : new V(0, 1.3, -1.7).lerp(head, (t - 0.35) / 0.65);
-      return p.setX(0.18 * Math.sin(Math.PI * t));
-    };
-    const bands = [S.yellow, S.pink, S.coral, S.purple, S.white];
-    for (let i = 0; i < bands.length; i++) {
-      const t0 = i / bands.length, t1 = (i + 1) / bands.length;
-      quad(b, luff(t0), luff(t1), leech(t1), leech(t0), bands[i]);
-    }
-    for (const s of [-1, 1]) tube(b, new V(s * 0.05, 1.3, 0.12), new V(s * 0.06, 1.28, -1.65), 0.015, 0.015, S.silver, 5);
-    // the rider, on the windward side, leaning back against the pull
-    const f = new THREE.Matrix4().compose(new V(0.42, 0.06, -0.35), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -Math.PI / 2, -0.25, 'ZYX')), ONE);
-    this.bot(() => b, f, 'stand', S.orange, glow(0xffd36b, 2.4));
-    const { opaque, emissive } = b.build();
+    const I = new THREE.Matrix4();
     const mat = vertexPBR(new THREE.MeshStandardMaterial(), 'beach-surfer');
-    backlit(mat, 0.9, this.sunView);
-    this.surfer.add(new THREE.Mesh(opaque!, mat));
-    if (emissive) this.surfer.add(new THREE.Mesh(emissive, bakedGlowMaterial()));
+    const b = new Baker();
+    let g = superLoft([[-1.2, 0.17, 0.035, 0.05], [-1.05, 0.29, 0.05, 0.05], [-0.3, 0.34, 0.055, 0.055], [0.4, 0.31, 0.05, 0.06], [0.9, 0.2, 0.04, 0.1], [1.18, 0.05, 0.022, 0.15]], 4);
+    b.geo(g, I, S.white);
+    g.dispose();
+    g = superLoft([[-1.05, 0.24, 0.007, 0.1], [-0.3, 0.29, 0.008, 0.107], [0.25, 0.26, 0.007, 0.108]], 4);
+    b.geo(g, I, S.teal);
+    g.dispose();
+    putIn(b, I, G.box(1, 1, 1), S.black, 0, -0.08, -0.95, 0, 0, 0, 0.012, 0.2, 0.18);
+    for (const z of [-0.85, -0.45]) for (const s of [-1, 1]) putIn(b, I, G.torus(0.06, 0.012, 4, 10, Math.PI), S.black, s * 0.17, 0.11, z, 0, Math.PI / 2, 0);
+    putIn(b, I, G.sphere(0.035, 8, 6), S.black, 0, 0.12, 0.3);
+    this.surfer.add(new THREE.Mesh(b.build().opaque!, mat));
+    // the rig, its foot on the board's mast track
+    const rig = this.surfRig;
+    rig.position.set(0, 0.12, 0.3);
+    rig.rotation.order = 'XZY';
+    const rb = new Baker();
+    tubeIn(rb, I, 0, 0, 0, 0, 2.2, -0.03, 0.026, 0.022, S.black, 6);
+    tubeIn(rb, I, 0, 2.2, -0.03, 0, 4.4, -0.12, 0.022, 0.014, S.black, 6);
+    for (const s of [-1, 1]) railIn(rb, I, [new V(0, 1.15, 0.02), new V(s * 0.2, 1.17, -0.45), new V(s * 0.23, 1.2, -1.0), new V(s * 0.15, 1.24, -1.6), new V(0, 1.27, -2.08)], 0.02, S.silver, 5);
+    tubeIn(rb, I, 0, 1.15, 0.0, 0, 0.1, 0.02, 0.008, 0.008, S.rope, 3);
+    rig.add(new THREE.Mesh(rb.build().opaque!, mat));
+    const sb = new Baker();
+    sailIn(sb, I, new V(0, 0.12, -0.04), new V(0, 4.3, -0.11), new V(0, 1.3, -2.06), 0.42, 0.07, [S.yellow, S.yellow, S.pink, S.coral, S.coral, S.purple, S.white, S.yellow], 8, 6);
+    const sailMat = vertexPBR(new THREE.MeshStandardMaterial(), 'beach-surfsail');
+    backlit(sailMat, 0.9, this.sunView);
+    this.surfSail = new THREE.Mesh(sb.build().opaque!, sailMat);
+    rig.add(this.surfSail);
+    this.surfer.add(rig);
+    // where the rider's feet go (+z the way they face) and their hands on the windward arm of the boom
+    this.surfer.add(this.surferSpot);
+    for (let i = 0; i < 2; i++) {
+      const o = new THREE.Object3D();
+      rig.add(o);
+      this.boomGrips.push(o);
+    }
+    this.surfWake = { value: 0 };
+    this.surfer.add(this.foamMesh(wakeGeo(-1.15, 7, 0.55, 2.6, 12), this.surfWake));
     this.group.add(this.surfer);
   }
 
-  /** More sails, far out towards the horizon. */
-  private farSails(boat: THREE.Mesh) {
-    for (const [x, z, ry, sc] of [[88, -28, 0.9, 1.0], [76, -33, -0.6, 1.2], [60, -40, 2.0, 1.1]] as const) {
-      const g = new THREE.Group();
-      g.add(new THREE.Mesh(boat.geometry, boat.material));
-      g.position.set(x, SEA, z);
-      g.rotation.y = ry;
-      g.scale.setScalar(sc);
-      this.group.add(g);
-      this.sails.push(g);
+  /**
+   * A paddleboard out beyond the buoys: a lofted board with its deck pad, fin and leash, and the
+   * paddle (T-grip, shaft, blade) swinging through its stroke. The paddler is a real bot posed
+   * elsewhere on paddlerSpot (feet) and paddleGrips (hands, children of the paddle).
+   */
+  private paddleboard() {
+    const I = new THREE.Matrix4();
+    const b = new Baker();
+    let g = superLoft([[-1.55, 0.12, 0.035, 0.06], [-1.4, 0.3, 0.055, 0.06], [-0.6, 0.39, 0.065, 0.065], [0.4, 0.38, 0.065, 0.07], [1.1, 0.27, 0.055, 0.1], [1.45, 0.12, 0.04, 0.15], [1.58, 0.03, 0.02, 0.19]], 4);
+    b.geo(g, I, S.coral);
+    g.dispose();
+    g = superLoft([[-1.2, 0.27, 0.008, 0.123], [-0.6, 0.33, 0.009, 0.128], [0.45, 0.32, 0.009, 0.133]], 4);
+    b.geo(g, I, S.white);
+    g.dispose();
+    putIn(b, I, G.box(1, 1, 1), S.black, 0, -0.07, -1.3, 0, 0, 0, 0.014, 0.18, 0.22);
+    putIn(b, I, G.cbox(0.12, 0.02, 0.05, 0.008), S.black, 0, 0.135, -0.05);
+    putIn(b, I, G.torus(0.07, 0.01, 4, 14), S.black, 0.1, 0.13, -1.38, Math.PI / 2);
+    this.paddler.add(new THREE.Mesh(b.build().opaque!, vertexPBR(new THREE.MeshStandardMaterial(), 'beach-paddler')));
+    // the paddle, held out to the right: its top grip a little ahead of the paddler at chest height
+    const pb = new Baker();
+    const top = new THREE.Vector3(0.12, 0.25, 0.22), neck = new THREE.Vector3(0.42, -0.98, 0.3);
+    seg(pb, top, neck, 0.016, 0.016, S.black, 6);
+    box(pb, 0.13, 0.03, 0.035, top.x, top.y + 0.01, top.z, S.black, 0, 0, 0, 0.01);
+    box(pb, 0.2, 0.44, 0.02, 0.47, -1.19, 0.31, S.teal, 0, 0, 0.24, 0.008);
+    this.paddle.add(new THREE.Mesh(pb.build().opaque!, vertexPBR(new THREE.MeshStandardMaterial(), 'beach-paddle')));
+    this.paddle.position.y = 1.0;
+    this.paddler.add(this.paddle);
+    const len = top.distanceTo(neck);
+    for (const d of [0, 0.6]) {
+      const o = new THREE.Object3D();
+      o.position.lerpVectors(top, neck, d / len);
+      this.paddle.add(o);
+      this.paddleGrips.push(o);
     }
+    this.paddlerSpot.position.set(0, 0.135, -0.1);
+    this.paddler.add(this.paddlerSpot);
+    this.group.add(this.paddler);
   }
 
   // ------------------------------------------------------------------ playing
@@ -3699,6 +4880,17 @@ export class Beach implements HomeScene {
     this.glasses.rotation.set(0, 0, 0);
     k.sfx?.homeScene('beach');
     this.idleCam(k, 0, true);
+    // a different crowd each time: a few new faces, everyone else moved round
+    if (this.visits++ > 0) this.people.populate(this.crowdSlots, this.rides(), sandH, 4);
+  }
+
+  /** The riders' boards: feet and hands for the real bots standing on them. */
+  private rides() {
+    return [
+      { kind: 'paddle' as const, spot: this.paddlerSpot, grips: this.paddleGrips },
+      { kind: 'surf' as const, spot: this.surferSpot, grips: this.boomGrips },
+      { kind: 'stand' as const, spot: this.fisherSpot, grips: [] },
+    ];
   }
 
   release(k: SceneKit) {
@@ -3720,7 +4912,7 @@ export class Beach implements HomeScene {
     return true;
   }
 
-  /** From the robot's left, swung about 10 degrees round towards its back, the sea and the low sun off to the left, drifting slowly. */
+  /** From the robot's left, swung about 10 degrees round towards its back, the sea and the high summer sun off to the left, drifting slowly. */
   private idleCam(k: SceneKit, time: number, snap = false) {
     const z = this.size;
     // the robot's left is the world's -x, its back (the backrest end) the world's +z
@@ -3742,6 +4934,7 @@ export class Beach implements HomeScene {
     const z = this.size;
     this.time.value = time;
     this.sway.value = time;
+    this.people.update(dt, time);
     this.life(time, dt);
 
     const o = this.pose;
@@ -4019,19 +5212,9 @@ export class Beach implements HomeScene {
     }
     this.gullBody.instanceMatrix.needsUpdate = true;
     this.gullWing.instanceMatrix.needsUpdate = true;
-    this.boat2.position.y = SEA + Math.sin(time * 0.7 + 2) * 0.1;
-    this.boat2.rotation.z = Math.sin(time * 0.55 + 1) * 0.05;
-    this.yacht.position.set(-70 + ((time * 2.4) % 150), SEA + 0.04 * Math.sin(time * 0.9), -40);
-    this.yacht.rotation.z = 0.02 * Math.sin(time * 0.7);
-    this.paddler.position.set(-5 + 3.5 * Math.sin(time * 0.035), SEA + 0.02 + 0.025 * Math.sin(time * 1.3), -15.5);
-    this.paddler.rotation.y = (Math.PI / 2) * Math.tanh(6 * Math.cos(time * 0.035));
-    this.paddler.rotation.z = 0.03 * Math.sin(time * 1.1);
-    this.paddle.rotation.x = 0.5 * Math.sin(time * 1.8);
-    this.paddle.rotation.y = 0.15 * Math.sin(time * 1.8 + 1);
+    this.afloatStep(time, dt);
     this.flyKite(time);
-    this.boat.position.y = SEA + Math.sin(time * 0.8) * 0.12;
-    this.boat.rotation.z = Math.sin(time * 0.6) * 0.06;
-    this.boat.rotation.x = Math.sin(time * 0.5 + 1) * 0.04;
+
     // buoys riding the swell
     const sc = new THREE.Vector3();
     this.buoyAt.forEach(([x, z, sz], i) => {
@@ -4042,16 +5225,7 @@ export class Beach implements HomeScene {
       this.buoys.setMatrixAt(i, m);
     });
     this.buoys.instanceMatrix.needsUpdate = true;
-    // the crab dashes sideways, stops, and dashes back
-    const cyc = (time * 0.3) % 2;
-    const leg = cyc % 1;
-    const go = smooth(leg * 1.7);
-    const u = cyc < 1 ? go : 1 - go;
-    const moving = leg < 0.6 ? 1 : 0;
-    const cx = -2.1 + u * 1.3, cz = -3.3;
-    this.crab.position.set(cx, sandH(cx, cz) + 0.005 * moving * Math.abs(Math.sin(time * 30)), cz);
-    this.crab.rotation.y = 0.4;
-    this.crabLegs.forEach((l, i) => (l.rotation.z = moving * 0.35 * Math.sin(time * 30 + i * Math.PI)));
+    this.crabStep(time, dt);
 
     // the boombox's equaliser bounces to the beat until the music stops
     const playing = this.mode === 'idle' || this.t < 0.3 ? 1 : 0;
@@ -4065,42 +5239,19 @@ export class Beach implements HomeScene {
     });
     this.eq.instanceMatrix.needsUpdate = true;
 
-    // a robot strolls the tide line and back, its dog racing about ahead of it and into the swash
-    const wv = 0.072, wc = Math.cos(time * wv);
-    const wx = 18 + 12.5 * Math.sin(time * wv), wz = -3.7 + 0.12 * Math.sin(wx * 0.4);
-    const ahead = Math.tanh(6 * wc);
-    this.walker.position.set(wx, sandH(wx, wz), wz);
-    this.walker.rotation.y = (Math.PI / 2) * ahead;
-    this.walkPhase.value += dt * Math.abs(12.5 * wv * wc) * 6.5;
-    const dx = wx + ahead * (1.5 + 1.2 * Math.sin(time * 0.83)) + 0.25 * Math.sin(time * 1.3);
-    const dz = -4.15 - 0.45 * (0.5 + 0.5 * Math.sin(time * 0.61 + 1));
-    if (dt > 0 && this.dogPrev.lengthSq() > 0) {
-      const vx = (dx - this.dogPrev.x) / dt, vz = (dz - this.dogPrev.z) / dt;
-      const sp = Math.hypot(vx, vz);
-      if (sp > 0.05) {
-        const turn = Math.atan2(vx, vz) - this.dogYaw;
-        this.dogYaw += Math.atan2(Math.sin(turn), Math.cos(turn)) * Math.min(1, dt * 6);
-      }
-      this.dogPhase.value += dt * Math.min(sp, 4) * 8;
-    }
-    this.dogPrev.set(dx, 0, dz);
-    this.dog.position.set(dx, sandH(dx, dz) + 0.025 * Math.abs(Math.sin(this.dogPhase.value)), dz);
-    this.dog.rotation.y = this.dogYaw;
+    // a robot (a real one: beachCrowd.ts) strolls the tide line and back, its dog racing about
+    // ahead of it and into the swash
+    this.walkerAt.copy(this.people.walkerAt);
+    this.walkerYaw = this.people.walkerYaw;
+    this.dogStep(time, dt);
+    const dx = this.dog.position.x;
 
     // the volleyball rally: the ball arcs over the net, each player shuffling across to meet it and jumping to hit
     const T = 2.4, rk = Math.floor(time / T), rs = time / T - rk;
-    const hx = (n: number) => 12.6 + 1.3 * Math.sin(n * 2.3) + 0.5 * Math.sin(n * 0.9);
-    const hz = (n: number) => (((n % 2) + 2) % 2 === 0 ? 1.7 : 5.9);
+    const hx = rallyX, hz = rallyZ;
     const bx = hx(rk) + (hx(rk + 1) - hx(rk)) * rs, bz = hz(rk) + (hz(rk + 1) - hz(rk)) * rs;
     this.vball.position.set(bx, sandH(bx, bz) + 2.0 + 8 * rs * (1 - rs), bz);
     this.vball.rotation.set(time * 4, time * 2.5, 0);
-    this.players.forEach((g, pi) => {
-      const n0 = ((((rk - pi) % 2) + 2) % 2) === 0 ? rk : rk - 1;
-      const px = hx(n0) + (hx(n0 + 2) - hx(n0)) * smooth((time - n0 * T) / (2 * T));
-      const pz = pi ? 6.0 : 1.6;
-      const near = Math.min(time - n0 * T, (n0 + 2) * T - time) / 0.38;
-      g.position.set(px, sandH(px, pz) + 0.34 * Math.max(0, 1 - near * near), pz);
-    });
 
     // gulls standing about, pecking; sandpipers running in and out with the swash, scattering from the dog
     const bq = this._bq2, be = this._be2;
@@ -4127,16 +5278,409 @@ export class Beach implements HomeScene {
     }
     this.birds.instanceMatrix.needsUpdate = true;
 
-    // the windsurfer reaching back and forth, the far sails bobbing
+  }
+
+  /**
+   * Everything afloat: boats on their courses or swinging at anchor, riding the swell (sampled at
+   * bow, stern and either beam), sails sheeted to the breeze and filling to leeward, heeling to it;
+   * the paddleboard; the windsurfer gybing at each end of its reach.
+   */
+  private afloatStep(time: number, dt: number) {
+    const k = Math.min(1, dt * 1.5);
+    for (const c of this.craft) {
+      let x: number, z: number, yaw: number, speed = 0;
+      if (c.loop) {
+        const [cx, cz, rx, rz, w, ph] = c.loop;
+        const a = ph + w * time;
+        x = cx + rx * Math.cos(a);
+        z = cz + rz * Math.sin(a);
+        const vx = -rx * Math.sin(a) * w, vz = rz * Math.cos(a) * w;
+        yaw = Math.atan2(vx, vz);
+        speed = Math.hypot(vx, vz);
+      } else {
+        const m = c.moor!;
+        x = m[0];
+        z = m[1];
+        yaw = m[2] + c.swing * Math.sin(time * 0.05 + c.ph);
+      }
+      c.track.position.set(x, SEA + 0.08, z);
+      c.track.rotation.y = yaw;
+      const fx = Math.sin(yaw) * c.L * 0.5, fz = Math.cos(yaw) * c.L * 0.5, bx = Math.cos(yaw) * c.B * 0.5, bz = -Math.sin(yaw) * c.B * 0.5;
+      const hb = swellAt(x + fx, z + fz, time), hs = swellAt(x - fx, z - fz, time), hr = swellAt(x + bx, z + bz, time), hl = swellAt(x - bx, z - bz, time);
+      let heel = c.heel;
+      if (c.sails.length) {
+        // the breeze's bearing off the bow (positive: from starboard); sheet out to leeward and heel away from it
+        const wr = WIND_FROM.x * Math.cos(yaw) - WIND_FROM.z * Math.sin(yaw), wf = WIND_FROM.x * Math.sin(yaw) + WIND_FROM.z * Math.cos(yaw);
+        const beta = Math.atan2(wr, wf), ab = Math.abs(beta);
+        const side = beta > 0 ? -1 : 1;
+        const ease = Math.min(1.3, Math.max(0.1, 0.12 + (ab - 0.6) * 0.55));
+        c.side += (side - c.side) * k;
+        c.boom += (-side * ease - c.boom) * k;
+        // head to wind, the sails flog
+        const luff = 1 - smooth((ab - 0.5) / 0.4);
+        const fill = Math.abs(c.side) < 0.06 ? (c.side < 0 ? -0.06 : 0.06) : c.side;
+        for (let i = 0; i < c.sails.length; i++) {
+          const s = c.sails[i];
+          s.rotation.y = c.boom * (i ? 0.35 : 1);
+          s.scale.x = fill * (1 - 0.6 * luff + luff * 0.25 * Math.sin(time * 9 + i * 1.7));
+        }
+        heel -= c.side * 0.13 * Math.abs(Math.sin(beta)) * (1 - luff);
+      }
+      const t = time + c.ph;
+      c.hull.position.y = 0.09 * (hb + hs + hr + hl) * 0.25 + 0.03 * Math.sin(t * 1.1);
+      c.hull.rotation.x = (-(hb - hs) * 0.27) / c.L + 0.015 * Math.sin(t * 0.7) - c.plane * 0.035 * Math.min(1, speed / 3.5);
+      c.hull.rotation.z = ((hr - hl) * 0.18) / c.B + 0.03 * Math.sin(t * 0.9) + heel;
+      c.foam.value = Math.min(1, speed / 2.5);
+    }
+
+    // the paddleboard, paddling slowly up and down beyond the swimmers
+    const px = 19 + 5 * Math.sin(time * 0.035), pz = -15.5;
+    this.paddler.position.set(px, SEA + 0.045 + 0.09 * swellAt(px, pz, time) + 0.01 * Math.sin(time * 3.6), pz);
+    this.paddler.rotation.set(0.02 * Math.sin(time * 1.3), (Math.PI / 2) * Math.tanh(6 * Math.cos(time * 0.035)), 0.03 * Math.sin(time * 1.1));
+    this.paddle.rotation.x = 0.5 * Math.sin(time * 1.8);
+    this.paddle.rotation.y = 0.15 * Math.sin(time * 1.8 + 1);
+
+    // the windsurfer on a beam reach either way along the shore, gybing at each end: the rig swings
+    // across, the sail fills on its other side, and the rider crosses the board with it
     const sw = Math.cos(time * 0.05);
-    this.surfer.position.set(50 + 14 * Math.sin(time * 0.05), SEA + 0.02 + 0.03 * Math.sin(time * 1.4), -11 + Math.sin(time * 0.1));
-    this.surfer.rotation.set(0.03 * Math.sin(time * 1.1), (Math.PI / 2) * Math.tanh(6 * sw), 0.05 * Math.sin(time * 0.9));
-    this.sails.forEach((g, i) => {
-      g.position.y = SEA + Math.sin(time * 0.6 + i * 2) * 0.08;
-      g.rotation.z = Math.sin(time * 0.5 + i) * 0.04;
-    });
+    const sx = 50 + 14 * Math.sin(time * 0.05), sz = -11 + Math.sin(time * 0.1);
+    const syaw = (Math.PI / 2) * Math.tanh(6 * sw);
+    // +1 heading +x, when the board's right (out to sea) is to leeward
+    const sig = Math.sin(syaw);
+    this.surfer.position.set(sx, SEA + 0.055 + 0.09 * swellAt(sx, sz, time), sz);
+    this.surfer.rotation.set(0.03 * Math.sin(time * 1.1), syaw, 0.04 * Math.sin(time * 0.9) - 0.04 * sig);
+    this.surfRig.rotation.set(-0.1 + 0.02 * Math.sin(time * 0.8), -0.25 * sig, 0.24 * sig + 0.03 * Math.sin(time * 1.3));
+    const fill = Math.abs(sig) < 0.06 ? (sig < 0 ? -0.06 : 0.06) : sig;
+    this.surfSail.scale.x = fill * (1 + 0.05 * Math.sin(time * 5));
+    this.surferSpot.position.set(-0.22 * sig, 0.12, -0.42);
+    this.surferSpot.rotation.y = sig * (Math.PI / 2 - 0.35);
+    this.boomGrips[0].position.set(-0.2 * sig, 1.17, -0.42);
+    this.boomGrips[1].position.set(-0.228 * sig, 1.2, -0.92);
+    this.surfWake.value = 0.7 * Math.min(1, Math.abs(sw) * 2);
   }
 
   private _bq2 = new THREE.Quaternion();
   private _be2 = new THREE.Euler();
+
+  private _ch = new THREE.Vector3();
+  private _ck = new THREE.Vector3();
+  private _cf = new THREE.Vector3();
+  private _cd = new THREE.Vector3();
+  private _cs = new THREE.Vector3();
+  private _cm = new THREE.Matrix4();
+  private _cq = new THREE.Quaternion();
+
+  /** How far up the sand (world z) the swash reaches at x, now (the sea shader's own edge). */
+  private swashZ(x: number, time: number) {
+    return -3.2 + (SEA + 0.055 * Math.sin(time * 0.52) + 0.02 * Math.sin(time * 1.3 + x * 0.15)) / 0.075;
+  }
+
+  private dogGo(mode: DogMode, dur: number) {
+    const d = this.dogS;
+    d.mode = mode;
+    d.t = 0;
+    d.dur = dur;
+    d.sub = 0;
+  }
+
+  private _dm = new THREE.Matrix4();
+  private _dr = new THREE.Matrix4();
+  private _dmi = new THREE.Matrix4();
+  private _dv = new THREE.Vector3();
+
+  /**
+   * The robot dog, keeping to its walker (walkerAt, walkerYaw): it trots at heel a little ahead on
+   * the sea side, gallops off ahead and play-bows to its owner, dashes into the swash to splash about
+   * and comes out to shake itself dry, stops to sniff along the sand. Its legs walk, trot or gallop
+   * with its speed, each paw planted while the body passes over it and lifted to swing ahead, the
+   * hips and knees solved for where the paw is; the body bobs and pitches with the gait, the head
+   * looks about and at its owner, the ears sweep back at speed, the tail wags with its mood.
+   */
+  private dogStep(time: number, dt: number) {
+    const d = this.dogS, W = this.walkerAt;
+    const fx = Math.sin(this.walkerYaw), fz = Math.cos(this.walkerYaw);
+    if (!d.init) {
+      d.x = W.x + fx * 1.2;
+      d.z = W.z - 0.5;
+      d.yaw = this.walkerYaw;
+      d.init = true;
+    }
+    d.t += dt;
+    const ox = W.x - d.x, oz = W.z - d.z, own = Math.hypot(ox, oz);
+    let tx = d.x, tz = d.z, top = 1.5, face = NaN;
+    let bow = 0, sniff = 0, shake = 0, hop = 0, happy = 0;
+    switch (d.mode) {
+      case 'heel':
+        // a little ahead of its owner, on the sea side, wandering in and out
+        tx = W.x + fx * (1.1 + 0.4 * Math.sin(time * 0.37)) + 0.2 * Math.sin(time * 0.9);
+        tz = W.z + fz * 1.1 - 0.55 - 0.25 * Math.sin(time * 0.23);
+        top = own > 2.6 ? 2.8 : 1.5;
+        happy = own < 1.6 ? 0.5 : 0;
+        if (d.t > d.dur) {
+          const next = DOG_PLAN[d.plan++ % DOG_PLAN.length];
+          this.dogGo(next, next === 'sniff' ? 2.5 + Math.random() * 1.5 : next === 'bow' ? 2.4 : 8);
+        }
+        break;
+      case 'gallop':
+        // a dash out ahead, then round to play-bow at its owner
+        tx = W.x + fx * 4.5;
+        tz = W.z + fz * 4.5 - 0.7;
+        top = 3.1;
+        if (Math.hypot(tx - d.x, tz - d.z) < 0.4 || d.t > 4.5) this.dogGo('bow', 2.4);
+        break;
+      case 'bow':
+        // front down, rump up, tail going, then a spring up into the air
+        face = Math.atan2(ox, oz);
+        bow = ramp(d.t, 0.25, 0.6) * (1 - ramp(d.t, 1.65, 1.9));
+        hop = d.t > 1.8 && d.t < 2.2 ? Math.sin(((d.t - 1.8) / 0.4) * Math.PI) : 0;
+        happy = 1;
+        if (d.t > d.dur) this.dogGo('heel', 3 + Math.random() * 3);
+        break;
+      case 'swash': {
+        // down into the swash, splashing about in it, and back up the sand
+        const sz = this.swashZ(d.x, time);
+        if (d.sub === 0) {
+          tx = d.x + fx * 0.9;
+          tz = sz - 0.8;
+          top = 2.7;
+          if (d.z < sz - 0.55 || d.t > 3) {
+            d.sub = 1;
+            d.t = 0;
+          }
+        } else if (d.sub === 1) {
+          tx = d.x + Math.sin(d.t * 3) * 0.4;
+          tz = sz - 0.75;
+          top = 1.2;
+          hop = d.t < 1.3 ? Math.abs(Math.sin(d.t * 7)) * 0.6 : 0;
+          happy = 1;
+          if (d.t > 1.5) {
+            d.sub = 2;
+            d.t = 0;
+          }
+        } else {
+          tx = d.x + fx * 0.6;
+          tz = sz + 1.0;
+          top = 2.3;
+          if (d.z > sz + 0.65 || d.t > 3) this.dogGo('shake', 1.4);
+        }
+        break;
+      }
+      case 'shake':
+        shake = Math.sin(Math.min(1, d.t / d.dur) * Math.PI);
+        face = d.yaw;
+        if (d.t > d.dur) this.dogGo('heel', 3 + Math.random() * 2);
+        break;
+      case 'sniff':
+        // nose down, pottering along at a crawl
+        tx = d.x + Math.sin(d.yaw) * 0.3 + 0.1 * Math.sin(time * 1.7);
+        tz = d.z + Math.cos(d.yaw) * 0.3;
+        top = 0.25;
+        sniff = ramp(d.t, 0, 0.4) * (1 - ramp(d.t, d.dur - 0.4, d.dur));
+        if (d.t > d.dur || own > 3.2) this.dogGo('heel', 4 + Math.random() * 2);
+        break;
+    }
+    // keep to the beach: no further out than a paddle in the swash, not up into the soft sand
+    tz = Math.max(this.swashZ(tx, time) - 0.95, Math.min(-2.3, tz));
+    const dx = tx - d.x, dz = tz - d.z, dist = Math.hypot(dx, dz);
+    const want = dist < 0.06 ? 0 : Math.min(top, dist * 2.2);
+    const cur = Math.hypot(d.vx, d.vz);
+    const k = Math.min(1, dt * (want > cur ? 3 : 5));
+    d.vx += ((dist > 1e-4 ? (dx / dist) * want : 0) - d.vx) * k;
+    d.vz += ((dist > 1e-4 ? (dz / dist) * want : 0) - d.vz) * k;
+    d.x += d.vx * dt;
+    d.z += d.vz * dt;
+    const speed = Math.hypot(d.vx, d.vz);
+    // heading: along its run when it's moving, else towards what it's attending to
+    const aim = speed > 0.15 ? Math.atan2(d.vx, d.vz) : isNaN(face) ? d.yaw : face;
+    const turn = Math.max(-5 * dt, Math.min(5 * dt, Math.atan2(Math.sin(aim - d.yaw), Math.cos(aim - d.yaw))));
+    d.yaw += turn;
+    const om = dt > 0 ? turn / dt : 0;
+    const dog = this.dog;
+    dog.position.set(d.x, sandH(d.x, d.z) + hop * 0.11, d.z);
+    dog.rotation.y = d.yaw;
+
+    // the gait: walk, trot or gallop with its speed, stepping in place as it turns
+    const cy = Math.cos(d.yaw), sy = Math.sin(d.yaw);
+    const lvx = d.vx * cy - d.vz * sy, lvz = d.vx * sy + d.vz * cy;
+    const pace = speed + Math.abs(om) * 0.15;
+    const amp = smooth(pace / 0.2) * (1 - shake);
+    const wT = smooth((speed - 0.35) / 0.35), wG = smooth((speed - 1.9) / 0.5);
+    const duty = 0.65 - 0.15 * wT - 0.12 * wG;
+    const freq = 1.5 + 0.9 * Math.min(speed, 3.2);
+    d.gait = (d.gait + dt * freq * amp) % 1;
+    const g = d.gait, TAU = Math.PI * 2;
+
+    // the body over the legs: bobbing with the stride, rocking through a gallop, bowing, shaking
+    const body = this.dogBody;
+    const bob = amp * ((1 - wG) * (0.004 + 0.008 * wT) * Math.cos(g * TAU * 2) + wG * 0.03 * Math.sin(g * TAU));
+    body.position.set(0, DOG_BODY_Y + bob - 0.05 * bow - 0.02 * sniff, -0.03 * bow);
+    body.rotation.set(amp * wG * 0.12 * Math.sin(g * TAU + 1.2) + 0.38 * bow + 0.12 * sniff, 0, 0.42 * shake * Math.sin(time * 30) - Math.max(-0.15, Math.min(0.15, om * 0.05)));
+    body.updateMatrix();
+    this._dmi.copy(body.matrix).invert();
+
+    // the legs: where each paw goes, then the hip and knee to put it there (knees bend back)
+    const [thighs, shins, paws] = this.dogLegs;
+    const m = this._dm, r = this._dr, f = this._dv;
+    for (let i = 0; i < 4; i++) {
+      const [hx, hz] = DOG_HIPS[i];
+      const off = DOG_WALK[i] + (DOG_TROT[i] - DOG_WALK[i]) * wT;
+      const ph = (g + off + (DOG_GALLOP[i] - off) * wG + 2) % 1;
+      const rx = hx * 1.12, rz = hz + (hz > 0 ? 0.01 : 0);
+      const gx = lvx + om * rz, gz = lvz - om * rx;
+      let o: number, lift = 0;
+      if (ph < duty) o = 0.5 - ph / duty;
+      else {
+        const sw = (ph - duty) / (1 - duty);
+        o = -0.5 + smooth(sw);
+        lift = Math.sin(Math.PI * sw) * (0.06 + 0.03 * wG) * amp;
+      }
+      const st = duty / freq;
+      // the paw, in the body's frame, relative to the hip
+      f.set(rx + gx * st * o, DOG_ANKLE + lift, rz + gz * st * o).applyMatrix4(this._dmi);
+      f.x -= hx;
+      f.y -= DOG_HIP_Y;
+      f.z -= hz;
+      const abd = Math.atan2(f.x, -f.y);
+      const down = Math.hypot(f.x, f.y);
+      const reach = Math.max(0.06, Math.min(DOG_L1 + DOG_L2 - 0.003, Math.hypot(f.z, down)));
+      const aT = Math.atan2(f.z, down);
+      const al = Math.acos(Math.max(-1, Math.min(1, (DOG_L1 * DOG_L1 + reach * reach - DOG_L2 * DOG_L2) / (2 * DOG_L1 * reach))));
+      const th = aT - al;
+      const kz = DOG_L1 * Math.sin(th), ky = -DOG_L1 * Math.cos(th);
+      const pz = Math.sin(aT) * reach, py = -Math.cos(aT) * reach;
+      const sh = Math.atan2(pz - kz, -(py - ky));
+      m.copy(body.matrix).multiply(r.makeTranslation(hx, DOG_HIP_Y, hz)).multiply(r.makeRotationZ(abd)).multiply(r.makeRotationX(-th));
+      thighs.setMatrixAt(i, m);
+      m.multiply(r.makeTranslation(0, -DOG_L1, 0)).multiply(r.makeRotationX(-(sh - th)));
+      shins.setMatrixAt(i, m);
+      m.multiply(r.makeTranslation(0, -DOG_L2, 0)).multiply(r.makeRotationX(sh + 0.6 * (lift > 0 ? lift / 0.09 : 0)));
+      paws.setMatrixAt(i, m);
+    }
+    for (const l of this.dogLegs) l.instanceMatrix.needsUpdate = true;
+
+    // the head: looking at its owner when near (or about), nose down to sniff, up in a bow, shaking
+    const toOwner = Math.atan2(Math.sin(Math.atan2(ox, oz) - d.yaw), Math.cos(Math.atan2(ox, oz) - d.yaw));
+    const watch = own < 3.5 && speed < 1.6 ? 1 : 0.25;
+    const head = this.dogHead;
+    head.rotation.set(
+      0.85 * sniff + 0.08 * sniff * Math.sin(time * 11) - 0.3 * bow + 0.15 * wG + amp * 0.04 * Math.sin(g * TAU * 2 + 1),
+      Math.max(-0.9, Math.min(0.9, toOwner)) * watch + 0.35 * Math.sin(time * 0.7) * (1 - watch) * (1 - sniff),
+      0.6 * shake * Math.sin(time * 30 + 0.6) + 0.22 * Math.sin(time * 0.9) * happy * (1 - amp),
+    );
+    // ears swept back at speed, pricked when it's still, twitching, flapping in a shake
+    for (let s = 0; s < 2; s++) {
+      const e = this.dogEars[s], sg = s ? 1 : -1;
+      e.rotation.set(-0.9 * Math.min(1, speed / 2.6) + 0.15 * bow + 0.5 * Math.pow(Math.max(0, Math.sin(time * 1.7 + s * 2.3)), 30) + 0.6 * shake * Math.sin(time * 40 + s), 0, -sg * (0.2 + 0.25 * shake * Math.abs(Math.sin(time * 30))));
+    }
+    // the tail: streaming out behind at a gallop, up and wagging hard when it's happy
+    const wag = (0.25 + 0.45 * happy) * (1 - 0.6 * wG);
+    this.dogTail.rotation.set(-0.15 - 0.85 * wG + 0.25 * bow - 0.3 * sniff, 0, wag * Math.sin(time * (7 + 9 * happy)) + 0.4 * shake * Math.sin(time * 30 + 1));
+    // the eyes blink now and then, and turn to happy arcs when it's pleased
+    d.blink -= dt;
+    if (d.blink < -0.13) d.blink = 2 + Math.random() * 3;
+    const pleased = happy > 0.75;
+    this.dogEyes.visible = !pleased;
+    this.dogHappy.visible = pleased;
+    this.dogEyes.scale.y = d.blink < 0 ? 0.15 : 1;
+  }
+
+  /** One leg segment of the crab, from a to b, as instance i (thickness k). */
+  private crabSeg(i: number, a: THREE.Vector3, b: THREE.Vector3, k: number) {
+    const d = this._cd.subVectors(b, a);
+    const len = Math.max(d.length(), 1e-5);
+    this._cq.setFromUnitVectors(UP, d.multiplyScalar(1 / len));
+    this._cm.compose(a, this._cq, this._cs.set(k, len, k));
+    this.crabLegs.setMatrixAt(i, this._cm);
+  }
+
+  /**
+   * The crab, on its beat: it scuttles sideways on two alternating sets of four legs (each foot
+   * planted while the body passes over it, then lifted and swung ahead), the shell bobbing and
+   * rocking with each step; it stops to pick at the sand with its claws, rears up and waves them,
+   * swivels its eyes about, turns on the spot, and scuttles on.
+   */
+  private crabStep(time: number, dt: number) {
+    const c = time % 16;
+    let i = 0;
+    while (i < CRAB_KEYS.length - 2 && CRAB_KEYS[i + 1][0] <= c) i++;
+    const [t0, u0, y0] = CRAB_KEYS[i], [t1, u1, y1] = CRAB_KEYS[i + 1];
+    const w = smooth((c - t0) / (t1 - t0));
+    const u = u0 + (u1 - u0) * w, yaw = y0 + (y1 - y0) * w;
+    const x = 1.2 + 2.4 * u, z = -3.5 + 0.12 * Math.sin(u * 5);
+    const cr = this.crab, sc = cr.scale.x;
+    // its velocity over the sand and its turning, in its own frame and at its own scale
+    let vx = 0, vz = 0, om = 0;
+    if (dt > 0 && !isNaN(this.crabPrev.x)) {
+      const wx = (x - this.crabPrev.x) / dt, wz = (z - this.crabPrev.z) / dt;
+      const cy = Math.cos(yaw), sy = Math.sin(yaw);
+      vx = (wx * cy - wz * sy) / sc;
+      vz = (wx * sy + wz * cy) / sc;
+      om = (yaw - this.crabPrevYaw) / dt;
+      if (Math.abs(om) > 20) om = 0;
+    }
+    this.crabPrev.set(x, 0, z);
+    this.crabPrevYaw = yaw;
+    cr.position.set(x, sandH(x, z), z);
+    cr.rotation.y = yaw;
+
+    const pace = Math.hypot(vx, vz) + Math.abs(om) * 0.12;
+    const amp = smooth(pace / 0.12);
+    const f = 4 + Math.min(5, pace * 14);
+    this.crabGait = (this.crabGait + dt * f * amp) % 1;
+    const g = this.crabGait;
+    const raise = pulse(c, 3.5, 4.7) + pulse(c, 12.6, 13.6);
+    const feed = pulse(c, 2.1, 3.4) + pulse(c, 6.9, 8.4) + pulse(c, 14.0, 15.8);
+    const body = this.crabBody;
+    body.position.y = amp * 0.005 * Math.abs(Math.sin(g * Math.PI * 2)) + raise * 0.014;
+    body.rotation.set(-raise * 0.2 + 0.03 * feed * Math.sin(time * 3), 0, amp * 0.05 * Math.sin(g * Math.PI * 2) - Math.max(-1, Math.min(1, vx * 3)) * 0.06);
+    body.updateMatrix();
+
+    // the legs: alternating sets of four (right 1 and 3 with left 2 and 4), each foot planted for half the cycle
+    const hip = this._ch, knee = this._ck, foot = this._cf;
+    const stride = 0.5 / f;
+    let n = 0;
+    for (let si = 0; si < 2; si++) {
+      const s = si ? 1 : -1;
+      for (let k = 0; k < 4; k++) {
+        const [hx, hz, fx, fz] = CRAB_LEGS[k];
+        const ph = (g + ((s > 0) === (k % 2 === 0) ? 0 : 0.5)) % 1;
+        const rx = s * fx, rz = fz;
+        // the body's velocity over this foot (its own, plus the turn)
+        const gx = vx + om * rz, gz = vz - om * rx;
+        let o: number, lift = 0;
+        if (ph < 0.5) o = 0.5 - ph / 0.5;
+        else {
+          const sw = (ph - 0.5) / 0.5;
+          o = -0.5 + smooth(sw);
+          lift = Math.sin(Math.PI * sw) * 0.03 * amp;
+        }
+        foot.set(rx + gx * stride * o, lift, rz + gz * stride * o);
+        hip.set(s * hx, CRAB_HIP_Y, hz).applyMatrix4(body.matrix);
+        const d = this._cd.subVectors(foot, hip);
+        const dist = Math.min(CRAB_L1 + CRAB_L2 - 0.002, Math.max(0.02, d.length()));
+        d.normalize();
+        const a = (CRAB_L1 * CRAB_L1 - CRAB_L2 * CRAB_L2 + dist * dist) / (2 * dist);
+        const hh = Math.sqrt(Math.max(0, CRAB_L1 * CRAB_L1 - a * a));
+        // the knee bows up and out, square to the hip-foot line
+        knee.set(s * 0.5, 1, 0);
+        knee.addScaledVector(d, -knee.dot(d)).normalize().multiplyScalar(hh).addScaledVector(d, a).add(hip);
+        foot.copy(hip).addScaledVector(d, dist);
+        this.crabSeg(n++, hip, knee, 1.15);
+        this.crabSeg(n++, knee, foot, 0.85);
+      }
+    }
+    this.crabLegs.instanceMatrix.needsUpdate = true;
+
+    // the claws: held before it, waved high when it rears up, dipped in turn to its mouth as it feeds
+    for (let k = 0; k < 2; k++) {
+      const s = k ? 1 : -1;
+      const fs = feed * Math.max(0, Math.sin(time * 4.5 + k * Math.PI));
+      const wave = raise * 0.3 * Math.sin(time * 7 + k * 2);
+      this.crabClaws[k].rotation.set(-0.15 - raise * 1.0 + wave + fs * 0.45, -s * (0.12 + fs * 0.6) + amp * 0.1 * Math.sin(g * Math.PI * 2), s * raise * 0.45);
+      this.crabFingers[k].rotation.x = -(0.08 + raise * 0.5 * (0.5 + 0.5 * Math.sin(time * 11 + k)) + fs * 0.4 * (0.5 + 0.5 * Math.sin(time * 14)));
+    }
+    // the eyes: tucked back while it runs, up and swivelling when it stops
+    this.crabEyes.rotation.set(-0.5 * amp + 0.1 * Math.sin(time * 2.3), 0.45 * Math.sin(time * 1.1) * (1 - amp), 0);
+  }
+
 }
