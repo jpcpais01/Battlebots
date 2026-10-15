@@ -126,6 +126,7 @@ function treeMaterial(u: MapUniforms) {
       varying vec3 vCol, vN, vWorld;
       varying float vCrown, vH;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vCrown = aCrown;
         vCol = instanceColor;
@@ -136,7 +137,7 @@ function treeMaterial(u: MapUniforms) {
         float sway = sin(uTime * 1.9 + base.x * 0.31 + base.z * 0.17) * gust * aCrown * max(position.y, 0.0) * 0.035;
         w.x += sway;
         w.z += sway * 0.5;
-        vWorld = w.xyz;
+        vWorld = w.xyz - uMapShift;
         vH = position.y;
         vN = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
         vec4 mvPosition = viewMatrix * w;
@@ -295,12 +296,13 @@ export function buildClouds(u: MapUniforms) {
       varying float vSeed, vNear;
       varying vec3 vWorld;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vUv = position.xy;
         vSeed = aSeed;
         vec3 c = aCentre + vec3(uTime * 2.2, 0.0, uTime * 0.8);
         // camera-facing quad
-        vec4 mv = viewMatrix * vec4(c, 1.0);
+        vec4 mv = viewMatrix * vec4(c + uMapShift, 1.0);
         float dist = -mv.z;
         vNear = smoothstep(aSize * 1.2, aSize * 3.5, dist);
         vec4 mvPosition = mv + vec4(position.xy * aSize, 0.0, 0.0);

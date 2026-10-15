@@ -337,9 +337,10 @@ function towerMaterial(u: MapUniforms) {
       varying vec3 vWorld, vN, vCol, vUV;
       varying vec4 vKind;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vec4 w = modelMatrix * vec4(position, 1.0);
-        vWorld = w.xyz;
+        vWorld = w.xyz - uMapShift;
         vN = normal;
         vCol = color;
         vUV = aUV;
@@ -401,7 +402,7 @@ function towerMaterial(u: MapUniforms) {
         float faceW = vUV.z;
         vec2 px = max(fwidth(f), vec2(1e-3));
         vec4 nz = texture2D(uNoise, (w.xz + w.y) / 23.0);
-        vec3 V = normalize(cameraPosition - w);
+        vec3 V = normalize((cameraPosition - uMapShift) - w);
         vec3 alb = vCol * (0.93 + 0.12 * nz.r);
         vec3 emit = vec3(0.0);
         float spec = 0.0;
@@ -509,10 +510,11 @@ function searchlights(u: MapUniforms) {
         varying float vAlong;
         varying vec3 vWorld, vN;
         #include <fog_pars_vertex>
+        uniform vec3 uMapShift;
         void main() {
           vAlong = position.y / ${L.toFixed(1)};
           vec4 w = modelMatrix * instanceMatrix * vec4(position, 1.0);
-          vWorld = w.xyz;
+          vWorld = w.xyz - uMapShift;
           vN = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
           vec4 mvPosition = viewMatrix * w;
           gl_Position = projectionMatrix * mvPosition;
@@ -524,7 +526,7 @@ function searchlights(u: MapUniforms) {
         varying vec3 vWorld, vN;
         #include <fog_pars_fragment>
         void main() {
-          vec3 V = normalize(cameraPosition - vWorld);
+          vec3 V = normalize((cameraPosition - uMapShift) - vWorld);
           // brightest down the middle of the beam as seen, fading along it
           float core = pow(abs(dot(normalize(vN), V)), 1.6);
           float k = core * pow(1.0 - vAlong, 1.4) * smoothstep(0.0, 0.03, vAlong);

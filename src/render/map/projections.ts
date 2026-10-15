@@ -358,7 +358,11 @@ const PAIRS: [number, number][] = [
   [7, 11],
 ];
 
-function adAtlas() {
+/** The atlas's grid: columns and rows of ads (cell n is at column n % cols, row n / cols). */
+export const AD_GRID = [COLS, ROWS] as const;
+
+/** Every ad painted into one texture (the Skydeck's holo banners use it too). */
+export function adAtlas() {
   const c = document.createElement('canvas');
   c.width = CELL_W * COLS;
   c.height = CELL_H * ROWS;
@@ -548,6 +552,7 @@ export function holoProjections(u: MapUniforms, boxes: Box[]) {
       varying vec3 vWorld;
       #include <fog_pars_vertex>
       float h11(float n) { return fract(sin(n * 12.9898) * 43758.5453); }
+      uniform vec3 uMapShift;
       void main() {
         float seed = aSz.z;
         float kind = position.z;
@@ -580,7 +585,7 @@ export function holoProjections(u: MapUniforms, boxes: Box[]) {
         vSize = aSz.xy;
         vInfo = vec4(seed, aSz.w, glitch, aFrom.w);
         vWorld = w;
-        vec4 mvPosition = viewMatrix * vec4(w, 1.0);
+        vec4 mvPosition = viewMatrix * vec4(w + uMapShift, 1.0);
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
       }`,

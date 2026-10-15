@@ -72,6 +72,7 @@ function holoKoi(u: MapUniforms) {
       varying vec2 vUv;
       varying vec3 vWorld, vN;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vUv = uv;
         float L = 90.0;
@@ -87,7 +88,7 @@ function holoKoi(u: MapUniforms) {
         vec3 p = c + vec3(0.0, position.y * L, 0.0) + side * position.z * L;
         vN = normalize(side * position.z + vec3(0.0, position.y, 0.0) + 1e-4);
         vWorld = p;
-        vec4 mvPosition = viewMatrix * vec4(p, 1.0);
+        vec4 mvPosition = viewMatrix * vec4(p + uMapShift, 1.0);
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
       }`,
@@ -98,7 +99,7 @@ function holoKoi(u: MapUniforms) {
       varying vec3 vWorld, vN;
       #include <fog_pars_fragment>
       void main() {
-        vec3 V = normalize(cameraPosition - vWorld);
+        vec3 V = normalize((cameraPosition - uMapShift) - vWorld);
         float rim = vUv.y > 1.5 ? 0.6 : pow(1.0 - abs(dot(V, normalize(vN))), 2.0);
         // koi patches: orange on white-cyan
         float spot = step(0.55, texture2D(uNoise, vUv * vec2(1.3, 0.5) + 0.3).g);
@@ -148,6 +149,7 @@ function holoWhale(u: MapUniforms) {
       varying vec3 vWorld, vN;
       varying float vBelly;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vUv = uv;
         float L = 170.0;
@@ -168,7 +170,7 @@ function holoWhale(u: MapUniforms) {
         vN = normalize(-side * position.z + vec3(0.0, position.y, 0.0) + 1e-4);
         vBelly = -position.y;
         vWorld = p;
-        vec4 mvPosition = viewMatrix * vec4(p, 1.0);
+        vec4 mvPosition = viewMatrix * vec4(p + uMapShift, 1.0);
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
       }`,
@@ -181,7 +183,7 @@ function holoWhale(u: MapUniforms) {
       varying float vBelly;
       #include <fog_pars_fragment>
       void main() {
-        vec3 V = normalize(cameraPosition - vWorld);
+        vec3 V = normalize((cameraPosition - uMapShift) - vWorld);
         bool fin = vUv.y > 1.5;
         float rim = fin ? 0.5 : pow(1.0 - abs(dot(V, normalize(vN))), 2.2);
         vec2 px = fwidth(vUv);
@@ -282,6 +284,7 @@ function holoRobot(u: MapUniforms) {
       varying vec3 vWorld, vN;
       varying float vBright, vHeight;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vUv = uv;
         vBright = aBone.y;
@@ -296,7 +299,7 @@ function holoRobot(u: MapUniforms) {
         w.x += hit * (fract(sin(slot * 7.1 + band) * 91.3) - 0.5) * 9.0;
         vHeight = w.y;
         vWorld = w.xyz;
-        vec4 mvPosition = viewMatrix * w;
+        vec4 mvPosition = viewMatrix * vec4(w.xyz + uMapShift, 1.0);
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
       }`,
@@ -310,7 +313,7 @@ function holoRobot(u: MapUniforms) {
       varying float vBright, vHeight;
       #include <fog_pars_fragment>
       void main() {
-        vec3 V = normalize(cameraPosition - vWorld);
+        vec3 V = normalize((cameraPosition - uMapShift) - vWorld);
         float rim = pow(1.0 - abs(dot(V, normalize(vN))), 1.6);
         vec2 px = fwidth(vUv);
         // every plate outlined, like a wireframe
@@ -415,6 +418,7 @@ function holoAds(u: MapUniforms, boxes: Box[]) {
       varying vec3 vWorld;
       varying float vGlitch;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vUv = uv;
         vAd = aAd;
@@ -426,7 +430,7 @@ function holoAds(u: MapUniforms, boxes: Box[]) {
         float c = cos(aAt.w), s = sin(aAt.w);
         vec3 w = aAt.xyz + vec3(c * q.x, q.y + sin(uTime * 0.5 + aAd.z * 20.0) * 1.2, -s * q.x);
         vWorld = w;
-        vec4 mvPosition = viewMatrix * vec4(w, 1.0);
+        vec4 mvPosition = viewMatrix * vec4(w + uMapShift, 1.0);
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
       }`,

@@ -4,6 +4,7 @@ import { FallsVenue } from './falls';
 import { GroveVenue } from './grove';
 import { HarborVenue } from './harbor';
 import { IslandVenue } from './island';
+import { RooftopVenue } from './rooftop';
 
 /**
  * The world map events' own venues, round the same ring. This module is its own chunk: it's only
@@ -19,6 +20,8 @@ export function buildVenue(id: ArenaId, quality: 'low' | 'med' | 'high', arena: 
       return new GroveVenue(quality, arena);
     case 'falls':
       return new FallsVenue(quality, arena);
+    case 'rooftop':
+      return new RooftopVenue(quality, arena);
     default:
       // (the Grand Championship is fought in the indoor arena)
       return null;

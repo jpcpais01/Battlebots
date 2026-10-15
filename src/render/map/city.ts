@@ -52,9 +52,10 @@ function buildingMaterial(u: MapUniforms) {
       varying vec2 vFace;
       varying float vNeon, vFaceW, vFaceId;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vec4 w = modelMatrix * instanceMatrix * vec4(position, 1.0);
-        vWorld = w.xyz;
+        vWorld = w.xyz - uMapShift;
         vN = normal;
         vCol = instanceColor;
         vSize = aSize;
@@ -88,7 +89,7 @@ function buildingMaterial(u: MapUniforms) {
         vec2 f = vFace;
         vec2 px = max(fwidth(f), vec2(1e-3));
         vec4 nz = texture2D(uNoise, (w.xz + w.y) / 23.0);
-        vec3 V = normalize(cameraPosition - w);
+        vec3 V = normalize((cameraPosition - uMapShift) - w);
         vec3 alb = vCol * (0.93 + 0.12 * nz.r);
         vec3 emit = vec3(0.0);
         float spec = 0.0;
@@ -241,12 +242,13 @@ function signMaterial(u: MapUniforms) {
       varying vec4 vSign;
       varying vec3 vCol, vWorld;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vUv = uv;
         vSign = aSign;
         vCol = instanceColor;
         vec4 w = modelMatrix * instanceMatrix * vec4(position, 1.0);
-        vWorld = w.xyz;
+        vWorld = w.xyz - uMapShift;
         vec4 mvPosition = viewMatrix * w;
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
@@ -505,6 +507,7 @@ function traffic(u: MapUniforms, plan: Plan) {
       uniform float uTime, uPx;
       varying vec3 vCol;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vec2 d = aB - aA;
         float len = length(d);
@@ -526,7 +529,7 @@ function traffic(u: MapUniforms, plan: Plan) {
           vCol = side > 0.0 ? vec3(1.0, 0.88, 0.7) : vec3(1.0, 0.12, 0.08);
         }
         vCol *= fade;
-        vec4 mvPosition = viewMatrix * vec4(p, 1.0);
+        vec4 mvPosition = viewMatrix * vec4(p + uMapShift, 1.0);
         gl_Position = projectionMatrix * mvPosition;
         gl_PointSize = clamp((air ? 3.4 : 2.2) * uPx * 260.0 / -mvPosition.z, 1.2, air ? 9.0 : 6.0) * fade;
         #include <fog_vertex>
@@ -727,10 +730,11 @@ function lighthouseBeam(u: MapUniforms) {
       varying float vAlong;
       varying vec3 vWorld;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vAlong = position.x / 160.0;
         vec4 w = modelMatrix * vec4(position, 1.0);
-        vWorld = w.xyz;
+        vWorld = w.xyz - uMapShift;
         vec4 mvPosition = viewMatrix * w;
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>

@@ -98,12 +98,13 @@ function terrainMaterial(u: MapUniforms) {
       attribute vec3 aMask;
       varying vec3 vCol, vN, vWorld, vMask;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vCol = color;
         vMask = aMask;
         vN = normal;
         vec4 w = modelMatrix * vec4(position, 1.0);
-        vWorld = w.xyz;
+        vWorld = w.xyz - uMapShift;
         vec4 mvPosition = viewMatrix * w;
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
@@ -195,10 +196,11 @@ function farMaterial(u: MapUniforms) {
       attribute vec3 color;
       varying vec3 vCol, vN, vWorld;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vCol = color; vN = normal;
         vec4 w = modelMatrix * vec4(position, 1.0);
-        vWorld = w.xyz;
+        vWorld = w.xyz - uMapShift;
         vec4 mvPosition = viewMatrix * w;
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
