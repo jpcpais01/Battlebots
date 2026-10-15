@@ -481,8 +481,6 @@ const TIANGONG: GearDesign = {
 
 /** A flame-cut fin (u = +Z, v = +Y): base along v = 0, licks sweeping back to -u and up. */
 const FLAME: P2[] = [[0.03, 0], [-0.035, 0], [-0.07, 0.05], [-0.05, 0.048], [-0.085, 0.1], [-0.035, 0.064], [-0.04, 0.13], [-0.004, 0.072], [0.012, 0.09], [0.022, 0.04]];
-/** FLAME mirrored: its licks sweep to +u. */
-const FLAME_M: P2[] = FLAME.map(([u, v]) => [-u, v] as P2).reverse();
 /** A dragon talon (u = +Z, v = +Y): rises off its base and hooks over to -u. */
 const TALON: P2[] = [[0.05, 0.03], [0.056, 0.075], [0.048, 0.112], [0.026, 0.145], [-0.006, 0.166], [-0.04, 0.17], [-0.014, 0.153], [0.01, 0.134], [0.027, 0.106], [0.034, 0.072], [0.034, 0.03]];
 /** A big pointed scale plate (u = +Z, v = +Y down the limb): wide top, keel point at the bottom. */
@@ -490,6 +488,53 @@ const LAME: P2[] = [[-0.115, -0.03], [0.115, -0.03], [0.125, 0.015], [0.07, 0.04
 
 /** Scale `pts` about the origin. */
 const sc = (pts: P2[], k: number, ky = k): P2[] => pts.map(([u, v]) => [u * k, v * ky] as P2);
+
+/** A clean swept fin (u = +Z, v = +Y): a curved blade rising off its base and raking to +u. */
+const SWEEP: P2[] = [[-0.025, 0], [0.045, 0], [0.06, 0.022], [0.078, 0.048], [0.1, 0.078], [0.062, 0.06], [0.03, 0.04], [0.0, 0.018]];
+
+/** A smooth scale plate outline: top edge on y = 0, straight sides, a rounded U tip reaching y = L·dn. */
+function uPlate(w: number, L: number, dn = 1): P2[] {
+  const c = L - w * 0.866;
+  const pts: P2[] = [[-w, 0], [w, 0], [w, c], [w * 0.5, L], [-w * 0.5, L], [-w, c]];
+  return pts.map(([x, y]) => [x, y * dn] as P2);
+}
+/**
+ * One smooth scale plate lying on a surface: the middle of its top edge at (x, y, z), facing ry,
+ * its tip pointing down the part (dn = +1 toward +Y, -1 toward -Y) and lifted `tilt` off the
+ * surface, with an optional rim (brass) showing round its sides and tip.
+ */
+function plate(b: PB, key: MatKey, x: number, y: number, z: number, ry: number, w: number, L: number, dn = 1, tilt = 0.12, rim: MatKey | null = null, t = 0.007) {
+  b.group(x, y, z, 0, ry, 0, (g) =>
+    g.group(0, 0, 0, dn * tilt, 0, 0, (h) => {
+      if (rim) h.add(G.prism(uPlate(w + 0.005, L + 0.005, dn), t * 0.6, 0), rim, 0, 0, t * 0.3);
+      h.add(G.prism(uPlate(w, L, dn), t, 0), key, 0, 0, t * 0.5 + (rim ? 0.003 : 0));
+    }),
+  );
+}
+/**
+ * A row of n plates round a lathe body (profile `prof`, squashed sx/sz, centred on z0), tops at y,
+ * tips down +Y, from angle t0 in steps. Each plate follows the body's taper, its tip lifted `lift`.
+ */
+function plateRing(b: PB, prof: P2[], sx: number, sz: number, z0: number, y: number, n: number, t0: number, step: number, key: MatKey, w: number, L: number, lift = 0.05, rim: MatKey | null = null) {
+  const r = profR(prof, y) + 0.002;
+  const tilt = lift - Math.atan((r - 0.002 - profR(prof, y + L * 0.8)) / (L * 0.8));
+  for (let i = 0; i < n; i++) {
+    const t = t0 + step * i, s = Math.sin(t), c = Math.cos(t);
+    plate(b, key, r * sx * s, y, z0 + r * sz * c, Math.atan2(s / sx, c / sz), w, L, 1, tilt, rim);
+  }
+}
+/**
+ * Point on a chamfered-octagon loft section at height y: facet f (0 = front, counting toward +X),
+ * fraction s along it; s = 1 is the corner, faced along the bisector. Returns [x, z, ry].
+ */
+function octAt(secs: Sec[], cham: number, y: number, f: number, s: number, grow = 0.003): [number, number, number] {
+  const [, w, d, z0, x0] = secAt(secs, y);
+  const hw = w / 2, hd = d / 2, c = Math.min(w, d) * cham;
+  const V: P2[] = [[-(hw - c), hd], [hw - c, hd], [hw, hd - c], [hw, -(hd - c)], [hw - c, -hd], [-(hw - c), -hd], [-hw, -(hd - c)], [-hw, hd - c]];
+  const a = V[f % 8], e = V[(f + 1) % 8];
+  const ry = s >= 1 ? (f * PI) / 4 + PI / 8 : (f * PI) / 4;
+  return [x0 + a[0] + (e[0] - a[0]) * s + Math.sin(ry) * grow, z0 + a[1] + (e[1] - a[1]) * s + Math.cos(ry) * grow, ry];
+}
 
 /** A horn of tapering segments through points, joints hidden by small brass knuckles. */
 function horn(b: PB, key: MatKey, pts: number[][], r0: number, r1: number, seg = 6) {
@@ -563,53 +608,47 @@ const SHENLONG: GearDesign = {
     b.add(G.fin(sc(FLAME, 1.1, 0.8), 0.014, 0), 'paint2', 0, 0.02, -0.11, -1.2, 0, 0);
   },
 
-  // Longlin Scale Armour: keeled scales in overlapping rows down the flanks, a dragon's belly of
-  // brass scutes down the middle, two brass-rimmed breast plates and a mane of flame-cut fins
+  // Longlin Scale Armour: big smooth scale plates in overlapping rows down the flanks and back,
+  // a smooth belly plastron holding the pearl, two brass-rimmed breast plates and a mane of
+  // flame-cut fins
   torso(b) {
     const M = LONGLIN, cham = 0.3;
     b.add(G.loft(M, cham), 'paint2');
-    // flanks: rows of scales, offset row to row
-    for (let r = 0; r < 10; r++) {
-      const y = -0.135 + r * 0.031;
-      const n = y > 0.05 ? 2 : Math.abs(y - LL_CORE[0]) < 0.1 ? 4 : 5;
-      for (const side of [-1, 1])
-        for (let i = 0; i < n; i++) {
-          const t = side * (1.62 - (i + (r % 2) * 0.5) * 0.25);
-          const [x, z, ry] = onLoft(M, cham, y, t, 0.003);
-          scale(b, 'paint', x, y, z, ry, 0.034, 0.046, 0.008, -0.16);
-        }
-    }
+    // flanks: three rows of plates, the top row brass-rimmed, the middle row set on the corners
+    const flank: [number, [number, number, number][]][] = [
+      [0.085, [[1, 0.5, 0.05], [2, 0.5, 0.052]]],
+      [0.022, [[0, 1, 0.05], [1, 1, 0.052], [2, 1, 0.052]]],
+      [-0.041, [[1, 0.5, 0.05], [2, 0.5, 0.052]]],
+    ];
+    flank.forEach(([y, spots], r) => {
+      for (const [f, s, w] of spots) {
+        const [x, z, ry] = octAt(M, cham, y, f, s);
+        for (const sd of [-1, 1]) plate(b, 'paint', sd * x, y, z, sd * ry, w, 0.1, -1, 0.14, r === 0 ? 'brass' : null);
+      }
+    });
     // back
-    for (let r = 0; r < 6; r++) {
-      const y = -0.125 + r * 0.04;
-      for (let i = 0; i < 8; i++) {
-        const t = PI - 1.25 + (2.5 * (i + (r % 2) * 0.5)) / 8;
-        const [x, z, ry] = onLoft(M, cham, y, t, 0.003);
-        scale(b, 'paint', x, y, z, ry, 0.036, 0.05, 0.008, -0.16);
+    const back: [number, [number, number][]][] = [
+      [0.07, [[4, 0.22], [4, 0.78], [3, 0.5], [5, 0.5]]],
+      [0.01, [[3, 1], [4, 1], [4, 0.22], [4, 0.78]]],
+      [-0.05, [[4, 0.22], [4, 0.78], [3, 0.5], [5, 0.5]]],
+    ];
+    for (const [y, spots] of back)
+      for (const [f, s] of spots) {
+        const [x, z, ry] = octAt(M, cham, y, f, s);
+        plate(b, 'paint', x, y, z, ry, 0.054, 0.1, -1, 0.14);
       }
-    }
-    // belly scutes
-    for (let i = 0; i < 7; i++) {
-      const y = -0.13 + i * 0.03;
-      const [, , d, z] = secAt(M, y);
-      const w = 0.2 - Math.abs(i - 3) * 0.006;
-      // the scutes part round the pearl's lotus
-      const dy = y - LL_CORE[0], xc = Math.sqrt(Math.max(0, 0.092 * 0.092 - dy * dy));
-      if (xc < 0.001) {
-        b.add(G.cbox(w, 0.034, 0.018, 0.006), 'brass', 0, y, z + d / 2 + 0.006, -0.14, 0, 0);
-        b.add(G.box(w - 0.02, 0.004, 0.006), 'dark', 0, y - 0.016, z + d / 2 + 0.014);
-      } else if (w / 2 - xc > 0.018) {
-        const hw = w / 2 - xc;
-        b.addSym(G.cbox(hw, 0.034, 0.018, 0.006), 'brass', xc + hw / 2, y, z + d / 2 + 0.006, -0.14, 0, 0);
-        b.addSym(G.box(hw - 0.01, 0.004, 0.006), 'dark', xc + hw / 2, y - 0.016, z + d / 2 + 0.014);
-      }
-    }
+    // a smooth brass-edged plastron down the belly, the pearl set in it
+    const plastron: P2[] = [[-0.1, 0.1], [0.1, 0.1], [0.13, 0.05], [0.125, -0.06], [0.07, -0.105], [-0.07, -0.105], [-0.125, -0.06], [-0.13, 0.05]];
+    b.group(0, LL_CORE[0] - 0.005, 0.176, 0.125, 0, 0, (g) => {
+      g.add(G.prism(sc(plastron, 1.05, 1.05), 0.01, 0), 'brass', 0, 0, -0.005);
+      g.add(G.prism(plastron, 0.016, 0.005), 'paint');
+    });
     // a brass bezel round the pearl's recess
-    b.add(G.lathe(rib(0.09, 0.01), 20), 'brass', 0, LL_CORE[0], secAt(M, LL_CORE[0])[3] + secAt(M, LL_CORE[0])[2] / 2 + 0.006, HP, 0, 0);
+    b.add(G.lathe(rib(0.09, 0.01), 16), 'brass', 0, LL_CORE[0], 0.186, HP, 0, 0);
     // breast plates, brass rimmed
-    const plate: P2[] = [[0.02, 0.085], [0.2, 0.08], [0.255, 0.04], [0.25, -0.01], [0.2, -0.05], [0.15, -0.035], [0.1, -0.07], [0.05, -0.04], [0.02, -0.02]];
-    b.addPlatePair(plate.map(([x, y]) => [x * 1.06 - 0.002, y * 1.12] as P2), 0.022, 'brass', 0.105, 0.152, -0.12, 0, 0, 0.004);
-    b.addPlatePair(plate, 0.03, 'paint', 0.105, 0.158, -0.12, 0, 0, 0.006);
+    const breast: P2[] = [[0.02, 0.085], [0.2, 0.08], [0.255, 0.04], [0.25, -0.01], [0.2, -0.05], [0.15, -0.035], [0.1, -0.07], [0.05, -0.04], [0.02, -0.02]];
+    b.addPlatePair(breast.map(([x, y]) => [x * 1.06 - 0.002, y * 1.12] as P2), 0.022, 'brass', 0.105, 0.152, -0.12, 0, 0, 0.004);
+    b.addPlatePair(breast, 0.03, 'paint', 0.105, 0.158, -0.12, 0, 0, 0.006);
     b.addPlatePair([[0.07, 0.006], [0.2, 0.016], [0.2, 0.004], [0.08, -0.006]], 0.004, 'rarity', 0.105, 0.176, -0.12, 0, 0, 0.001);
     // shoulder yoke, brass belt and gorget
     b.add(G.loft([[0.16, 0.565, 0.318, 0.004], [0.214, 0.47, 0.26, -0.012]], cham), 'paint');
@@ -621,24 +660,16 @@ const SHENLONG: GearDesign = {
       const sz = 1.05 + 0.6 * (1 - Math.abs(Math.cos((a - PI) / 2) * 0)) * Math.max(0, -Math.cos(a));
       b.group(Math.sin(a) * 0.12, 0.2, Math.cos(a) * 0.11 - 0.015, 0, a + PI, 0, (g) => {
         g.add(G.fin(sc(FLAME, 1.2 * sz, 1.3 * sz), 0.014, 0), 'paint', 0, 0, 0, -0.3, 0, 0);
-        g.add(G.fin(sc(FLAME, 0.75 * sz, 0.8 * sz), 0.02, 0), i % 2 ? 'brass' : 'paint2', 0, 0.004, -0.004, -0.3, 0, 0);
+        if (i % 2) g.add(G.fin(sc(FLAME, 0.75 * sz, 0.8 * sz), 0.02, 0), 'brass', 0, 0.004, -0.004, -0.3, 0, 0);
       });
     }
   },
   torsoBack: -0.158,
   coreAt: LL_CORE,
 
-  // a fan of three pointed scale lames cascading off a scaled shoulder cap, a horn spike rising behind
+  // a fan of three pointed scale lames cascading off a smooth shoulder cap, a horn spike rising behind
   pauldron(b, o) {
     b.add(G.loft([[-0.095, 0.14, 0.17, 0, 0.0], [-0.04, 0.24, 0.24, 0, o * 0.04], [0.03, 0.24, 0.23, 0, o * 0.055], [0.08, 0.19, 0.19, 0, o * 0.06]], 0.32), 'paint');
-    const cap: Sec[] = [[-0.095, 0.14, 0.17, 0, 0.0], [-0.04, 0.24, 0.24, 0, 0.04], [0.03, 0.24, 0.23, 0, 0.055]];
-    for (let r = 0; r < 2; r++)
-      for (let i = 0; i < 5; i++) {
-        const y = -0.075 + r * 0.035;
-        const t = HP - 1.1 + (2.2 * (i + r * 0.5)) / 5;
-        const [x, z, ry] = onLoft(cap, 0.32, y, t, 0.002);
-        b.group(o * x, y, z, 0, o * ry, 0, (g) => g.add(G.octa(1), 'paint2', 0, 0, 0, 0.5, 0, 0, 0.03, 0.038, 0.008));
-      }
     for (let k = 0; k < 3; k++) {
       const s = 0.95 + k * 0.17;
       b.group(o * (0.122 + k * 0.024), -0.05 + k * 0.06, 0, 0, 0, -o * (0.3 + k * 0.08), (g) => {
@@ -681,7 +712,7 @@ const SHENLONG: GearDesign = {
         g.add(G.fin(sc(FLAME, s * 1.0, s * 1.05), 0.016, 0), i % 2 ? 'paint2' : 'paint');
         if (i < 3) g.add(G.fin(sc(FLAME, s * 0.5, s * 0.55), 0.022, 0), 'rarity', 0, 0, 0.0);
       });
-      if (i < 4)
+      if (i < 2)
         for (const sd of [-1, 1])
           b.group(sd * 0.03, y - 0.02, rz - 0.004, -HP, 0, sd * 0.75, (g) => g.add(G.fin(sc(FLAME, s * 0.7, s * 0.7), 0.012, 0), 'brass'));
     }
@@ -701,50 +732,45 @@ const SHENLONG: GearDesign = {
     });
   },
 
-  // Longzhua gauntlet: rows of keeled scales round the forearm, brass fin spikes down its back
+  // Longzhua gauntlet: three rows of smooth overlapping scale plates round the forearm between
+  // brass cuffs, three clean swept brass fins raking back off its spine
   forearm(b) {
-    const F: Sec[] = [[0.045, 0.125, 0.125], [0.12, 0.15, 0.145, 0.004], [0.26, 0.14, 0.135, 0.004], [0.292, 0.13, 0.125]];
-    b.add(G.loft(F, 0.35), 'paint2');
-    for (let r = 0; r < 6; r++) {
-      const y = 0.075 + r * 0.036;
-      for (let i = 0; i < 8; i++) {
-        const t = ((i + (r % 2) * 0.5) / 8) * PI * 2;
-        const [x, z, ry] = onLoft(F, 0.35, y, t, 0.003);
-        scale(b, 'paint', x, y, z, ry, 0.024, 0.032, 0.008, 0.3);
-      }
-    }
-    b.add(G.loft([[0.258, 0.155, 0.15, 0.004], [0.29, 0.15, 0.145, 0.004]], 0.35), 'brass');
-    b.add(G.loft([[0.268, 0.158, 0.153, 0.004], [0.274, 0.158, 0.153, 0.004]], 0.35), 'rarity');
-    b.add(G.loft([[0.04, 0.13, 0.13], [0.06, 0.135, 0.135]], 0.35), 'brass');
+    const P: P2[] = [[0.05, 0.035], [0.072, 0.065], [0.077, 0.12], [0.072, 0.25], [0.066, 0.285], [0.04, 0.3]];
+    b.add(G.lathe(P, 12), 'paint2');
+    for (let r = 0; r < 3; r++) plateRing(b, P, 1, 1, 0, 0.062 + r * 0.05, 5, ((r % 2) * PI) / 5, (PI * 2) / 5, 'paint', 0.052, 0.095, 0.06);
+    ringY(b, 0.074, 0.012, 'brass', 0, 0.052, 0, 1, 12);
+    b.add(G.lathe([[0.072, 0.252], [0.082, 0.262], [0.082, 0.28], [0.07, 0.292]], 12), 'brass');
+    ringY(b, 0.083, 0.003, 'rarity', 0, 0.271, 0, 1, 12);
     for (let i = 0; i < 3; i++) {
-      const s = 1.05 - i * 0.15;
-      b.group(0, 0.125 + i * 0.07, 0.074, HP, 0, 0, (g) => {
-        g.add(G.fin(sc(FLAME_M, s, s), 0.012, 0), 'brass');
-        if (i === 0) g.add(G.fin(sc(FLAME_M, s * 0.5, s * 0.5), 0.016, 0), 'rarity');
+      const s = 1 - i * 0.16;
+      b.group(0, 0.13 + i * 0.058, 0.07, HP, 0, 0, (g) => {
+        g.add(G.fin(sc(SWEEP, s), 0.012, 0.003), 'brass');
+        if (i === 0) g.add(G.fin(sc(SWEEP, s * 0.5), 0.016, 0), 'rarity');
       });
     }
   },
-  // Longzhua Claws: a scaled back plate and four brass-cuffed talons hooked over the knuckles, a fifth on the thumb
+  // Longzhua Claws: smooth scale plates over the back of the hand and four brass-cuffed talons
+  // hooked over the knuckles, a fifth on the thumb
   fist(f, thumb) {
     f.add(G.loft([[0.045, 0.16, 0.1, 0.022], [0.1, 0.152, 0.09, 0.024]], 0.3), 'paint');
     f.add(G.loft([[-0.072, 0.142, 0.034], [-0.02, 0.152, 0.036], [0.05, 0.158, 0.034]], 0.3), 'paint2', 0, 0, 0.07);
-    for (let r = 0; r < 2; r++)
-      for (let i = 0; i < 4 - r; i++) scale(f, 'paint', -0.054 + (i + r * 0.5) * 0.036, 0.02 - r * 0.04, 0.094, 0, 0.02, 0.028, 0.008, 0.35);
-    f.add(G.octa(0.014), 'rarity', 0, -0.045, 0.09);
+    for (const x of [-0.035, 0.035]) plate(f, 'paint', x, -0.072, 0.087, 0, 0.037, 0.07);
+    for (const x of [-0.05, 0, 0.05]) plate(f, 'paint', x, -0.026, 0.087, 0, 0.028, 0.068, 1, 0.12, 'brass');
+    f.add(G.octa(0.012), 'rarity', 0, -0.066, 0.1);
     for (let i = 0; i < 4; i++) {
       const x = -0.054 + i * 0.036;
-      f.add(G.cbox(0.03, 0.026, 0.03, 0.006), 'brass', x, 0.075, 0.06);
+      f.add(G.box(0.03, 0.026, 0.03), 'brass', x, 0.075, 0.06);
       f.add(G.fin(TALON, 0.014, 0), 'chrome', x, 0.0, 0.0);
     }
     f.group(thumb * 0.1, -0.01, -0.03, 0, 0, -thumb * 0.35, (g) => {
-      g.add(G.cbox(0.026, 0.024, 0.026, 0.006), 'brass', 0, 0.035, 0);
+      g.add(G.box(0.026, 0.024, 0.026), 'brass', 0, 0.035, 0);
       g.add(G.fin(sc(TALON, 0.8), 0.012, 0), 'chrome', 0, 0.01, -0.03);
     });
     f.add(G.lathe(rib(0.066, 0.008), 14), 'brass', 0, -0.064, 0);
   },
   fistScale: 1.06,
 
-  // a brass belt with a beast-mouth buckle, skirts of scale panels hanging front, back and over the hips
+  // a brass belt with a beast-mouth buckle, skirts of long smooth scale tassets front, back and over the hips
   pelvis(b) {
     b.add(G.loft([[0.0, 0.33, 0.235], [0.035, 0.326, 0.232]], 0.35), 'brass');
     b.group(0, 0.0, 0.122, 0, 0, 0, (g) => {
@@ -754,90 +780,69 @@ const SHENLONG: GearDesign = {
       g.add(G.cone(0.007, 0.03, 4), 'brass', 0.03, 0.04, 0.0, 0, 0, -0.5);
       g.add(G.cone(0.007, 0.03, 4), 'brass', -0.03, 0.04, 0.0, 0, 0, 0.5);
     });
-    const panel = (s: PB, x: number, z: number, ry: number, w: number) =>
+    const panel = (s: PB, x: number, z: number, ry: number, w: number, rim: MatKey | null) =>
       s.group(x, -0.035, z, 0, ry, 0, (g) => {
         g.add(G.cbox(w, 0.13, 0.014, 0.004), 'paint2', 0, -0.045, 0, -0.18, 0, 0);
-        for (let r = 0; r < 3; r++) {
-          const n = r === 1 ? 3 : 4;
-          for (let i = 0; i < n; i++) {
-            const xx = -w / 2 + w / 8 + (i + (r === 1 ? 0.5 : 0)) * (w / 4);
-            g.add(G.octa(1), r === 2 ? 'brass' : 'paint', xx, -0.01 - r * 0.04, 0.01 + r * 0.007, -0.5, 0, 0, w / 8.5, 0.03, 0.01);
-          }
-        }
+        g.group(0, 0.012, -0.003, -0.18, 0, 0, (h) => {
+          for (let i = 0; i < 3; i++) plate(h, 'paint', (i - 1) * (w / 3), 0, 0, 0, w / 6 + 0.003, 0.12, -1, 0.06, rim);
+        });
       });
-    b.both((s) => s.group(0.235, 0, 0, 0, 0, 0.22, (g) => panel(g, 0, 0, HP, 0.16)));
-    panel(b, 0, 0.13, 0, 0.12);
-    panel(b, 0, -0.13, PI, 0.15);
+    b.both((s) => s.group(0.235, 0, 0, 0, 0, 0.22, (g) => panel(g, 0, 0, HP, 0.16, null)));
+    panel(b, 0, 0.13, 0, 0.13, 'brass');
+    panel(b, 0, -0.13, PI, 0.15, null);
   },
-  // scaled thighs: keeled scales all round, a brass knee guard pointing down over the knee, a fin behind
+  // thighs: three rows of smooth scale plates under a brass band, a
+  // smooth brass-edged knee plate with a purple gem
   thigh(b) {
-    const T: Sec[] = [[0.05, 0.15, 0.15, 0.005], [0.13, 0.19, 0.185, 0.012], [0.3, 0.175, 0.17, 0.01], [0.4, 0.12, 0.12]];
-    b.add(G.loft(T, 0.32), 'paint2');
-    for (let r = 0; r < 7; r++) {
-      const y = 0.11 + r * 0.04;
-      const n = 8;
-      for (let i = 0; i < n; i++) {
-        const t = ((i + (r % 2) * 0.5) / n) * PI * 2;
-        const [x, z, ry] = onLoft(T, 0.32, y, t, 0.003);
-        scale(b, 'paint', x, y, z, ry, 0.03, 0.038, 0.009, 0.3);
-      }
-    }
-    b.add(G.loft([[0.06, 0.162, 0.162, 0.006], [0.09, 0.178, 0.175, 0.009]], 0.32), 'brass');
-    b.add(G.loft([[0.084, 0.181, 0.178, 0.009], [0.09, 0.181, 0.178, 0.009]], 0.32), 'rarity');
-    b.add(G.prism([[-0.05, -0.03], [0.05, -0.03], [0.042, 0.02], [0.0, 0.06], [-0.042, 0.02]], 0.016, 0.005), 'brass', 0, 0.36, 0.086, PI, 0, 0, 1, -1, 1);
-    b.add(G.octa(0.01), 'rarity', 0, 0.37, 0.096);
-    b.group(0, 0.13, -0.092, -HP, 0, 0, (g) => g.add(G.fin(sc(FLAME_M, 1.25, 1.0), 0.012, 0), 'paint'));
+    const P: P2[] = [[0.072, 0.05], [0.094, 0.11], [0.096, 0.2], [0.09, 0.3], [0.07, 0.385], [0.045, 0.41]];
+    b.add(G.lathe(P, 12), 'paint2');
+    for (let r = 0; r < 3; r++) plateRing(b, P, 1, 1, 0, 0.1 + r * 0.08, 6, ((r % 2) * PI) / 6, PI / 3, 'paint', 0.056, 0.13, 0.06);
+    ringY(b, 0.088, 0.011, 'brass', 0, 0.072, 0, 1, 16);
+    ringY(b, 0.097, 0.003, 'rarity', 0, 0.088, 0, 1, 16);
+    const knee: P2[] = [[-0.06, 0], [0.06, 0], [0.058, 0.05], [0.03, 0.09], [0, 0.105], [-0.03, 0.09], [-0.058, 0.05]];
+    b.add(G.prism(sc(knee, 1.1, 1.07), 0.01, 0), 'brass', 0, 0.297, 0.101, -0.1, 0, 0);
+    b.add(G.prism(knee, 0.018, 0.005), 'paint', 0, 0.3, 0.109, -0.1, 0, 0);
+    b.add(G.octa(0.011), 'rarity', 0, 0.335, 0.119);
   },
-  // scaled calves with a brass fin spur behind and a brass ankle cuff
+  // calves: smooth scale plates round the back and sides, a swept brass spur behind and a brass ankle cuff
   calf(b) {
-    const Cf: Sec[] = [[0.07, 0.12, 0.13, -0.012], [0.16, 0.15, 0.165, -0.022], [0.32, 0.13, 0.14, -0.014], [0.4, 0.1, 0.1, -0.004]];
-    b.add(G.loft(Cf, 0.32), 'paint2');
-    for (let r = 0; r < 6; r++) {
-      const y = 0.1 + r * 0.045;
-      for (let i = 0; i < 6; i++) {
-        const t = PI - 2.0 + (4.0 * (i + (r % 2) * 0.5)) / 6;
-        const [x, z, ry] = onLoft(Cf, 0.32, y, t, 0.003);
-        scale(b, 'paint', x, y, z, ry, 0.027, 0.036, 0.009, 0.3);
-      }
-    }
+    const P: P2[] = [[0.058, 0.06], [0.074, 0.1], [0.079, 0.16], [0.07, 0.32], [0.056, 0.39], [0.035, 0.41]];
+    const sz = 1.08, z0 = -0.016, step = 1.05;
+    b.add(G.lathe(P, 12), 'paint2', 0, 0, z0, 0, 0, 0, 1, 1, sz);
+    for (let r = 0; r < 3; r++) plateRing(b, P, 1, sz, z0, 0.12 + r * 0.07, r % 2 ? 5 : 4, r % 2 ? 1.04 : 1.04 + step / 2, step, 'paint', 0.048, 0.12, 0.07);
     b.group(0, 0.12, -0.1, -HP, 0, 0, (g) => {
-      g.add(G.fin(sc(FLAME_M, 1.3, 1.1), 0.014, 0), 'brass');
-      g.add(G.fin(sc(FLAME_M, 0.65, 0.6), 0.018, 0), 'rarity');
+      g.add(G.fin(sc(SWEEP, 1.3), 0.012, 0.003), 'brass');
+      g.add(G.fin(sc(SWEEP, 0.65), 0.016, 0), 'rarity');
     });
-    b.add(G.loft([[0.37, 0.124, 0.13, -0.01], [0.405, 0.108, 0.112, -0.004]], 0.32), 'brass');
+    b.add(G.lathe([[0.07, 0.366], [0.078, 0.378], [0.075, 0.396], [0.058, 0.408]], 14), 'brass', 0, 0, z0, 0, 0, 0, 1, 1, sz);
   },
 
-  // Tianlong shin: a pointed guard of scales with a brass crest fin and a brass knee boss
+  // Tianlong shin: a smooth pointed guard on a brass edge, a brass crest fin and a brass knee boss
   shinGuard(b) {
-    b.add(G.prism([[-0.062, 0.14], [0.062, 0.14], [0.057, -0.08], [0.0, -0.15], [-0.057, -0.08]], 0.026, 0.006), 'paint', 0, 0.24, 0.08);
-    for (let r = 0; r < 6; r++)
-      for (let i = 0; i < 3 - (r % 2); i++) {
-        const y = 0.13 + r * 0.04;
-        scale(b, 'paint2', -0.034 + (i + (r % 2) * 0.5) * 0.034, y, 0.096, 0, 0.02, 0.028, 0.007, 0.3);
-      }
+    const sh: P2[] = [[-0.062, 0.14], [0.062, 0.14], [0.057, -0.08], [0.0, -0.15], [-0.057, -0.08]];
+    b.add(G.prism(sc(sh, 1.1, 1.06), 0.012, 0), 'brass', 0, 0.24, 0.071);
+    b.add(G.prism(sh, 0.026, 0.006), 'paint', 0, 0.24, 0.08);
     b.add(G.fin([[0.0, -0.11], [0.03, -0.07], [0.04, 0.0], [0.03, 0.08], [0.0, 0.13], [0.0, -0.11]], 0.012, 0), 'brass', 0, 0.25, 0.1);
     b.add(G.fin([[0.0, -0.08], [0.024, -0.05], [0.03, 0.0], [0.02, 0.06], [0.0, 0.09]], 0.016, 0), 'rarity', 0, 0.25, 0.1);
     b.add(G.lathe([[0.0, 0.0], [0.036, 0.004], [0.04, 0.014], [0.026, 0.026], [0.0, 0.03]], 10), 'brass', 0, 0.08, 0.062, HP, 0, 0);
     b.add(G.octa(0.012), 'rarity', 0, 0.08, 0.096);
   },
-  // Tianlong foot: a scaled heel cowl, a raked brass spur and side fins
+  // Tianlong foot: a heel cowl of smooth scale plates and a raked brass spur
   foot(b, w) {
     b.add(G.loft([[-0.062, 0.13 * w, 0.07, -0.07], [-0.01, 0.12 * w, 0.06, -0.074], [0.03, 0.09 * w, 0.045, -0.066]], 0.3), 'paint2');
-    for (let i = 0; i < 3; i++) scale(b, 'paint', (i - 1) * 0.036, -0.012, -0.11, PI, 0.02, 0.028, 0.009, -0.35);
-    for (let i = 0; i < 2; i++) scale(b, 'paint', (i - 0.5) * 0.036, -0.044, -0.112, PI, 0.02, 0.026, 0.009, -0.35);
+    for (const x of [-0.04, 0, 0.04]) plate(b, 'paint', x * w, 0.026, -0.093, PI, 0.026, 0.05, -1, 0.46);
+    for (const x of [-0.024, 0.024]) plate(b, 'paint', x * w, -0.016, -0.107, PI, 0.03, 0.048, -1, 0.12, 'brass');
     b.add(G.fin([[0.0, 0.0], [-0.05, 0.004], [-0.1, 0.018], [-0.05, 0.024], [0.0, 0.03]], 0.02, 0), 'brass', 0, -0.055, -0.07);
     b.both((s) => {
-      s.group(0.072 * w, -0.02, -0.03, 0, -0.3, 0, (g) => g.add(G.fin(sc(FLAME, 0.7, 0.55), 0.01, 0), 'paint', 0, 0, 0, -1.2, 0, 0));
       s.add(G.cyl(0.02, 0.02, 0.01, 10), 'brass', 0.066 * w + 0.004, 0.0, -0.005, 0, 0, HP);
       s.add(G.cyl(0.008, 0.008, 0.012, 6), 'rarity', 0.066 * w + 0.006, 0.0, -0.005, 0, 0, HP);
     });
   },
   // three chrome talons curling over the toe from brass knuckles
   toe(b, w) {
-    b.add(G.cbox(0.13 * w, 0.014, 0.075, 0.005), 'paint2', 0, 0.026, 0.048);
-    for (let i = 0; i < 2; i++) scale(b, 'paint', (i - 0.5) * 0.05 * w, 0.036, 0.04, 0, 0.022, 0.03, 0.009, -1.2);
+    b.add(G.cbox(0.13 * w, 0.014, 0.075, 0.005), 'paint', 0, 0.026, 0.048);
     for (let i = -1; i <= 1; i++) {
-      b.add(G.cbox(0.03, 0.026, 0.03, 0.006), 'brass', i * 0.042 * w, 0.018, 0.088);
+      b.add(G.box(0.03, 0.026, 0.03), 'brass', i * 0.042 * w, 0.018, 0.088);
       b.add(G.fin([[0.06, 0.03], [0.1, 0.034], [0.13, 0.02], [0.152, -0.008], [0.158, -0.04], [0.144, -0.014], [0.124, 0.006], [0.096, 0.014], [0.06, 0.012]], 0.016, 0), 'chrome', i * 0.042 * w, 0, 0);
     }
   },

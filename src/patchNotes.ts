@@ -16,6 +16,17 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-15 21:00",
+    title: "Rare and Epic gear is here",
+    notes: [
+      "72 new Rare and Epic parts: every maker has a Rare and an Epic part for each slot, each with its own shape, name, stats and passive. Win them in Career or buy them in the Parts Market.",
+      "Epic sets are each maker's showpiece: a steam locomotive (Ironhorse), floating halos (Lumen), a dragon (Longwei), a gold lion (Martelli), a shogun warlord (Kensei) and an SR-71 Blackbird (Strix).",
+      "Rare sets have their own looks too: a big-rig truck, a sleek phone-style suit, a space station, Gothic plate armour, a ninja and a VTOL jump jet.",
+      "Rare parts glow blue and Epic parts glow purple, and each part's rarity shows on its garage tile.",
+      "Big back pieces like wings, banners and halos no longer push your bot's arms out from its sides.",
+    ],
+  },
+  {
     hour: "2026-10-15 20:00",
     title: "Career mode",
     notes: [
