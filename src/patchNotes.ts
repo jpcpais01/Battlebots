@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-15 11:00",
+    title: "Performance stats",
+    notes: [
+      "Performance stats now show which graphics chip the game is running on (like GeForce RTX 3060, Adreno 740 or Apple M1) and whether it draws with WebGPU or WebGL, on PC and phones. Where the browser hides the exact model, as Safari on iPhone does, it says so.",
+    ],
+  },
+  {
     hour: "2026-10-15 10:00",
     title: "Fixes",
     notes: [
