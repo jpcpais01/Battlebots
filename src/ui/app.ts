@@ -138,6 +138,8 @@ export class App {
   private netFight: OnlineSession | null = null;
   private resultsNote: HTMLElement | null = null;
   private rematchBtn: HTMLButtonElement | null = null;
+  /** The online room the results on screen belong to (rematch votes go to it). */
+  private resultsRoom: OnlineSession | null = null;
   /**
    * The last fight against the AI, enough to play it again: the sim is deterministic, so
    * the same two bots, the same seed and the same intro cut give the same fight.
@@ -1309,6 +1311,8 @@ export class App {
     this.tap('start');
     void enterLandscape();
     this.closeResults();
+    // watched on this phone only: the room stays open, and its rematch vote waits on the results
+    this.leaveNetFight();
     this.replaying = true;
     this.resultsAfterSeek = false;
     const m = this.game.startReplay(r);
@@ -1333,13 +1337,17 @@ export class App {
       if (!list.length) el('p', 'muted', 'No saved replays yet. After a fight, tap Save replay on the results to keep it here.', rows);
       for (const r of list) {
         const t = r.tape;
+        // this player's bot first (online they may have fought from the right corner)
+        const me = t.me ?? 0;
+        const [mine, theirs] = me === 1 ? [t.b, t.a] : [t.a, t.b];
         const row = el('div', 'save-row replay-row', '', rows);
-        row.style.setProperty('--paint', paintOf(t.a));
-        const verdict = r.winner < 0 ? 'Draw' : r.winner === 0 ? 'Win' : 'Loss';
+        row.style.setProperty('--paint', paintOf(mine));
+        const verdict = r.winner < 0 ? 'Draw' : r.winner === me ? 'Win' : 'Loss';
         const how = r.kind && r.kind !== 'Draw' ? ` by ${r.kind === 'Decision' ? 'decision' : r.kind}` : '';
         const date = new Date(r.saved).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
         const old = outdated(r) ? '<em class="old">Older version</em>' : '';
-        el('div', 'save-name', `<b>${esc(t.a.name)} vs ${esc(t.b.name)}</b><span class="${r.winner < 0 ? '' : r.winner === 0 ? 'win' : 'loss'}">${verdict}${how} · ${r.secs}s · ${date}${old}</span>`, row);
+        const net = t.online ? `${ICON.globe} ` : '';
+        el('div', 'save-name', `<b>${esc(mine.name)} vs ${esc(theirs.name)}</b><span class="${r.winner < 0 ? '' : r.winner === me ? 'win' : 'loss'}">${net}${verdict}${how} · ${r.secs}s · ${date}${old}</span>`, row);
         button('btn small primary', `${ICON.play}Watch`, () => void this.watchSaved(r), row);
         const del = button('icon-btn small', ICON.close, () => {
           if (!del.classList.contains('armed')) {
@@ -1371,7 +1379,7 @@ export class App {
     }
     this.lastFight = structuredClone(r.tape);
     // Rematch on its results fights the same opponent
-    this.opponent = structuredClone(r.tape.b);
+    this.opponent = structuredClone(r.tape.me === 1 ? r.tape.a : r.tape.b);
     this.replay();
   }
 
@@ -1389,7 +1397,7 @@ export class App {
   private markMoment(type: string, data: unknown) {
     const m = this.game.match;
     const t = this.lastFight;
-    if (!m || !t || this.netFight || m.phase === 'end') return;
+    if (!m || !t || m.phase === 'end') return;
     const kind = type === 'ko' ? 'ko' : type === 'detach' ? 'tear' : type === 'knockdown' && m.phase === 'fight' ? 'kd' : null;
     if (!kind) return;
     if (kind === 'kd' && (data as { defender: Fighter }).defender.state === 'ko') return;
@@ -1427,6 +1435,11 @@ export class App {
         this.closeModal();
         this.replayResults();
       }, box);
+      if (this.lastFight?.online && this.online.session)
+        button('btn small', `${ICON.globe}Room`, () => {
+          this.closeModal();
+          this.go('online');
+        }, box);
       button('btn small', `${ICON.exit}Home`, () => {
         this.closeModal();
         this.go('home');
@@ -1780,21 +1793,23 @@ export class App {
     this.hud.closeReplayBar();
     const [a, b] = m.fighters;
     const net = this.netFight;
+    const tape = this.lastFight;
+    // a replay of an online fight, watched straight after it, still answers to its room
+    const room = net ?? (this.replaying && tape?.online ? this.online.session : null);
     // online, this player may be in either corner; offline it's always the left one
-    const me = net ? net.me : 0;
+    const me = net ? net.me : this.replaying ? (tape?.me ?? 0) : 0;
     const out = net ? net.outcome(m) : { winner: m.winner ? m.winner.index : -1, kind: m.result };
     const draw = out.winner < 0;
     const won = out.winner === me;
     // the win record is for fights against the AI (and a replay was already counted)
-    if (!net && !this.replaying) {
-      this.tally(won, draw);
-      if (this.lastFight) {
-        this.lastFight.cut = m.introCut;
-        this.lastFight.coach = m.coachLog.slice();
-        this.lastFight.talk = this.game.sfx?.booth.said ?? [];
-        // the replay runs to here
-        this.lastFight.end = m.frame;
-      }
+    if (!net && !this.replaying) this.tally(won, draw);
+    if (!this.replaying && tape) {
+      tape.cut = m.introCut;
+      // (online, both corners' calls: they all went through the match)
+      tape.coach = m.coachLog.slice();
+      tape.talk = this.game.sfx?.booth.said ?? [];
+      // the replay runs to here
+      tape.end = m.frame;
     }
     const verdict = draw ? 'DRAW' : won ? 'VICTORY' : 'DEFEAT';
     const how = out.kind === 'Decision' ? 'on points' : out.kind === 'TKO' ? 'by TKO' : out.kind === 'KO' ? 'by knockout' : out.kind === 'Dismantled' ? 'by tearing it apart' : '';
@@ -1834,31 +1849,18 @@ export class App {
     const actions = el('div', 'actions', '', card);
     this.results = res;
     this.game.director.shiftX = 0.2;
-    if (net) {
-      this.netResults(card, actions, net);
+    const keep = () => {
+      if (!tape || tape.end <= 0) return;
+      button('btn', `${ICON.replay}Replay`, () => this.replay(), actions);
+      this.saveReplayBtn(actions, tape, { winner: out.winner, kind: out.kind ?? '', secs: m.fightTime });
+    };
+    if (room) {
+      this.netResults(card, actions, room, keep);
       return;
     }
     button('btn primary', `${ICON.swords}Next fight`, () => this.fight(), actions);
     button('btn', `${ICON.refresh}Rematch`, () => this.fight(true), actions);
-    if (this.lastFight) button('btn', `${ICON.replay}Replay`, () => this.replay(), actions);
-    const tape = this.lastFight;
-    if (tape && tape.end > 0) {
-      const keep = button('btn small', '', () => {
-        if (keep.disabled) return;
-        this.tap('select');
-        if (!this.replays.save(tape, { winner: out.winner, kind: out.kind ?? '', secs: m.fightTime })) {
-          void this.ask('Replays full', `You can keep ${MAX_REPLAYS} replays. Delete one from Replays on the home screen to save this fight.`, [['cyan', 'OK']]);
-          return;
-        }
-        mark();
-      }, actions);
-      const mark = () => {
-        const saved = isSaved(tape);
-        keep.innerHTML = saved ? `${ICON.check}Saved` : `${ICON.star}Save replay`;
-        keep.disabled = saved;
-      };
-      mark();
-    }
+    keep();
     button('btn', `${ICON.wrench}Garage`, () => {
       this.tap('select');
       this.closeResults();
@@ -1872,7 +1874,27 @@ export class App {
     }, actions).title = 'Home';
   }
 
+  /** Save replay (or Saved, once it's on the shelf). */
+  private saveReplayBtn(actions: HTMLElement, tape: Tape, how: { winner: number; kind: string; secs: number }) {
+    const keep = button('btn small', '', () => {
+      if (keep.disabled) return;
+      this.tap('select');
+      if (!this.replays.save(tape, how)) {
+        void this.ask('Replays full', `You can keep ${MAX_REPLAYS} replays. Delete one from Replays on the home screen to save this fight.`, [['cyan', 'OK']]);
+        return;
+      }
+      mark();
+    }, actions);
+    const mark = () => {
+      const saved = isSaved(tape);
+      keep.innerHTML = saved ? `${ICON.check}Saved` : `${ICON.star}Save replay`;
+      keep.disabled = saved;
+    };
+    mark();
+  }
+
   private closeResults() {
+    this.resultsRoom = null;
     this.game.director.shiftX = 0;
     this.results?.remove();
     this.results = null;
@@ -1894,6 +1916,9 @@ export class App {
     this.closeResults();
     this.leaveNetFight();
     const m = this.game.startMatch(a, b, seed, true, s.me);
+    // the tape for its replay: the coach calls from both corners come from the match's log
+    this.lastFight = { a: structuredClone(a), b: structuredClone(b), seed, cut: -1, coach: [], end: -1, marks: [], online: true, me: s.me };
+    this.replaying = false;
     this.netFight = s;
     s.watch(this.game, m);
     this.hud.resetSpeed();
@@ -1919,7 +1944,7 @@ export class App {
 
   /** The room changed while the player is watching a fight or its results. */
   private netChanged() {
-    if (this.results && this.netFight) this.syncRematch(this.netFight);
+    if (this.results && this.resultsRoom) this.syncRematch(this.resultsRoom);
   }
 
   /** Online fights pause for nobody: the menu offers a way out instead. */
@@ -1936,13 +1961,15 @@ export class App {
     });
   }
 
-  private netResults(card: HTMLElement, actions: HTMLElement, net: OnlineSession) {
-    if (net.desynced && net.role === 'guest') card.insertBefore(el('div', 'net-note', "Your screens drifted apart, so the host's result counts."), actions);
+  private netResults(card: HTMLElement, actions: HTMLElement, net: OnlineSession, extra: () => void) {
+    this.resultsRoom = net;
+    if (net.desynced && net.role === 'guest' && !this.replaying) card.insertBefore(el('div', 'net-note', "Your screens drifted apart, so the host's result counts."), actions);
     this.resultsNote = card.insertBefore(el('div', 'net-note'), actions);
     this.rematchBtn = button('btn primary', '', () => {
       this.tap('select');
       net.voteRematch();
     }, actions);
+    extra();
     button('btn', `${ICON.globe}Room`, () => {
       this.tap('select');
       this.closeResults();

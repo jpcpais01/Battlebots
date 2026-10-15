@@ -15,7 +15,7 @@ import type { BotModel, PoseSource } from './botModel';
  * The loser's ride home. The victory plays out first, with the loser left lying in the ring;
  * then, about twelve seconds after the winner was decided, the show cuts to a new scene: the
  * loser already aboard a hover stretcher (with every part that was torn off it), gliding down
- * the walkout carpet on its side, between the crew and security, and into the tunnel. All
+ * the walkout carpet on its side, between the crew and security, and on down the LED-lit tunnel. All
  * smiles, it does one of five bits for the camera that follows it: a peace sign, double thumbs
  * up, a wave to the crowd, a lie-back with its hands behind its head, or disco pointing to a
  * beat. Nearing the tunnel it waves goodbye, and the energy gate in there swallows it up.
@@ -33,7 +33,7 @@ export type Ride = (typeof RIDES)[number];
 const HOLD_KO = 4.0;
 const HOLD_DECISION = 9.0;
 /** The ride itself, from the cut to gone through the gate. */
-const RIDE = 10.0;
+const RIDE = 11.0;
 /** The second shot: watching it go, from back down the carpet. */
 const WIDE = 4.6;
 /** Waving goodbye, from this far into the ride. */
@@ -275,34 +275,34 @@ const CYAN = 0x4ff3ff;
 function hullGeometry() {
   const g: THREE.BufferGeometry[] = [
     // the deck slab and the pad on its leg section
-    tint(rbox(0.92, 0.1, 2.3, 0.04), SHELL, at(0, -0.05, -0.125)),
-    tint(rbox(0.8, 0.05, 1.15, 0.022), PAD, at(0, 0.012, -0.66)),
+    tint(rbox(0.92, 0.1, 2.75, 0.04), SHELL, at(0, -0.05, -0.35)),
+    tint(rbox(0.8, 0.05, 1.6, 0.022), PAD, at(0, 0.012, -0.885)),
     // keel underneath, with a red band round the skirt
-    tint(rbox(0.62, 0.14, 1.9, 0.05), TRIM, at(0, -0.15, -0.125)),
-    tint(new THREE.BoxGeometry(0.02, 0.05, 2.18), RED, at(0.462, -0.065, -0.125)),
-    tint(new THREE.BoxGeometry(0.02, 0.05, 2.18), RED, at(-0.462, -0.065, -0.125)),
+    tint(rbox(0.62, 0.14, 2.35, 0.05), TRIM, at(0, -0.15, -0.35)),
+    tint(new THREE.BoxGeometry(0.02, 0.05, 2.63), RED, at(0.462, -0.065, -0.35)),
+    tint(new THREE.BoxGeometry(0.02, 0.05, 2.63), RED, at(-0.462, -0.065, -0.35)),
     // foot board
-    tint(rbox(0.86, 0.26, 0.06, 0.025), SHELL, at(0, 0.1, -1.24)),
-    tint(new THREE.BoxGeometry(0.7, 0.03, 0.065), RED, at(0, 0.2, -1.24)),
+    tint(rbox(0.86, 0.26, 0.06, 0.025), SHELL, at(0, 0.1, -1.69)),
+    tint(new THREE.BoxGeometry(0.7, 0.03, 0.065), RED, at(0, 0.2, -1.69)),
     // head bumper
     tint(rbox(0.7, 0.07, 0.08, 0.03), TRIM, at(0, -0.04, 1.03)),
   ];
   // side rails on posts, along the legs
   for (const x of [-0.475, 0.475]) {
-    g.push(tint(new THREE.CylinderGeometry(0.018, 0.018, 1.3, 8), CHROME, at(x, 0.17, -0.5, Math.PI / 2)));
-    for (const z of [-1.1, -0.5, 0.1]) g.push(tint(new THREE.CylinderGeometry(0.013, 0.013, 0.17, 6), CHROME, at(x, 0.085, z)));
+    g.push(tint(new THREE.CylinderGeometry(0.018, 0.018, 1.75, 8), CHROME, at(x, 0.17, -0.725, Math.PI / 2)));
+    for (const z of [-1.55, -0.95, -0.35, 0.1]) g.push(tint(new THREE.CylinderGeometry(0.013, 0.013, 0.17, 6), CHROME, at(x, 0.085, z)));
   }
   // hover pods at the corners
   for (const x of [-0.36, 0.36]) {
-    for (const z of [-0.95, 0.72]) {
+    for (const z of [-1.4, 0.72]) {
       g.push(tint(new THREE.CylinderGeometry(0.11, 0.095, 0.08, 16), DARK, at(x, -0.24, z)));
       g.push(tint(new THREE.CylinderGeometry(0.115, 0.115, 0.02, 16), CHROME, at(x, -0.2, z)));
     }
   }
   // twin thrusters under the foot end
   for (const x of [-0.2, 0.2]) {
-    g.push(tint(new THREE.CylinderGeometry(0.07, 0.085, 0.24, 14), DARK, at(x, -0.17, -1.28, Math.PI / 2)));
-    g.push(tint(new THREE.CylinderGeometry(0.09, 0.09, 0.03, 14), CHROME, at(x, -0.17, -1.17, Math.PI / 2)));
+    g.push(tint(new THREE.CylinderGeometry(0.07, 0.085, 0.24, 14), DARK, at(x, -0.17, -1.73, Math.PI / 2)));
+    g.push(tint(new THREE.CylinderGeometry(0.09, 0.09, 0.03, 14), CHROME, at(x, -0.17, -1.62, Math.PI / 2)));
   }
   return mergeGeometries(g)!;
 }
@@ -310,15 +310,15 @@ function hullGeometry() {
 /** LED strips, pod emitters, the red cross and the thruster glow (one draw call). */
 function glowGeometry() {
   const g: THREE.BufferGeometry[] = [
-    tint(new THREE.BoxGeometry(0.012, 0.016, 2.1), CYAN, at(0.474, -0.03, -0.125)),
-    tint(new THREE.BoxGeometry(0.012, 0.016, 2.1), CYAN, at(-0.474, -0.03, -0.125)),
+    tint(new THREE.BoxGeometry(0.012, 0.016, 2.55), CYAN, at(0.474, -0.03, -0.35)),
+    tint(new THREE.BoxGeometry(0.012, 0.016, 2.55), CYAN, at(-0.474, -0.03, -0.35)),
     tint(new THREE.BoxGeometry(0.5, 0.018, 0.012), 0xd8fbff, at(0, -0.04, 1.075)),
     // a red cross on the outside of the foot board
-    tint(new THREE.BoxGeometry(0.15, 0.045, 0.01), 0xff3348, at(0, 0.08, -1.275)),
-    tint(new THREE.BoxGeometry(0.045, 0.15, 0.01), 0xff3348, at(0, 0.08, -1.275)),
+    tint(new THREE.BoxGeometry(0.15, 0.045, 0.01), 0xff3348, at(0, 0.08, -1.725)),
+    tint(new THREE.BoxGeometry(0.045, 0.15, 0.01), 0xff3348, at(0, 0.08, -1.725)),
   ];
-  for (const x of [-0.36, 0.36]) for (const z of [-0.95, 0.72]) g.push(tint(new THREE.CircleGeometry(0.08, 18), CYAN, at(x, -0.285, z, Math.PI / 2)));
-  for (const x of [-0.2, 0.2]) g.push(tint(new THREE.CircleGeometry(0.06, 14), 0x9ef6ff, at(x, -0.17, -1.405, 0, Math.PI)));
+  for (const x of [-0.36, 0.36]) for (const z of [-1.4, 0.72]) g.push(tint(new THREE.CircleGeometry(0.08, 18), CYAN, at(x, -0.285, z, Math.PI / 2)));
+  for (const x of [-0.2, 0.2]) g.push(tint(new THREE.CircleGeometry(0.06, 14), 0x9ef6ff, at(x, -0.17, -1.855, 0, Math.PI)));
   return mergeGeometries(g)!;
 }
 
@@ -390,15 +390,15 @@ interface Ridden {
 
 /** Spots for torn parts: beside the legs, then the foot end, then by the shoulders. */
 const SLOTS: [number, number][] = [
-  [0.33, -0.55],
-  [-0.33, -0.55],
-  [0.33, -0.95],
-  [-0.33, -0.95],
-  [0, -1.12],
+  [0.33, -0.6],
+  [-0.33, -0.6],
+  [0.33, -1.05],
+  [-0.33, -1.05],
+  [0, -1.45],
   [0.34, -0.2],
   [-0.34, -0.2],
-  [0.2, -1.1],
-  [-0.2, -1.1],
+  [0.24, -1.45],
+  [-0.24, -1.45],
 ];
 
 export class Stretcher {
@@ -556,7 +556,7 @@ export class Stretcher {
     const sx = (this.side = loser.body.pos[J.Pelvis].x >= 0 ? 1 : -1);
     this.x0 = 8.0;
     // (done once its foot end is through the gate)
-    this.x1 = AX + TUNNEL_GATE + 1.5 * s;
+    this.x1 = AX + TUNNEL_GATE + 1.95 * s;
     // the wide shot: from back down the carpet, a little off to one side and up
     this.wide.set(sx * 8.6, FLOOR + 1.9, -0.6);
     this.hold = m.result === 'Decision' ? HOLD_DECISION : HOLD_KO;
@@ -635,7 +635,7 @@ export class Stretcher {
     const inHall = Math.abs(_p.x) > AX - 0.7 && Math.abs(_p.z) < TUNNEL_OPEN_HW;
     const ground = inHall ? FLOOR : groundAt(_p.x, _p.z);
     this.pool.position.set(_p.x, ground + 0.012, _p.z);
-    this.pool.scale.setScalar(2.2 * s);
+    this.pool.scale.setScalar(2.6 * s);
     this.poolMat.opacity = 0.55 * Math.max(0, 1 - (_p.y - ground) / 3.2);
     this.glowMat.color.setScalar(RenderSettings.glow(2.2 + 0.4 * Math.sin(t * 9) + 1.2 * smooth(RIDE - 3, RIDE - 1, rt)));
 
@@ -863,7 +863,7 @@ export class Stretcher {
       // (x across, z along the way it's going)
       const local = (x: number, y: number, z: number, out: THREE.Vector3) => out.set(this.at.x + x * cy + z * sy, this.at.y + y, this.at.z - x * sy + z * cy);
       const push = smooth(0, WIDE, rt);
-      local((0.8 - 0.25 * push) * s, (0.85 - 0.1 * push) * s, (-2.55 + 0.45 * push) * s, pos);
+      local((0.8 - 0.25 * push) * s, (0.85 - 0.1 * push) * s, (-2.95 + 0.45 * push) * s, pos);
       local(0, 0.48 * s, 0.15 * s, look);
       fovK = 0.85;
     } else {

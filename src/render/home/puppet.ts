@@ -94,8 +94,8 @@ const NECK_OFF: V3 = [0, 0.219, 0.022];
 const HEAD_OFF: V3 = [0, 0.21, 0.007];
 const SHOULDER: V3 = [0.288, 0.099, 0.01];
 const HIP: V3 = [0.144, -0.07, 0];
-const UPPER = 0.33;
-const FORE = 0.33;
+export const UPPER = 0.33;
+export const FORE = 0.33;
 const THIGH = 0.46;
 const SHIN = 0.46;
 
@@ -149,7 +149,7 @@ const _d = new Vector3();
 const _p = new Vector3();
 
 /** Two-bone IK: from root towards target, bending towards pole. Writes the middle and end joints. */
-function ik(root: Vector3, target: Vector3, pole: Vector3, la: number, lb: number, mid: Vector3, end: Vector3) {
+export function ik(root: Vector3, target: Vector3, pole: Vector3, la: number, lb: number, mid: Vector3, end: Vector3) {
   _d.subVectors(target, root);
   let dist = _d.length();
   if (dist < 1e-6) _d.set(0, -1, 0);

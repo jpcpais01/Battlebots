@@ -65,7 +65,12 @@ function sanitizeTape(raw: unknown): Tape | null {
       if (clips.length && (q.v === 'p' || q.v === 'c' || q.v === 'r')) talk.push({ f: int(q.f), c: clips.map(([a, b, g]) => [a.slice(0, 80), b, g]), e: int(q.e), v: q.v, w: typeof q.w === 'number' ? q.w : 0.6 });
     } else if (typeof q.x === 'number') talk.push({ f: int(q.f), x: int(q.x), fade: typeof q.fade === 'number' ? Math.max(0, q.fade) : 0 });
   }
-  return { a: sanitizeBot(t.a), b: sanitizeBot(t.b), seed: t.seed >>> 0, cut: int(t.cut, -1), coach, end: int(t.end), marks, talk };
+  const out: Tape = { a: sanitizeBot(t.a), b: sanitizeBot(t.b), seed: t.seed >>> 0, cut: int(t.cut, -1), coach, end: int(t.end), marks, talk };
+  if (t.online === true) {
+    out.online = true;
+    out.me = t.me === 1 ? 1 : 0;
+  }
+  return out;
 }
 
 function sanitize(raw: unknown): SavedReplay | null {
