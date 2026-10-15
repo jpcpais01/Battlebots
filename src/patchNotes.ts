@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-15 00:00",
+    title: "Light-up entrance tunnels",
+    notes: [
+      "The entrance tunnels are rebuilt as deep halls running under the stands. Each has a lit portal with LED pylons, a dot-matrix marquee and a crown of bulbs, and rings of team-coloured light race down it to the energy gate.",
+    ],
+  },
+  {
     hour: "2026-10-14 23:00",
     title: "Fighting on one leg",
     notes: [

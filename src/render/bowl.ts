@@ -107,8 +107,10 @@ export const TUNNEL_W = 3.8;
 /** Each tunnel's mouth: half its width, and its height off the arena floor. */
 export const TUNNEL_OPEN_HW = 1.48;
 export const TUNNEL_OPEN_H = 2.56;
-/** The energy gate across each tunnel, this far in from its mouth. */
-export const TUNNEL_GATE = 2.3;
+/** The energy gate across each tunnel, this far in from its mouth (it runs on under the stands). */
+export const TUNNEL_GATE = 8.0;
+/** How deep each tunnel's hall goes, to its far wall. */
+export const TUNNEL_HALL = 10.5;
 
 /**
  * Outline `o` with the two tunnel mouths cut out of its east and west sides (|z| < `hw`): the

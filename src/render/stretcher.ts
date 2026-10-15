@@ -15,7 +15,7 @@ import type { BotModel, PoseSource } from './botModel';
  * The loser's ride home. The victory plays out first, with the loser left lying in the ring;
  * then, about twelve seconds after the winner was decided, the show cuts to a new scene: the
  * loser already aboard a hover stretcher (with every part that was torn off it), gliding down
- * the walkout carpet on its side, between the crew and security, and into the tunnel. All
+ * the walkout carpet on its side, between the crew and security, and on down the LED-lit tunnel. All
  * smiles, it does one of five bits for the camera that follows it: a peace sign, double thumbs
  * up, a wave to the crowd, a lie-back with its hands behind its head, or disco pointing to a
  * beat. Nearing the tunnel it waves goodbye, and the energy gate in there swallows it up.
@@ -33,7 +33,7 @@ export type Ride = (typeof RIDES)[number];
 const HOLD_KO = 4.0;
 const HOLD_DECISION = 9.0;
 /** The ride itself, from the cut to gone through the gate. */
-const RIDE = 10.0;
+const RIDE = 11.0;
 /** The second shot: watching it go, from back down the carpet. */
 const WIDE = 4.6;
 /** Waving goodbye, from this far into the ride. */
