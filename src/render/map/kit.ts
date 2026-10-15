@@ -363,9 +363,9 @@ export function glowMaterial(u: MapUniforms, opts: { additive?: boolean; flicker
 }
 
 // ------------------------------------------------------------------ holograms
-/** Shared by every hologram: how bright they are (more at night) and the scanline. */
+/** Shared by every hologram: how bright they are (only out at night, fading in at dusk) and the scanline. */
 export const HOLO_GLSL = /* glsl */ `
-  float holoLevel() { return uGlow * mix(1.0, 1.5, uNight); }
+  float holoLevel() { return uGlow * 1.5 * uNight; }
   float scanline(float y, float speed) { return 0.6 + 0.4 * step(0.5, fract(y * 0.5 - uTime * speed)); }
 `;
 

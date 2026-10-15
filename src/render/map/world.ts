@@ -97,6 +97,8 @@ export class WorldMap {
     const k = this.night * this.night * (3 - 2 * this.night);
     const u = this.u;
     u.uNight.value = k;
+    // the searchlights and holograms only come out at night (not drawn at all by day)
+    this.holo.group.visible = this.towers.beams.visible = k > 0.001;
     u.uDusk.value = 0.55 + 0.45 * k;
     u.uSunCol.value.copy(MAP_COLORS.sun).lerp(NIGHT_COLORS.sun, k);
     u.uSky.value.copy(MAP_COLORS.sky).lerp(NIGHT_COLORS.sky, k);
