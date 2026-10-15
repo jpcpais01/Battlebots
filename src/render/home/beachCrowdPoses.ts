@@ -1,4 +1,4 @@
-import { pose, type HandDef, type Pose } from './puppet';
+import { PoseCh as C, pose, type HandDef, type Pose } from './puppet';
 
 /**
  * Poses for the other robots on the beach (src/render/home/beachCrowd.ts), in the puppet's robot
@@ -264,3 +264,54 @@ export const SURF = pose({
     { at: [0.36, 0, 0.05], pole: [0.4, 0.2, 1], yaw: 0.6 },
   ],
 });
+
+/** The stroll: half a stride (robot units) at full pace, and the share of each step a foot is planted. */
+export const STRIDE = 0.3;
+export const PLANT = 0.6;
+
+/**
+ * A relaxed walk cycle over STAND at phase `ph` (cycles), with steps `k` of the full stride (shorter
+ * as the walker slows). A planted foot slides back STRIDE * k * 2 over PLANT of a cycle, so moving
+ * the root forward that far keeps it put on the sand.
+ */
+export function stroll(o: Pose, ph: number, k: number) {
+  o.set(STAND);
+  const amp = STRIDE * k;
+  for (let s = 0; s < 2; s++) {
+    const u = (((ph + s * 0.5) % 1) + 1) % 1;
+    const fi = C.FOOT + s * 3;
+    let fz: number, fy = 0, air = 0, heel = 0, flex = 0;
+    if (u < PLANT) {
+      // planted: the body passes over it, the heel peeling up at the end
+      fz = amp - (2 * amp * u) / PLANT;
+      heel = 0.55 * k * Math.max(0, (u - PLANT + 0.18) / 0.18);
+    } else {
+      // swinging through
+      const w = (u - PLANT) / (1 - PLANT);
+      fz = -amp + 2 * amp * w * w * (3 - 2 * w);
+      fy = 0.09 * k * Math.sin(Math.PI * w);
+      air = 0.7 * Math.sin(Math.PI * w);
+      flex = 0.35 * Math.sin(Math.PI * w);
+    }
+    o[fi] = s === 0 ? -0.13 : 0.13;
+    o[fi + 1] = fy;
+    o[fi + 2] = fz;
+    o[C.KNEE + s * 3 + 2] = 1;
+    o[C.AIR + s] = air;
+    o[C.HEEL + s] = heel;
+    o[C.FLEX + s] = flex;
+    o[C.FYAW + s] = s === 0 ? -0.08 : 0.08;
+    // each arm hangs a little lower than standing and swings with the other leg
+    const v = (((ph + (1 - s) * 0.5) % 1) + 1) % 1;
+    const oz = v < PLANT ? 1 - (2 * v) / PLANT : -1 + (2 * (v - PLANT)) / (1 - PLANT);
+    o[C.HAND + s * 3 + 1] += 0.03 * k * Math.abs(oz) - 0.1;
+    o[C.HAND + s * 3 + 2] += 0.17 * k * oz - 0.04;
+  }
+  // the pelvis rides up over each planted foot and rocks towards it, the hips turning with the legs
+  const a = ph * 2 * Math.PI;
+  o[C.PELVIS] = -0.018 * k * Math.sin(a);
+  o[C.PELVIS + 1] = 0.865 + 0.014 * k * Math.cos(4 * Math.PI * (ph - 0.3));
+  o[C.HIPS] = 0.04;
+  o[C.HIPS + 1] = 0.07 * k * Math.sin(a);
+  return o;
+}

@@ -480,7 +480,8 @@ export class BotModel {
   private detailCut(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
     const focal = camera.projectionMatrix.elements[5];
     renderer.getDrawingBufferSize(_buf);
-    _cam.setFromMatrixPosition(camera.matrixWorld);
+    // (the joints are in the root's space: home scenes shift a robot by moving its root)
+    this.root.worldToLocal(_cam.setFromMatrixPosition(camera.matrixWorld));
     // distance to the robot's nearest armour, roughly
     const d = Math.max(0.25, _cam.distanceTo(this.joints[J.Chest]) - 0.9 * this.size);
     const pxPerMetre = (focal * _buf.y * 0.5) / d;
