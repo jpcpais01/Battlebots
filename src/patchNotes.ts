@@ -17,8 +17,9 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 00:00",
-    title: "Light-up entrance tunnels",
+    title: "Online replays, light-up entrance tunnels",
     notes: [
+      "Online fights have replays too: tap Replay or Save replay on the results. Your opponent waits in the room, and Rematch is right there on the replay's results.",
       "The entrance tunnels are rebuilt as deep halls running under the stands. Each has a lit portal with LED pylons, a dot-matrix marquee and a crown of bulbs, and rings of team-coloured light race down it to the energy gate.",
     ],
   },
