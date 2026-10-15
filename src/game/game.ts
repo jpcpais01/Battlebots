@@ -341,7 +341,7 @@ export class Game {
     const bot = this.showcase?.model;
     const shown = bot ? [bot.root] : [];
     if (p === 'arena') {
-      const roots = [this.arena.group, this.arena.venue.group, this.fx.group, this.debris.group, this.oil.group, this.steam.group, this.drones.group, this.stretcher.group];
+      const roots: THREE.Object3D[] = [this.arena.group, this.arena.venue.group, this.fx.group, this.debris.group, this.oil.group, this.steam.group, this.drones.group, this.stretcher.group];
       return { roots: roots.concat(shown), extras: bot?.pieceProxies() ?? [] };
     }
     if (p === 'garage' && this.garage) return { roots: [this.garage.group, this.fx.group, ...shown], extras: [] };

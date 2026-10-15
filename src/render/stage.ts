@@ -503,7 +503,7 @@ export class Stage {
     const found = new Set<THREE.Texture>();
     const add = (v: unknown) => {
       const t = v as THREE.Texture | null;
-      if (t?.isTexture && !t.isRenderTargetTexture && !(t as THREE.DepthTexture).isDepthTexture && t.image && t.version > 0) found.add(t);
+      if (t?.isTexture && !t.isRenderTargetTexture && !(t as { isDepthTexture?: boolean }).isDepthTexture && t.image && t.version > 0) found.add(t);
     };
     const scan = (m: THREE.Material) => {
       for (const v of Object.values(m)) add(v);
