@@ -16,6 +16,16 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-15 15:00",
+    title: "Steady arms near the head",
+    notes: [
+      "Fists and forearms no longer snap between positions near the head: guards, blocks and the coconut drink on the beach now move smoothly.",
+      "Arms slide cleanly over armour edges instead of catching on them and jumping sideways.",
+      "A forearm held across the face no longer spins or flicks.",
+      "When two robots are pressed chest to chest, a squeezed elbow eases into place instead of popping.",
+    ],
+  },
+  {
     hour: "2026-10-15 14:00",
     title: "A new loading screen and ray tracing fixes",
     notes: [
