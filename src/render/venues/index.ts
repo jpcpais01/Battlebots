@@ -1,5 +1,6 @@
 import type { ArenaId } from '../../game/events';
 import type { VenueLike } from '../venue';
+import { HarborVenue } from './harbor';
 import { IslandVenue } from './island';
 
 /**
@@ -10,6 +11,8 @@ export function buildVenue(id: ArenaId, quality: 'low' | 'med' | 'high', arena: 
   switch (id) {
     case 'island':
       return new IslandVenue(quality, arena);
+    case 'harbor':
+      return new HarborVenue(quality, arena);
     default:
       // (the Grand Championship is fought in the indoor arena)
       return null;
