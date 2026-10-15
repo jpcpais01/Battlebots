@@ -25,7 +25,7 @@ export const RARITIES = [
  * left out of the garage and of random bots, and saved or online bots wearing one fall back to
  * the default part for that slot.
  */
-export const MAX_RARITY: Rarity = 0;
+export const MAX_RARITY: Rarity = 2;
 
 export interface Stats {
   maxHp: number;

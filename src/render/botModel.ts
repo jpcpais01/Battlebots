@@ -23,6 +23,7 @@ import {
   buildTorso,
   buildUpperArm,
   coreColor,
+  PB,
   type MatKey,
 } from './parts';
 import { RenderSettings } from './settings';
@@ -213,9 +214,8 @@ function orientHeld(obj: THREE.Object3D, a: THREE.Vector3, b: THREE.Vector3, hin
 }
 
 /**
- * Contact hulls by the armour they were built from. A hull only depends on its part's look and
- * rarity and is never changed once built, so robots wearing the same armour share one (building
- * one takes a few milliseconds; the garage rebuilds the robot on every change).
+ * Contact hulls by the armour they were built from. A hull only depends on its part's design and
+ * is never changed once built, so robots wearing the same armour share one (building one takes a few milliseconds; the garage rebuilds the robot on every change).
  */
 const hullCache = new Map<string, Hull>();
 function cachedHull(key: string, make: () => Hull) {
@@ -338,7 +338,6 @@ export class BotModel {
     this.paint = paint;
     this.size = size;
     const look = (slot: Slot) => ITEM_BY_ID.get(loadout[slot].id)!.look;
-    const rar = (slot: Slot) => loadout[slot].rarity;
     const sb = new SkinBuilder(botSurfaces(paint), STRETCHED);
     const sbAdd = sb.add.bind(sb);
     sb.add = (pb, bone, slot, part) => {
@@ -358,11 +357,15 @@ export class BotModel {
     sb.add(pelvisPB, B.Pelvis, 'legs', P.Torso);
     // contact hulls from the real armour (shoulder and hip axles belong to the limbs)
     const skipAxles = new Set<MatKey>(['joint']);
-    const torsoKey = `${look('chest')}/${rar('chest')}/${look('core')}/${rar('core')}`;
+    // (the core's front unit only: a reactor on the back can be wings, a banner or a halo, and its
+    // footprint would push the robot's own arms away from its sides)
+    const coreFront = new PB();
+    for (const e of corePB.entries) if (e.m.elements[14] > 0) coreFront.entries.push(e);
+    const torsoKey = `${look('chest')}/${look('core')}`;
     const shapes = {
-      torso: cachedHull(`torso ${torsoKey}`, () => new Hull(samplePB(corePB, undefined, samplePB(torsoPB, skipAxles)))),
-      head: cachedHull(`head ${look('head')}/${rar('head')}`, () => new Hull(samplePB(headPB), 0.025)),
-      pelvis: cachedHull(`pelvis ${look('legs')}/${rar('legs')}`, () => new Hull(samplePB(pelvisPB, skipAxles))),
+      torso: cachedHull(`torso ${torsoKey}`, () => new Hull(samplePB(coreFront, undefined, samplePB(torsoPB, skipAxles)))),
+      head: cachedHull(`head ${look('head')}`, () => new Hull(samplePB(headPB), 0.025)),
+      pelvis: cachedHull(`pelvis ${look('legs')}`, () => new Hull(samplePB(pelvisPB, skipAxles))),
     };
     const band = (pts: number[], lo: number, hi: number) => {
       const o: number[] = [];
