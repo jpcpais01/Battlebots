@@ -11,6 +11,36 @@ import { EnvProbe } from './envProbe';
 
 /** The key light's width for its soft shadows: a bank of stage lamps, in metres. */
 const KEY_SIZE = 1.6;
+/** How long one slice of up-front work (precompile, uploadTextures) may hold the main thread, in ms. */
+const SLICE = 24;
+
+/**
+ * Resolves after the next frame has been painted, so a loading screen updated before it shows.
+ * (A hidden tab gets no frames: a timer stands in so loading carries on in the background.)
+ */
+export function nextFrame() {
+  return new Promise<void>((ok) => {
+    let done = false;
+    const go = () => {
+      if (done) return;
+      done = true;
+      setTimeout(ok, 0);
+    };
+    requestAnimationFrame(go);
+    setTimeout(go, 150);
+  });
+}
+
+/** Collect what renderer.compile built. */
+function compileInto(into: Set<THREE.Material>, got: Iterable<THREE.Material> | undefined) {
+  if (got) for (const m of got) into.add(m);
+}
+
+/** What three keeps per program (not in its typings): is the driver done with it, and its uniforms (reading them finishes the link). */
+interface ProgramState {
+  isReady(): boolean;
+  getUniforms(): unknown;
+}
 
 export type Quality = 'low' | 'med' | 'high';
 
@@ -390,6 +420,124 @@ export class Stage {
       for (const o of culled) o.frustumCulled = true;
       for (const o of extras) o.removeFromParent();
     }
+  }
+
+  /** Draw that throwaway frame (see warmUp) right now, for everything under `roots`. */
+  warmNow(roots: THREE.Object3D[], extras: THREE.Object3D[] = []) {
+    this.warmUp(roots, extras);
+    this.warmFrame();
+  }
+
+  /**
+   * Build the shaders of everything under `roots` (children of the scene, or not in it yet), shown
+   * or hidden, for the lights and reflections the scene has right now (so set the place up as it
+   * will be seen first: the lights are part of every shader), without freezing the page. three
+   * hands them all to the driver, which builds them on its own threads where it can
+   * (KHR_parallel_shader_compile) while this checks each one off as it lands; where it can't, they
+   * are finished one by one, a slice of a frame at a time. `progress` gets the share done, and how
+   * many of how many.
+   */
+  async precompile(roots: THREE.Object3D[], progress: (k: number, done: number, of: number) => void = () => {}) {
+    const r = this.renderer;
+    const scene = this.scene;
+    const mats = new Set<THREE.Material>();
+    // One pass over the scene with just these (and the lights) in it: compiling a part of the
+    // scene on its own would count the lights inside it twice, and build shaders for the wrong set.
+    const holder = scene as { children: THREE.Object3D[] };
+    const all = holder.children;
+    const keep = new Set<THREE.Object3D>(roots);
+    holder.children = all.filter((o) => keep.has(o) || (o as { isLight?: boolean }).isLight);
+    try {
+      compileInto(mats, r.compile(scene, this.camera));
+    } finally {
+      holder.children = all;
+    }
+    // (things not in the scene yet, like a torn-off part, have no lights of their own)
+    for (const o of roots) if (!o.parent) compileInto(mats, r.compile(o, this.camera, scene));
+    await this.finishPrograms(mats, progress);
+  }
+
+  /** The same for the screen passes every frame ends with (bloom, ray-traced lighting, the final image). */
+  async precompilePasses(progress: (k: number, done: number, of: number) => void = () => {}) {
+    const passes = this.post?.passes() ?? [];
+    const r = this.renderer;
+    const quad = new THREE.Mesh<THREE.BufferGeometry, THREE.Material>(new THREE.PlaneGeometry(2, 2));
+    // (where a pass draws is part of its shader: the passes between draw into buffers)
+    const off = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
+    const was = r.getRenderTarget();
+    const mats = new Set<THREE.Material>();
+    try {
+      for (const p of passes) {
+        quad.material = p.material;
+        r.setRenderTarget(p.screen ? null : off);
+        compileInto(mats, r.compile(quad, this.camera, this.scene));
+      }
+    } finally {
+      r.setRenderTarget(was);
+      off.dispose();
+      quad.geometry.dispose();
+    }
+    await this.finishPrograms(mats, progress);
+  }
+
+  private async finishPrograms(mats: Set<THREE.Material>, progress: (k: number, done: number, of: number) => void) {
+    const r = this.renderer;
+    const gl = r.getContext();
+    const left = [...mats];
+    const of = left.length;
+    progress(of ? 0 : 1, 0, of);
+    // (a lost context never finishes anything: give up rather than wait forever)
+    const until = performance.now() + 30_000;
+    while (left.length && !gl.isContextLost() && performance.now() < until) {
+      const t0 = performance.now();
+      for (let i = left.length - 1; i >= 0 && performance.now() - t0 < SLICE; i--) {
+        const prog = (r.properties.get(left[i]) as { currentProgram?: ProgramState }).currentProgram;
+        if (prog && !prog.isReady()) continue;
+        prog?.getUniforms();
+        left.splice(i, 1);
+      }
+      progress(1 - left.length / of, of - left.length, of);
+      if (left.length) await nextFrame();
+    }
+  }
+
+  /**
+   * Upload every texture the materials under `roots` use (signs, crowds, decals, noise), a slice of
+   * a frame at a time, instead of all at once on the first frame that shows them.
+   */
+  async uploadTextures(roots: THREE.Object3D[], progress: (k: number) => void = () => {}) {
+    const found = new Set<THREE.Texture>();
+    const add = (v: unknown) => {
+      const t = v as { isTexture?: boolean; isRenderTargetTexture?: boolean; isDepthTexture?: boolean; image?: unknown; version?: number } | null;
+      if (t?.isTexture && !t.isRenderTargetTexture && !t.isDepthTexture && t.image && (t.version ?? 0) > 0) found.add(v as THREE.Texture);
+    };
+    const scan = (m: THREE.Material) => {
+      for (const v of Object.values(m)) add(v);
+      const u = (m as { uniforms?: Record<string, { value: unknown } | undefined> }).uniforms;
+      if (u)
+        for (const k in u) {
+          const v = u[k]?.value;
+          if (Array.isArray(v)) v.forEach(add);
+          else add(v);
+        }
+    };
+    for (const root of roots) {
+      root.traverse((o) => {
+        const m = (o as { material?: THREE.Material | THREE.Material[] }).material;
+        if (Array.isArray(m)) m.forEach(scan);
+        else if (m) scan(m);
+      });
+    }
+    const list = [...found];
+    const r = this.renderer;
+    let i = 0;
+    while (i < list.length) {
+      const t0 = performance.now();
+      while (i < list.length && performance.now() - t0 < SLICE) r.initTexture(list[i++]);
+      progress(i / list.length);
+      if (i < list.length) await nextFrame();
+    }
+    progress(1);
   }
 
   render() {

@@ -1,11 +1,14 @@
 import { BANK, renderImpact, type ImpactKind } from './impacts';
 import { Crowd, type CrowdState } from './crowd';
-import { Booth, nameKey, type Clip, type NameCut } from './booth';
-import { Voice } from './voice';
+import { Booth, nameKey, type Clip, type NameCut, type VoiceManifest } from './booth';
+import { fetchManifest, Voice } from './voice';
 import { renderWalkOn } from './walkOn';
 import { HomeSound, type HomeSoundKind } from './homeSound';
 
 const MASTER = 0.7;
+/** The rate sounds made before audio may start are made at (the usual output rate; any other resamples them on play). */
+const PRE_RATE = 48000;
+const idle = (fn: () => void, timeout = 500) => ('requestIdleCallback' in window ? window.requestIdleCallback(fn, { timeout }) : setTimeout(fn, 30));
 
 /**
  * Tiny synthesized sound kit (WebAudio, no assets): metallic impacts, whooshes,
@@ -31,6 +34,11 @@ export class Sfx {
   private hits: GainNode | null = null;
   private lastTink = 0;
   private bank: Partial<Record<ImpactKind, AudioBuffer[]>> = {};
+  /** The bank being rendered: what's left, how to make one, and when it's all there. */
+  private bankJob: { jobs: [ImpactKind, number][]; make: (job: [ImpactKind, number]) => void; done: Promise<void> } | null = null;
+  /** The chant's clips loading, and the commentary's line list (both fetched before audio starts, if preload ran). */
+  private chantJob: Promise<void> | null = null;
+  private manifest: Promise<VoiceManifest | null> | null = null;
   private lastPick: Partial<Record<ImpactKind, AudioBuffer>> = {};
   private voice: Voice | null = null;
   /** The crowd counting down (3, 2, 1, FIGHT), decoded once audio starts. */
@@ -162,7 +170,9 @@ export class Sfx {
     this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = this.noiseBuf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-    this.buildBank();
+    const bank = this.buildBank(ctx.sampleRate, (n) => ctx.createBuffer(1, n, ctx.sampleRate));
+    // whatever preload hasn't made yet: the first of each kind now, the first hit can come any moment
+    while (bank.jobs.length && bank.jobs[0][1] === 0) bank.make(bank.jobs.shift()!);
     this.crowd = new Crowd(ctx, this.master);
     this.crowd.ambience(this.crowdLevel);
     this.home = new HomeSound(ctx, this.master, this.noiseBuf);
@@ -171,8 +181,32 @@ export class Sfx {
     const voice = new Voice(ctx, this.out, this.commentary, (g) => crowd.duck(g));
     this.voice = voice;
     for (const [f, b] of this.userClips) voice.add(f, b);
-    void voice.manifest().then((m) => m && this.booth.setManifest(m));
-    this.loadChant();
+    void (this.manifest ??= fetchManifest()).then((m) => m && this.booth.setManifest(m));
+    // the hall's impulse response is heavy to build, so do it now in a quiet moment
+    // rather than on the first number of the countdown
+    idle(() => (this.chantBus ??= this.makeChantBus()), 2000);
+    void this.loadChant(ctx);
+  }
+
+  /**
+   * Everything the sound kit can make before audio is allowed to start (that takes a tap): the
+   * impact bank, the crowd's countdown chant and the commentary's list of lines. The first tap
+   * then only has to wire up the mixer. `progress` gets the share done (0..1).
+   */
+  preload(progress: (k: number) => void = () => {}): Promise<void> {
+    const OAC = window.OfflineAudioContext || (window as unknown as { webkitOfflineAudioContext?: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+    let maker: OfflineAudioContext;
+    try {
+      // (only makes buffers and decodes: buffers belong to no context, the live one plays them)
+      maker = new OAC(1, 1, PRE_RATE);
+    } catch {
+      progress(1);
+      return Promise.resolve();
+    }
+    this.manifest ??= fetchManifest();
+    const chant = this.loadChant(maker);
+    const bank = this.buildBank(PRE_RATE, (n) => maker.createBuffer(1, n, PRE_RATE), progress);
+    return Promise.all([chant, bank.done]).then(() => progress(1));
   }
 
   /**
@@ -210,22 +244,20 @@ export class Sfx {
     return bus;
   }
 
-  private loadChant() {
-    const ctx = this.ctx!;
-    // the hall's impulse response is heavy to build, so do it now in a quiet moment
-    // rather than on the first number of the countdown
-    const idle = (fn: () => void) =>
-      'requestIdleCallback' in window ? window.requestIdleCallback(fn, { timeout: 2000 }) : setTimeout(fn, 200);
-    idle(() => (this.chantBus ??= this.makeChantBus()));
-    for (const k of ['3', '2', '1', 'fight']) {
-      fetch(`/audio/count/${k}.mp3`)
-        .then((r) => (r.ok ? r.arrayBuffer() : null))
-        .then((b) => b && new Promise<AudioBuffer>((ok, no) => ctx.decodeAudioData(b, ok, no)))
-        .then((buf) => {
-          if (buf) this.chant[k] = buf;
-        })
-        .catch(() => {});
-    }
+  /** The crowd's countdown (3, 2, 1, FIGHT) clips, fetched and decoded once with `decoder`. */
+  private loadChant(decoder: BaseAudioContext) {
+    this.chantJob ??= Promise.all(
+      ['3', '2', '1', 'fight'].map((k) =>
+        fetch(`/audio/count/${k}.mp3`)
+          .then((r) => (r.ok ? r.arrayBuffer() : null))
+          .then((b) => b && new Promise<AudioBuffer>((ok, no) => decoder.decodeAudioData(b, ok, no)))
+          .then((buf) => {
+            if (buf) this.chant[k] = buf;
+          })
+          .catch(() => {}),
+      ),
+    ).then(() => {});
+    return this.chantJob;
   }
 
   /**
@@ -326,15 +358,15 @@ export class Sfx {
   }
 
   /**
-   * Render walk-on themes ahead of when they play: the player's as soon as audio starts, both
+   * Render walk-on themes ahead of when they play: the player's once the game has loaded, both
    * fighters' at the start of a fight. Each takes a second or two of a background thread.
    */
   primeWalkOn(...ids: string[]) {
-    const ctx = this.ctx;
-    if (!ctx) return;
+    // (before audio starts it renders at the usual rate: a theme is an offline render, no tap needed)
+    const rate = this.ctx?.sampleRate ?? PRE_RATE;
     for (const id of ids) {
       if (this.walkOns.has(id)) continue;
-      const p = this.walkOnQueue.then(() => renderWalkOn(id, ctx.sampleRate)).catch(() => null);
+      const p = this.walkOnQueue.then(() => renderWalkOn(id, rate)).catch(() => null);
       this.walkOns.set(id, p);
       this.walkOnQueue = p;
     }
@@ -415,30 +447,34 @@ export class Sfx {
   }
 
   /**
-   * Renders the impact bank: one of each kind right away, the remaining
-   * variations a few at a time in idle moments so the first tap stays snappy.
+   * Renders the impact bank (as `rate` buffers made by `create`) a few hits at a time in quiet
+   * moments, the first variation of each kind first. Started by preload, before audio may start,
+   * or at the latest by unlock; later calls get the same job.
    */
-  private buildBank() {
-    const ctx = this.ctx!;
+  private buildBank(rate: number, create: (length: number) => AudioBuffer, progress?: (k: number) => void) {
+    if (this.bankJob) return this.bankJob;
     const seed = (Math.random() * 1e6) | 0;
     const jobs: [ImpactKind, number][] = [];
     for (const k of Object.keys(BANK) as ImpactKind[]) for (let v = 0; v < BANK[k]; v++) jobs.push([k, v]);
     jobs.sort((a, b) => a[1] - b[1]);
+    const total = jobs.length;
     const make = ([k, v]: [ImpactKind, number]) => {
-      const data = renderImpact(k, seed + v * 131 + k.length, ctx.sampleRate);
-      const buf = ctx.createBuffer(1, data.length, ctx.sampleRate);
+      const data = renderImpact(k, seed + v * 131 + k.length, rate);
+      const buf = create(data.length);
       buf.getChannelData(0).set(data);
       (this.bank[k] ??= []).push(buf);
     };
-    while (jobs.length && jobs[0][1] === 0) make(jobs.shift()!);
-    const idle = (fn: () => void) =>
-      'requestIdleCallback' in window ? window.requestIdleCallback(fn, { timeout: 500 }) : setTimeout(fn, 30);
-    const step = () => {
-      const t0 = performance.now();
-      while (jobs.length && performance.now() - t0 < 8) make(jobs.shift()!);
-      if (jobs.length) idle(step);
-    };
-    idle(step);
+    const done = new Promise<void>((ok) => {
+      const step = () => {
+        const t0 = performance.now();
+        while (jobs.length && performance.now() - t0 < 8) make(jobs.shift()!);
+        progress?.(1 - jobs.length / total);
+        if (jobs.length) idle(step);
+        else ok();
+      };
+      idle(step);
+    });
+    return (this.bankJob = { jobs, make, done });
   }
 
   /** Plays a random variation of an impact (never the same one twice in a row). */

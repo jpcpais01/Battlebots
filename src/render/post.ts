@@ -224,6 +224,12 @@ export class PostFX {
     return this.composite;
   }
 
+  /** Every pass's material, and whether it draws to the screen (the others draw into buffers), to build up front. */
+  passes(): { material: THREE.Material; screen: boolean }[] {
+    const off = [this.prefilter, this.down, this.up, ...(this.rt?.materials ?? [])];
+    return [...off.map((material) => ({ material, screen: false })), { material: this.composite, screen: true }];
+  }
+
   /** The ray-traced lighting's own passes (their own row in the perf overlay). */
   isRT(m: THREE.Material) {
     return !!this.rt?.materials.has(m);
