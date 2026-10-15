@@ -446,7 +446,7 @@ export class App {
       }, tr);
       const sync = () => {
         const on = isFullscreen();
-        fs.innerHTML = on ? ICON.shrink : ICON.expand;
+        fs.innerHTML = on ? ICON.shrink : ICON.fullscreen;
         fs.title = on ? 'Exit fullscreen' : 'Fullscreen';
         fs.setAttribute('aria-label', fs.title);
       };
@@ -784,7 +784,7 @@ export class App {
     d.garageTarget.set(f[0] * z, f[1] * z, f[2] * z);
     d.garageDist = f[3] * z;
     if (this.tab === 'emotes' && this.emoteKind === 'finish') this.game.sparring(true);
-    this.garageEls!.view.innerHTML = slot ? `${ICON.whole}<span>Whole bot</span>` : `${ICON.zoom}<span>Inspect ${SLOT_LABEL[this.slot]}</span>`;
+    this.garageEls!.view.innerHTML = slot ? `${ICON.expand}<span>Whole bot</span>` : `${ICON.zoom}<span>Inspect ${SLOT_LABEL[this.slot]}</span>`;
   }
 
   /** Picture of the real part an item fits, at a rarity, in the player's paint. */

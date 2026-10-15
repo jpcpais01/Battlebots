@@ -197,10 +197,41 @@ export function coast(x: number, z: number) {
   // the river mouth widens into the sea
   const r = river(x, z);
   if (r.s > RIVER_LEN - 220) c -= smoothstep(r.w * 2.5, 0, r.d) * 30 * smoothstep(RIVER_LEN - 220, RIVER_LEN - 60, r.s);
+  c = delta(x, z, c);
   // the island
   const di = Math.hypot(x - ISLAND.x, z - ISLAND.z);
   const ci = ISLAND.r - di + fbm(x * 0.02, z * 0.02, 3) * 22 + 30 * gauss((x - ISLAND.x - 70) / 60, (z - ISLAND.z + 30) / 40);
   return Math.max(c, ci);
+}
+
+/** Where the river meets the sea, and the way it's flowing there. */
+export const MOUTH = { x: -256, z: 336, dx: 0.075, dz: 0.997 };
+/**
+ * The delta: the silt the river carries out fans into a wide shallow shoal off its mouth, cut by
+ * the channel, with low sandbars either side of it and a little one further out. Only ever raises
+ * the sea floor (it works on `coast`, so the bars are beaches like any other).
+ */
+function delta(x: number, z: number, c: number) {
+  const ax = x - MOUTH.x, az = z - MOUTH.z;
+  const along = ax * MOUTH.dx + az * MOUTH.dz;
+  if (along < -60 || along > 360) return c;
+  const across = -ax * MOUTH.dz + az * MOUTH.dx + noise(along * 0.02, 4.4) * 12;
+  // a rounded lobe, ragged at its rim, reaching a few hundred metres out and widening as it goes
+  const u = Math.max(0, along) / 320, v = across / (90 + Math.max(0, along) * 0.6);
+  const r = Math.sqrt(u * u + v * v) + fbm(x * 0.008, z * 0.008, 2) * 0.2;
+  const fan = smoothstep(1.15, 0.6, r) * smoothstep(-60, 0, along);
+  if (fan <= 0) return c;
+  // the shoal shelving gently from a metre or so at the mouth to the open sea's depth at its rim (the
+  // sea floor is about 0.22 of `c`), the channel a trough down its middle that fills in as it runs out
+  const shoal = -5 - 105 * r * r - 18 * Math.exp(-(across * across) / 700) * (1 - smoothstep(0.3, 0.8, u));
+  // sandbars just breaking the surface
+  const bar = (a0: number, s0: number, la: number, wa: number) => {
+    const p = (along - a0) / la, q = (across - s0) / wa;
+    return Math.exp(-p * p - q * q);
+  };
+  const bars = Math.max(bar(75, -88, 75, 24), bar(120, 84, 62, 21), bar(185, 10, 42, 17));
+  const sand = -12 + 22 * bars + fbm(x * 0.03, z * 0.03, 2) * 3;
+  return Math.max(mix(c, Math.max(c, shoal), fan), mix(c, Math.max(c, sand), smoothstep(0.03, 0.3, bars) * smoothstep(-60, 0, along)));
 }
 
 /** Inside the island's area (its own detailed terrain patch). */
@@ -424,6 +455,22 @@ export function inPark(x: number, z: number, pad = 0) {
   for (const [x0, z0, x1, z1] of PARKS) if (x > x0 - pad && x < x1 + pad && z > z0 - pad && z < z1 + pad) return true;
   return false;
 }
+
+/** The harbour district: container yards and piers instead of city blocks. */
+export const DOCKS = { x0: 150, z0: 30, x1: 400, z1: 135 };
+/** The lighthouse and the wind farm. */
+export const LIGHTHOUSE = { x: 432, z: 352 };
+export const TURBINES: [number, number][] = [
+  [-560, -470],
+  [-610, -420],
+  [-655, -370],
+  [-700, -320],
+  [-520, -520],
+  [-470, -560],
+  [-880, -120],
+  [-930, -60],
+  [-980, 0],
+];
 
 // ------------------------------------------------------------------ street grid
 /** Street spacing and the grid's origin; every third street is a wide avenue. */

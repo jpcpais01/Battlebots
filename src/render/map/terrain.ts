@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { BLOCK, CITY_Y, GRID_X0, GRID_Z0, clamp, coast, cityWeight, fbm, height, inPark, noise, smoothstep, river, AVENUE, STREET } from './layout';
+import { clamp, coast, cityWeight, fbm, height, inPark, noise, smoothstep, river, AVENUE, STREET } from './layout';
 import { farm, forest, type Plan } from './plan';
-import { MAP_GLSL, MAP_OUT, SHADOW_HALF, SUN, SUN_TAN, mapMaterial, type MapUniforms } from './kit';
+import { AA_GLSL, MAP_GLSL, MAP_OUT, SHADOW_HALF, SUN, SUN_TAN, mapMaterial, type MapUniforms } from './kit';
+import { GRID_UNIFORM, ROAD_GLSL, streetUniforms } from './roads';
 
 /**
  * The ground: a height grid sampled once from the layout, turned into terrain chunks (with the
@@ -48,7 +49,6 @@ const C = {
   rock: new THREE.Color(0x9a948a),
   cliff: new THREE.Color(0x7f7a73),
   snow: new THREE.Color(0xf4f2ef),
-  city: new THREE.Color(0xa69c8f),
   farm: new THREE.Color(0xa9b062),
   alpine: new THREE.Color(0x8f9a62),
 };
@@ -90,18 +90,20 @@ function ground(x: number, z: number, h: number, nY: number, curv: number, out: 
   // river banks
   const r = river(x, z);
   out.lerp(C.bank, smoothstep(r.w + 30, r.w + 4, r.d) * 0.5 * (1 - beach));
-  // the city's paving (the shader draws its streets)
-  out.lerp(C.city, smoothstep(0.35, 0.75, city) * (1 - park) * smoothstep(14, 30, c));
   return { city: smoothstep(0.35, 0.75, city) * smoothstep(14, 30, c), farm: fm, park: park * smoothstep(0.3, 0.7, city) };
 }
 
 // ------------------------------------------------------------------ material
 function terrainMaterial(u: MapUniforms) {
+  const st = streetUniforms();
   return mapMaterial(u, {
     uniforms: {
-      uGrid: { value: new THREE.Vector4(GRID_X0, GRID_Z0, BLOCK, CITY_Y) },
+      uGrid: { value: GRID_UNIFORM() },
       uStreet: { value: new THREE.Vector2(STREET * 0.5, AVENUE * 0.5) },
+      uLines: st.uLines,
+      uLineK: st.uLineK,
     },
+    defines: { LINES: st.count },
     vertexShader: /* glsl */ `
       attribute vec3 color;
       attribute vec3 aMask;
@@ -120,17 +122,31 @@ function terrainMaterial(u: MapUniforms) {
       }`,
     fragmentShader: /* glsl */ `
       ${MAP_GLSL}
+      ${AA_GLSL}
+      ${ROAD_GLSL}
       uniform vec4 uGrid;
       uniform vec2 uStreet;
+      uniform vec4 uLines[LINES];
+      uniform vec4 uLineK;
       varying vec3 vCol, vN, vWorld, vMask;
       #include <fog_pars_fragment>
 
-      // distance to the nearest street centre line along one axis, and that street's half width
-      vec2 street(float p, float o) {
-        float k = floor((p - o) / uGrid.z + 0.5);
-        float d = abs(p - (o + k * uGrid.z));
-        float hw = mod(k, 3.0) == 0.0 ? uStreet.y : uStreet.x;
-        return vec2(d, hw);
+      // the grid line nearest p (q along it): offset from it, its half width (0: no street here),
+      // how far q is past its ends, and avenue + 2 * neon colour
+      vec4 gridLine(float p, float q, float origin, float k0, float base, float count) {
+        float k = floor((p - origin) / uGrid.z + 0.5);
+        float o = p - (origin + k * uGrid.z);
+        float i = k - k0;
+        if (i < 0.0 || i > count - 0.5) return vec4(o, 0.0, 1e4, 0.0);
+        vec4 L = uLines[int(base + i + 0.5)];
+        if (L.y <= L.x) return vec4(o, 0.0, 1e4, 0.0);
+        return vec4(o, L.z > 0.5 ? uStreet.y : uStreet.x, max(L.x - q, q - L.y), L.z + 2.0 * L.w);
+      }
+      // signed distance to that street's carriageway (a long box, square-ended)
+      float lineSD(vec4 g) {
+        if (g.y <= 0.0) return 1e4;
+        vec2 q = vec2(abs(g.x) - g.y, g.z);
+        return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
       }
 
       void main() {
@@ -138,7 +154,9 @@ function terrainMaterial(u: MapUniforms) {
         vec3 w = vWorld;
         vec4 nz = texture2D(uNoise, w.xz / 37.0);
         vec4 nz2 = texture2D(uNoise, w.xz / 420.0);
-        float px = length(fwidth(w.xz));
+        vec2 pxy = fwidth(w.xz);
+        float px = length(pxy);
+        float mx = fwidth(vMask.x) + 1e-4, mz = fwidth(vMask.z) + 1e-4;
         // grain and mottling everywhere
         base *= 0.88 + 0.16 * nz.r + 0.12 * (nz2.g - 0.5);
         vec3 glow = vec3(0.0);
@@ -158,35 +176,65 @@ function terrainMaterial(u: MapUniforms) {
           base = mix(base, crop, vMask.y);
         }
 
-        // the city's streets: asphalt, kerbs and pavements, zebra crossings, lamps along them
-        if (vMask.x > 0.02) {
-          vec2 sx = street(w.x, uGrid.x);
-          vec2 sz = street(w.z, uGrid.y);
-          float aa = px + 0.3;
-          float onX = 1.0 - smoothstep(sx.y - aa, sx.y + aa, sx.x);
-          float onZ = 1.0 - smoothstep(sz.y - aa, sz.y + aa, sz.x);
-          float walkX = 1.0 - smoothstep(sx.y + 3.0 - aa, sx.y + 3.0 + aa, sx.x);
-          float walkZ = 1.0 - smoothstep(sz.y + 3.0 - aa, sz.y + 3.0 + aa, sz.x);
-          vec3 c = base;
-          // pavements
-          c = mix(c, vec3(0.62, 0.58, 0.52) * (0.92 + 0.12 * nz.r), max(walkX, walkZ) * (1.0 - vMask.z));
-          float road = max(onX, onZ);
-          vec3 tar = vec3(0.075, 0.078, 0.09) * (0.9 + 0.2 * nz.r);
-          // lane lines down the middle, dashed, faint
-          float lane = (1.0 - smoothstep(0.15, 0.35 + px, onZ > onX ? sz.x : sx.x)) * step(0.5, fract((onZ > onX ? w.x : w.z) / 9.0));
-          tar = mix(tar, vec3(0.55, 0.5, 0.36), lane * 0.6 * step(px, 1.2));
-          // zebra crossings just outside each junction
-          float jx = sx.x - sx.y, jz = sz.x - sz.y;
-          float zebra = step(0.5, fract((onX > onZ ? w.z : w.x) / 1.6));
-          float nearJ = onX > onZ ? step(0.0, jz) * step(jz, 4.0) : step(0.0, jx) * step(jx, 4.0);
-          tar = mix(tar, vec3(0.6, 0.6, 0.58), zebra * nearJ * step(px, 0.9) * 0.8);
-          c = mix(c, tar, road);
-          base = mix(base, c, vMask.x);
-          // street lamps at dusk: warm pools of light along the kerbs
-          float lampAlong = onZ > 0.5 || walkZ > 0.5 ? w.x : w.z;
-          float lampAcross = min(abs(sx.x - sx.y - 1.5), abs(sz.x - sz.y - 1.5));
-          float pool = (1.0 - smoothstep(0.0, 3.5, abs(fract(lampAlong / 22.0) - 0.5) * 22.0)) * (1.0 - smoothstep(0.0, 4.0, lampAcross));
-          glow += vec3(1.0, 0.62, 0.3) * pool * 0.5 * uDusk * vMask.x * (1.0 - vMask.z);
+        // the city: paved to a crisp edge (a line of kerbstones where it meets the grass), parks
+        // hedged round, and the street grid
+        float cityIn = (vMask.x - 0.5 + 0.08 * (nz2.b - 0.5)) / mx * px;
+        float park = clamp((vMask.z - 0.5) / mz + 0.5, 0.0, 1.0);
+        if (vMask.x > 0.3) {
+          vec3 paving = vec3(0.38, 0.33, 0.27) * (0.86 + 0.2 * nz.r + 0.1 * (nz2.g - 0.5));
+          float paved = fband(cityIn, 0.0, 1e4, px) * (1.0 - park);
+          base = mix(base, paving, paved);
+          base = mix(base, R_KERB * 0.9, fband(cityIn, 0.0, 0.35, px) * (1.0 - park));
+          base = mix(base, vec3(0.1, 0.2, 0.05), fband((vMask.z - 0.5) / mz * px, -0.6, 0.0, px) * step(0.3, vMask.x));
+        }
+        vec4 gx = gridLine(w.x, w.z, uGrid.x, uLineK.x, 0.0, uLineK.z);
+        vec4 gz = gridLine(w.z, w.x, uGrid.y, uLineK.y, uLineK.z, uLineK.w);
+        float d1 = lineSD(gx), d2 = lineSD(gz);
+        // (streets stay on the city's plain, never down the river banks or onto the beach)
+        if (min(d1, d2) < 3.5 && w.y > uGrid.w - 0.9) {
+          // the carriageways, their kerbs rounded at the corners
+          const float R = 4.0;
+          float sd = max(R, min(d1, d2)) - length(max(vec2(R - d1, R - d2), 0.0));
+          bool onX = d1 < d2;
+          vec4 g = onX ? gx : gz, x2 = onX ? gz : gx;
+          float o = g.x, s = onX ? w.z : w.x, a = abs(o);
+          vec2 pa = onX ? pxy : pxy.yx;
+          bool av = mod(g.w, 2.0) > 0.5;
+          float hw = g.y;
+          vec3 lg = vec3(0.0);
+          vec3 road = rCityLanes(av, o, s, pa, nz, floor(g.w / 2.0), lg);
+          float e = abs(x2.x) - x2.y;
+          if (x2.y > 0.0 && x2.z <= 0.0) {
+            if (e < 0.0 && a < hw) {
+              // in the junction: plain tarmac, and where two avenues cross, a scramble crossing
+              road = R_CITY_TAR * (0.88 + 0.24 * nz.r);
+              lg = vec3(0.0);
+              if (av && mod(x2.w, 2.0) > 0.5) {
+                float u = abs(gx.x), v = abs(gz.x);
+                float diag = fband(u - v, -1.6, 1.6, px) * fpulse((u + v) / 1.3, 0.5, px * 1.5 / 1.3) * step(2.5, u + v);
+                road = mix(road, R_WHITE * 0.92, diag);
+              }
+            } else if (e >= 0.0) {
+              // zebra crossings just past the junction, stop lines behind them
+              float lanes = av ? fband(a, 1.7, hw - 0.2, pa.x) : fband(a, -1.0, hw - 0.2, pa.x);
+              float zebra = fband(e, 0.8, 3.8, pa.y) * fpulse(o / 1.1 + 0.25, 0.5, pa.x / 1.1);
+              float stop = fband(e, 4.3, 4.75, pa.y) * step(0.0, (onX ? 1.0 : -1.0) * o * x2.x);
+              road = mix(road, R_WHITE * 0.9, (zebra + stop) * lanes);
+            }
+          }
+          vec3 c = mix(base, rPave(w.xz, nz, px), fband(min(d1, d2), -1e4, 3.0, px) * (1.0 - park));
+          c = mix(c, road * (1.0 - 0.3 * fband(sd, -0.35, 0.0, px)), fband(sd, -1e4, 0.0, px));
+          c = mix(c, R_KERB, fband(sd, 0.0, 0.3, px));
+          base = c;
+          glow += lg * fband(sd, -1e4, 0.0, px);
+          // street lamps: warm pools of light along the kerbs (sodium, the odd white one), where
+          // the lamps stand (every 22 m, 1.5 m out from the kerb)
+          float k22 = floor((s - 11.0) / 22.0 + 0.5);
+          float ds = s - (k22 * 22.0 + 11.0);
+          float side = o < 0.0 ? -1.0 : 1.0;
+          vec2 lp = onX ? vec2(w.x - o + side * (hw + 1.5), k22 * 22.0 + 11.0) : vec2(k22 * 22.0 + 11.0, w.z - o + side * (hw + 1.5));
+          vec3 lc = fract(sin(dot(lp, vec2(12.9, 78.2))) * 43758.5) < 0.3 ? vec3(0.8, 0.9, 1.0) : vec3(1.0, 0.62, 0.3);
+          glow += lc * rPool(ds, a - hw - 1.5, 3.2) * 0.4 * rLampsOn() * (1.0 - park) * step(g.z, 0.0);
         }
 
         // wet sand at the water's edge
