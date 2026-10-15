@@ -44,7 +44,7 @@ import { MAX_REPLAYS, ReplayShelf, isSaved, outdated, type SavedReplay } from '.
 import { Account, PASSWORD_MIN, USERNAME_MAX, type SyncState } from '../net/account';
 import { WALK_ONS, walkOnFor } from '../audio/walkOn';
 import { EVENT_BY_ID, defenceOf, progressOf, rival, type EventDef } from '../game/events';
-import { adoptWorn, fitOwned, isNewCareer, markSeen, settle, type Reward } from '../game/career';
+import { adoptWorn, credits, fitOwned, isNewCareer, markSeen, owns, settle, stock, type Reward } from '../game/career';
 import { equipped } from '../game/catalogue';
 import { coins, marketView, rewardView, trophyView, type CareerHost } from './careerUi';
 import { MapScreen } from './mapScreen';
@@ -236,11 +236,15 @@ export class App {
       },
       equip: (slot, id) => {
         this.player.loadout[slot] = equip(ITEM_BY_ID.get(id)!);
+        if (markSeen(this.record.career, [id])) saveRecord(this.record);
         this.commitPlayer();
         this.game.garagePulse();
       },
       previewMove: (id) => this.game.previewMove(id),
       redraw: () => this.refreshGarage(),
+      // Rare and Epic parts are earned in career mode: until then they can be tried on, not fitted
+      locked: (item) => !owns(this.record.career, item),
+      lockText: (item) => this.lockText(item),
     });
     this.hud.onPause = () => this.pause();
     this.hud.onCoach = (kind) => {
@@ -2087,6 +2091,13 @@ export class App {
     saveRecord(this.record);
     this.map.refresh();
     return { e, round: r.round, title, reward };
+  }
+
+  /** How to get a part the player doesn't have yet. */
+  private lockText(item: ItemDef) {
+    const o = stock(this.record.career, this.record.events).find((x) => x.item.id === item.id && !x.sold);
+    if (o) return o.locked ? `In the Parts Market now: ${o.locked.toLowerCase()} to buy it` : `In the Parts Market now for ${credits(o.price)} credits`;
+    return 'Win it in a career title crate, take it off a beaten rival, or look for it at the Parts Market';
   }
 
   /** Fit a part the player has (from the results or the market) and save the bot. */

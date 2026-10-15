@@ -6,7 +6,7 @@ import { COMPANY_BY_ID, ITEMS, MAX_RARITY, itemsForSlot, type CompanyId, type Eq
  */
 
 /** An item's own tier. */
-export const rarityOf = (item: ItemDef): Rarity => (item as { tier?: Rarity }).tier ?? 0;
+export const rarityOf = (item: ItemDef): Rarity => item.tier;
 
 /** How a part sits in a loadout. */
 export const equipped = (item: ItemDef): Equipped => ({ id: item.id, rarity: rarityOf(item) });
