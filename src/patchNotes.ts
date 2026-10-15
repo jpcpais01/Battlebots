@@ -17,8 +17,19 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 15:00",
+    title: "Summer beach",
+    notes: [
+      "The robot dog is rebuilt from scratch, with proper legs: it trots after its owner, gallops off, splashes in the surf, sniffs around and shakes itself dry.",
+      "New boats out at sea: sailing sloops, a motor yacht, a catamaran and a fishing boat, plus a paddleboarder and a windsurfer.",
+      "Brighter summer day at the beach: bluer sky, turquoise water and big layered mountains on the horizon.",
+      "The crab scuttles properly, the cooler opens like a real one, the lounger next to yours is fixed, and the book no longer hides your phone.",
+    ],
+  },
+  {
+    hour: "2026-10-15 15:00",
     title: "Steady arms near the head",
     notes: [
+      "The beach is full of real game bots now: sunbathing, chatting, swimming, playing volleyball and riding boards, with a new mix every visit.",
       "Fists and forearms no longer snap between positions near the head: guards, blocks and the coconut drink on the beach now move smoothly.",
       "Arms slide cleanly over armour edges instead of catching on them and jumping sideways.",
       "A forearm held across the face no longer spins or flicks.",
