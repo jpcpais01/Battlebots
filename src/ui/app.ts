@@ -9,6 +9,7 @@ import type { Fighter } from '../sim/fighter';
 import type { Match } from '../sim/match';
 import {
   computeBuild,
+  equip,
   partTint,
   ITEM_BY_ID,
   MAX_RARITY,
@@ -234,7 +235,7 @@ export class App {
         this.game.showBot(spec ?? this.player);
       },
       equip: (slot, id) => {
-        this.player.loadout[slot].id = id;
+        this.player.loadout[slot] = equip(ITEM_BY_ID.get(id)!);
         this.commitPlayer();
         this.game.garagePulse();
       },
@@ -345,7 +346,7 @@ export class App {
       () => this.game.prefetch(),
     ];
     // (drawn with the paint and parts on the bot now: a change later redraws only what it touches)
-    for (const slot of SLOTS) for (const item of itemsForSlot(slot)) jobs.push(() => void this.thumb(item, this.player.loadout[slot].rarity));
+    for (const slot of SLOTS) for (const item of itemsForSlot(slot)) jobs.push(() => void this.thumb(item, item.tier));
     const next = () => {
       const t0 = performance.now();
       // one or two at a time: a part's picture is a render and a PNG
@@ -576,7 +577,7 @@ export class App {
       const eq = p.loadout[slot];
       const item = ITEM_BY_ID.get(eq.id)!;
       const src = this.thumb(item, eq.rarity);
-      return `<button class="tile" data-slot="${slot}" style="--rc:${partTint(item, eq.rarity)};--d:${(0.15 + k * 0.04).toFixed(2)}s" title="${esc(SLOT_LABEL[slot])}: ${esc(item.name)}">${src ? `<img src="${src}" alt="">` : SLOT_ICON[slot]}</button>`;
+      return `<button class="tile" data-slot="${slot}" style="--rc:${partTint(item)};--d:${(0.15 + k * 0.04).toFixed(2)}s" title="${esc(SLOT_LABEL[slot])}: ${esc(item.name)}">${src ? `<img src="${src}" alt="">` : SLOT_ICON[slot]}</button>`;
     }).join('');
     card.innerHTML = `<div class="hero-kicker"><span class="kicker">Your bot</span><b>Power ${b.rating}</b></div>
       <button class="hero-name">${esc(p.name)}</button>
@@ -863,7 +864,7 @@ export class App {
           this.refreshGarage();
         }
       }, g.rail);
-      t.style.setProperty('--rc', partTint(item, eq.rarity));
+      t.style.setProperty('--rc', partTint(item));
       if (this.tab !== 'part') t.classList.remove('on');
     }
     const picked = (p.emotes?.win.length ?? 0) + (p.emotes?.taunt.length ?? 0) + (p.emotes?.finish?.length ?? 0) + (p.emotes?.entrance?.length ?? 0) + (p.walkOn ? 1 : 0);
@@ -896,26 +897,16 @@ export class App {
       this.prewarmThumbs();
       return;
     }
-    // one tier in play: no rarity picker, no rarity label
-    g.rar.className = MAX_RARITY ? 'rarities' : 'rarities none';
+    // a part is made at one rarity: nothing to pick, the maker tabs show every tier
+    g.rar.className = 'rarities none';
 
     const eq = p.loadout[this.slot];
     const cur = ITEM_BY_ID.get(eq.id)!;
-    g.title.innerHTML = `<b>${SLOT_LABEL[this.slot]}</b><span>Fitted: ${esc(cur.name)}${MAX_RARITY ? ` · <i style="color:${RARITIES[eq.rarity].color}">${RARITIES[eq.rarity].name}</i>` : ''}</span>`;
+    g.title.innerHTML = `<b>${SLOT_LABEL[this.slot]}</b><span>Fitted: ${esc(cur.name)}${MAX_RARITY ? ` · <i style="color:${RARITIES[cur.tier].color}">${RARITIES[cur.tier].name}</i>` : ''}</span>`;
     if (this.focus) this.setFocus(this.slot);
     else this.setFocus(null);
 
     g.rar.innerHTML = '';
-    if (MAX_RARITY) RARITIES.slice(0, MAX_RARITY + 1).forEach((r, i) => {
-      const b = button(`rar${i === eq.rarity ? ' on' : ''}`, r.name, () => {
-        if (eq.rarity === i) return;
-        this.tap();
-        eq.rarity = i as Rarity;
-        this.commitPlayer();
-        this.game.garagePulse();
-      }, g.rar);
-      b.style.setProperty('--rc', r.color);
-    });
 
     this.parts.render(g.items, this.slot);
     this.prewarmThumbs();
@@ -1204,7 +1195,7 @@ export class App {
   private prewarmThumbs() {
     if (this.prewarm) return;
     const todo: [ItemDef, Rarity][] = [];
-    for (const slot of SLOTS) for (const item of itemsForSlot(slot)) todo.push([item, this.player.loadout[slot].rarity]);
+    for (const slot of SLOTS) for (const item of itemsForSlot(slot)) todo.push([item, item.tier]);
     const idle = (cb: () => void) => ((window as { requestIdleCallback?: (f: () => void) => void }).requestIdleCallback ?? ((f: () => void) => setTimeout(f, 60)))(cb);
     const step = () => {
       const next = todo.shift();

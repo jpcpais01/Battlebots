@@ -3,9 +3,12 @@ import {
   COMPANIES,
   COMPANY_BY_ID,
   computeBuild,
+  equip,
   formatPassive,
   ITEM_BY_ID,
   itemsForSlot,
+  MAX_RARITY,
+  RARITIES,
   scaledStat,
   setsOf,
   SLOTS,
@@ -35,6 +38,12 @@ export interface PartsHost {
   previewMove(id: MoveId): void;
   /** Redraw the garage around the menu (title, rail, diagnostics). */
   redraw(): void;
+  /**
+   * Parts the player doesn't own yet (none when missing). A locked part can be tried on but not
+   * fitted; `lockText` says how to get it.
+   */
+  locked?(item: ItemDef): boolean;
+  lockText?(item: ItemDef): string;
 }
 
 /** A maker's logo, or its initial while a new maker has no logo drawn yet. */
@@ -67,7 +76,7 @@ export class PartsMenu {
     const t = this.trial;
     if (!t) return null;
     const p = this.host.player();
-    return { ...p.loadout, [t.slot]: { id: t.id, rarity: p.loadout[t.slot].rarity } };
+    return { ...p.loadout, [t.slot]: equip(ITEM_BY_ID.get(t.id)!) };
   }
 
   /** Forget the part on trial (the app puts the saved bot back on the lift). */
@@ -101,8 +110,12 @@ export class PartsMenu {
     if (watch && item.ability) setTimeout(() => this.host.previewMove(item.ability!), 220);
   }
 
+  private isLocked(item: ItemDef) {
+    return !!this.host.locked?.(item) && this.host.player().loadout[item.slot].id !== item.id;
+  }
+
   private fit(slot: Slot, item: ItemDef) {
-    if (this.host.player().loadout[slot].id === item.id) return;
+    if (this.host.player().loadout[slot].id === item.id || this.isLocked(item)) return;
     this.host.tap('select');
     this.trial = null;
     this.host.equip(slot, item.id);
@@ -207,17 +220,20 @@ export class PartsMenu {
     for (const item of m.items) {
       const on = item.id === cur.id;
       const fit = item.id === eq.id;
-      const src = this.host.thumb(item, eq.rarity);
+      const lock = this.isLocked(item);
+      const src = this.host.thumb(item, item.tier);
       const pic = src ? `<img src="${src}" alt="">` : (item.ability && ABILITY_ICON[item.ability]) || SLOT_ICON[item.slot];
-      const delta = fit ? 0 : computeBuild({ ...p.loadout, [slot]: { id: item.id, rarity: eq.rarity } }).rating - rating;
+      const delta = fit ? 0 : computeBuild({ ...p.loadout, [slot]: equip(item) }).rating - rating;
       const badge = fit ? `<span class="fit">${ICON.check}</span>` : delta ? `<span class="dl${delta > 0 ? ' up' : ' down'}">${delta > 0 ? '+' : '−'}${Math.abs(delta)}</span>` : '';
+      const rar = RARITIES[item.tier];
       const t = button(
-        `pm-tile${on ? ' on' : ''}${fit ? ' fitted' : ''}`,
-        `<div class="pic">${pic}</div><b>${esc(item.name)}</b>${badge}`,
+        `pm-tile r${item.tier}${on ? ' on' : ''}${fit ? ' fitted' : ''}${lock ? ' locked' : ''}`,
+        `<div class="pic">${pic}${lock ? `<span class="lk">${ICON.lock}</span>` : ''}</div><b>${esc(item.name)}</b>${MAX_RARITY ? `<i class="rr">${rar.name}</i>` : ''}${badge}`,
         () => (on ? this.fit(slot, item) : this.pick(slot, item)),
         tiles,
       );
-      t.title = fit ? `${item.name} (fitted)` : on ? `Tap again to fit ${item.name}` : item.name;
+      t.style.setProperty('--rc', rar.color);
+      t.title = `${item.name}${MAX_RARITY ? ` (${rar.name})` : ''}${fit ? ' · fitted' : lock ? ' · locked' : on ? ' · tap again to fit' : ''}`;
     }
     tiles.scrollTop = keepTiles;
 
@@ -227,11 +243,15 @@ export class PartsMenu {
   /** The highlighted part in full: what it does, and what it changes against the fitted one. */
   private detail(box: HTMLElement, slot: Slot, item: ItemDef, fitted: ItemDef, rating: number) {
     const p = this.host.player();
-    const r = p.loadout[slot].rarity;
+    const r = item.tier;
     const isFit = item.id === fitted.id;
-    const delta = isFit ? 0 : computeBuild({ ...p.loadout, [slot]: { id: item.id, rarity: r } }).rating - rating;
+    const delta = isFit ? 0 : computeBuild({ ...p.loadout, [slot]: equip(item) }).rating - rating;
 
     const head = el('div', 'dt-head', `<b>${esc(item.name)}</b>`, box);
+    if (MAX_RARITY) {
+      const chip = el('span', `dt-rar r${r}`, RARITIES[r].name, head);
+      chip.style.setProperty('--rc', RARITIES[r].color);
+    }
     if (isFit) el('span', 'dt-badge fit', `${ICON.check}Fitted`, head);
     else if (delta) el('span', `dt-badge ${delta > 0 ? 'up' : 'down'}`, `${delta > 0 ? '+' : '−'}${Math.abs(delta)} Power`, head);
     el('div', 'dt-tag', esc(item.tagline), box);
@@ -241,7 +261,7 @@ export class PartsMenu {
     const rows = keys
       .map((k) => {
         const v = scaledStat(item.stats[k] ?? 0, r);
-        const f = scaledStat(fitted.stats[k] ?? 0, r);
+        const f = scaledStat(fitted.stats[k] ?? 0, fitted.tier);
         const val = v ? `${v > 0 ? '+' : '−'}${amount(k, v).text}` : '—';
         const d = amount(k, v - f);
         const cmp = isFit || !d.n ? '' : `<i>${v > f ? '▲' : '▼'} ${d.text}</i>`;
@@ -274,7 +294,7 @@ export class PartsMenu {
     // diesel: the parts only run on a bot built entirely from them
     const co = COMPANY_BY_ID.get(item.maker)!;
     if (co.needsFull) {
-      const lo = { ...p.loadout, [slot]: { id: item.id, rarity: r } };
+      const lo = { ...p.loadout, [slot]: equip(item) };
       const n = SLOTS.filter((sl) => ITEM_BY_ID.get(lo[sl].id)?.maker === co.id).length;
       const runs = n === SLOTS.length;
       el(
@@ -289,7 +309,10 @@ export class PartsMenu {
 
     const foot = el('div', 'dt-foot', '', box);
     if (isFit) el('div', 'dt-on', `${ICON.check}<span>Fitted to your bot</span>`, foot);
-    else {
+    else if (this.isLocked(item)) {
+      el('div', 'dt-lock', `${ICON.lock}<span>${esc(this.host.lockText?.(item) ?? 'Not in your garage yet')}</span>`, foot);
+      el('span', 'dt-hint', `On trial · you have ${esc(fitted.name)} fitted`, foot);
+    } else {
       button('btn primary dt-eq', `${ICON.wrench}Equip`, () => this.fit(slot, item), foot);
       el('span', 'dt-hint', `On trial · replaces ${esc(fitted.name)}`, foot);
     }

@@ -22,6 +22,7 @@ import {
   buildToe,
   buildTorso,
   buildUpperArm,
+  coreColor,
   type MatKey,
 } from './parts';
 import { RenderSettings } from './settings';
@@ -43,7 +44,6 @@ export type PoseSource = Pick<
 >;
 
 /** Core light per maker: diesel ember, Lumen white, Longwei cyan, Martelli gold, Kensei crimson, Strix afterburner green. */
-const CORE_COLORS = [0xff7a12, 0xd6ecff, 0x22dcff, 0xffbf3c, 0xff2d55, 0x6dff8e];
 
 /** Bones of the rigid skin. Every bone is a direct child of the model root. */
 const enum B {
@@ -247,7 +247,7 @@ export function botSurfaces(paint: Paint): Surfaces {
 export function botGlows(paint: Paint, coreLook: number, rarity: number): Record<GlowKey, THREE.Color> {
   return {
     glow: new THREE.Color(paint.accent).multiplyScalar(RenderSettings.glow(3.4)),
-    core: new THREE.Color(CORE_COLORS[coreLook]).multiplyScalar(RenderSettings.glow(3.2)),
+    core: new THREE.Color(coreColor(coreLook)).multiplyScalar(RenderSettings.glow(3.2)),
     rarity: new THREE.Color(RARITIES[rarity].glow).multiplyScalar(RenderSettings.glow(3)),
   };
 }
@@ -346,10 +346,10 @@ export class BotModel {
       sbAdd(pb, bone, slot, part);
     };
 
-    const torsoPB = buildTorso(look('chest'), rar('chest'));
-    const corePB = buildCore(look('core'), look('chest'), rar('core'));
-    const headPB = buildHead(look('head'), rar('head'));
-    const pelvisPB = buildPelvis(look('legs'), rar('legs'));
+    const torsoPB = buildTorso(look('chest'));
+    const corePB = buildCore(look('core'), look('chest'));
+    const headPB = buildHead(look('head'));
+    const pelvisPB = buildPelvis(look('legs'));
     sb.add(torsoPB, B.Torso, 'chest', P.Chest);
     sb.add(corePB, B.Torso, 'core', P.Chest);
     sb.add(headPB, B.Head, 'head', P.Head);
@@ -385,14 +385,14 @@ export class BotModel {
       const L = side === 0;
       const arm = L ? P.UpL : P.UpR;
       const leg = L ? P.ThighL : P.ThighR;
-      sb.add(buildUpperArm(look('chest'), L ? -1 : 1, rar('chest')), L ? B.UpL : B.UpR, 'chest', arm);
-      sb.add(buildForearm(look('fist'), rar('fist')), L ? B.ForeL : B.ForeR, 'fist', arm + 1);
-      sb.add(buildFist(look('fist'), L ? 1 : -1, rar('fist')), L ? B.FistL : B.FistR, 'fist', arm + 2);
-      sb.add(buildThigh(look('legs'), rar('legs')), L ? B.ThighL : B.ThighR, 'legs', leg);
-      sb.add(buildShin(look('legs'), rar('legs')), L ? B.ShinL : B.ShinR, 'legs', leg + 1);
-      sb.add(buildShinGuard(look('kick'), rar('kick')), L ? B.ShinL : B.ShinR, 'kick', leg + 1);
-      sb.add(buildFoot(look('kick'), rar('kick')), L ? B.FootL : B.FootR, 'kick', leg + 2);
-      sb.add(buildToe(look('kick'), rar('kick')), L ? B.ToeL : B.ToeR, 'kick', leg + 2);
+      sb.add(buildUpperArm(look('chest'), L ? -1 : 1), L ? B.UpL : B.UpR, 'chest', arm);
+      sb.add(buildForearm(look('fist')), L ? B.ForeL : B.ForeR, 'fist', arm + 1);
+      sb.add(buildFist(look('fist'), L ? 1 : -1), L ? B.FistL : B.FistR, 'fist', arm + 2);
+      sb.add(buildThigh(look('legs')), L ? B.ThighL : B.ThighR, 'legs', leg);
+      sb.add(buildShin(look('legs')), L ? B.ShinL : B.ShinR, 'legs', leg + 1);
+      sb.add(buildShinGuard(look('kick')), L ? B.ShinL : B.ShinR, 'kick', leg + 1);
+      sb.add(buildFoot(look('kick')), L ? B.FootL : B.FootR, 'kick', leg + 2);
+      sb.add(buildToe(look('kick')), L ? B.ToeL : B.ToeR, 'kick', leg + 2);
       const heavyLegs = !!ITEM_BY_ID.get(loadout.legs.id)!.rams;
       sb.add(buildPistonBarrel(ARM_BAR, ARM_R), L ? B.ArmBarL : B.ArmBarR, 'chest', arm);
       sb.add(buildPistonRod(ARM_ROD, ARM_R), L ? B.ArmRodL : B.ArmRodR, 'chest', arm + 1);
@@ -419,7 +419,7 @@ export class BotModel {
 
     const coreItem = ITEM_BY_ID.get(loadout.core.id)!;
     this.baseGlow = new THREE.Color(paint.accent).multiplyScalar(RenderSettings.glow(3.4));
-    this.baseCore = new THREE.Color(CORE_COLORS[coreItem.look]).multiplyScalar(RenderSettings.glow(3.2));
+    this.baseCore = new THREE.Color(coreColor(coreItem.look)).multiplyScalar(RenderSettings.glow(3.2));
     this.cols = [this.baseGlow.clone(), this.baseCore.clone()];
     for (const slot of SLOTS) this.cols.push(new THREE.Color(RARITIES[loadout[slot].rarity].glow).multiplyScalar(RenderSettings.glow(3)));
 
