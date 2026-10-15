@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Actor } from './actor';
 import { PoseCh, type Pose } from './puppet';
-import { PADDLE, POSES, READY, SET, SPIKE, SURF, type SlotKind } from './beachCrowdPoses';
+import { PADDLE, PLANT, POSES, READY, SET, SPIKE, STRIDE, SURF, stroll, type SlotKind } from './beachCrowdPoses';
 import { randomBot, type BotSpec } from '../../game/loadout';
 import { Rng } from '../../sim/math';
 import type { Quality } from '../stage';
@@ -33,6 +33,9 @@ export interface Slot {
 // ------------------------------------------------------------------ the crowd
 
 const RALLY_T = 2.4;
+/** Where the court is: each player's live fighter runs round the ring's centre and is drawn shifted to here. */
+const COURT_X = 12.6;
+const COURT_Z = [1.6, 6.0];
 /** Where the volleyball is hit from on rally beat n (the beach's ball follows the same path). */
 export const rallyX = (n: number) => 12.6 + 1.3 * Math.sin(n * 2.3) + 0.5 * Math.sin(n * 0.9);
 export const rallyZ = (n: number) => (((n % 2) + 2) % 2 === 0 ? 1.7 : 5.9);
@@ -75,7 +78,8 @@ export class BeachCrowd {
   private riders: Rider[] = [];
   private slots: Slot[] = [];
   private rng = new Rng();
-  private walkVel = new THREE.Vector3();
+  private walkPhase = 0;
+  private walkLast = new THREE.Vector3();
   private sandH: (x: number, z: number) => number = () => 0;
 
   constructor(private quality: Quality) {}
@@ -132,15 +136,17 @@ export class BeachCrowd {
       this.place(a, s);
       this.extras.push({ actor: a, slot: s, pose: POSES[s.kind], next: 0, seed: i * 1.37 + Math.random() * 10 });
     }
-    // the dog walker and the volleyball players are real fighters, walking and shuffling
+    // the dog walker strolls (a walk cycle on the puppet); the volleyball players are live
+    // fighters shuffling to the ball. The fighting rig only works in and around the ring (its
+    // ropes, the stage's edge and the ringside barrier all hold a body in), so each player's
+    // fighter keeps to the ring's centre and its model is moved out to the court.
     this.walker = take();
-    this.walker.placeLive(_v.set(this.walkerAt.x, 0, this.walkerAt.z), this.walkerYaw);
-    this.walker.liveW = 1;
-    this.walker.armW = 0;
+    this.place(this.walker, { kind: 'stand', x: this.walkerAt.x, y: 0, z: this.walkerAt.z, yaw: this.walkerYaw });
+    this.walkLast.set(NaN, 0, 0);
     for (let i = 0; i < 2; i++) {
       const a = take();
-      const z = i ? 6.0 : 1.6;
-      a.placeLive(_v.set(rallyX(i), 0, z), i ? Math.PI : 0);
+      this.place(a, { kind: 'stand', x: 0, y: 0, z: 0, yaw: 0 });
+      a.placeLive(_v.set(rallyX(i) - COURT_X, 0, 0), i ? Math.PI : 0);
       a.liveW = 1;
       a.armW = 1;
       this.players.push(a);
@@ -264,30 +270,40 @@ export class BeachCrowd {
     a.draw(time);
   }
 
-  /** The dog walker strolls the tide line and back. */
+  /** The dog walker strolls the tide line and back: a walk cycle with its feet kept planted. */
   private walk(dt: number, time: number) {
     const a = this.walker;
     if (!a) return;
+    const p = a.puppet;
     const wv = 0.072;
     const px = 18 + 12.5 * Math.sin(time * wv);
     const pz = -3.7 + 0.12 * Math.sin(px * 0.4);
-    const vx = 12.5 * wv * Math.cos(time * wv);
-    const r = a.live.root;
-    // just arrived (or the clock jumped): start on the path
-    if (Math.abs(px - r.x) > 3) a.placeLive(_v.set(px, 0, pz), vx >= 0 ? Math.PI / 2 : -Math.PI / 2);
-    // follow the path, gently pulled back onto it
-    this.walkVel.set(vx + (px - r.x) * 0.8, 0, (pz - r.z) * 0.8);
-    const sp = Math.hypot(this.walkVel.x, this.walkVel.z);
-    if (sp > 1.1) this.walkVel.multiplyScalar(1.1 / sp);
-    a.walk = this.walkVel;
-    if (Math.abs(vx) > 0.08) this.walkerYaw = vx > 0 ? Math.PI / 2 : -Math.PI / 2;
-    a.faceYaw(this.walkerYaw);
-    a.lookAt = null;
-    a.step(dt);
+    const y = this.sandH(px, pz);
+    const moved = Number.isNaN(this.walkLast.x) ? 0 : Math.hypot(px - this.walkLast.x, pz - this.walkLast.z);
+    this.walkLast.set(px, y, pz);
+    // face the way it's going, turning round at either end where it slows to a stop
+    const vx = Math.cos(time * wv);
+    const speed = 12.5 * wv * Math.abs(vx);
+    if (Math.abs(vx) > 0.03) {
+      const want = vx > 0 ? Math.PI / 2 : -Math.PI / 2;
+      let d = want - this.walkerYaw;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      this.walkerYaw += Math.sign(d) * Math.min(Math.abs(d), 2.2 * dt);
+    }
+    p.root.set(px, y, pz);
+    p.yaw = this.walkerYaw;
+    // shorter steps as it slows (so it turns on the spot in little steps), the phase going on
+    // with the ground covered so a planted foot stays put
+    const k = a.size;
+    const amp = STRIDE * Math.min(1, Math.max(0.2, speed / 0.6));
+    this.walkPhase += (PLANT * 0.5 * moved) / (amp * k);
+    stroll(_o, this.walkPhase, amp / STRIDE);
+    // glancing down at the dog now and then
+    _o[PoseCh.HEAD] += 0.15 * Math.max(0, Math.sin(time * 0.37));
+    _o[PoseCh.HEAD + 1] += 0.35 * Math.sin(time * 0.23);
+    p.solve(_o);
     a.draw(time);
-    const y = this.sandH(r.x, r.z);
-    a.model.root.position.y = y;
-    this.walkerAt.set(r.x, y, r.z);
+    this.walkerAt.set(px, y, pz);
   }
 
   /** The two volleyball players shuffle across to meet the ball and jump to set or spike it. */
@@ -299,8 +315,8 @@ export class BeachCrowd {
       const u = (time - n0 * RALLY_T) / (2 * RALLY_T);
       const sm = u * u * (3 - 2 * u);
       const px = rallyX(n0) + (rallyX(n0 + 2) - rallyX(n0)) * sm;
-      const pz = pi ? 6.0 : 1.6;
-      a.mark.set(px, 0, pz);
+      // (in the ring's frame: the model is drawn shifted out to the court)
+      a.mark.set(px - COURT_X, 0, 0);
       a.faceYaw(pi ? Math.PI : 0);
       // near a hit: crouch-and-jump, arms up to set (every third one a spike)
       const tHit = Math.min(time - n0 * RALLY_T, (n0 + 2) * RALLY_T - time);
@@ -317,7 +333,8 @@ export class BeachCrowd {
       p.solve(_mix);
       a.step(dt);
       a.draw(time);
-      a.model.root.position.y = this.sandH(a.live.root.x, a.live.root.z) + (spike ? 0.45 : 0.22) * up * up;
+      const wx = COURT_X + a.live.root.x, wz = COURT_Z[pi] + a.live.root.z;
+      a.model.root.position.set(COURT_X, this.sandH(wx, wz) + (spike ? 0.45 : 0.22) * up * up, COURT_Z[pi]);
     });
   }
 

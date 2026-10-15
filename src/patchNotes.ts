@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: "2026-10-15 15:00",
     title: "No shadows at night",
     notes: [
+      "Fixed the beach robots twisting and flailing: the dog walker now strolls along the shore properly and the volleyball players stay on their court.",
       "At night the world map no longer shows the big buildings' long daytime shadows (or the hills'): they fade away as it gets dark and come back with the morning sun.",
     ],
   },
