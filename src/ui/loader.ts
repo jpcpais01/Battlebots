@@ -1,8 +1,9 @@
 /**
  * The loading screen. Its markup and look are inline in index.html, so it's up before any script
  * has downloaded; this drives it. Progress is real: the boot lists its jobs up front, each with
- * a weight for its share of the wait, and each job reports how far it has got. The ring eases
+ * a weight for its share of the wait, and each job reports how far it has got. The line eases
  * toward that total but never runs ahead of it, and it only reads 100% when everything is done.
+ * The caption stays simple: a few friendly words on what's happening, never the nuts and bolts.
  */
 
 const TIPS = [
@@ -16,12 +17,9 @@ const TIPS = [
   'Paint, finish and glow colour are all yours to pick in the garage.',
 ];
 
-/** The ring's length (2π × its radius in index.html). */
-const RING = 326.73;
-
 export interface LoadJob {
-  /** How far this job has got (0..1), and what it's on right now. */
-  set(k: number, detail?: string, label?: string): void;
+  /** How far this job has got (0..1), and (if it's moved on to something else) what it's on now. */
+  set(k: number, label?: string): void;
   done(): void;
 }
 
@@ -39,9 +37,9 @@ export class Loader {
   private ended = false;
   private reached: (() => void) | null = null;
   private els = {
-    fill: this.q<SVGCircleElement>('.bt-fill'),
-    spark: this.q<HTMLElement>('.bt-spark'),
-    pct: this.q<HTMLElement>('.bt-pct b'),
+    fill: this.q<HTMLElement>('.bt-fill'),
+    head: this.q<HTMLElement>('.bt-head'),
+    pct: this.q<HTMLElement>('.bt-pct'),
     what: this.q<HTMLElement>('.bt-what'),
     tip: this.q<HTMLElement>('.bt-tip'),
   };
@@ -62,9 +60,9 @@ export class Loader {
     const j = { label, w: weight, k: 0 };
     this.jobs.push(j);
     return {
-      set: (k, detail, override) => {
+      set: (k, override) => {
         j.k = Math.max(j.k, Math.min(1, k));
-        if (!quiet) this.caption(override ?? label, detail);
+        if (!quiet) this.caption(override ?? label);
       },
       done: () => {
         j.k = 1;
@@ -87,11 +85,10 @@ export class Loader {
     return w ? k / w : 0;
   }
 
-  private caption(label: string, detail?: string) {
-    const t = detail ? `${label}<em>${detail}</em>` : label;
+  private caption(t: string) {
     if (t === this.what || !this.els.what) return;
     this.what = t;
-    this.els.what.innerHTML = t;
+    this.els.what.textContent = t;
   }
 
   private tick = (now: number) => {
@@ -112,15 +109,13 @@ export class Loader {
   private draw() {
     const pct = this.shown * 100;
     const e = this.els;
-    e.fill?.style.setProperty('stroke-dashoffset', (RING * (1 - this.shown)).toFixed(2));
-    if (e.spark) {
-      e.spark.style.transform = `rotate(${(pct * 3.6).toFixed(2)}deg)`;
-      e.spark.style.opacity = pct > 0.5 && pct < 99.5 ? '1' : '0';
-    }
+    const at = `translateX(${(pct - 100).toFixed(2)}%)`;
+    if (e.fill) e.fill.style.transform = at;
+    if (e.head) e.head.style.transform = at;
     const whole = Math.floor(pct + 1e-6);
     if (whole !== this.lastPct) {
       this.lastPct = whole;
-      if (e.pct) e.pct.textContent = String(whole);
+      if (e.pct) e.pct.textContent = `${whole}%`;
       this.root?.setAttribute('aria-valuenow', String(whole));
     }
   }
@@ -138,7 +133,7 @@ export class Loader {
     this.tipTimer = window.setTimeout(() => this.nextTip(), 5200);
   }
 
-  /** Everything is done: fill the ring, flash, and lift away. Resolves once the game shows through. */
+  /** Everything is done: fill the line, flash, and lift away. Resolves once the game shows through. */
   async finish() {
     const root = this.root;
     for (const j of this.jobs) j.k = 1;
@@ -152,7 +147,7 @@ export class Loader {
     this.shown = 1;
     this.draw();
     root.classList.add('full');
-    await wait(260);
+    await wait(300);
     this.ended = true;
     clearTimeout(this.tipTimer);
     root.classList.add('out');

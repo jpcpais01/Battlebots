@@ -26,15 +26,15 @@ const within = <T>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<vo
  * Everything that can be made before the player gets the controls is made behind the loading
  * screen, in order, each step reporting real progress: the fonts (the arena's signs are painted
  * with them), the arena, the sounds, the menus and the home screen's place, the saved login's bot,
- * and then every shader, texture and reflection of the places the player is about to visit.
+ * the world map, and then every shader, texture and reflection of the places the player will visit.
  */
 async function boot() {
-  const fonts = loader.job('Loading fonts', 3);
-  const arena = loader.job('Building the arena', 16);
+  const fonts = loader.job('Getting ready', 3);
+  const arena = loader.job('Building the arena', 14);
   const sound = loader.job('Tuning the sound', 6, true);
-  const home = loader.job('Setting up your bot', 10);
-  const sync = loader.job('Syncing your bot', 3);
-  const prep = loader.job('Warming up', 62);
+  const home = loader.job('Getting your bot ready', 9);
+  const sync = loader.job('Getting your bot ready', 3);
+  const prep = loader.job('Warming up', 72);
 
   fonts.set(0);
   await within(Promise.all(['400 1em "Russo One"', '600 1em Rajdhani', '700 1em Rajdhani'].map((f) => document.fonts.load(f))), 3000).catch(() => {});
@@ -81,7 +81,7 @@ async function boot() {
   sync.done();
 
   try {
-    await game.prepare((k, what, detail) => prep.set(k, detail, what));
+    await game.prepare((k, what) => prep.set(k, what));
   } catch (e) {
     // nothing is lost: whatever wasn't built builds the first time it's seen, as before
     console.error('warm-up failed', e);
