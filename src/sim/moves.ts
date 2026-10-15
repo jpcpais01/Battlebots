@@ -197,12 +197,12 @@ export const MOVES: Record<MoveId, MoveDef> = {
   }),
 
   // ---- MMA: everyone can push, tie up and shoot ----
-  // both hands to the chest: little damage, but it moves them, and a body already off
-  // balance goes over
+  // both hands to the chest, shoulders square: little damage, but it moves them, and a
+  // body already off balance goes over
   shove: M({
     id: 'shove', name: 'Shove', kind: 'punch', limb: 'rear', path: 'push', striker: 'hand',
     windup: 0.14, active: 0.12, recovery: 0.24, damage: 10, poise: 38, knockback: 3.3, stamina: 8, hitstun: 0.3,
-    range: [0.45, 1.08], zones: ['body'], twist: 0.2, lean: 0.24, crouch: 0.07, lunge: 0.16, power: false,
+    range: [0.45, 1.08], zones: ['body'], twist: 0.36, lean: 0.24, crouch: 0.07, lunge: 0.16, power: false,
     cooldown: 2.6,
   }),
   // a short knee driven up from the clinch, pulling them down onto it

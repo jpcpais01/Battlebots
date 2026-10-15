@@ -322,6 +322,8 @@ export class Fighter {
   /** Where updateRoot last left the root, to tell how far it has moved since. */
   private rootEnd = new Vector3();
   lift = 0;
+  /** Where lifted feet go per unit of lift (local z): trailing behind, or scooped up in front by a double leg. */
+  liftReach = -0.4;
   /** -1 orthodox (left lead), +1 southpaw. */
   stance = -1;
 
@@ -1288,6 +1290,27 @@ export class Fighter {
     return out;
   }
 
+  /** The spot foot i (0 left) stands on in the stance, local. */
+  stanceSpot(i: number, out: Vector3) {
+    return this.stanceFoot(i, out);
+  }
+
+  /** The trunk's shape as it is right now, in EmotePose channels: a pose taking the body over starts from here. */
+  shapeNow(ch: Float32Array) {
+    ch[EC.CROUCH] = this.crouch;
+    ch[EC.PITCH] = this.pitch;
+    ch[EC.ROLL] = this.roll;
+    ch[EC.TWIST] = this.twist;
+    ch[EC.HIP] = this.hipTwist;
+    ch[EC.HEAD] = this.headOff.x;
+    ch[EC.HEAD + 1] = this.headOff.y;
+    ch[EC.HEAD + 2] = this.headOff.z;
+    ch[EC.PELVIS] = this.pelvisOff.x;
+    ch[EC.PELVIS + 1] = this.pelvisOff.z;
+    ch[EC.HEEL] = (this.heel[0] + this.heel[1]) * 0.5;
+    return ch;
+  }
+
   /** How far into a sprawl (0 when not sprawling): the dodge's in, hold and out envelope. */
   private sprawlK() {
     const d = this.dodge;
@@ -1377,7 +1400,8 @@ export class Fighter {
       else if (!s && this.intentVel.lengthSq() > 0.1) thresh = Math.min(thresh, 0.05);
       else if (s) thresh = Math.min(thresh, 0.2);
     }
-    if (anyStepping && bestErr < 0.55) return;
+    // (a sprawl kicks both legs back together)
+    if (anyStepping && bestErr < 0.55 && this.sprawlK() <= 0) return;
     if (bestErr < thresh) return;
     const f = this.feet[best];
     this.stanceFoot(best, _p);
@@ -1920,6 +1944,18 @@ export class Fighter {
         this.toWorld(foot, f.pos);
         this.footAirT[side] = 1;
         this.footFlexT[side] = flex;
+      } else if (lost < 0 && s && s.move.path === 'shoot' && side === rearI && (s.phase === 'active' || (s.phase === 'recovery' && s.t < s.recovery * 0.4))) {
+        // the shot's penetration step: the rear leg drives off and trails behind, toes
+        // curled under and the knee dropping towards the canvas as the hips go through
+        foot.set(sx * 0.17, FOOT_Y, -0.52);
+        if (dt > 0) {
+          this.toLocal(f.pos, _p);
+          foot.lerpVectors(_p, foot, 1 - DM.exp(-14 * dt));
+        }
+        f.locked = true;
+        f.stepping = false;
+        this.toWorld(foot, f.pos);
+        this.footFlexT[side] = 0.8;
       } else if (lost < 0 && em && em.w * em.ch[EC.FOOT + side * 7 + 6] > 0.001) {
         // emote footwork off the stance spot: stomps, shuffles, a knee to the canvas
         const e = em.ch, o = EC.FOOT + side * 7;
@@ -1952,7 +1988,13 @@ export class Fighter {
       } else if (this.lift > 0.01) {
         this.stanceFoot(side, foot);
         foot.y += this.lift * 0.75;
-        foot.z -= this.lift * 0.4;
+        foot.z += this.lift * this.liftReach;
+        if ((this.state === 'held' || this.clinched) && dt > 0) {
+          // picked up by the other one: the legs leave the canvas from where they stood and
+          // hang, trailing a little behind wherever the body is carried
+          this.toLocal(f.pos, _p);
+          foot.lerpVectors(_p, foot, 1 - DM.exp(-9 * dt));
+        }
         f.locked = true;
         // airborne: drop any step in progress so it doesn't resume from the take-off spot
         f.stepping = false;
