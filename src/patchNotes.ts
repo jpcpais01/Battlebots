@@ -17,12 +17,12 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 12:00",
-    title: "New loading screen, big bots hit harder",
+    title: "New loading screen, map and big bots",
     notes: [
       "A new loading screen: stage lights swing over the arena floor while a power core fills with the game's real progress, showing what it's doing right now (lighting the arena, opening the workshop, setting up your home scene) and a tip to read while you wait.",
-      "While it loads, the game now gets everything ready up front: every shader, texture and reflection of the arena, the workshop and your home scene, the screen effects and the ray-traced lighting. No more stutter the first time you enter the arena, open the garage or land the first hit of a fight.",
+      "While it loads, the game now gets everything ready up front: every shader, texture and reflection of the arena, the workshop and your home scene, the screen effects and the ray-traced lighting. No more stutter the first time you enter the arena, open the garage or land the first hit of a fight. If you're logged in, your saved bot is fetched before the home screen appears, so it no longer swaps in a moment later.",
       "Sounds are made during loading too (punches, clangs, the crowd's 3-2-1 chant), so the first tap no longer hitches, and your bot's walk-on theme and the garage's part pictures are prepared in the background right after.",
-      "If you're logged in, your saved bot is fetched before the home screen appears, so you no longer see your old bot swap for the cloud one a moment later.",
+      "Tapping an arena on the world map now flies it to the middle of the map you can see, beside the event card, on phones and PC at any zoom. Skydeck 88 up on its tower no longer ends up near the top of the screen.",
       "Frame size now really matters for strike power: a max-size bot hits about 20% harder than a standard one and roughly half again as hard as a tiny one, and knocks people down far more often. In exchange big bots are a little slower on their feet and with their hands, and gain less extra health than before, so small bots still win by landing far more shots.",
     ],
   },
