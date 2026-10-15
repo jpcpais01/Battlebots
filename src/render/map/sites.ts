@@ -234,8 +234,11 @@ export function buildSites(u: MapUniforms, plan: Plan): Sites {
     const { x, z } = SITES.falls;
     const y = siteGround('falls');
     // the dam across the river at the lip of the falls
-    const dz = -804;
-    k.place(k.box, -300, LAKE.y - 26, dz, 64, 26 + 2.5, 8, 0xc4bdb0);
+    const dz = -812;
+    // (down to the lowest ground under its face, so it never hangs off the top of the cliff)
+    let base = LAKE.y - 26;
+    for (let x = -332; x <= -268; x += 8) base = Math.min(base, height(x, dz + 4) - 2);
+    k.place(k.box, -300, base, dz, 64, LAKE.y + 2.5 - base, 8, 0xc4bdb0);
     for (let i = -2; i <= 2; i++) k.place(k.box, -300 + i * 9, LAKE.y - 1.6, dz + 4.2, 4.5, 3.6, 0.6, 0x4a4f55);
     // a walkway from the dam to the platform, and the platform out over the drop
     k.place(k.box, (x - 300 + 30) / 2, y - 0.8, dz, x + 300 - 30, 0.8, 5, 0xb8b1a4);
@@ -247,8 +250,11 @@ export function buildSites(u: MapUniforms, plan: Plan): Sites {
     k.ring(x, y + 0.2, z, 13, 0, color('falls'));
     for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) k.mast(x + sx * 15, y + 0.2, z + sz * 15, 18, x, z);
     // the falls' spray
-    const by = height(-301, -762);
-    for (let i = 0; i < 14; i++) mist.push(-301 + (Math.sin(i * 2.3) * 14), Math.max(by, 120) + 4 + (i % 4) * 9, -764 + Math.cos(i * 1.7) * 9, 16 + (i % 3) * 8);
+    const by = height(-301, -772);
+    for (let i = 0; i < 14; i++) mist.push(-301 + (Math.sin(i * 2.3) * 14), by + 4 + (i % 4) * 9, -770 + Math.cos(i * 1.7) * 9, 16 + (i % 3) * 8);
+    // and lighter spray off the foot of the rapids below
+    const ry = height(-244, -622);
+    for (let i = 0; i < 8; i++) mist.push(-244 + Math.sin(i * 1.9) * 8, ry + 3 + (i % 3) * 5, -622 + Math.cos(i * 2.7) * 7, 9 + (i % 3) * 4);
     anchors.falls = new THREE.Vector3(x, y + 16, z);
     shadows.push({ x: -300, z: dz, w: 64, d: 8, top: LAKE.y + 2.5 });
   }

@@ -19,6 +19,8 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: "2026-10-15 12:00",
     title: "Big bots hit harder",
     notes: [
+      "The river on the world map now really flows: fast down the middle and slow by the banks, with ripples and lines of foam carried downstream, white water churning over the rapids, foam lacing the banks, and the sun glittering on it and dancing over the stony shallows. The lake above the falls shows its shallows too.",
+      "Cascade Falls drops sheer off the cliff again in a tall white curtain with spray at its foot, the dam sits on the cliff edge instead of hanging in the air, and the river below now runs down its valley instead of floating over it, tumbling through a run of rapids on the way to the city.",
       "Tapping an arena on the world map now flies it to the middle of the map you can see, beside the event card, on phones and PC at any zoom. Skydeck 88 up on its tower no longer ends up near the top of the screen.",
       "Frame size now really matters for strike power: a max-size bot hits about 20% harder than a standard one and roughly half again as hard as a tiny one, and knocks people down far more often. In exchange big bots are a little slower on their feet and with their hands, and gain less extra health than before, so small bots still win by landing far more shots.",
     ],

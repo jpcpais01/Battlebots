@@ -78,6 +78,8 @@ export const CITY_Y = 3.2;
 export const LAKE = { x: -300, z: -905, r: 95, y: 214 };
 /** The mesa the lake sits on (its south face is the cliff the falls go over). */
 const MESA = { x: -300, edge: -800, half: 250 };
+/** Where the river goes over the escarpment. */
+const RIVER_LIP_X = -300;
 
 /**
  * Where each event is held, and the area kept clear around it (no trees, no buildings).
@@ -102,18 +104,33 @@ export const SITES: Record<string, Site> = {
 export const RIVER: { x: number; z: number; y: number; w: number }[] = [
   { x: -330, z: -1130, y: 262, w: 10 },
   { x: -312, z: -1010, y: 218, w: 14 },
+  // down into the lake at its north shore
+  { x: -303, z: -985, y: LAKE.y + 0.3, w: 16 },
   { x: -300, z: -905, y: LAKE.y, w: 22 },
   { x: -300, z: -812, y: LAKE.y - 0.5, w: 20 },
-  // the falls: over the cliff in a few metres
-  { x: -300, z: -790, y: LAKE.y - 2, w: 20 },
-  { x: -301, z: -770, y: 128, w: 22 },
-  { x: -318, z: -690, y: 112, w: 24 },
-  { x: -352, z: -560, y: 74, w: 26 },
-  { x: -398, z: -420, y: 36, w: 30 },
-  { x: -410, z: -300, y: 14, w: 32 },
-  { x: -378, z: -160, y: 6, w: 34 },
-  { x: -320, z: -20, y: 3, w: 36 },
-  { x: -286, z: 120, y: 1.6, w: 40 },
+  // the falls: through the dam and straight down the cliff
+  { x: -300, z: -808, y: LAKE.y - 1.2, w: 20 },
+  { x: -301, z: -775, y: 82.5, w: 22 },
+  // across the pool at the foot and down the valley, tumbling down the steep step into the low
+  // country in a run of rapids
+  { x: -296, z: -752, y: 79.5, w: 22 },
+  { x: -286, z: -722, y: 77, w: 22 },
+  { x: -284, z: -698, y: 72, w: 22 },
+  { x: -290, z: -683, y: 65, w: 21 },
+  { x: -272, z: -665, y: 52, w: 21 },
+  { x: -254, z: -645, y: 36.5, w: 22 },
+  { x: -243, z: -625, y: 23.5, w: 23 },
+  { x: -245, z: -600, y: 19.6, w: 24 },
+  { x: -240, z: -565, y: 19.4, w: 25 },
+  { x: -275, z: -525, y: 19.2, w: 26 },
+  { x: -320, z: -480, y: 16.5, w: 28 },
+  { x: -370, z: -420, y: 15, w: 30 },
+  { x: -410, z: -300, y: 12.5, w: 32 },
+  // down a last run of rapids onto the plain, then lazily through the city to the sea
+  { x: -393, z: -225, y: 3.9, w: 33 },
+  { x: -378, z: -160, y: 3.4, w: 34 },
+  { x: -320, z: -20, y: 2.5, w: 36 },
+  { x: -286, z: 120, y: 1.5, w: 40 },
   { x: -262, z: 260, y: 0.6, w: 46 },
   { x: -250, z: 420, y: -0.5, w: 60 },
 ];
@@ -343,7 +360,9 @@ export function height(x: number, z: number, detail = GULLY.length) {
   const edge = MESA.edge + noise(x * 0.009, 1.7) * 22 + Math.max(0, Math.abs(x - MESA.x) - 120) * 0.35;
   const across = smoothstep(MESA.half, MESA.half - 110, Math.abs(x - MESA.x) + noise(z * 0.01, 5.1) * 40);
   if (across > 0) {
-    const mesa = across * smoothstep(edge + 4, edge - 26, z) * smoothstep(edge - 560, edge - 300, z);
+    // (a sheer lip where the river goes over, so the falls drop clear down the cliff)
+    const sheer = mix(6, 26, smoothstep(50, 130, Math.abs(x - RIVER_LIP_X)));
+    const mesa = across * smoothstep(edge + 4, edge - sheer, z) * smoothstep(edge - 560, edge - 300, z);
     const top = LAKE.y + 7 + (fbm(x * 0.012, z * 0.012, 3) * 0.5 + 0.5) * 12 + smoothstep(edge - 60, edge - 320, z) * 70;
     h = mix(h, Math.max(h, top), mesa);
     // below the edge the ground falls away to the valley floor

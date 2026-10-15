@@ -737,7 +737,7 @@ function cityBelow(venue: OutdoorVenue, quality: 'low' | 'med' | 'high') {
   // the top block of the tower: the crown takes its place
   plan.boxes = plan.boxes.filter((b) => !(atSite(b) && b.y0 > SKYDECK_Y - 30));
   const ground = buildGround(mu);
-  const sea = buildSea(mu, ground.depth);
+  const sea = buildSea(mu, ground);
   const towers: MegaTowers = buildTowers(mu);
   const city: City = buildCity(mu, plan, towers.beacons);
   // (nothing beamed or hung off the tower itself: it would come up through the deck)

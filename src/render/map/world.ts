@@ -121,7 +121,7 @@ export class WorldMap {
     const ground = buildGround(u);
     progress(0.55);
     await tick();
-    const sea = buildSea(u, ground.depth);
+    const sea = buildSea(u, ground);
     const sites = buildSites(u, plan);
     progress(0.65);
     await tick();
