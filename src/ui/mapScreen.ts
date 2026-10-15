@@ -128,9 +128,11 @@ export class MapScreen {
       const pin = this.pins.get(e.id)!;
       const p = progressOf(rec, e.id);
       const locked = titlesNeeded(rec, e) > 0;
-      const dots = e.rivals.map((_, i) => `<i class="${i < p.run ? 'on' : ''}"></i>`).join('');
       const icon = locked ? ICON.lock : p.titles ? ICON.crown : ICON.trophy;
-      pin.innerHTML = `<span class="pin-head">${icon}</span><span class="pin-label"><b>${esc(e.name)}</b><span class="pin-dots">${dots}</span></span><span class="pin-stem"></span>`;
+      // (just the icon: names over the map hid the city; the card has the name and the run)
+      pin.innerHTML = `<span class="pin-head">${icon}</span><span class="pin-stem"></span>`;
+      pin.setAttribute('aria-label', e.name);
+      pin.title = e.name;
       pin.classList.toggle('locked', locked);
       pin.classList.toggle('won', p.titles > 0);
       pin.classList.toggle('picked', this.picked === e.id);

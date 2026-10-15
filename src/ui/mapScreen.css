@@ -68,7 +68,7 @@
   color: #ffd98a;
 }
 
-/* pins: a glowing head on a stem, the event's name and how far the run has got */
+/* pins: a glowing head on a stem (names live on the card, so the city stays in view) */
 .map-pins {
   position: absolute;
   inset: 0;
@@ -103,37 +103,6 @@
   width: 1.3em;
   height: 1.3em;
 }
-.map-pin .pin-label {
-  order: -1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.25em;
-  margin-bottom: 0.35em;
-  padding: 0.35em 0.75em 0.4em;
-  border-radius: 999px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  white-space: nowrap;
-  font-size: 0.82em;
-}
-.map-pin .pin-label b {
-  font-weight: 700;
-}
-.pin-dots {
-  display: flex;
-  gap: 0.3em;
-}
-.pin-dots i {
-  width: 0.45em;
-  height: 0.45em;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.22);
-}
-.pin-dots i.on {
-  background: var(--c);
-  box-shadow: 0 0 6px var(--c);
-}
 .map-pin .pin-stem {
   width: 2px;
   height: 1.4em;
@@ -143,15 +112,9 @@
   background: #8a93a6;
   box-shadow: 0 0 0 3px rgba(10, 13, 20, 0.55);
 }
-.map-pin.locked .pin-label {
-  color: var(--muted);
-}
 .map-pin.picked .pin-head,
 .map-pin:active .pin-head {
   transform: scale(1.18);
-}
-.map-pin.picked .pin-label {
-  border-color: var(--c);
 }
 @media (hover: hover) {
   .map-pin:hover .pin-head {

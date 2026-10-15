@@ -17,8 +17,16 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 02:00",
+    title: "A clearer World map",
+    notes: [
+      "World map pins are just their icons now, so the names no longer cover the city. Tap one to see the event.",
+    ],
+  },
+  {
+    hour: "2026-10-15 02:00",
     title: "Downtown after dark",
     notes: [
+      "The jellyfish are gone. In their place, rooftop projectors beam hologram ads into the air over downtown: fight nights, the six makers and every cup on the map, flickering from one ad to the next.",
       "Four mega-towers now rise over the middle of the World map's city: a twisting glass Spire, a stacked Arcology with gardens on every terrace, the Needle with its halo decks and a dark Monolith, with giant screens and searchlights sweeping the sky.",
       "More holograms downtown: a whale swimming laps high round the towers, jellyfish drifting between them, a giant robot shadow-boxing in the plaza and glitching adverts off the skyscrapers. The koi is still there.",
       "New day/night button on the World map: at night the windows, neon, street lamps and holograms light the city up under a moonlit sky.",
