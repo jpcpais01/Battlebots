@@ -456,6 +456,22 @@ export function inPark(x: number, z: number, pad = 0) {
   return false;
 }
 
+/** The harbour district: container yards and piers instead of city blocks. */
+export const DOCKS = { x0: 150, z0: 30, x1: 400, z1: 135 };
+/** The lighthouse and the wind farm. */
+export const LIGHTHOUSE = { x: 432, z: 352 };
+export const TURBINES: [number, number][] = [
+  [-560, -470],
+  [-610, -420],
+  [-655, -370],
+  [-700, -320],
+  [-520, -520],
+  [-470, -560],
+  [-880, -120],
+  [-930, -60],
+  [-980, 0],
+];
+
 // ------------------------------------------------------------------ street grid
 /** Street spacing and the grid's origin; every third street is a wide avenue. */
 export const BLOCK = 72;
