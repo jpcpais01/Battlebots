@@ -443,14 +443,14 @@ export class Stage {
     const r = this.renderer;
     const scene = this.scene;
     // everything drawable, and who wears each material
-    const drawn: { o: Drawn; m: THREE.Material | THREE.Material[] }[] = [];
+    const drawn: Drawn[] = [];
     const wearers = new Map<THREE.Material, Drawn[]>();
     for (const root of roots) {
       root.traverse((o) => {
         const d = o as unknown as Drawn;
         const m = d.material;
         if (!m) return;
-        drawn.push({ o: d, m });
+        drawn.push(d);
         for (const one of Array.isArray(m) ? m : [m]) {
           const list = wearers.get(one);
           if (list) list.push(d);
@@ -464,22 +464,28 @@ export class Stage {
     await this.compileBatched(
       mats.length,
       (from, to) => {
-        // only this batch's wearers keep their materials (three skips anything without one)
         const pick = new Set<Drawn>();
         for (let i = from; i < to; i++) for (const d of wearers.get(mats[i])!) pick.add(d);
-        for (const { o } of drawn) if (!pick.has(o)) o.material = null;
         const got = new Set<THREE.Material>();
-        // One pass over the scene with just these (and the lights) in it: compiling a part of the
-        // scene on its own would count the lights inside it twice, and build shaders for the wrong set.
+        // only this batch's wearers keep their materials (three skips anything without one), each
+        // put back as it is now, straight after
+        const held: [Drawn, Drawn['material']][] = [];
         const all = holder.children;
-        holder.children = all.filter((o) => keep.has(o) || (o as { isLight?: boolean }).isLight);
         try {
+          for (const d of drawn) {
+            if (pick.has(d) || !d.material) continue;
+            held.push([d, d.material]);
+            d.material = null;
+          }
+          // One pass over the scene with just these (and the lights) in it: compiling a part of the
+          // scene on its own would count the lights inside it twice, and build shaders for the wrong set.
+          holder.children = all.filter((o) => keep.has(o) || (o as { isLight?: boolean }).isLight);
           compileInto(got, r.compile(scene, this.camera));
           // (things not in the scene yet, like a torn-off part, have no lights of their own)
           for (const o of roots) if (!o.parent) compileInto(got, r.compile(o, this.camera, scene));
         } finally {
           holder.children = all;
-          for (const { o, m } of drawn) o.material = m;
+          for (const [d, m] of held) d.material = m;
         }
         return got;
       },
