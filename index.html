@@ -13,28 +13,34 @@
     <title>Battlebots</title>
     <!--
       The loading screen's look lives here, not in style.css, so it is on screen before a single
-      script has downloaded. Everything that moves on it moves by transform or opacity only: the
-      browser keeps those running on its own while the game is busy building the arena.
+      script has downloaded. Everything that moves on it moves by transform or opacity only, with
+      fixed keyframes and no filters: the browser plays those by itself, smoothly, however busy the
+      page is building the game behind it.
     -->
     <style>
       html,
       body {
         margin: 0;
-        background: #02040b;
+        background: #03050d;
       }
       .boot {
         position: fixed;
         inset: 0;
         z-index: 50;
         overflow: hidden;
-        color: #f4f7fc;
+        color: #f2f6ff;
         font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
         background:
-          radial-gradient(130% 75% at 50% 118%, #2350c8 0%, #102a78 26%, #071447 48%, #030820 72%, #02040b 100%);
+          radial-gradient(60% 55% at 70% 58%, rgba(40, 92, 220, 0.34), transparent 70%),
+          radial-gradient(120% 90% at 50% 120%, #0d2266 0%, #071240 34%, #040a24 62%, #03050d 100%);
         -webkit-user-select: none;
         user-select: none;
-        --bar: min(58vw, 440px);
-        transition: opacity 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) 0.1s;
+        --ring: min(52vh, 33vw, 470px);
+        --ink: rgba(214, 226, 255, 0.72);
+        --dim: rgba(190, 206, 240, 0.48);
+        --hot: #ff7a2a;
+        --ice: #6cc8ff;
+        transition: opacity 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.15s;
       }
       .bt-stage,
       .bt-stage > * {
@@ -42,43 +48,44 @@
         inset: 0;
         pointer-events: none;
       }
-      /* two slow pools of light drifting over the deep blue */
+      /* slow pools of light drifting through the dark */
       .bt-aura i {
         position: absolute;
         border-radius: 50%;
         will-change: transform;
       }
       .bt-aura i:nth-child(1) {
-        left: -20vw;
-        top: -30vh;
+        left: -25vw;
+        top: -40vh;
         width: 90vw;
-        height: 90vh;
-        background: radial-gradient(closest-side, rgba(70, 120, 255, 0.28), transparent);
-        animation: bt-drift 19s ease-in-out infinite alternate;
+        height: 100vh;
+        background: radial-gradient(closest-side, rgba(70, 110, 255, 0.22), transparent);
+        animation: bt-drift 21s ease-in-out infinite alternate;
       }
       .bt-aura i:nth-child(2) {
-        right: -25vw;
-        top: 10vh;
-        width: 80vw;
-        height: 80vh;
-        background: radial-gradient(closest-side, rgba(130, 90, 255, 0.2), transparent);
-        animation: bt-drift 23s ease-in-out -7s infinite alternate-reverse;
+        right: -30vw;
+        bottom: -35vh;
+        width: 85vw;
+        height: 90vh;
+        background: radial-gradient(closest-side, rgba(140, 80, 255, 0.16), transparent);
+        animation: bt-drift 27s ease-in-out -9s infinite alternate-reverse;
       }
       @keyframes bt-drift {
         from {
           transform: translate(0, 0) scale(1);
         }
         to {
-          transform: translate(12vw, 8vh) scale(1.15);
+          transform: translate(10vw, 7vh) scale(1.15);
         }
       }
-      /* the ribbons of light flowing across: each strip is two periods wide and slides one along */
+      /* ribbons of light flowing low across the screen: each strip is two periods wide and slides one along */
       .bt-waves {
         top: auto !important;
-        height: 54vh;
-        bottom: 4vh !important;
-        -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
-        mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+        height: 46vh;
+        bottom: -6vh !important;
+        opacity: 0.55;
+        -webkit-mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
+        mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
       }
       .bt-wave {
         position: absolute;
@@ -86,7 +93,7 @@
         top: 0;
         width: 200%;
         height: 100%;
-        animation: bt-flow 26s linear infinite;
+        animation: bt-flow 30s linear infinite;
         will-change: transform;
       }
       .bt-wave svg {
@@ -96,10 +103,8 @@
         overflow: visible;
       }
       .bt-wave.b {
-        animation-duration: 41s;
-        opacity: 0.8;
+        animation-duration: 47s;
       }
-      /* (the glow is wide faint strokes, not a blur filter: a filter is redone every frame it moves) */
       @keyframes bt-flow {
         from {
           transform: translateX(0);
@@ -108,7 +113,7 @@
           transform: translateX(-50%);
         }
       }
-      /* dust in the light, rising (fixed keyframes, so the browser can play them on its own) */
+      /* sparks rising (fixed keyframes, so the browser plays them on its own) */
       .bt-dust i {
         position: absolute;
         bottom: -2vh;
@@ -119,8 +124,12 @@
       .bt-dust b {
         display: block;
         border-radius: 50%;
-        background: #e6f3ff;
+        background: #eaf4ff;
         box-shadow: 0 0 6px 1px rgba(140, 200, 255, 0.8);
+      }
+      .bt-dust b.hot {
+        background: #ffe2c4;
+        box-shadow: 0 0 6px 1px rgba(255, 140, 60, 0.85);
       }
       @keyframes bt-rise-a {
         0% {
@@ -133,7 +142,7 @@
         }
         100% {
           opacity: 0;
-          transform: translate(-6vw, -78vh);
+          transform: translate(-6vw, -80vh);
         }
       }
       @keyframes bt-rise-b {
@@ -147,7 +156,7 @@
         }
         100% {
           opacity: 0;
-          transform: translate(1vw, -78vh);
+          transform: translate(1vw, -80vh);
         }
       }
       @keyframes bt-rise-c {
@@ -161,39 +170,248 @@
         }
         100% {
           opacity: 0;
-          transform: translate(7vw, -78vh);
+          transform: translate(7vw, -80vh);
         }
       }
-      .bt-vig {
-        background: radial-gradient(ellipse 75% 70% at 50% 46%, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+      /* fine grain over everything (plain, no blend mode: it'd be redone every frame): no banding in the dark gradients */
+      .bt-grain {
+        opacity: 0.035;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
       }
+      .bt-vig {
+        background: radial-gradient(ellipse 80% 75% at 55% 50%, transparent 50%, rgba(0, 0, 0, 0.6) 100%);
+      }
+
+      /* ---- the centrepiece: a neon ring, turning slowly in the dark ---- */
+      .bt-hero {
+        position: absolute;
+        left: 71%;
+        top: 49%;
+        width: var(--ring);
+        height: var(--ring);
+        margin: calc(var(--ring) * -0.5) 0 0 calc(var(--ring) * -0.5);
+        perspective: calc(var(--ring) * 2.4);
+        perspective-origin: 50% 30%;
+        pointer-events: none;
+        animation: bt-hero-in 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+        transition:
+          transform 0.9s cubic-bezier(0.5, 0, 0.2, 1),
+          opacity 0.6s ease;
+      }
+      @keyframes bt-hero-in {
+        from {
+          opacity: 0;
+          transform: translateY(6%) scale(0.9);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      /* the light the ring throws on the floor around it */
+      .bt-pool {
+        position: absolute;
+        left: -45%;
+        right: -45%;
+        top: 22%;
+        bottom: 6%;
+        border-radius: 50%;
+        background:
+          radial-gradient(closest-side, rgba(90, 160, 255, 0.36), rgba(60, 110, 255, 0.12) 55%, transparent),
+          radial-gradient(closest-side, rgba(255, 120, 40, 0.14), transparent 60%);
+        animation: bt-breathe 3.2s ease-in-out infinite alternate;
+      }
+      @keyframes bt-breathe {
+        from {
+          opacity: 0.7;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+      .bt-ring {
+        position: absolute;
+        inset: 0;
+        transform-style: preserve-3d;
+        transform: rotateX(62deg) rotateZ(0deg);
+        animation: bt-turn-ring 44s linear infinite;
+        will-change: transform;
+      }
+      @keyframes bt-turn-ring {
+        to {
+          transform: rotateX(62deg) rotateZ(-360deg);
+        }
+      }
+      .bt-ring > * {
+        position: absolute;
+        box-sizing: border-box;
+      }
+      .bt-base {
+        inset: -7%;
+        transform: translateZ(calc(var(--ring) * -0.05));
+        border: 1px solid rgba(255, 140, 60, 0.55);
+        background: linear-gradient(135deg, rgba(14, 22, 52, 0.95), rgba(6, 10, 26, 0.95));
+        box-shadow:
+          0 0 30px rgba(255, 110, 30, 0.25),
+          inset 0 0 0 calc(var(--ring) * 0.012) rgba(255, 255, 255, 0.03);
+      }
+      .bt-canvas {
+        inset: 0;
+        border: 2px solid rgba(140, 205, 255, 0.85);
+        background:
+          radial-gradient(circle, rgba(70, 130, 255, 0.4), rgba(20, 40, 110, 0.55) 45%, rgba(8, 16, 44, 0.92) 75%),
+          repeating-linear-gradient(0deg, rgba(140, 200, 255, 0.1) 0 1px, transparent 1px 10%),
+          repeating-linear-gradient(90deg, rgba(140, 200, 255, 0.1) 0 1px, transparent 1px 10%);
+        background-blend-mode: screen;
+        box-shadow:
+          0 0 24px rgba(90, 170, 255, 0.55),
+          inset 0 0 40px rgba(90, 170, 255, 0.3);
+      }
+      .bt-mark {
+        left: 33%;
+        top: 33%;
+        width: 34%;
+        height: 34%;
+        border-radius: 50%;
+        border: 2px solid rgba(255, 140, 60, 0.9);
+        box-shadow:
+          0 0 18px rgba(255, 120, 40, 0.6),
+          inset 0 0 18px rgba(255, 120, 40, 0.35);
+        transform: translateZ(1px);
+      }
+      .bt-mark::before {
+        content: '';
+        position: absolute;
+        inset: 18%;
+        border-radius: 50%;
+        border: 1px dashed rgba(255, 200, 150, 0.55);
+      }
+      .bt-rope {
+        inset: 3%;
+        border: 2px solid;
+        transform: translateZ(calc(var(--ring) * var(--h)));
+      }
+      .bt-rope.r1 {
+        --h: 0.07;
+        color: var(--ice);
+      }
+      .bt-rope.r2 {
+        --h: 0.13;
+        color: #ffffff;
+      }
+      .bt-rope.r3 {
+        --h: 0.19;
+        color: var(--hot);
+      }
+      .bt-rope {
+        border-color: currentColor;
+        box-shadow:
+          0 0 10px currentColor,
+          inset 0 0 10px currentColor;
+        opacity: 0.85;
+      }
+      /* corner posts: two crossed planes each, so they show from every side */
+      .bt-post {
+        width: calc(var(--ring) * 0.016);
+        height: calc(var(--ring) * 0.22);
+        margin-left: calc(var(--ring) * -0.008);
+        margin-top: calc(var(--ring) * -0.22);
+        border-radius: 2px;
+        background: linear-gradient(0deg, rgba(255, 255, 255, 0.25), #ffffff 60%, #ffd6b0);
+        box-shadow: 0 0 12px rgba(255, 190, 140, 0.8);
+        transform-origin: 50% 100%;
+        transform: rotateX(-90deg);
+      }
+      .bt-post.y {
+        transform: rotateX(-90deg) rotateY(90deg);
+      }
+      .bt-post.p1 {
+        left: 3%;
+        top: 3%;
+      }
+      .bt-post.p2 {
+        left: 97%;
+        top: 3%;
+      }
+      .bt-post.p3 {
+        left: 97%;
+        top: 97%;
+      }
+      .bt-post.p4 {
+        left: 3%;
+        top: 97%;
+      }
+      .bt-post.blue {
+        background: linear-gradient(0deg, rgba(120, 200, 255, 0.25), #c8ecff 60%, #ffffff);
+        box-shadow: 0 0 12px rgba(110, 200, 255, 0.9);
+      }
+      .bt-post.red {
+        background: linear-gradient(0deg, rgba(255, 140, 80, 0.25), #ffc79c 60%, #ffffff);
+        box-shadow: 0 0 12px rgba(255, 120, 50, 0.9);
+      }
+
+      /* ---- the words: logo, line, what's happening ---- */
       .bt-mid {
         position: absolute;
-        left: 50%;
-        top: 44%;
-        width: var(--bar);
+        left: max(7vw, calc(env(safe-area-inset-left) + 24px));
+        top: 50%;
+        width: min(40vw, 420px);
         display: grid;
-        justify-items: center;
-        transform: translate(-50%, -50%);
+        justify-items: start;
+        transform: translateY(-50%);
         transition:
           transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1),
           opacity 0.5s ease;
       }
+      .bt-mid > * {
+        opacity: 0;
+        transform: translateY(10px);
+        transition:
+          opacity 0.8s ease,
+          transform 1s cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+      .boot.fonts .bt-mid > * {
+        opacity: 1;
+        transform: none;
+      }
+      .boot.fonts .bt-mid > :nth-child(2) {
+        transition-delay: 0.08s;
+      }
+      .boot.fonts .bt-mid > :nth-child(3) {
+        transition-delay: 0.16s;
+      }
+      .boot.fonts .bt-mid > :nth-child(4) {
+        transition-delay: 0.22s;
+      }
+      .bt-kicker {
+        display: flex;
+        align-items: center;
+        gap: 0.9em;
+        margin: 0 0 min(1.6vh, 12px);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.42em;
+        text-transform: uppercase;
+        color: var(--dim);
+      }
+      .bt-kicker::before {
+        content: '';
+        width: 28px;
+        height: 2px;
+        border-radius: 2px;
+        background: linear-gradient(90deg, var(--hot), #ffc15a);
+        box-shadow: 0 0 8px rgba(255, 122, 42, 0.8);
+      }
       .bt-logo {
         font-family: 'Russo One', system-ui, sans-serif;
         font-style: italic;
-        font-size: min(11vh, 8.8vw, 68px);
-        line-height: 1;
+        font-size: min(13vh, 7.4vw, 76px);
+        line-height: 0.95;
         white-space: nowrap;
-        letter-spacing: 0.03em;
+        letter-spacing: 0.01em;
         padding-right: 0.12em;
-        margin-bottom: min(5.5vh, 34px);
-        filter: drop-shadow(0 0 22px rgba(90, 150, 255, 0.45)) drop-shadow(0 4px 14px rgba(0, 0, 0, 0.5));
-        opacity: 0;
-        transform: translateY(0.3em) scale(0.97);
-        transition:
-          opacity 0.9s ease,
-          transform 1.1s cubic-bezier(0.2, 0.8, 0.2, 1);
+        margin-bottom: min(6vh, 40px);
+        text-shadow: 0 0 34px rgba(80, 140, 255, 0.35);
       }
       .bt-logo span {
         -webkit-background-clip: text;
@@ -201,27 +419,24 @@
         color: transparent;
       }
       .bt-logo .l1 {
-        background-image: linear-gradient(180deg, #ffffff 30%, #b9cdff);
+        background-image: linear-gradient(180deg, #ffffff 35%, #aec4ff);
       }
       .bt-logo .l2 {
-        background-image: linear-gradient(180deg, #ffc15a, #ff6a12);
-      }
-      .boot.fonts .bt-logo {
-        opacity: 1;
-        transform: none;
+        background-image: linear-gradient(180deg, #ffd27a, #ff6a12 80%);
       }
       /* the progress line: the fill and its bright head slide in together */
       .bt-bar {
         position: relative;
         width: 100%;
-        height: 3px;
+        height: 4px;
       }
       .bt-track {
         position: absolute;
         inset: 0;
-        border-radius: 3px;
+        border-radius: 4px;
         overflow: hidden;
-        background: rgba(255, 255, 255, 0.13);
+        background: rgba(255, 255, 255, 0.1);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
       }
       .bt-fill,
       .bt-head {
@@ -231,18 +446,18 @@
         will-change: transform;
       }
       .bt-fill {
-        background: linear-gradient(90deg, rgba(80, 150, 255, 0.35), #9fd2ff 70%, #ffffff);
+        background: linear-gradient(90deg, rgba(70, 140, 255, 0.25), #7cc6ff 60%, #ffffff);
       }
       .bt-head::after {
         content: '';
         position: absolute;
-        right: -9px;
+        right: -12px;
         top: 50%;
-        width: 18px;
-        height: 18px;
-        margin-top: -9px;
+        width: 24px;
+        height: 24px;
+        margin-top: -12px;
         border-radius: 50%;
-        background: radial-gradient(closest-side, #fff, rgba(160, 210, 255, 0.55) 35%, transparent);
+        background: radial-gradient(closest-side, #fff, rgba(150, 210, 255, 0.6) 35%, transparent);
         transition: opacity 0.4s;
       }
       .bt-row {
@@ -251,30 +466,40 @@
         justify-content: space-between;
         align-items: baseline;
         gap: 1em;
-        margin-top: 12px;
-        font-size: 13px;
-        letter-spacing: 0.04em;
-        color: rgba(222, 232, 255, 0.78);
+        margin-top: 14px;
       }
       .bt-what {
         margin: 0;
+        font-size: 14px;
+        letter-spacing: 0.02em;
+        color: var(--ink);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        transition: opacity 0.25s;
       }
       .bt-pct {
+        display: flex;
+        align-items: baseline;
+        font-weight: 200;
+        font-size: 26px;
+        line-height: 1;
         font-variant-numeric: tabular-nums;
-        color: rgba(222, 232, 255, 0.5);
+        letter-spacing: -0.01em;
+        color: #ffffff;
       }
-      /* the console-style busy mark, bottom right */
-      /* (it turns a plain box, never the SVG itself: only that is sure to turn on its own) */
+      .bt-pct small {
+        font-size: 0.5em;
+        font-weight: 400;
+        margin-left: 2px;
+        color: var(--dim);
+      }
+      /* the console-style busy mark, bottom right (it turns a plain box, never the SVG itself) */
       .bt-spin {
         position: absolute;
-        right: max(22px, env(safe-area-inset-right));
-        bottom: max(20px, env(safe-area-inset-bottom));
-        width: 26px;
-        height: 26px;
+        right: max(24px, calc(env(safe-area-inset-right) + 16px));
+        bottom: max(22px, calc(env(safe-area-inset-bottom) + 14px));
+        width: 28px;
+        height: 28px;
         animation: bt-turn 1.1s linear infinite;
         will-change: transform;
         transition: opacity 0.4s;
@@ -287,11 +512,15 @@
       }
       .bt-spin circle {
         fill: none;
-        stroke: #fff;
         stroke-width: 2.4;
         stroke-linecap: round;
-        stroke-dasharray: 38 63;
-        filter: drop-shadow(0 0 3px rgba(150, 200, 255, 0.9));
+      }
+      .bt-spin .t {
+        stroke: rgba(255, 255, 255, 0.14);
+      }
+      .bt-spin .a {
+        stroke: #fff;
+        stroke-dasharray: 22 80;
       }
       @keyframes bt-turn {
         to {
@@ -300,13 +529,13 @@
       }
       .bt-tip {
         position: absolute;
-        left: max(24px, env(safe-area-inset-left));
-        bottom: max(20px, env(safe-area-inset-bottom));
+        left: max(7vw, calc(env(safe-area-inset-left) + 24px));
+        bottom: max(22px, calc(env(safe-area-inset-bottom) + 14px));
         margin: 0;
-        max-width: min(46vw, 34em);
+        max-width: min(44vw, 34em);
         font-size: 13px;
-        line-height: 1.4;
-        color: rgba(214, 224, 245, 0.66);
+        line-height: 1.45;
+        color: var(--dim);
         opacity: 0;
         transform: translateY(6px);
         transition:
@@ -319,20 +548,19 @@
       }
       .bt-tip b {
         display: inline-block;
-        margin-right: 0.7em;
-        padding: 0.18em 0.6em;
-        border: 1px solid rgba(255, 255, 255, 0.35);
+        margin-right: 0.8em;
+        padding: 0.2em 0.65em;
+        border: 1px solid rgba(255, 255, 255, 0.3);
         border-radius: 999px;
         font-size: 10px;
         font-weight: 600;
-        letter-spacing: 0.14em;
+        letter-spacing: 0.16em;
         color: #fff;
         vertical-align: 0.1em;
       }
-      /* done: the line flashes white, then everything lifts away onto the game */
+      /* done: the line flashes white, then the ring rushes in and everything lifts away */
       .boot.full .bt-fill {
         background: #fff;
-        box-shadow: 0 0 12px #fff;
       }
       .boot.full .bt-head::after,
       .boot.full .bt-spin {
@@ -344,7 +572,11 @@
       }
       .boot.out .bt-mid {
         opacity: 0;
-        transform: translate(-50%, -50%) scale(1.08);
+        transform: translate(-4vw, -50%);
+      }
+      .boot.out .bt-hero {
+        opacity: 0;
+        transform: scale(1.35);
       }
       .boot.failed .bt-fill {
         background: #ff4d6a;
@@ -354,31 +586,65 @@
       }
       .bt-retry {
         display: none;
-        margin-top: 20px;
-        padding: 0.7em 1.8em;
+        margin-top: 22px;
+        padding: 0.75em 1.9em;
         border: 0;
         border-radius: 999px;
         background: #fff;
-        color: #02040b;
+        color: #03050d;
         font: 600 14px system-ui, sans-serif;
       }
       .boot.failed .bt-retry {
         display: block;
+        opacity: 1;
+        transform: none;
       }
       @media (max-height: 420px) {
-        .bt-row,
+        .bt-what,
         .bt-tip {
           font-size: 12px;
         }
+        .bt-pct {
+          font-size: 22px;
+        }
+        .bt-kicker {
+          font-size: 10px;
+        }
       }
-      /* tall screens: the tip sits centred under the line */
+      /* tall screens: the ring above, the words under it */
       @media (max-aspect-ratio: 1/1) {
         .boot {
-          --bar: min(74vw, 440px);
+          --ring: min(56vw, 30vh, 400px);
+          background:
+            radial-gradient(70% 40% at 50% 34%, rgba(40, 92, 220, 0.34), transparent 70%),
+            radial-gradient(120% 90% at 50% 120%, #0d2266 0%, #071240 34%, #040a24 62%, #03050d 100%);
+        }
+        .bt-hero {
+          left: 50%;
+          top: 31%;
+        }
+        .bt-waves {
+          opacity: 0.35;
+        }
+        .bt-mid {
+          left: 50%;
+          top: auto;
+          bottom: max(23vh, 150px);
+          width: min(84vw, 420px);
+          justify-items: center;
+          text-align: center;
+          transform: translateX(-50%);
+        }
+        .boot.out .bt-mid {
+          transform: translate(-50%, 3vh);
+        }
+        .bt-logo {
+          font-size: min(12vw, 64px);
+          margin-bottom: 30px;
         }
         .bt-tip {
           left: 50%;
-          bottom: max(64px, calc(env(safe-area-inset-bottom) + 44px));
+          bottom: max(68px, calc(env(safe-area-inset-bottom) + 50px));
           width: 84vw;
           max-width: none;
           text-align: center;
@@ -389,12 +655,14 @@
         }
         .bt-spin {
           right: 50%;
-          margin-right: -13px;
+          margin-right: -14px;
         }
       }
       @media (prefers-reduced-motion: reduce) {
         .bt-aura i,
-        .bt-wave {
+        .bt-wave,
+        .bt-ring,
+        .bt-pool {
           animation: none;
         }
         .bt-dust {
@@ -412,9 +680,32 @@
         <div class="bt-aura"><i></i><i></i></div>
         <div class="bt-waves"></div>
         <div class="bt-dust"></div>
+      </div>
+      <div class="bt-hero" aria-hidden="true">
+        <div class="bt-pool"></div>
+        <div class="bt-ring">
+          <div class="bt-base"></div>
+          <div class="bt-canvas"></div>
+          <div class="bt-mark"></div>
+          <div class="bt-rope r1"></div>
+          <div class="bt-rope r2"></div>
+          <div class="bt-rope r3"></div>
+          <div class="bt-post p1 blue"></div>
+          <div class="bt-post p1 blue y"></div>
+          <div class="bt-post p2"></div>
+          <div class="bt-post p2 y"></div>
+          <div class="bt-post p3 red"></div>
+          <div class="bt-post p3 red y"></div>
+          <div class="bt-post p4"></div>
+          <div class="bt-post p4 y"></div>
+        </div>
+      </div>
+      <div class="bt-stage" aria-hidden="true">
+        <div class="bt-grain"></div>
         <div class="bt-vig"></div>
       </div>
       <div class="bt-mid">
+        <p class="bt-kicker">Robot boxing</p>
         <div class="bt-logo"><span class="l1">BATTLE</span><span class="l2">BOTS</span></div>
         <div class="bt-bar" aria-hidden="true">
           <div class="bt-track"><div class="bt-fill"></div></div>
@@ -422,15 +713,17 @@
         </div>
         <div class="bt-row">
           <p class="bt-what">Loading</p>
-          <span class="bt-pct" aria-hidden="true">0%</span>
+          <span class="bt-pct" aria-hidden="true"><b>0</b><small>%</small></span>
         </div>
         <button class="bt-retry" type="button" onclick="location.reload()">Try again</button>
       </div>
       <p class="bt-tip"></p>
-      <div class="bt-spin" aria-hidden="true"><svg viewBox="0 0 26 26"><circle cx="13" cy="13" r="10" /></svg></div>
+      <div class="bt-spin" aria-hidden="true">
+        <svg viewBox="0 0 28 28"><circle class="t" cx="14" cy="14" r="11" /><circle class="a" cx="14" cy="14" r="11" /></svg>
+      </div>
     </div>
     <script>
-      // The flowing ribbons and the dust, drawn here so they're up with the first paint.
+      // The flowing ribbons and the sparks, drawn here so they're up with the first paint.
       (function () {
         var boot = document.getElementById('boot');
         if (!boot) return;
@@ -445,41 +738,31 @@
           }
           return d;
         }
-        function strip(cls, n, base, p0, color, width, sheet) {
+        function strip(cls, n, base, p0, color, width) {
           var paths = '';
           var first = '', last = '';
           for (var i = 0; i < n; i++) {
-            var d = curve(base + i * 7, 62 - i * 5, p0 + i * 0.16, 16 + i * 2, p0 * 1.7 - i * 0.22);
+            var d = curve(base + i * 7, 58 - i * 5, p0 + i * 0.16, 14 + i * 2, p0 * 1.7 - i * 0.22);
             if (!i) first = d;
             last = d;
-            var a = 0.12 + 0.5 * Math.sin((Math.PI * (i + 0.5)) / n);
-            // a glow strip lays each ribbon down several times, wide and faint
-            var layers = cls === 'glow' ? [[46, 0.05], [28, 0.07], [14, 0.09]] : [[width, a]];
-            for (var l = 0; l < layers.length; l++)
-              paths += '<path d="' + d + '" stroke="' + color + '" stroke-opacity="' + layers[l][1].toFixed(2) + '" stroke-width="' + layers[l][0] + '" stroke-linecap="round" fill="none" vector-effect="non-scaling-stroke"/>';
+            var a = 0.1 + 0.45 * Math.sin((Math.PI * (i + 0.5)) / n);
+            paths += '<path d="' + d + '" stroke="' + color + '" stroke-opacity="' + a.toFixed(2) + '" stroke-width="' + width + '" fill="none" vector-effect="non-scaling-stroke"/>';
           }
-          if (sheet) {
-            // a faint sheet of light between the outer ribbons
-            var back = last.slice(1).split('L').reverse().join('L');
-            paths = '<path d="' + first + 'L' + back + 'Z" fill="' + color + '" fill-opacity="0.07"/>' + paths;
-          }
+          // a faint sheet of light between the outer ribbons
+          var back = last.slice(1).split('L').reverse().join('L');
+          paths = '<path d="' + first + 'L' + back + 'Z" fill="' + color + '" fill-opacity="0.06"/>' + paths;
           return '<div class="bt-wave ' + cls + '"><svg viewBox="0 0 1600 300" preserveAspectRatio="none">' + paths + '</svg></div>';
         }
-        var waves = boot.querySelector('.bt-waves');
-        waves.innerHTML =
-          strip('glow', 3, 150, 0.4, '#3d7dff', 18, false) +
-          strip('b', 6, 170, 2.6, '#9a8cff', 1, true) +
-          strip('a', 9, 140, 0.4, '#a8d8ff', 1.2, true);
-        var dust = boot.querySelector('.bt-dust');
+        boot.querySelector('.bt-waves').innerHTML = strip('b', 6, 170, 2.6, '#9a8cff', 1) + strip('a', 8, 140, 0.4, '#a8d8ff', 1.1);
         var html = '';
-        for (var k = 0; k < 34; k++) {
+        for (var k = 0; k < 30; k++) {
           var size = (1 + Math.random() * 2).toFixed(1);
           html +=
             '<i style="left:' + (Math.random() * 100).toFixed(1) + '%;animation-name:bt-rise-' + 'abc'.charAt(k % 3) +
             ';animation-duration:' + (11 + Math.random() * 14).toFixed(1) + 's;animation-delay:-' + (Math.random() * 25).toFixed(1) + 's">' +
-            '<b style="width:' + size + 'px;height:' + size + 'px;opacity:' + (0.35 + Math.random() * 0.6).toFixed(2) + '"></b></i>';
+            '<b' + (k % 4 ? '' : ' class="hot"') + ' style="width:' + size + 'px;height:' + size + 'px;opacity:' + (0.35 + Math.random() * 0.6).toFixed(2) + '"></b></i>';
         }
-        dust.innerHTML = html;
+        boot.querySelector('.bt-dust').innerHTML = html;
       })();
     </script>
     <script type="module" src="/src/main.ts"></script>
