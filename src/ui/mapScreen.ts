@@ -153,9 +153,23 @@ export class MapScreen {
     this.drawCard(e);
     const a = w?.sites.anchors[id];
     if (w && a) {
-      // look a little past the venue, so it sits left of the card
-      w.cam.flyTo(_v.set(a.x + 60, 3, a.z), VIEW_DIST[id] ?? 450, 1.3);
+      // the venue goes in the middle of the map the card leaves showing
+      const [x, y] = this.openCentre();
+      w.cam.frame(a, VIEW_DIST[id] ?? 450, x, y, 1.3);
     }
+  }
+
+  /**
+   * The middle of the part of the map not covered by the card and the top bar, in the camera's
+   * normalised screen coordinates. Laid-out sizes, not the card's slide-in transform.
+   */
+  private openCentre(): [number, number] {
+    const W = window.innerWidth, H = window.innerHeight;
+    // (the screen fills the window, and offsets ignore its fade-in scale)
+    const right = this.card.classList.contains('on') ? this.card.offsetLeft : W;
+    const top = this.card.offsetTop - 8;
+    const x = Math.max(0, Math.min(W, right)) / 2, y = (Math.max(0, Math.min(H * 0.4, top)) + H) / 2;
+    return [(x / W) * 2 - 1, 1 - (y / H) * 2];
   }
 
   private drawCard(e: EventDef) {

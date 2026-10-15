@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: "2026-10-15 12:00",
     title: "Smoother arms",
     notes: [
+      "Tapping an arena on the world map now flies it to the middle of the map you can see, beside the event card, on phones and PC at any zoom. Skydeck 88 up on its tower no longer ends up near the top of the screen.",
       "Fists and forearms no longer twitch. They used to spin round in a single frame when an arm crossed the body or straightened, and jolt whenever they brushed armour; now they turn and slide smoothly, in fights and in the home scenes.",
       "Arms flow back into the guard after kicks and dodges instead of snapping there, fists turn smoothly into each punch, and on the beach the robot no longer bobs the coconut with a jerk while it drinks.",
     ],
