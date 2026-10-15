@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Game } from '../game/game';
 import { EVENTS, EVENT_BY_ID, defenceOf, progressOf, titlesHeld, titlesNeeded, type EventDef, type EventsRecord } from '../game/events';
 import { RARITIES } from '../game/items';
+import { EARNABLE } from '../game/catalogue';
 import { credits, epicOdds, purse, rankOf, titleBonus, type CareerState } from '../game/career';
 import type { BotSpec } from '../game/loadout';
 import { coins, rivalCard } from './careerUi';
@@ -230,7 +231,7 @@ export class MapScreen {
       const last = round === e.rivals.length - 1;
       const odds = Math.round(epicOdds(e, def) * 100);
       const crate = odds >= 100 ? `${RARITIES[2].name} crate` : odds ? `crate (${odds}% ${RARITIES[2].name})` : `${RARITIES[1].name} crate`;
-      const pays = `<span>${coins(purse(e, round, def))} purse</span>${last ? `<span class="crate" style="--rc:${RARITIES[odds >= 50 ? 2 : 1].color}">${ICON.crate}Title: ${credits(titleBonus(e, def))} + ${crate}</span>` : ''}`;
+      const pays = `<span>${coins(purse(e, round, def))} purse</span>${last ? `<span class="crate" style="--rc:${RARITIES[odds >= 50 ? 2 : 1].color}">${ICON.crate}Title: ${credits(titleBonus(e, def))}${EARNABLE.length ? ` + ${crate}` : ''}</span>` : ''}`;
       rivalCard(c, e.rivals[round], this.h.rival(e, round), this.h.player(), pays);
     }
     const foot = el('div', 'mc-foot', '', c);

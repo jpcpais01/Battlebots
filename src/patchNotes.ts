@@ -17,8 +17,21 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 20:00",
+    title: "Career mode",
+    notes: [
+      "Career mode on the World map: every cup and championship round now pays prize money, more in later rounds, at bigger events and for a knockout. Even a loss pays a small appearance fee.",
+      "Win a title for a bonus purse and a crate with a Rare or Epic part inside, and beaten rivals sometimes leave one of their parts behind.",
+      "New Parts Market on the World map: spend your credits on Rare and Epic parts. The shelf restocks every few fights with one deal at 30% off, and Epics open up once you hold two titles.",
+    ],
+  },
+  {
+    hour: "2026-10-15 20:00",
     title: "Rare and Epic gear on the way",
     notes: [
+      "Climb the career ranks from Rookie to Legend, and see your cups, belts and part collection in the new Trophy room.",
+      "All 23 rivals now have their own maker, frame, story and a taunt before the fight. Their gear gets better every round, and every time you come back to defend a title.",
+      "Rare and Epic parts are locked in the garage until you earn them in Career, but you can still try them on.",
+      "Titles you won before today are paid out in credits the first time you open Career.",
       "Getting ready for Rare and Epic gear: every maker now has a Common, Rare and Epic part for each slot in the catalogue, each with its own stats and passive. They switch on with their new looks very soon.",
     ],
   },

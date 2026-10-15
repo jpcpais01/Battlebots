@@ -174,7 +174,7 @@ export function marketView(box: HTMLElement, host: CareerHost, close: () => void
 
     const body = el('div', 'mk-body', '', box);
     if (!offers.length) {
-      el('p', 'muted', EARNABLE.length ? 'You own every part there is. The market has nothing left to sell you.' : 'Nothing on the shelf yet.', body);
+      el('p', 'muted', EARNABLE.length ? 'You own every part there is. The market has nothing left to sell you.' : 'Rare and Epic parts are on their way to the market. Keep winning: your credits will be waiting.', body);
       return;
     }
     const grid = el('div', 'mk-grid', '', body);
