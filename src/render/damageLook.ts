@@ -2,20 +2,32 @@ import * as THREE from 'three';
 import { PART_COUNT } from '../sim/damage';
 
 /**
- * Battle damage on the robot's own surfaces, driven per body part by a small uniform array.
+ * Battle damage on the robot's own surfaces.
  *
- * Each vertex carries the part it belongs to. As a part wears down its plates crumple (a
- * smooth noise field bends the shell, the same at shared corners so nothing cracks open),
- * its normals go lumpy so the light catches the dents, paint chips off to bare steel, soot
- * and scorch marks spread, and a wrecked part shows glowing cracks. Noise is read from the
- * part's own rest-space coordinates,
- * so the damage stays stuck to the metal as it moves (and on a torn-off piece flying away).
+ * The metal really bends. Every blow that lands punches a dent where it struck: a rounded bowl
+ * pushed in along the blow, with a lip of displaced metal around it and creases in its floor.
+ * Blows landing close together deepen and widen the same dent, so a part that keeps getting hit
+ * in one place caves in there. On top of that a worn part's plates buckle all over. The armour
+ * is tessellated finely enough (SkinBuilder) for this to change its silhouette, not just its
+ * shading; the normals are the true normals of the bent surface (the inverse transpose of the
+ * bend), so the light rolls into every dent; and the shadow pass bends the same way.
  *
- * It costs nothing until a part is damaged (the branches skip clean parts), and only the
- * robots' pixels pay for it.
+ * As a part wears its paint also chips off to bare steel, soot and scorch spread, and a wrecked
+ * part shows glowing cracks. A dent's floor loses its paint and sits in its own shade.
+ * Everything is read from the part's own rest-space coordinates, so the damage stays stuck to
+ * the metal as it moves (and on a torn-off piece flying away).
+ *
+ * It costs little until a part is damaged (clean parts skip the work). The dents are a
+ * render-side record of the fight: the sim never reads them.
  */
 export interface DamageUniforms {
   uWear: { value: Float32Array };
+  /** Dents in a bone's own frame: xyz centre (on the plating), w radius. */
+  uDentP: { value: Float32Array };
+  /** Per dent: xyz the push direction scaled by its depth, w the bone it is on (-1: none). */
+  uDentN: { value: Float32Array };
+  /** World size of one rest-space unit on a torn-off piece (the robot's frame size). */
+  uPieceScale: { value: number };
   uTime: { value: number };
   /** Marks in a bone's own frame: xyz centre, w radius. */
   uMark: { value: Float32Array };
@@ -25,6 +37,8 @@ export interface DamageUniforms {
   uGrime: { value: number };
 }
 
+/** Dents per robot (blows landing close together deepen the same dent instead of taking a slot). */
+export const DENTS = 32;
 /** Marks per robot: a few wrenched sockets, the rest oil splatters. */
 export const MARKS = 12;
 export const MARK_NONE = 0;
@@ -34,8 +48,13 @@ export const MARK_SOCKET = 1;
 export const MARK_OIL = 2;
 
 export function damageUniforms(): DamageUniforms {
+  const dentN = new Float32Array(DENTS * 4);
+  for (let k = 0; k < DENTS; k++) dentN[k * 4 + 3] = -1;
   return {
     uWear: { value: new Float32Array(PART_COUNT) },
+    uDentP: { value: new Float32Array(DENTS * 4) },
+    uDentN: { value: dentN },
+    uPieceScale: { value: 1 },
     uTime: { value: 0 },
     uMark: { value: new Float32Array(MARKS * 4) },
     uMarkB: { value: new Float32Array(MARKS * 3) },
@@ -58,14 +77,94 @@ float dmgNoise(vec3 x) {
 }
 `;
 
-/** Rest-space position the damage pattern is read from (torn-off pieces carry it as `dpos`). */
+/**
+ * How the plating is bent, in the bone's rest frame: the part's general buckling plus every dent
+ * on its bone. A function of the rest position alone, so corners shared by two faces (and
+ * pieces lying on each other) move together and nothing cracks open.
+ */
+const DEFORM = /* glsl */ `
+attribute float part;
+uniform float uWear[${PART_COUNT}];
+uniform vec4 uDentP[${DENTS}];
+uniform vec4 uDentN[${DENTS}];
+uniform float uPieceScale;
+${NOISE}
+// a worn part's plates buckle in big, smooth folds, deepest around a few spots
+vec3 dmgCrumple(vec3 p, float w) {
+  if (w < 0.01) return vec3(0.0);
+  float vis = 1.0 - (1.0 - w) * (1.0 - w);
+  float heavy = smoothstep(0.45, 1.0, w);
+  heavy *= heavy;
+  vec3 q = p * 11.0;
+  vec3 big = vec3(dmgNoise(q), dmgNoise(q + 17.3), dmgNoise(q + 41.7)) - 0.5;
+  float crater = smoothstep(0.3, 0.62, dmgNoise(p * 6.0 + 3.7));
+  return big * (vis * 0.024 + heavy * 0.065) * (0.45 + crater * 1.1);
+}
+// how deep in a dent's bowl the points dmgDents looked at sit, 0..1 (the caller resets it)
+float dmgCav;
+// dents punched in by blows: a rounded bowl pushed in along the blow, a lip of displaced metal
+// around it, and a creased floor
+vec3 dmgDents(vec3 p, float bone) {
+  vec3 d = vec3(0.0);
+  for (int k = 0; k < ${DENTS}; k++) {
+    vec4 N = uDentN[k];
+    if (abs(N.w - bone) > 0.5) continue;
+    float depth = length(N.xyz);
+    if (depth < 1e-5) continue;
+    vec4 C = uDentP[k];
+    vec3 n = N.xyz / depth;
+    vec3 v = p - C.xyz;
+    float along = dot(v, n);
+    vec3 lat = v - along * n;
+    // the plate the blow lands on gives way; metal deeper inside the part barely follows
+    float s2 = (dot(lat, lat) + along * along * 3.2) / (C.w * C.w);
+    if (s2 > 2.25) continue;
+    float s = sqrt(s2);
+    float bowl = s2 < 1.0 ? (1.0 - s2) * (1.0 - s2) : 0.0;
+    float t = clamp((s - 0.75) * 1.3333, 0.0, 1.0);
+    float lip = 16.0 * t * t * (1.0 - t) * (1.0 - t);
+    // not a perfect spoon: the floor folds unevenly
+    float fold = 0.7 + 0.6 * dmgNoise(lat * (2.2 / C.w) + float(k) * 7.31);
+    d += n * (depth * (bowl * fold - lip * 0.14));
+    dmgCav = max(dmgCav, bowl * min(1.0, depth / (C.w * 0.25)));
+  }
+  return d;
+}
+vec3 dmgDeform(vec3 p, float bone, float w) {
+  return dmgCrumple(p, w) + dmgDents(p, bone);
+}
+// rest frame <-> mesh frame: the skinned robot draws in the rest frame (its bones move it); a
+// torn-off piece was baked out in world space, so it carries its bone's rotation as dq
+#ifdef USE_SKINNING
+  vec3 dmgToRest(vec3 v) { return v; }
+  vec3 dmgFromRest(vec3 v) { return v; }
+#else
+  attribute vec3 dpos;
+  attribute float dbone;
+  attribute vec4 dq;
+  vec3 dmgRot(vec4 q, vec3 v) { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
+  vec3 dmgToRest(vec3 v) { return dmgRot(vec4(-dq.xyz, dq.w), v); }
+  vec3 dmgFromRest(vec3 v) { return dmgRot(dq, v) * uPieceScale; }
+#endif
+`;
+
+/** Rest-space position and bone the damage is read from (torn-off pieces carry them as attributes). */
 const DP = /* glsl */ `
 #ifdef USE_SKINNING
   vec3 dmgP = position;
+  float dmgBone = skinIndex.x;
 #else
   vec3 dmgP = dpos;
+  float dmgBone = dbone;
 #endif
 `;
+
+function bind(sh: { uniforms: { [name: string]: { value: unknown } } }, u: DamageUniforms) {
+  sh.uniforms.uWear = u.uWear;
+  sh.uniforms.uDentP = u.uDentP;
+  sh.uniforms.uDentN = u.uDentN;
+  sh.uniforms.uPieceScale = u.uPieceScale;
+}
 
 /** Patch the robot's opaque (vertex PBR) material. Chain after vertexPBR and before or after AO. */
 export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) {
@@ -73,7 +172,7 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
   const prevKey = mat.customProgramCacheKey.bind(mat);
   mat.onBeforeCompile = (sh, renderer) => {
     prev.call(mat, sh, renderer);
-    sh.uniforms.uWear = u.uWear;
+    bind(sh, u);
     sh.uniforms.uTime = u.uTime;
     sh.uniforms.uMark = u.uMark;
     sh.uniforms.uMarkB = u.uMarkB;
@@ -82,53 +181,52 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
       .replace(
         '#include <common>',
         `#include <common>
-        attribute float part;
-        #ifndef USE_SKINNING
-          attribute vec3 dpos;
-        #endif
-        uniform float uWear[${PART_COUNT}];
         uniform vec4 uMark[${MARKS}];
         uniform vec3 uMarkB[${MARKS}];
         varying vec3 vDmgP;
         varying float vWear;
         varying float vBone;
-        ${NOISE}`,
+        varying float vDent;
+        ${DEFORM}`,
       )
       .replace(
         '#include <beginnormal_vertex>',
         `#include <beginnormal_vertex>
         ${DP}
-        int dmgI = int(part + 0.5);
-        vWear = uWear[dmgI];
+        vWear = uWear[int(part + 0.5)];
         vDmgP = dmgP;
-        #ifdef USE_SKINNING
-          vBone = skinIndex.x;
-          // the metal around a torn-off part's socket is wrenched and wrecked
-          for (int k = 0; k < ${MARKS}; k++) {
-            if (uMarkB[k].y == ${MARK_SOCKET}.0 && abs(uMarkB[k].x - vBone) < 0.5)
-              vWear = max(vWear, uMarkB[k].z * (1.0 - smoothstep(uMark[k].w * 0.35, uMark[k].w, distance(dmgP, uMark[k].xyz))));
-          }
-        #else
-          vBone = -1.0;
-        #endif
+        vBone = dmgBone;
+        // the metal around a torn-off part's socket is wrenched and wrecked
+        for (int k = 0; k < ${MARKS}; k++) {
+          if (uMarkB[k].y == ${MARK_SOCKET}.0 && abs(uMarkB[k].x - vBone) < 0.5)
+            vWear = max(vWear, uMarkB[k].z * (1.0 - smoothstep(uMark[k].w * 0.35, uMark[k].w, distance(dmgP, uMark[k].xyz))));
+        }
+        dmgCav = 0.0;
+        vec3 dmgD = dmgDeform(dmgP, dmgBone, vWear);
+        vDent = dmgCav;
         vec3 dmgBend = vec3(0.0);
-        if (vWear > 0.01) {
-          float w = vWear;
-          // shows from the first few hits, then escalates hard once the part is failing
-          float vis = 1.0 - (1.0 - w) * (1.0 - w);
-          float heavy = smoothstep(0.45, 1.0, w);
-          heavy *= heavy;
-          // two octaves of a vector noise field: big buckles and small dings
-          vec3 q = dmgP * 11.0;
-          vec3 big = vec3(dmgNoise(q), dmgNoise(q + 17.3), dmgNoise(q + 41.7)) - 0.5;
-          vec3 r = dmgP * 31.0;
-          vec3 small = vec3(dmgNoise(r + 5.1), dmgNoise(r + 23.9), dmgNoise(r + 61.3)) - 0.5;
-          // the shell caves in hardest around a few impact spots
-          float crater = smoothstep(0.3, 0.62, dmgNoise(dmgP * 6.0 + 3.7));
-          float amp = (vis * 0.03 + heavy * 0.085) * (0.45 + crater * 1.1);
-          dmgBend = (big * 0.8 + small * 0.35) * amp;
-          // dented shells catch the light unevenly
-          objectNormal = normalize(objectNormal + (small * 1.6 + big) * (vis * 1.2 + heavy * 0.9) * (0.6 + crater));
+        if (vWear > 0.01 || dot(dmgD, dmgD) > 0.0) {
+          // the bent surface's true normal: the inverse transpose of the bend's Jacobian (by
+          // finite differences), applied through its cofactors
+          const float e = 0.006;
+          vec3 c0 = vec3(1.0, 0.0, 0.0) + (dmgDeform(dmgP + vec3(e, 0.0, 0.0), dmgBone, vWear) - dmgD) / e;
+          vec3 c1 = vec3(0.0, 1.0, 0.0) + (dmgDeform(dmgP + vec3(0.0, e, 0.0), dmgBone, vWear) - dmgD) / e;
+          vec3 c2 = vec3(0.0, 0.0, 1.0) + (dmgDeform(dmgP + vec3(0.0, 0.0, e), dmgBone, vWear) - dmgD) / e;
+          vec3 nr = dmgToRest(objectNormal);
+          nr = normalize(cross(c1, c2) * nr.x + cross(c2, c0) * nr.y + cross(c0, c1) * nr.z);
+          if (vWear > 0.01) {
+            // and a worn shell is covered in small dings that catch the light
+            float vis = 1.0 - (1.0 - vWear) * (1.0 - vWear);
+            vec3 r = dmgP * 31.0;
+            vec3 small = vec3(dmgNoise(r + 5.1), dmgNoise(r + 23.9), dmgNoise(r + 61.3)) - 0.5;
+            nr = normalize(nr + small * (vis * 0.9 + smoothstep(0.45, 1.0, vWear) * 0.7));
+          }
+          #ifdef USE_SKINNING
+            objectNormal = nr;
+          #else
+            objectNormal = normalize(dmgFromRest(nr));
+          #endif
+          dmgBend = dmgFromRest(dmgD);
         }`,
       )
       .replace(
@@ -147,6 +245,7 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
         varying vec3 vDmgP;
         varying float vWear;
         varying float vBone;
+        varying float vDent;
         ${NOISE}`,
       )
       .replace(
@@ -174,6 +273,19 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
               oil = max(oil, max(blob, spat) * uMarkB[k].z);
             }
           }
+        }
+        if (vDent > 0.02) {
+          // a dent's floor sits in its own shade, and the paint there cracks and flakes off,
+          // leaving scraped steel where the blow bit hardest
+          float flake = dmgNoise(vDmgP * 38.0 + 2.9) * 0.6 + dmgNoise(vDmgP * 90.0) * 0.4;
+          float bare = smoothstep(0.55, 0.62, vDent * 0.75 + flake * 0.5);
+          diffuseColor.rgb *= 1.0 - vDent * 0.28;
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.3, 0.31, 0.33) * (0.75 + flake * 0.5), bare);
+          metalnessFactor = mix(metalnessFactor, 0.95, bare);
+          roughnessFactor = mix(roughnessFactor, 0.32 + flake * 0.3, bare);
+          // and a rim of crazed paint around the bare patch
+          float craze = smoothstep(0.42, 0.5, vDent * 0.75 + flake * 0.5) * (1.0 - bare);
+          diffuseColor.rgb *= 1.0 - craze * smoothstep(0.55, 0.75, dmgNoise(vDmgP * 140.0)) * 0.6;
         }
         if (vWear > 0.01 || sockW > 0.01) {
           float w = max(vWear, sockW);
@@ -229,32 +341,57 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
         }`,
       );
   };
-  mat.customProgramCacheKey = () => `${prevKey()}-dmg`;
+  mat.customProgramCacheKey = () => `${prevKey()}-dmg2`;
   return mat;
 }
 
-/** Patch the robot's glowing strips: a damaged part's lights dim, then sputter. */
+/**
+ * The robot's shadow-pass material: three's depth material with the same bends, so a dent's
+ * shadow matches the dent (an unbent shadow would shade every dent from its own old surface).
+ */
+export function damageDepthMaterial(u: DamageUniforms) {
+  const mat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+  mat.onBeforeCompile = (sh) => {
+    bind(sh, u);
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>\n${DEFORM}`).replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+      {
+        ${DP}
+        dmgCav = 0.0;
+        transformed += dmgFromRest(dmgDeform(dmgP, dmgBone, uWear[int(part + 0.5)]));
+      }`,
+    );
+  };
+  mat.customProgramCacheKey = () => 'bot-depth-dmg';
+  return mat;
+}
+
+/** Patch the robot's glowing strips: they bend with the plating, and a damaged part's lights dim, then sputter. */
 export function patchDamageGlow(mat: THREE.Material, u: DamageUniforms) {
   const prev = mat.onBeforeCompile;
   const prevKey = mat.customProgramCacheKey.bind(mat);
   mat.onBeforeCompile = (sh, renderer) => {
     prev.call(mat, sh, renderer);
-    sh.uniforms.uWear = u.uWear;
+    bind(sh, u);
     sh.uniforms.uTime = u.uTime;
     sh.vertexShader = sh.vertexShader
       .replace(
         '#include <common>',
         `#include <common>
-        attribute float part;
-        uniform float uWear[${PART_COUNT}];
         uniform float uTime;
-        varying float vGlowK;`,
+        varying float vGlowK;
+        ${DEFORM}`,
       )
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
         {
           float w = uWear[int(part + 0.5)];
+          // the strips ride the bent plating they're set in
+          ${DP}
+          dmgCav = 0.0;
+          transformed += dmgFromRest(dmgDeform(dmgP, dmgBone, w));
           float k = 1.0 - w * 0.55;
           if (w > 0.45) {
             // sputter: drop out in random beats, more often the worse it gets
@@ -269,6 +406,6 @@ export function patchDamageGlow(mat: THREE.Material, u: DamageUniforms) {
       .replace('#include <common>', '#include <common>\nvarying float vGlowK;')
       .replace('#include <opaque_fragment>', 'outgoingLight *= vGlowK;\n#include <opaque_fragment>');
   };
-  mat.customProgramCacheKey = () => `${prevKey()}-dmg`;
+  mat.customProgramCacheKey = () => `${prevKey()}-dmg2`;
   return mat;
 }
