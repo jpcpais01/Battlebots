@@ -17,9 +17,19 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 12:00",
-    title: "Smoother arms",
+    title: "Big bots hit harder",
     notes: [
       "Tapping an arena on the world map now flies it to the middle of the map you can see, beside the event card, on phones and PC at any zoom. Skydeck 88 up on its tower no longer ends up near the top of the screen.",
+      "Frame size now really matters for strike power: a max-size bot hits about 20% harder than a standard one and roughly half again as hard as a tiny one, and knocks people down far more often. In exchange big bots are a little slower on their feet and with their hands, and gain less extra health than before, so small bots still win by landing far more shots.",
+    ],
+  },
+  {
+    hour: "2026-10-15 12:00",
+    title: "Smoother arms, natural mountains",
+    notes: [
+      "The mountains on the world map are no longer a forest of spikes: long rounded ridgelines and big massifs, with valleys between, snow on the highest crests and gullies running down every slope where water has worn them.",
+      "Mountainsides now weather like real ones: grey rock on the spurs and tops, green in the gullies, and the lake above the falls sits in a high valley between two mountain shoulders.",
+      "The far ranges behind the map are drawn in finer detail and coloured to match, so they fade into the haze without blocky faces.",
       "Fists and forearms no longer twitch. They used to spin round in a single frame when an arm crossed the body or straightened, and jolt whenever they brushed armour; now they turn and slide smoothly, in fights and in the home scenes.",
       "Arms flow back into the guard after kicks and dodges instead of snapping there, fists turn smoothly into each punch, and on the beach the robot no longer bobs the coconut with a jerk while it drinks.",
     ],
