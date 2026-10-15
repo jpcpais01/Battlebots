@@ -16,6 +16,16 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-15 02:00",
+    title: "Downtown after dark",
+    notes: [
+      "Four mega-towers now rise over the middle of the World map's city: a twisting glass Spire, a stacked Arcology with gardens on every terrace, the Needle with its halo decks and a dark Monolith, with giant screens and searchlights sweeping the sky.",
+      "More holograms downtown: a whale swimming laps high round the towers, jellyfish drifting between them, a giant robot shadow-boxing in the plaza and glitching adverts off the skyscrapers. The koi is still there.",
+      "New day/night button on the World map: at night the windows, neon, street lamps and holograms light the city up under a moonlit sky.",
+      "More detail everywhere on the map: country houses with porches, gardens, sheds and solar panels, farms with barns, silos and glowing greenhouses, and radio masts, water tanks, billboards and shop signs across the city.",
+    ],
+  },
+  {
     hour: "2026-10-15 01:00",
     title: "The World map",
     notes: [

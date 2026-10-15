@@ -60,6 +60,14 @@
   gap: 0.45em;
 }
 
+/* the day/night switch, a gap above the zoom buttons */
+.map-zoom .map-time {
+  margin-bottom: 0.5em;
+}
+.map-zoom .map-time.on {
+  color: #ffd98a;
+}
+
 /* pins: a glowing head on a stem, the event's name and how far the run has got */
 .map-pins {
   position: absolute;

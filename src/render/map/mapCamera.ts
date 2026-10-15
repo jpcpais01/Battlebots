@@ -34,6 +34,8 @@ export class MapCamera {
   ground: (x: number, z: number) => number = () => 3;
   /** The tallest roof near a point (the lens never goes inside a tower). */
   roofs: (x: number, z: number) => number = () => 0;
+  /** Towers too tall to climb over: the lens is pushed out round them instead, below their tops. */
+  obstacles: { x: number; z: number; r: number; top: number }[] = [];
   private pointers = new Map<number, { x: number; y: number }>();
   private grab: THREE.Vector3 | null = null;
   private pinch: { d: number; dist: number; mid: THREE.Vector3 | null } | null = null;
@@ -65,6 +67,16 @@ export class MapCamera {
   private pose() {
     this.place(this.target, this.dist, this.pos);
     this.pos.y = Math.max(this.pos.y, this.roofs(this.pos.x, this.pos.z) + 14);
+    for (const o of this.obstacles) {
+      if (this.pos.y > o.top + 20) continue;
+      const dx = this.pos.x - o.x, dz = this.pos.z - o.z;
+      const d = Math.hypot(dx, dz), R = o.r + 26;
+      if (d >= R) continue;
+      // (straight under the camera's own approach: out towards the viewer)
+      const k = d > 1e-3 ? R / d : 0;
+      this.pos.x = d > 1e-3 ? o.x + dx * k : o.x;
+      this.pos.z = d > 1e-3 ? o.z + dz * k : o.z + R;
+    }
     this.look.copy(this.target);
   }
 

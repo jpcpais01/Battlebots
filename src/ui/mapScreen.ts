@@ -34,6 +34,7 @@ export class MapScreen {
   private loading: HTMLElement;
   private bar: HTMLElement;
   private chip: HTMLElement;
+  private timeBtn: HTMLButtonElement;
   private picked: string | null = null;
   private attached = false;
   private opened = false;
@@ -52,6 +53,13 @@ export class MapScreen {
     el('div', 'map-title', '<span class="kicker">World</span><b>Cups &amp; Championships</b>', left);
     this.chip = el('div', 'map-chip', '', bar);
     const zoom = el('div', 'map-zoom', '', s);
+    this.timeBtn = button('icon-btn map-time', ICON.moon, () => {
+      const w = this.h.game.worldMap;
+      if (!w) return;
+      h.tap('select');
+      w.setNight(!w.isNight);
+      this.drawTime();
+    }, zoom);
     button('icon-btn', ICON.plus, () => this.h.game.worldMap?.cam.zoomBy(0.6), zoom).title = 'Zoom in';
     button('icon-btn', ICON.minus, () => this.h.game.worldMap?.cam.zoomBy(1.6), zoom).title = 'Zoom out';
     this.card = el('div', 'map-card interactive', '', s);
@@ -92,6 +100,7 @@ export class MapScreen {
           w.cam.flyTo(_v.set(HOME_VIEW.x, 3, HOME_VIEW.z), HOME_VIEW.d, 2.6);
         }
         if (this.picked) w.sites.highlight(this.picked);
+        this.drawTime();
       })
       .catch((e) => {
         console.error('map failed', e);
@@ -101,6 +110,14 @@ export class MapScreen {
 
   hide() {
     this.visible = false;
+  }
+
+  /** The day/night button shows what it switches to. */
+  private drawTime() {
+    const night = !!this.h.game.worldMap?.isNight;
+    this.timeBtn.innerHTML = night ? ICON.sun : ICON.moon;
+    this.timeBtn.title = night ? 'Day' : 'Night';
+    this.timeBtn.classList.toggle('on', night);
   }
 
   /** Pins and the card from the saved progress. */

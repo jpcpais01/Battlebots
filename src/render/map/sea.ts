@@ -14,13 +14,7 @@ const FAR = 5200;
 /** Sky colour reflected in water looking along `r` (shared by the sea and the river). */
 const SKY_GLSL = /* glsl */ `
   vec3 skyRefl(vec3 r) {
-    float up = clamp(r.y, 0.0, 1.0);
-    vec3 horizon = vec3(1.0, 0.82, 0.68);
-    vec3 zenith = vec3(0.32, 0.5, 0.86);
-    vec3 c = mix(horizon, zenith, pow(up, 0.55));
-    // the sun's glow in the sky towards it
-    c += vec3(1.0, 0.7, 0.4) * pow(max(dot(normalize(r), uSunDir), 0.0), 8.0) * 0.8;
-    return c;
+    return skyCol(r);
   }
   // a wave normal from two scrolling noise layers
   vec3 waveN(vec2 xz, float k) {

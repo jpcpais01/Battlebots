@@ -324,10 +324,12 @@ export function buildClouds(u: MapUniforms) {
         if (a < 0.01) discard;
         // light: bright warm top, cool shaded underside, the low sun's side lit
         float top = clamp(vUv.y * 0.6 + 0.5, 0.0, 1.0);
-        vec3 lit = uSunCol * 0.42 + vec3(0.42, 0.42, 0.45);
-        vec3 shade = vec3(0.56, 0.55, 0.66);
+        // (by night: lit from below, faintly, by the city)
+        vec3 lit = uSunCol * 0.42 + mix(vec3(0.42, 0.42, 0.45), vec3(0.05, 0.05, 0.09), uNight);
+        vec3 shade = mix(vec3(0.56, 0.55, 0.66), vec3(0.13, 0.08, 0.17), uNight);
         vec3 c = mix(shade, lit, smoothstep(0.15, 0.85, top + (edge - 0.5) * 0.3));
-        gl_FragColor = vec4(c, a * 0.92 * vNear);
+        // (thinner at night, so they don't blot out the city's lights)
+        gl_FragColor = vec4(c, a * 0.92 * vNear * (1.0 - 0.5 * uNight));
         ${MAP_OUT}
       }`,
     transparent: true,
