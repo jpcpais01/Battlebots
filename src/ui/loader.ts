@@ -57,7 +57,7 @@ export class Loader {
   private els = {
     fill: this.q<HTMLElement>('.bt-fill'),
     head: this.q<HTMLElement>('.bt-head'),
-    pct: this.q<HTMLElement>('.bt-pct'),
+    pct: this.q<HTMLElement>('.bt-pct b'),
     what: this.q<HTMLElement>('.bt-what'),
     tip: this.q<HTMLElement>('.bt-tip'),
   };
@@ -170,7 +170,7 @@ export class Loader {
     const whole = Math.floor(shown * 100 + 1e-6);
     if (whole !== this.lastPct) {
       this.lastPct = whole;
-      if (this.els.pct) this.els.pct.textContent = `${whole}%`;
+      if (this.els.pct) this.els.pct.textContent = String(whole);
       this.root?.setAttribute('aria-valuenow', String(whole));
     }
     if (this.reached && shown >= 0.99) {
@@ -206,7 +206,7 @@ export class Loader {
       // (no frames in a hidden tab: don't wait on the animation there)
       setTimeout(ok, 1400);
     });
-    if (this.els.pct) this.els.pct.textContent = '100%';
+    if (this.els.pct) this.els.pct.textContent = '100';
     root.classList.add('full');
     await wait(300);
     this.ended = true;

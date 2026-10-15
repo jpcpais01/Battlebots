@@ -17,8 +17,9 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 14:00",
-    title: "Ray tracing fixes",
+    title: "A new loading screen and ray tracing fixes",
     notes: [
+      "A redesigned loading screen: a glowing boxing ring turns slowly in the dark beside the logo, with a cleaner progress line and a big percentage counter.",
       "Fixed dark horizontal lines across the floor and other surfaces with ray tracing on. They showed up at some screen resolutions and not others, which is why they came and went between launches.",
       "Soft shadows no longer show faint stripes on surfaces the light only grazes.",
     ],
