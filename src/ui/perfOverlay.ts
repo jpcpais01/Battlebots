@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Game } from '../game/game';
 import { perf, SECTIONS, type PerfReport } from '../perf';
+import { gpuInfoNow, probeGpu, type GpuInfo } from '../render/gpuInfo';
 import { PARTS } from '../render/renderProbe';
 import { button, el } from './dom';
 
@@ -63,6 +64,16 @@ export class PerfOverlay {
       root.classList.toggle('compact', this.compact);
     });
     this.head = el('div', 'perf-head', '-- FPS', root);
+    const gpu = el('div', 'perf-gpu', 'GPU …', root);
+    const showGpu = (g: GpuInfo | null) => {
+      if (!g) return;
+      gpu.innerHTML = '';
+      el('b', '', g.name, gpu);
+      el('span', '', ` · ${g.backend}${g.masked ? ' · model hidden by browser' : ''}`, gpu);
+      gpu.title = g.raw || g.name;
+    };
+    void probeGpu(this.game.stage.renderer).then(showGpu);
+    showGpu(gpuInfoNow()); // WebGL answers straight away; a masked name may still be improved via WebGPU
     this.body = el('div', 'perf-body', '', root);
     this.graph = el('canvas', 'perf-graph', '', this.body);
     const dpr = Math.min(2, window.devicePixelRatio || 1);

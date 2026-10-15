@@ -20,6 +20,7 @@ export const PATCH_NOTES: PatchNote[] = [
     title: "Performance stats",
     notes: [
       "The GPU tab in Performance stats now splits Bloom/post into MSAA resolve, Bloom and Final pass, so you can see which one is taking the time.",
+      "Performance stats now show which graphics chip the game is running on (like GeForce RTX 3060, Adreno 740 or Apple M1) and whether it draws with WebGPU or WebGL, on PC and phones. Where the browser hides the exact model, as Safari on iPhone does, it says so.",
     ],
   },
   {
