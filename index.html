@@ -11,11 +11,363 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>Battlebots</title>
+    <!--
+      The loading screen's look lives here, not in style.css, so it is on screen before a single
+      script has downloaded. Everything that moves on it moves by transform or opacity only: the
+      browser keeps those running on its own while the game is busy building the arena.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #05070c;
+      }
+      .boot {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        overflow: hidden;
+        display: grid;
+        place-items: center;
+        color: #f4f7fc;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        background: radial-gradient(ellipse 80% 70% at 50% 42%, #142036 0%, #0a0f1b 46%, #05070c 100%);
+        -webkit-user-select: none;
+        user-select: none;
+        --core: min(38vh, 34vw, 230px);
+        transition: opacity 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.12s;
+      }
+      .bt-stage {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      /* the canvas, running toward you, fading into the dark */
+      .bt-floor {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 44vh;
+        perspective: 38vh;
+        perspective-origin: 50% 0;
+        -webkit-mask-image: linear-gradient(0deg, #000 10%, transparent 92%);
+        mask-image: linear-gradient(0deg, #000 10%, transparent 92%);
+      }
+      .bt-floor i {
+        position: absolute;
+        left: -80%;
+        width: 260%;
+        top: 0;
+        height: 340%;
+        transform-origin: 50% 0;
+        background:
+          linear-gradient(rgba(120, 170, 255, 0.2) 1px, transparent 1px) 0 0 / 7vh 7vh,
+          linear-gradient(90deg, rgba(120, 170, 255, 0.14) 1px, transparent 1px) 0 0 / 7vh 7vh;
+        animation: bt-run 1.6s linear infinite;
+        will-change: transform;
+      }
+      @keyframes bt-run {
+        from {
+          transform: rotateX(74deg) translateY(-7vh);
+        }
+        to {
+          transform: rotateX(74deg) translateY(0);
+        }
+      }
+      .bt-pool {
+        position: absolute;
+        left: 50%;
+        bottom: 6vh;
+        width: 120vh;
+        height: 26vh;
+        margin-left: -60vh;
+        border-radius: 50%;
+        background: radial-gradient(closest-side, rgba(255, 150, 70, 0.16), rgba(61, 139, 255, 0.06) 55%, transparent);
+      }
+      .bt-mid {
+        position: relative;
+        display: grid;
+        justify-items: center;
+        gap: min(2.6vh, 18px);
+        padding: 0 16px;
+        text-align: center;
+        transition:
+          transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1),
+          opacity 0.45s ease;
+      }
+      .bt-logo {
+        font-family: 'Russo One', system-ui, sans-serif;
+        font-style: italic;
+        font-size: min(10.5vh, 8.4vw, 62px);
+        line-height: 1;
+        white-space: nowrap;
+        letter-spacing: 0.01em;
+        padding-right: 0.12em;
+        filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.6));
+        opacity: 0;
+        transform: translateY(0.25em) scale(0.96);
+        transition:
+          opacity 0.7s ease,
+          transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+      .bt-logo .l2 {
+        background: linear-gradient(180deg, #ffc15a, #ff6a12);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .boot.fonts .bt-logo {
+        opacity: 1;
+        transform: none;
+      }
+      /* the power core: the ring fills with the real progress */
+      .bt-core {
+        position: relative;
+        width: var(--core);
+        height: var(--core);
+      }
+      .bt-core > * {
+        position: absolute;
+        inset: 0;
+      }
+      .bt-glow {
+        inset: 14%;
+        border-radius: 50%;
+        background: radial-gradient(closest-side, rgba(255, 140, 50, 0.3), rgba(255, 106, 18, 0.08) 60%, transparent);
+        animation: bt-breathe 2.4s ease-in-out infinite alternate;
+      }
+      @keyframes bt-breathe {
+        from {
+          opacity: 0.45;
+          transform: scale(0.92);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1.04);
+        }
+      }
+      .bt-ticks {
+        border-radius: 50%;
+        background: repeating-conic-gradient(rgba(190, 210, 255, 0.4) 0 0.9deg, transparent 0.9deg 6deg);
+        -webkit-mask: radial-gradient(closest-side, transparent 80%, #000 81%, #000 86%, transparent 87%);
+        mask: radial-gradient(closest-side, transparent 80%, #000 81%, #000 86%, transparent 87%);
+        animation: bt-spin 14s linear infinite;
+        will-change: transform;
+      }
+      .bt-ticks.in {
+        inset: 21%;
+        background: repeating-conic-gradient(rgba(255, 170, 90, 0.5) 0 14deg, transparent 14deg 30deg);
+        -webkit-mask: radial-gradient(closest-side, transparent 92%, #000 93%, #000 99%, transparent 100%);
+        mask: radial-gradient(closest-side, transparent 92%, #000 93%, #000 99%, transparent 100%);
+        animation-duration: 3.2s;
+        animation-direction: reverse;
+        opacity: 0.55;
+      }
+      @keyframes bt-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .bt-ring {
+        width: 100%;
+        height: 100%;
+        transform: rotate(-90deg);
+        overflow: visible;
+      }
+      .bt-ring circle {
+        fill: none;
+        stroke-width: 3.2;
+      }
+      .bt-track {
+        stroke: rgba(255, 255, 255, 0.08);
+      }
+      .bt-fill {
+        stroke: url(#bt-g);
+        stroke-linecap: round;
+        /* the circle's length, 2π × 52 */
+        stroke-dasharray: 326.73 326.73;
+        stroke-dashoffset: 326.73;
+        filter: drop-shadow(0 0 3px rgba(255, 120, 30, 0.9));
+        transition: stroke 0.3s;
+      }
+      .bt-spark {
+        transform: rotate(0deg);
+        opacity: 0;
+        transition: opacity 0.3s;
+      }
+      .bt-spark i {
+        position: absolute;
+        left: 50%;
+        top: 6.67%;
+        width: 9px;
+        height: 9px;
+        margin: -4.5px 0 0 -4.5px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow:
+          0 0 8px 2px rgba(255, 210, 140, 0.95),
+          0 0 22px 6px rgba(255, 110, 30, 0.6);
+      }
+      .bt-pct {
+        display: grid;
+        place-items: center;
+        font-family: 'Russo One', system-ui, sans-serif;
+        font-style: italic;
+        font-size: calc(var(--core) * 0.25);
+        line-height: 1;
+        opacity: 0;
+        transition: opacity 0.6s ease;
+      }
+      .bt-pct span {
+        display: flex;
+        align-items: baseline;
+        padding-right: 0.08em;
+      }
+      .bt-pct small {
+        font-size: 0.42em;
+        margin-left: 0.06em;
+        color: rgba(232, 238, 250, 0.6);
+      }
+      .boot.fonts .bt-pct {
+        opacity: 1;
+      }
+      .bt-what {
+        margin: 0;
+        min-height: 1.3em;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: rgba(232, 238, 250, 0.8);
+      }
+      .bt-what em {
+        font-style: normal;
+        font-weight: 500;
+        letter-spacing: 0.06em;
+        text-transform: none;
+        color: rgba(214, 223, 240, 0.5);
+        margin-left: 0.7em;
+      }
+      .bt-tip {
+        margin: 0;
+        max-width: 34em;
+        min-height: 2.6em;
+        font-size: 13px;
+        line-height: 1.35;
+        color: rgba(214, 223, 240, 0.6);
+        opacity: 0;
+        transform: translateY(4px);
+        transition:
+          opacity 0.5s ease,
+          transform 0.5s ease;
+      }
+      .bt-tip.on {
+        opacity: 1;
+        transform: none;
+      }
+      .bt-tip b {
+        color: #ffb43a;
+        font-weight: 600;
+        margin-right: 0.4em;
+      }
+      /* done: the core flashes, then everything lifts away onto the game */
+      .bt-flash {
+        border-radius: 50%;
+        border: 2px solid rgba(255, 200, 130, 0.9);
+        box-shadow: 0 0 30px rgba(255, 140, 50, 0.7);
+        opacity: 0;
+      }
+      .boot.full .bt-fill {
+        stroke: #ffd9a0;
+      }
+      .boot.full .bt-flash {
+        animation: bt-flash 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+      }
+      @keyframes bt-flash {
+        from {
+          opacity: 1;
+          transform: scale(0.98);
+        }
+        to {
+          opacity: 0;
+          transform: scale(1.5);
+        }
+      }
+      .boot.out {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .boot.out .bt-mid {
+        opacity: 0;
+        transform: scale(1.07);
+      }
+      .boot.failed .bt-fill {
+        stroke: #ff4766;
+      }
+      .bt-retry {
+        display: none;
+        padding: 0.7em 1.6em;
+        border: 0;
+        border-radius: 999px;
+        background: #fff;
+        color: #05070c;
+        font: 600 14px system-ui, sans-serif;
+      }
+      .boot.failed .bt-retry {
+        display: block;
+      }
+      @media (max-height: 420px) {
+        .bt-what {
+          font-size: 11px;
+        }
+        .bt-tip {
+          font-size: 12px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .bt-floor i,
+        .bt-ticks,
+        .bt-glow {
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body>
     <canvas id="scene"></canvas>
     <div id="vignette"></div>
     <div id="ui"></div>
+    <div id="boot" class="boot" role="progressbar" aria-label="Loading Battlebots" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div class="bt-stage" aria-hidden="true">
+        <div class="bt-pool"></div>
+        <div class="bt-floor"><i></i></div>
+      </div>
+      <div class="bt-mid">
+        <div class="bt-logo"><span class="l1">BATTLE</span><span class="l2">BOTS</span></div>
+        <div class="bt-core" aria-hidden="true">
+          <div class="bt-glow"></div>
+          <div class="bt-ticks"></div>
+          <div class="bt-ticks in"></div>
+          <svg class="bt-ring" viewBox="0 0 120 120">
+            <defs>
+              <linearGradient id="bt-g" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#ffd27a" />
+                <stop offset="1" stop-color="#ff5a0a" />
+              </linearGradient>
+            </defs>
+            <circle class="bt-track" cx="60" cy="60" r="52" />
+            <circle class="bt-fill" cx="60" cy="60" r="52" />
+          </svg>
+          <div class="bt-spark"><i></i></div>
+          <div class="bt-flash"></div>
+          <div class="bt-pct"><span><b>0</b><small>%</small></span></div>
+        </div>
+        <p class="bt-what">Loading</p>
+        <p class="bt-tip"></p>
+        <button class="bt-retry" type="button" onclick="location.reload()">Try again</button>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

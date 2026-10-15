@@ -88,7 +88,7 @@ interface Goal {
  * grid at first), where they go.
  */
 const MAIN: { kind: Kind; from: [number, number]; out: [number, number]; goal: Goal; site?: string; tunnel?: boolean; lift?: boolean }[] = [
-  { kind: Kind.Motorway, from: [278, -298], out: [1, 0], goal: { x: 300, z: -1030, r: 50 }, tunnel: true },
+  { kind: Kind.Motorway, from: [278, -298], out: [1, 0], goal: { x: 440, z: -600, r: 30 }, tunnel: true },
   // (the falls' platform is up on the escarpment: the road ends in the valley below it, and a
   // funicular climbs the mountainside the rest of the way)
   { kind: Kind.Mountain, from: [-226, -298], out: [0, -1], goal: { x: LIFT.x0, z: LIFT.z0, r: 14 }, site: 'falls', lift: true },
@@ -360,6 +360,25 @@ function resample(p: [number, number][], step = STEP) {
   return out;
 }
 
+/**
+ * Ease out the lattice's little zigzags (where the ground is too bumpy for the straightening):
+ * a few passes of neighbour averaging on the evenly spaced points, ends held, then even spacing
+ * again. `iters` passes round off wiggles up to about 3·√iters metres.
+ */
+function relax(pts: number[], iters: number) {
+  const n = pts.length / 2;
+  if (n < 5) return pts;
+  let a = pts.slice(), b = pts.slice();
+  for (let it = 0; it < iters; it++) {
+    for (let i = 1; i < n - 1; i++)
+      for (let c = 0; c < 2; c++) b[i * 2 + c] = (a[(i - 1) * 2 + c] + 2 * a[i * 2 + c] + a[(i + 1) * 2 + c]) / 4;
+    [a, b] = [b, a];
+  }
+  const p: [number, number][] = [];
+  for (let i = 0; i < n; i++) p.push([a[i * 2], a[i * 2 + 1]]);
+  return resample(p);
+}
+
 // ------------------------------------------------------------------ nearest road
 /** Segments of every road binned in a coarse grid, for "how far is the nearest road?" */
 class RoadIndex {
@@ -442,7 +461,7 @@ export function roadNet(): RoadNet {
   if (_net) return _net;
   const lines = streetLines();
   const roads: Road[] = [];
-  const index = new RoadIndex();
+  const index = new RoadIndex(), joins = new RoadIndex();
   for (const m of MAIN) {
     const { along, cross } = mainLines(lines, m);
     const hw0 = along ? lineHalf(along) : HALF[m.kind];
@@ -463,14 +482,16 @@ export function roadNet(): RoadNet {
     let p: [number, number][] = [[sx, sz], [fx + m.out[0] * (lead - 12), fz + m.out[1] * (lead - 12)], ...path];
     p = chaikin(p, 4, 1);
     if (m.tunnel) p = intoTheHill(p);
-    const road: Road = { kind: m.kind, pts: resample(p), hw0, taper: 40, tunnel: m.tunnel, lift: m.lift };
+    const road: Road = { kind: m.kind, pts: relax(resample(p), 40), hw0, taper: 40, tunnel: m.tunnel, lift: m.lift };
     roads.push(road);
     index.add(road);
+    // (lanes can join anywhere but the last stretch before the tunnel)
+    joins.add(m.tunnel ? { ...road, pts: road.pts.slice(0, Math.max(4, road.pts.length - 2 * Math.round(90 / STEP))) } : road);
   }
   // village lanes to the nearest road; farm villages' dirt tracks out into the fields
   const tracks: Road[] = [];
   for (const [vx, vz, vr, isFarm] of VILLAGES) {
-    const goalRoad = (x: number, z: number) => index.nearest(x, z, 900);
+    const goalRoad = (x: number, z: number) => joins.nearest(x, z, 900);
     const near = goalRoad(vx, vz);
     if (near && Math.hypot(near[0] - vx, near[1] - vz) > HALF[Kind.Country] + 12) {
       const path = route(Kind.Lane, vx, vz, { x: near[0], z: near[1], r: CELL * 0.8 }, undefined, 160);
@@ -479,10 +500,11 @@ export function roadNet(): RoadNet {
         const last = path[path.length - 1];
         const on = goalRoad(last[0], last[1]);
         if (on) path.push(on);
-        const road: Road = { kind: Kind.Lane, pts: resample(chaikin(path, 3)), hw0: HALF[Kind.Lane], taper: 0 };
+        const road: Road = { kind: Kind.Lane, pts: relax(resample(chaikin(path, 3)), 24), hw0: HALF[Kind.Lane], taper: 0 };
         roads.push(road);
         // (later villages' lanes may join this one)
         index.add(road);
+        joins.add(road);
       }
     }
     if (!isFarm) continue;
@@ -492,7 +514,7 @@ export function roadNet(): RoadNet {
       const gx = vx + Math.cos(a) * d, gz = vz + Math.sin(a) * d;
       if (coast(gx, gz) < 30 || cityWeight(gx, gz) > 0.1) continue;
       const path = route(Kind.Track, vx + Math.cos(a) * 8, vz + Math.sin(a) * 8, { x: gx, z: gz, r: 14 }, undefined, 120);
-      if (path && path.length > 6) tracks.push({ kind: Kind.Track, pts: resample(chaikin(path, 3)), hw0: HALF[Kind.Track], taper: 0 });
+      if (path && path.length > 6) tracks.push({ kind: Kind.Track, pts: relax(resample(chaikin(path, 3)), 10), hw0: HALF[Kind.Track], taper: 0 });
     }
   }
   for (const t of tracks) {
@@ -508,10 +530,11 @@ function intoTheHill(p: [number, number][]) {
   const [ax, az] = p[p.length - 2], [bx, bz] = p[p.length - 1];
   const L = Math.hypot(bx - ax, bz - az) || 1;
   const dx = (bx - ax) / L, dz = (bz - az) / L;
+  // on at a gentle climb until the hillside closes over the road
+  const h0 = height(bx, bz);
   let x = bx, z = bz;
   for (let t = 0; t < 240; t += 4) {
-    const h = height(x, z);
-    if (height(x + dx * 14, z + dz * 14) > h + 9) break;
+    if (height(x + dx * 12, z + dz * 12) > h0 + t * 0.05 + 7) break;
     x += dx * 4;
     z += dz * 4;
   }

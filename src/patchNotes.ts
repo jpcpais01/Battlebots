@@ -16,9 +16,65 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-15 12:00",
+    title: "New roads and a fullscreen button",
+    notes: [
+      "The world map has real roads now, each kind its own: an expressway with a lit median runs out of the city into a mountain tunnel, country roads wind out to Lantern Grove and the lighthouse on grassy banks, a mountain road with a double yellow line and stone walls climbs the valley, and village lanes and dirt farm tracks run between the fields.",
+      "City streets have crisp kerbs and pavements instead of blurry edges: rounded corners, zebra crossings and stop lines at every junction, scramble crossings where the avenues meet, bus lanes and tree-lined medians that glow neon at night, and little cobbled alleys hung with paper lanterns.",
+      "A red funicular now carries visitors from the end of the mountain road up the cliff to Cascade Falls.",
+      "At night the roads light up properly: pools of lamplight along the streets and the expressway, lamps in the villages, and headlights and tail lights moving along the country roads.",
+      "New fullscreen button on the home screen, next to settings. Tap it to go fullscreen or back to a window; once you turn fullscreen off, the game stops switching it back on by itself.",
+    ],
+  },
+  {
+    hour: "2026-10-15 12:00",
+    title: "Home scenes load up front, river and skies",
+    notes: [
+      "Every home background (beach, gym and lounge) is now built while the game loads, so switching between them shows the new one straight away instead of after a few seconds.",
+      "The loading screen is calmer: the swinging spotlights are gone, leaving the arena floor and the power core.",
+      "By day the world map's sky is clear again: the searchlights sweeping up from the towers and the holograms (the koi, the whale, the robot, the tower ads and the ad screens over downtown) now only come out at night, fading in as it gets dark.",
+      "The river on the world map now really flows: fast down the middle and slow by the banks, with ripples and lines of foam carried downstream, white water churning over the rapids, foam lacing the banks, and the sun glittering on it and dancing over the stony shallows. The lake above the falls shows its shallows too.",
+      "Cascade Falls drops sheer off the cliff again in a tall white curtain with spray at its foot, the dam sits on the cliff edge instead of hanging in the air, and the river below now runs down its valley instead of floating over it, tumbling through a run of rapids on the way to the city.",
+    ],
+  },
+  {
+    hour: "2026-10-15 12:00",
+    title: "New loading screen, map and big bots",
+    notes: [
+      "A new loading screen: stage lights swing over the arena floor while a power core fills with the game's real progress, showing what it's doing right now (lighting the arena, opening the workshop, setting up your home scene) and a tip to read while you wait.",
+      "While it loads, the game now gets everything ready up front: every shader, texture and reflection of the arena, the workshop and your home scene, the screen effects and the ray-traced lighting. No more stutter the first time you enter the arena, open the garage or land the first hit of a fight. If you're logged in, your saved bot is fetched before the home screen appears, so it no longer swaps in a moment later.",
+      "Sounds are made during loading too (punches, clangs, the crowd's 3-2-1 chant), so the first tap no longer hitches, and your bot's walk-on theme and the garage's part pictures are prepared in the background right after.",
+      "Tapping an arena on the world map now flies it to the middle of the map you can see, beside the event card, on phones and PC at any zoom. Skydeck 88 up on its tower no longer ends up near the top of the screen.",
+      "Frame size now really matters for strike power: a max-size bot hits about 20% harder than a standard one and roughly half again as hard as a tiny one, and knocks people down far more often. In exchange big bots are a little slower on their feet and with their hands, and gain less extra health than before, so small bots still win by landing far more shots.",
+    ],
+  },
+  {
+    hour: "2026-10-15 12:00",
+    title: "Smoother arms, natural mountains",
+    notes: [
+      "The mountains on the world map are no longer a forest of spikes: long rounded ridgelines and big massifs, with valleys between, snow on the highest crests and gullies running down every slope where water has worn them.",
+      "Mountainsides now weather like real ones: grey rock on the spurs and tops, green in the gullies, and the lake above the falls sits in a high valley between two mountain shoulders.",
+      "The far ranges behind the map are drawn in finer detail and coloured to match, so they fade into the haze without blocky faces.",
+      "Fists and forearms no longer twitch. They used to spin round in a single frame when an arm crossed the body or straightened, and jolt whenever they brushed armour; now they turn and slide smoothly, in fights and in the home scenes.",
+      "Arms flow back into the guard after kicks and dodges instead of snapping there, fists turn smoothly into each punch, and on the beach the robot no longer bobs the coconut with a jerk while it drinks.",
+    ],
+  },
+  {
+    hour: "2026-10-15 12:00",
+    title: "Ray-traced lighting",
+    notes: [
+      "New ray-traced lighting, on by default on PC: light now bounces off whatever is near it, so the orange ring skirt glows on the floor and a red robot tints the canvas, and every corner, seam and joint sits in its own soft shade.",
+      "The canvas and the arena floor are glossy now and mirror the robots, the ropes, the LED skirt and the lights above: sharp where a foot meets the floor, blurring with distance. Event venues with smooth floors (the Harbor plates, Skydeck's deck, the wet pavers at the dam) reflect too.",
+      "Shadows soften the way real ones do: crisp where a robot's feet meet the canvas and wider and softer the higher up the body casts them, and small shadows now show in fingers, joints and armour seams.",
+      "Chrome and paint now reflect the venue you actually fight in (the truss lamps, the screens, the crowd, the harbour sunset) instead of a plain studio, and robot plating has a finer finish: brushed metal, patchy sheen and a faint ripple in the paint.",
+      "Phones can switch ray tracing on in Settings, under Graphics (it is off there by default to keep fights smooth). The Performance stats GPU tab shows what it costs on its own Ray tracing row.",
+    ],
+  },
+  {
     hour: "2026-10-15 11:00",
     title: "Real dents and performance stats",
     notes: [
+      "Fixed windows on the world map's buildings and towers sparkling with static: every window is now cleanly lit or dark, and far-off houses' windows no longer flicker against their walls.",
       "Robots now dent for real. Every blow that lands punches a dent where it struck, pushed in the way the blow travelled, with a lip of bent metal around it and the paint knocked off its floor. Hit the same spot again and it caves in deeper and wider, so a chest that keeps eating hooks ends up visibly crushed.",
       "Battered plates now buckle out of shape instead of just looking scuffed: the armour bends, light rolls into the dents, their shadows follow, and a torn-off arm or head keeps every dent it took. Replays rebuild the dents when you skip ahead.",
       "The GPU tab in Performance stats now splits Bloom/post into MSAA resolve, Bloom and Final pass, so you can see which one is taking the time.",

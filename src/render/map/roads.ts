@@ -634,6 +634,8 @@ export function buildRoads(u: MapUniforms, plan: Plan, grid: HeightGrid): Roads 
     const bx = l.tx[i], bz = l.tz[i];
     put(props, fx + bx * 1.2, y - 2, fz + bz * 1.2, W, 13, 3, rot, 0xc8c2b6);
     put(props, fx + bx * 1.2, y + 10.8, fz + bz * 1.2, W + 1.2, 0.7, 3.8, rot, 0xddd7cb);
+    // (and the cut-and-cover box behind it, buried in the slope wherever the hill rises gently)
+    put(props, fx + bx * 11, y - 2, fz + bz * 11, W - 2, 12, 17, rot, 0x9d988e);
     // the two bores, dark, their lights glowing deep inside
     for (const side of [-1, 1]) {
       const cx = fx - bz * side * 5.6 - bx * 0.45, cz = fz + bx * side * 5.6 - bz * 0.45;

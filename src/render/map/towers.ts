@@ -16,7 +16,7 @@ import { AA_GLSL, MAP_GLSL, MAP_OUT, mapMaterial, type MapUniforms } from './kit
  * - the Monolith: a dark leaning slab with light strips running down it and a huge screen.
  *
  * All of it is one mesh with one shader that draws the windows, ribs, screens and gardens itself,
- * plus searchlights sweeping the sky (bright at night) and skybridges between two of them.
+ * plus searchlights sweeping the sky (at night only) and skybridges between two of them.
  */
 
 type V3 = [number, number, number];
@@ -335,7 +335,8 @@ function towerMaterial(u: MapUniforms) {
       attribute vec3 color, aUV;
       attribute vec4 aKind;
       varying vec3 vWorld, vN, vCol, vUV;
-      varying vec4 vKind;
+      // (flat: the window hashes must see exactly the same seed across a face)
+      flat varying vec4 vKind;
       #include <fog_pars_vertex>
       uniform vec3 uMapShift;
       void main() {
@@ -354,7 +355,8 @@ function towerMaterial(u: MapUniforms) {
       ${AA_GLSL}
       uniform vec3 uNeon[5];
       varying vec3 vWorld, vN, vCol, vUV;
-      varying vec4 vKind;
+      // (flat: the window hashes must see exactly the same seed across a face)
+      flat varying vec4 vKind;
       #include <fog_pars_fragment>
 
       // an advert: a colour field, a logo ring, a column of characters, sweeping bands; a new one
@@ -491,7 +493,7 @@ function towerMaterial(u: MapUniforms) {
 }
 
 // ------------------------------------------------------------------ searchlights
-/** Beams sweeping the sky from the towers' tops and the plaza: faint by day, bold at night. */
+/** Beams sweeping the sky from the towers' tops and the plaza, at night (they fade out by day). */
 function searchlights(u: MapUniforms) {
   const L = 700;
   const g = new THREE.CylinderGeometry(26, 2.5, L, 18, 1, true).translate(0, L / 2, 0);
@@ -530,7 +532,7 @@ function searchlights(u: MapUniforms) {
           // brightest down the middle of the beam as seen, fading along it
           float core = pow(abs(dot(normalize(vN), V)), 1.6);
           float k = core * pow(1.0 - vAlong, 1.4) * smoothstep(0.0, 0.03, vAlong);
-          k *= mix(0.04, 0.2, uNight) * uGlow * 0.4;
+          k *= 0.2 * uNight * uGlow * 0.4;
           gl_FragColor = vec4(vec3(0.75, 0.85, 1.0) * k, 1.0);
           ${MAP_OUT}
         }`,
@@ -566,6 +568,8 @@ export interface MegaTowers {
   shadows: { x: number; z: number; w: number; d: number; top: number }[];
   /** Red lights on their tips. */
   beacons: number[];
+  /** The searchlights (hidden by day). */
+  beams: THREE.Object3D;
 }
 
 export function buildTowers(u: MapUniforms): MegaTowers {
@@ -594,5 +598,5 @@ export function buildTowers(u: MapUniforms): MegaTowers {
     { x: M.x, z: M.z, w: 50, d: 30, top: 396 },
   ];
   const beacons = [S.x, S.top + 1, S.z, A.x, A.top + 1, A.z, N.x, N.top + 1, N.z, M.x + Math.cos(MONO_ROT) * 7, 430, M.z - Math.sin(MONO_ROT) * 7];
-  return { group, update: sl.update, shadows, beacons };
+  return { group, update: sl.update, shadows, beacons, beams: sl.mesh };
 }

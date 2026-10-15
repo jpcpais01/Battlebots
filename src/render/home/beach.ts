@@ -2058,10 +2058,15 @@ export class Beach implements HomeScene {
     const o = this.pose;
     if (this.mode === 'idle') {
       sample(o, BP.IDLE, t % BP.IDLE_LEN);
-      // breathing, a nod along to the music, a tapping foot
+      // breathing, a nod along to the music, a tapping foot. The nod eases in and out of each
+      // beat (a clipped sine starts it with a kick, and the hand holding the coconut to the
+      // mouth, placed off the head, would kick with it) and rests while it drinks.
+      const u = t % BP.IDLE_LEN;
+      const lounging = 1 - ramp(u, 5.6, 6.3) + ramp(u, 8.2, 8.9);
+      const beat = Math.max(0, Math.sin(time * Math.PI * 1.7));
       o[PoseCh.SPINE] += 0.018 * Math.sin(time * 1.6);
-      o[PoseCh.HEAD + 1] += 0.22 * Math.sin(time * 0.21) * (1 - ramp(t % BP.IDLE_LEN, 5.6, 6.3) + ramp(t % BP.IDLE_LEN, 8.2, 8.9));
-      o[PoseCh.HEAD] += 0.04 * Math.max(0, Math.sin(time * Math.PI * 1.7));
+      o[PoseCh.HEAD + 1] += 0.22 * Math.sin(time * 0.21) * lounging;
+      o[PoseCh.HEAD] += 0.04 * beat * beat * lounging;
       o[PoseCh.FLEX + 1] += 0.3 * Math.max(0, Math.sin(time * Math.PI * 1.7));
       this.idleCam(k, time);
     } else this.outroStep(dt, time, k);

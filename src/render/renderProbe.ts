@@ -5,7 +5,7 @@ import type { Stage } from './stage';
 type TimerExt = { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number };
 
 /** What each draw call belongs to, for the GPU-by-part view. */
-export type Part = 'shadows' | 'bots' | 'crowd' | 'venue' | 'ring' | 'ropes' | 'beams' | 'effects' | 'resolve' | 'post' | 'screen' | 'other';
+export type Part = 'shadows' | 'bots' | 'crowd' | 'venue' | 'ring' | 'ropes' | 'beams' | 'effects' | 'resolve' | 'rt' | 'post' | 'screen' | 'other';
 
 export const PARTS: { id: Part; label: string }[] = [
   { id: 'bots', label: 'Bots' },
@@ -17,6 +17,7 @@ export const PARTS: { id: Part; label: string }[] = [
   { id: 'effects', label: 'Effects' },
   { id: 'shadows', label: 'Shadows' },
   { id: 'resolve', label: 'MSAA resolve' },
+  { id: 'rt', label: 'Ray tracing' },
   { id: 'post', label: 'Bloom' },
   { id: 'screen', label: 'Final pass' },
   { id: 'other', label: 'Other' },
@@ -184,7 +185,8 @@ export class RenderProbe {
    * idle, not work, and does not shrink with a faster GPU.
    */
   private postPart(material: THREE.Material) {
-    return material === this.stage.post?.screenMaterial ? INDEX.screen : INDEX.post;
+    const post = this.stage.post;
+    return material === post?.screenMaterial ? INDEX.screen : post?.isRT(material) ? INDEX.rt : INDEX.post;
   }
 
   /**
@@ -351,7 +353,7 @@ export class RenderProbe {
     ms.shadows = Math.max(0, full - noShadows);
     // redrawing can't split post-processing up: all of it, with the scene's MSAA, lands on Bloom
     ms.post = post ? Math.max(0, noShadows - base) : 0;
-    ms.resolve = ms.screen = NaN;
+    ms.resolve = ms.screen = ms.rt = NaN;
     let parts = 0;
     for (const p of HIDEABLE) {
       if (!this.samples.has(p)) continue;

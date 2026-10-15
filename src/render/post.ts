@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { RIPPLE_GLSL, type Ripples } from './ripple';
+import { RT_COMPOSITE, type ScreenSpaceLighting } from './rt';
 
 /** How much glow each bloom level adds. Seven levels × 0.3 matches the old UnrealBloom's total (0.7 × ~3). */
 const BLOOM_PER_LEVEL = 0.3;
@@ -21,8 +22,16 @@ const PREFILTER = /* glsl */ `
   uniform vec2 uStep;
   uniform float uThreshold;
   varying vec2 vUv;
+  #ifdef RT
+    uniform sampler2D tRefl;
+    uniform vec4 uRTk;
+  #endif
   vec3 tap(vec2 uv) {
     vec3 c = texture2D(tSrc, uv).rgb;
+    #ifdef RT
+      // reflected lights glow like the lights themselves
+      c += texture2D(tRefl, uv).rgb * uRTk.z;
+    #endif
     float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
     // a NaN or infinite pixel (a broken material) must not bloom into a white blowout: written so
     // the comparison is false for NaN, which then counts as black
@@ -74,6 +83,9 @@ const COMPOSITE = /* glsl */ `
   uniform float uBloom;
   varying vec2 vUv;
   ${RIPPLE_GLSL}
+  #ifdef RT
+    ${RT_COMPOSITE}
+  #endif
   void main() {
     vec2 uv = vUv;
     vec3 crest = vec3(0.0);
@@ -87,6 +99,9 @@ const COMPOSITE = /* glsl */ `
     } else {
       c = texture2D(tScene, uv).rgb;
     }
+    #ifdef RT
+      c = rtApply(c, uv);
+    #endif
     vec3 b = texture2D(tBloom, uv - uBloomStep).rgb + texture2D(tBloom, uv + uBloomStep).rgb
       + texture2D(tBloom, uv + vec2(uBloomStep.x, -uBloomStep.y)).rgb + texture2D(tBloom, uv + vec2(-uBloomStep.x, uBloomStep.y)).rgb;
     gl_FragColor = vec4(c * (1.0 + crest * 0.5) + crest * 0.06 + b * (0.25 * uBloom), 1.0);
@@ -160,10 +175,22 @@ export class PostFX {
   private type: Format;
   private size = { w: 0, h: 0 };
 
-  constructor(private renderer: THREE.WebGLRenderer, ripples: Ripples) {
+  /**
+   * `rt`: the ray-traced lighting pass, or null. With it the scene's depth is resolved into a
+   * texture for it to trace against (otherwise the depth is never read and is thrown away).
+   */
+  constructor(
+    private renderer: THREE.WebGLRenderer,
+    ripples: Ripples,
+    readonly rt: ScreenSpaceLighting | null = null,
+  ) {
     this.type = pickFormat(renderer);
     this.sceneRT = this.target(1, 1, this.type.samples, true);
-    this.prefilter = pass(PREFILTER, { tSrc: { value: null }, uStep: { value: new THREE.Vector2() }, uThreshold: { value: THRESHOLD } });
+    if (rt) {
+      this.sceneRT.depthTexture = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType);
+      this.sceneRT.resolveDepthBuffer = true;
+    }
+    this.prefilter = pass(PREFILTER, { tSrc: { value: null }, uStep: { value: new THREE.Vector2() }, uThreshold: { value: THRESHOLD }, tRefl: { value: rt?.reflections ?? null }, uRTk: rt?.compositeUniforms.uRTk ?? { value: null } });
     this.down = pass(DOWN, { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() } });
     this.up = pass(UP, { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() } }, 'add');
     this.composite = pass(COMPOSITE, {
@@ -172,7 +199,9 @@ export class PostFX {
       uBloomStep: { value: new THREE.Vector2() },
       uBloom: { value: BLOOM_PER_LEVEL },
       ...ripples.uniforms,
+      ...(rt ? { ...rt.compositeUniforms, tDepth: { value: this.sceneRT.depthTexture }, uNF: rt.depthRange } : {}),
     }, 'screen');
+    if (rt) this.prefilter.defines.RT = this.composite.defines.RT = '';
   }
 
   private target(w: number, h: number, samples = 0, depth = false) {
@@ -195,6 +224,17 @@ export class PostFX {
     return this.composite;
   }
 
+  /** Every pass's material, and whether it draws to the screen (the others draw into buffers), to build up front. */
+  passes(): { material: THREE.Material; screen: boolean }[] {
+    const off = [this.prefilter, this.down, this.up, ...(this.rt?.materials ?? [])];
+    return [...off.map((material) => ({ material, screen: false })), { material: this.composite, screen: true }];
+  }
+
+  /** The ray-traced lighting's own passes (their own row in the perf overlay). */
+  isRT(m: THREE.Material) {
+    return !!this.rt?.materials.has(m);
+  }
+
   /** Size in drawing-buffer pixels. */
   setSize(w: number, h: number) {
     w = Math.max(1, Math.floor(w));
@@ -202,6 +242,7 @@ export class PostFX {
     if (w === this.size.w && h === this.size.h) return;
     this.size = { w, h };
     this.sceneRT.setSize(w, h);
+    this.rt?.setSize(w, h);
     for (const l of this.levels) l.dispose();
     this.levels.length = 0;
     // the first level sits at about 540 px on the short side whatever the screen, so the glow keeps
@@ -231,6 +272,8 @@ export class PostFX {
     const autoClear = r.autoClear;
     r.autoClear = false;
     const L = this.levels;
+
+    if (this.rt && (camera as THREE.PerspectiveCamera).isPerspectiveCamera) this.rt.render(r, this.sceneRT.texture, this.sceneRT.depthTexture!, camera as THREE.PerspectiveCamera);
 
     this.prefilter.uniforms.tSrc.value = this.sceneRT.texture;
     this.draw(this.prefilter, L[0], true);
@@ -266,6 +309,8 @@ export class PostFX {
     const ms = props.__webglMultisampledFramebuffer;
     const fb = ms ?? props.__webglFramebuffer;
     if (!fb) return;
+    // (without multisampling the depth lives in the frame's own buffer: the ray-traced pass reads it)
+    if (!ms && this.rt) return;
     r.state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fb);
     gl.invalidateFramebuffer(gl.DRAW_FRAMEBUFFER, ms ? COLOR_DEPTH : DEPTH);
   }
@@ -284,6 +329,7 @@ export class PostFX {
 
   dispose() {
     this.sceneRT.dispose();
+    this.rt?.dispose();
     for (const l of this.levels) l.dispose();
     for (const m of [this.prefilter, this.down, this.up, this.composite]) m.dispose();
     this.quad.dispose();

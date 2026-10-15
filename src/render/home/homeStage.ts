@@ -103,6 +103,20 @@ export class HomeStage {
     this.sfx()?.homeScene(null);
   }
 
+  /**
+   * Take every built place but the one showing out of the group, so only its shaders are built
+   * (see Game.prepare). Returns the undo.
+   */
+  isolate() {
+    const out = Object.values(this.scenes)
+      .filter((s): s is HomeScene => !!s && s !== this.scene)
+      .map((s) => s.group);
+    for (const g of out) this.group.remove(g);
+    return () => {
+      for (const g of out) this.group.add(g);
+    };
+  }
+
   /** The robot to show (null: none). */
   setBot(spec: BotSpec | null) {
     const k = this.kit();

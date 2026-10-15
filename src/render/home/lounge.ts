@@ -1671,7 +1671,9 @@ export class Lounge implements HomeScene {
       // breathing, a nod along to the record, a foot keeping time
       const watching = 1 - ramp(u, 5.4, 6.2) + ramp(u, 8.6, 9.4);
       o[PoseCh.SPINE] += 0.016 * Math.sin(time * 1.5);
-      o[PoseCh.HEAD] += 0.045 * Math.max(0, Math.sin(time * Math.PI * (76 / 60))) * watching;
+      // eased into each beat (a clipped sine kicks the head, and anything held off it)
+      const beat = Math.max(0, Math.sin(time * Math.PI * (76 / 60)));
+      o[PoseCh.HEAD] += 0.045 * beat * beat * watching;
       o[PoseCh.HEAD + 1] += 0.08 * Math.sin(time * 0.17) * watching;
       o[PoseCh.FLEX + 1] += 0.28 * Math.max(0, Math.sin(time * Math.PI * (76 / 60)));
       this.idleCam(k, time);

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Stage, type Quality } from '../render/stage';
+import { nextFrame, Stage, type Quality } from '../render/stage';
 import { Arena } from '../render/arena';
 import { Fx, type Trail } from '../render/fx';
 import { Director } from '../render/director';
@@ -32,7 +32,7 @@ import { contactAO } from '../render/ao';
 import { house } from '../render/house';
 import { warnNonFinite } from '../render/finite';
 import { Garage } from '../render/garage';
-import { HomeStage, type HomeSceneId } from '../render/home/homeStage';
+import { HOME_SCENES, HomeStage, type HomeSceneId } from '../render/home/homeStage';
 import type { WorldMap } from '../render/map/world';
 import type { VenueLike } from '../render/venue';
 import type { ArenaId } from './events';
@@ -82,6 +82,8 @@ const SEEK_BUDGET = 14;
 
 const _v = new THREE.Vector3();
 const _size = new THREE.Vector2();
+/** Where the arena is photographed from for reflections: mid-ring, at a robot's chest. */
+const _probeAt = new THREE.Vector3(0, 1.3, 0);
 const _u = new THREE.Vector3();
 const _pan = new THREE.Vector3();
 const _dp = new THREE.Vector3();
@@ -232,6 +234,8 @@ export class Game {
   fixedDt: number | null = null;
   /** Debug: frames are driven externally via frame(). */
   manual = false;
+  /** The loading screen is up: the loop draws nothing (prepare draws what it needs itself). */
+  hold = false;
   private lastCuts = 0;
   private lastMode = '';
   cb: GameCallbacks = {};
@@ -326,8 +330,112 @@ export class Game {
   private warmArena() {
     if (this.arenaWarm || this.place !== 'arena') return;
     this.arenaWarm = true;
-    this.stage.warmUp([this.arena.group, this.arena.venue.group, this.fx.group, this.debris.group, this.oil.group, this.steam.group, this.drones.group, this.stretcher.group]);
+    this.stage.warmUp(this.placeRoots('arena').roots);
   }
+
+  /**
+   * What can be drawn in place `p`: its own scenery, the effects, the robot shown there, shown or
+   * hidden (and `extras`, things that only appear later, like a torn-off part).
+   */
+  private placeRoots(p: Place): { roots: THREE.Object3D[]; extras: THREE.Object3D[] } {
+    const bot = this.showcase?.model;
+    const shown = bot ? [bot.root] : [];
+    if (p === 'arena') {
+      const roots: THREE.Object3D[] = [this.arena.group, this.arena.venue.group, this.fx.group, this.debris.group, this.oil.group, this.steam.group, this.drones.group, this.stretcher.group];
+      return { roots: roots.concat(shown), extras: bot?.pieceProxies() ?? [] };
+    }
+    if (p === 'garage' && this.garage) return { roots: [this.garage.group, this.fx.group, ...shown], extras: [] };
+    if (p === 'home' && this.home) return { roots: [this.home.group, this.fx.group], extras: [] };
+    return { roots: [], extras: [] };
+  }
+
+  /**
+   * Behind the loading screen: get the places the player is about to see ready, so nothing is
+   * built in the middle of the game. It visits the arena, the workshop and the home screen's place
+   * in turn, each lit as it will be seen (the lights and reflections are part of every shader),
+   * builds their shaders, uploads their textures, photographs the arena for its reflections and
+   * draws one hidden frame in each, then ends up back where it started. The screen passes (bloom,
+   * ray-traced lighting) are built first. `progress` gets the share done (0..1) and what it's on.
+   */
+  async prepare(progress: (k: number, what: string, detail?: string) => void) {
+    const back = this.place;
+    const shownHome = this.home?.id ?? 'beach';
+    // every home background, not just the one showing: switching to one that isn't built takes seconds
+    const homes = this.homeBroken ? [] : HOME_SCENES.filter((id) => id !== shownHome || back !== 'home');
+    type Visit = { p: Place; scene?: HomeSceneId };
+    const visits: Visit[] = [...(back === 'arena' ? [] : [{ p: 'arena' as Place }]), { p: 'garage' }, ...homes.map((scene) => ({ p: 'home' as Place, scene }))];
+    // finish where it started, so that place is the last one set up
+    if (back === 'arena') visits.push({ p: 'arena' });
+    else if (back === 'home') visits.push({ p: 'home', scene: shownHome });
+    const WEIGHT: Partial<Record<Place, number>> = { arena: 4, garage: 2, home: 3 };
+    const name = (v: Visit) => (v.p === 'arena' ? 'Lighting the arena' : v.p === 'garage' ? 'Opening the workshop' : `Setting up the ${v.scene}`);
+    const plan = [{ w: 0.6, what: 'Polishing the picture' }, ...visits.map((v) => ({ w: WEIGHT[v.p] ?? 2, what: name(v) }))];
+    const total = plan.reduce((a, s) => a + s.w, 0);
+    let before = 0;
+    const report = (i: number, k: number, detail?: string) => progress((before + plan[i].w * k) / total, plan[i].what, detail);
+    const shaders = (i: number, share: number) => (k: number, n: number, of: number) => report(i, k * share, of ? `${n} / ${of} shaders` : undefined);
+
+    await this.stage.precompilePasses(shaders(0, 1));
+    before += plan[0].w;
+    for (let i = 0; i < visits.length; i++) {
+      const { p, scene } = visits[i];
+      const step = i + 1;
+      if (scene) this.homeScene(scene);
+      this.setPlace(p);
+      // (a home scene that can't be built leaves the game in the arena)
+      if (this.place !== p) {
+        before += plan[step].w;
+        continue;
+      }
+      // in a home place, only its own scenery: the others are lit differently
+      const restore = p === 'home' ? this.home?.isolate() : undefined;
+      try {
+        const { roots, extras } = this.placeRoots(p);
+        const all = roots.concat(extras);
+        await this.stage.precompile(all, shaders(step, 0.75));
+        await this.stage.uploadTextures(all, (k) => report(step, 0.75 + 0.2 * k, 'textures'));
+        if (p === 'arena') {
+          // its reflections are a photograph of it, taken the first time it's on screen: now
+          this.syncEnv();
+          this.arenaWarm = true;
+        }
+        this.stage.warmNow(roots, extras);
+      } finally {
+        restore?.();
+      }
+      report(step, 1);
+      before += plan[step].w;
+      await nextFrame();
+    }
+    if (back === 'home' && !this.homeBroken && this.home?.id !== shownHome) this.homeScene(shownHome);
+    if (this.place !== back && !(back === 'home' && this.homeBroken)) this.setPlace(back);
+    progress(1, plan[plan.length - 1].what);
+  }
+
+  /** Fetch the code of the world map and the event venues ahead of time (they're built when first opened). */
+  prefetch() {
+    void import('../render/venues').catch(() => {});
+    void import('../render/map/world').catch(() => {});
+  }
+
+  /**
+   * In the arena, metal and paint reflect the place itself: the first time each venue is on
+   * screen, the stage photographs it from the middle of the ring (Stage.captureEnv). The glossy
+   * canvas and floor reflect what is on screen there (ray-traced lighting only), nothing elsewhere.
+   */
+  private syncEnv() {
+    const inArena = this.place === 'arena';
+    const v = this.arena.venue;
+    this.stage.setReflect(inArena ? (v.reflect ?? null) : null);
+    if (!inArena) return;
+    let e = this.envs.get(v);
+    if (!e) {
+      e = this.stage.captureEnv([this.arena.group, v.group], _probeAt);
+      this.envs.set(v, e);
+    }
+    if (this.stage.scene.environment !== e.map.texture) this.stage.useEnv(e.map.texture, e.gain);
+  }
+  private envs = new Map<VenueLike, { map: THREE.WebGLRenderTarget; gain: number }>();
 
   /** Which part of the scene each draw call is charged to in the performance overlay. */
   private tagParts() {
@@ -380,6 +488,8 @@ export class Game {
       this.garage?.exit();
       this.stage.applyLook(inMap ? this.world!.look : this.look);
     }
+    // the arena reflects its own photograph (see syncEnv); everywhere else starts from the studio
+    if (!inArena) this.stage.useEnv(null);
     if (p === 'home') {
       try {
         const h = this.homeStage();
@@ -1138,7 +1248,7 @@ export class Game {
     if (!this.pacer.tick(now)) return;
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
-    if (document.hidden || this.manual) return;
+    if (document.hidden || this.manual || this.hold) return;
     this.frame(this.fixedDt ?? dt);
   };
 
@@ -1399,6 +1509,7 @@ export class Game {
     this.lastMode = this.director.mode;
     this.stage.govern(dt, cut, this.pacer.target);
     this.warmArena();
+    this.syncEnv();
     this.probe.begin();
     this.stage.render();
     this.probe.end();

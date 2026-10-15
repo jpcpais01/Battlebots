@@ -36,21 +36,6 @@ export function fbm(x: number, z: number, oct = 4) {
   return s / n;
 }
 
-/** Ridged noise in [0, 1]: sharp crests, wide valleys. */
-export function ridged(x: number, z: number, oct = 5) {
-  let s = 0, a = 0.5, f = 1, n = 0, w = 1;
-  for (let i = 0; i < oct; i++) {
-    let v = 1 - Math.abs(noise(x * f + i * 31.7, z * f + i * 11.3));
-    v *= v;
-    s += v * a * w;
-    w = Math.min(1, v * 1.6);
-    n += a;
-    a *= 0.5;
-    f *= 2.1;
-  }
-  return s / n;
-}
-
 export const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
 export function smoothstep(e0: number, e1: number, x: number) {
   const t = clamp((x - e0) / (e1 - e0), 0, 1);
@@ -93,6 +78,8 @@ export const CITY_Y = 3.2;
 export const LAKE = { x: -300, z: -905, r: 95, y: 214 };
 /** The mesa the lake sits on (its south face is the cliff the falls go over). */
 const MESA = { x: -300, edge: -800, half: 250 };
+/** Where the river goes over the escarpment. */
+const RIVER_LIP_X = -300;
 
 /**
  * Where each event is held, and the area kept clear around it (no trees, no buildings).
@@ -117,18 +104,33 @@ export const SITES: Record<string, Site> = {
 export const RIVER: { x: number; z: number; y: number; w: number }[] = [
   { x: -330, z: -1130, y: 262, w: 10 },
   { x: -312, z: -1010, y: 218, w: 14 },
+  // down into the lake at its north shore
+  { x: -303, z: -985, y: LAKE.y + 0.3, w: 16 },
   { x: -300, z: -905, y: LAKE.y, w: 22 },
   { x: -300, z: -812, y: LAKE.y - 0.5, w: 20 },
-  // the falls: over the cliff in a few metres
-  { x: -300, z: -790, y: LAKE.y - 2, w: 20 },
-  { x: -301, z: -770, y: 128, w: 22 },
-  { x: -318, z: -690, y: 112, w: 24 },
-  { x: -352, z: -560, y: 74, w: 26 },
-  { x: -398, z: -420, y: 36, w: 30 },
-  { x: -410, z: -300, y: 14, w: 32 },
-  { x: -378, z: -160, y: 6, w: 34 },
-  { x: -320, z: -20, y: 3, w: 36 },
-  { x: -286, z: 120, y: 1.6, w: 40 },
+  // the falls: through the dam and straight down the cliff
+  { x: -300, z: -808, y: LAKE.y - 1.2, w: 20 },
+  { x: -301, z: -775, y: 82.5, w: 22 },
+  // across the pool at the foot and down the valley, tumbling down the steep step into the low
+  // country in a run of rapids
+  { x: -296, z: -752, y: 79.5, w: 22 },
+  { x: -286, z: -722, y: 77, w: 22 },
+  { x: -284, z: -698, y: 72, w: 22 },
+  { x: -290, z: -683, y: 65, w: 21 },
+  { x: -272, z: -665, y: 52, w: 21 },
+  { x: -254, z: -645, y: 36.5, w: 22 },
+  { x: -243, z: -625, y: 23.5, w: 23 },
+  { x: -245, z: -600, y: 19.6, w: 24 },
+  { x: -240, z: -565, y: 19.4, w: 25 },
+  { x: -275, z: -525, y: 19.2, w: 26 },
+  { x: -320, z: -480, y: 16.5, w: 28 },
+  { x: -370, z: -420, y: 15, w: 30 },
+  { x: -410, z: -300, y: 12.5, w: 32 },
+  // down a last run of rapids onto the plain, then lazily through the city to the sea
+  { x: -393, z: -225, y: 3.9, w: 33 },
+  { x: -378, z: -160, y: 3.4, w: 34 },
+  { x: -320, z: -20, y: 2.5, w: 36 },
+  { x: -286, z: 120, y: 1.5, w: 40 },
   { x: -262, z: 260, y: 0.6, w: 46 },
   { x: -250, z: 420, y: -0.5, w: 60 },
 ];
@@ -212,11 +214,123 @@ export function cityWeight(x: number, z: number) {
 
 /** Northern mountains, 0..1. */
 const mountains = (x: number, z: number) => smoothstep(-230, -1050, z + Math.max(0, x - 300) * 0.25) * (1 - smoothstep(700, 1100, x));
+
+// ------------------------------------------------------------------ the mountains
+/** Ridged noise with the crest rounded off (|n| softened near zero): a ridgeline, not a blade. */
+function softRidge(x: number, z: number) {
+  const n = noise(x, z);
+  return (1 - Math.sqrt(n * n + 0.025)) / (1 - Math.sqrt(0.025));
+}
+
+/**
+ * The ranges' big shapes before weathering (metres): long soft-crested ridgelines that wander,
+ * sitting on broad rounded massifs, rising from foothills at the plain to the high peaks behind.
+ */
+function massif(x: number, z: number) {
+  const m = mountains(x, z);
+  if (m <= 0) return 0;
+  // the ridgelines wander like real ones
+  const wx = x + fbm(x * 0.0011 + 3.3, z * 0.0011 - 8.1, 3) * 260;
+  const wz = z + fbm(x * 0.0011 - 5.7, z * 0.0011 + 1.9, 3) * 260;
+  // main ranges run roughly east-west (the way the camera looks at them), spurs between
+  const ridge = softRidge(wx * 0.00105 + 4.2, wz * 0.0017 - 2.6) * 0.65 + softRidge(wx * 0.0023 - 1.3, wz * 0.0027 + 7.7) * 0.35;
+  // broad bulk under them: some massifs stand tall, some sag into saddles and high valleys
+  const bulk = fbm(wx * 0.0008 + 9.1, wz * 0.0011 - 3.3, 3) * 0.5 + 0.5;
+  const s = clamp(ridge * 0.8 + bulk * 0.75 - 0.5, 0, 1);
+  // rising into the range: low rounded foothills first, the high peaks deep in
+  const env = m * m * (3 - 2 * m);
+  const h = env * (30 + 520 * env * s * s * (1.5 - 0.5 * s));
+  // the high valley the lake sits in has a long shoulder of mountain either side, so its plateau
+  // reads as a hanging valley among the peaks rather than a block standing on its own
+  const dm = (Math.abs(x - MESA.x + fbm(z * 0.004, 2.7, 2) * 90) - MESA.half - 120) / 190;
+  const flank = Math.exp(-dm * dm) * smoothstep(MESA.edge + 200, MESA.edge - 60, z) * smoothstep(MESA.edge - 900, MESA.edge - 520, z);
+  return flank > 0.01 ? -smin(-h, -flank * (250 + 110 * ridge), 70) : h;
+}
+
+/**
+ * Weathering on the mountainsides: gullies and spurs running straight downhill, each octave
+ * steered by the slopes the bigger ones made, so they branch the way water would cut them. A
+ * cell of jittered points each laying a wave across the slope (the "erosion noise" trick), so it
+ * costs a few exps and cosines, not a simulation. Flat summits and valley floors are left alone.
+ */
+const TAU = Math.PI * 2;
+const _g = { v: 0, dx: 0, dz: 0 };
+function gullies(x: number, z: number, ax: number, az: number) {
+  // (ax, az): unit vector across the slope; the waves run along it, so their crests run downhill
+  const ix = Math.floor(x), iz = Math.floor(z);
+  let v = 0, dx = 0, dz = 0, wt = 0;
+  for (let j = iz - 1; j <= iz + 2; j++)
+    for (let i = ix - 1; i <= ix + 2; i++) {
+      const px = x - i - hash2(i, j) * 0.5, pz = z - j - hash2(j + 913, i - 377) * 0.5;
+      const w = Math.exp(-2 * (px * px + pz * pz));
+      const a = (px * ax + pz * az) * TAU;
+      v += Math.cos(a) * w;
+      const sn = -Math.sin(a) * w * TAU;
+      dx += sn * ax;
+      dz += sn * az;
+      wt += w;
+    }
+  _g.v = v / wt;
+  _g.dx = dx / wt;
+  _g.dz = dz / wt;
+  return _g;
+}
+
+/** Gully octaves: wavelength (m) and depth (m). */
+const GULLY: [number, number][] = [
+  [190, 30],
+  [95, 13],
+  [48, 5],
+];
+function mountainHeight(x: number, z: number, octaves = GULLY.length) {
+  const base = massif(x, z);
+  if (base <= 0) return 0;
+  const e = 6;
+  let gx = (massif(x + e, z) - base) / e, gz = (massif(x, z + e) - base) / e;
+  // only where the ground falls away: summits and high valley floors stay smooth
+  const steep = smoothstep(0.08, 0.55, Math.hypot(gx, gz));
+  if (steep <= 0) return base;
+  let h = base;
+  for (let k = 0; k < octaves; k++) {
+    const [len, depth] = GULLY[k];
+    const l = Math.hypot(gx, gz) || 1;
+    const g = gullies(x / len, z / len, -gz / l, gx / l);
+    const a = depth * steep;
+    h += g.v * a;
+    // the next, finer octave follows the slopes this one cut
+    gx += (g.dx * a) / len;
+    gz += (g.dz * a) / len;
+  }
+  return h;
+}
+
+/**
+ * The mountains are costly to work out and asked for a lot (every tree is set on them), so over
+ * the mapped area they're worked out once on the terrain's own 12.5 m grid and read back from that;
+ * the terrain meets those samples exactly and everything standing on it sits where it does.
+ */
+const MC = { x0: -1600, z0: -1600, cell: 12.5, nx: 257, nz: 118 };
+let mtnCache: Float32Array | null = null;
+function mountainsAt(x: number, z: number, octaves: number) {
+  const fx = (x - MC.x0) / MC.cell, fz = (z - MC.z0) / MC.cell;
+  if (fx < 0 || fz < 0 || fx > MC.nx - 1 || fz > MC.nz - 1) return mountainHeight(x, z, octaves);
+  if (!mtnCache) {
+    mtnCache = new Float32Array(MC.nx * MC.nz);
+    for (let j = 0; j < MC.nz; j++) for (let i = 0; i < MC.nx; i++) mtnCache[j * MC.nx + i] = mountainHeight(MC.x0 + i * MC.cell, MC.z0 + j * MC.cell);
+  }
+  const i = Math.min(MC.nx - 2, Math.floor(fx)), j = Math.min(MC.nz - 2, Math.floor(fz));
+  const u = fx - i, v = fz - j, n = MC.nx, c = mtnCache;
+  const a = c[j * n + i], b = c[j * n + i + 1], d = c[(j + 1) * n + i], e = c[(j + 1) * n + i + 1];
+  return a + (b - a) * u + (d - a) * v + (a - b - d + e) * u * v;
+}
 /** Western hills, 0..1. */
 const hills = (x: number, z: number) => smoothstep(-380, -980, x - Math.max(0, z) * 0.4);
 
-/** Ground height at a point (sea floor below 0). */
-export function height(x: number, z: number) {
+/**
+ * Ground height at a point (sea floor below 0). Out past the mapped area, where the ground is
+ * drawn coarsely, `detail` (gully octaves) can drop the finer weathering it couldn't show anyway.
+ */
+export function height(x: number, z: number, detail = GULLY.length) {
   const c = coast(x, z);
   if (c <= 0) {
     // the island sits on a wide shallow reef; the rest of the sea shelves away
@@ -238,15 +352,17 @@ export function height(x: number, z: number) {
   h += (fbm(x * 0.005, z * 0.005, 4) * 0.5 + 0.5) * 14 * shore;
   // mountains and hills
   const m = mountains(x, z) * shore;
-  const rg = ridged(x * 0.0026 + 4.2, z * 0.0026 - 2.6, 5);
-  h += m * m * (40 + 430 * rg * rg + 60 * rg);
+  // (the ranges run down to the sea over a few hundred metres, ending in sea cliffs, not a wall)
+  if (m > 0) h += mountainsAt(x, z, detail) * smoothstep(0, 260, c);
   const w = hills(x, z) * shore * (1 - m * 0.5);
   h += w * (25 + 120 * (fbm(x * 0.0045 - 7.7, z * 0.0045 + 2.2, 4) * 0.5 + 0.5));
   // the high country the lake sits on, ending to the south in the escarpment the falls pour over
   const edge = MESA.edge + noise(x * 0.009, 1.7) * 22 + Math.max(0, Math.abs(x - MESA.x) - 120) * 0.35;
   const across = smoothstep(MESA.half, MESA.half - 110, Math.abs(x - MESA.x) + noise(z * 0.01, 5.1) * 40);
   if (across > 0) {
-    const mesa = across * smoothstep(edge + 4, edge - 26, z) * smoothstep(edge - 560, edge - 300, z);
+    // (a sheer lip where the river goes over, so the falls drop clear down the cliff)
+    const sheer = mix(6, 26, smoothstep(50, 130, Math.abs(x - RIVER_LIP_X)));
+    const mesa = across * smoothstep(edge + 4, edge - sheer, z) * smoothstep(edge - 560, edge - 300, z);
     const top = LAKE.y + 7 + (fbm(x * 0.012, z * 0.012, 3) * 0.5 + 0.5) * 12 + smoothstep(edge - 60, edge - 320, z) * 70;
     h = mix(h, Math.max(h, top), mesa);
     // below the edge the ground falls away to the valley floor

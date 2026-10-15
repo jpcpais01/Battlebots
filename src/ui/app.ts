@@ -1,7 +1,8 @@
 import type { Game, Place, Tape } from '../game/game';
 import { resScaleChoices, type Quality, type ResScale } from '../render/stage';
+import { loadRT, saveRT } from '../render/rt';
 import type { FpsCap } from '../render/pacer';
-import { enterLandscape } from '../fullscreen';
+import { enterLandscape, fullscreenSupported, isFullscreen, onFullscreenChange, toggleFullscreen } from '../fullscreen';
 import { Rng } from '../sim/math';
 import { MOVES, type MoveId } from '../sim/moves';
 import type { Fighter } from '../sim/fighter';
@@ -169,6 +170,11 @@ export class App {
   /** The fight on screen is a round of a map event: which event, and which round. */
   private eventRun: { id: string; round: number } | null = null;
 
+  /** The constructor has run (until then a place is switched without the dip through black). */
+  private booted = false;
+  /** The saved login has caught up with the cloud at launch (or failed to). */
+  synced: Promise<void> = Promise.resolve();
+
   constructor(private game: Game, private quality: Quality) {
     this.ui = document.getElementById('ui')!;
     this.player = loadPlayer();
@@ -293,7 +299,30 @@ export class App {
     };
     if (this.homePlace !== 'arena') game.homeScene(this.homePlace);
     this.go('home');
-    this.account.start();
+    this.booted = true;
+    this.synced = this.account.start();
+  }
+
+  /**
+   * After the loading screen, in quiet moments: what the next few minutes will want and that
+   * isn't worth holding the start for. The pictures of every part for the garage's picker, the
+   * player's walk-on theme for their first entrance, and the code of the world map and venues.
+   */
+  warmLater() {
+    const idle = (fn: () => void) => ('requestIdleCallback' in window ? window.requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 60));
+    const jobs: (() => void)[] = [
+      () => this.game.sfx?.primeWalkOn(walkOnFor(this.player)),
+      () => this.game.prefetch(),
+    ];
+    // (drawn with the paint and parts on the bot now: a change later redraws only what it touches)
+    for (const slot of SLOTS) for (const item of itemsForSlot(slot)) jobs.push(() => void this.thumb(item, this.player.loadout[slot].rarity));
+    const next = () => {
+      const t0 = performance.now();
+      // one or two at a time: a part's picture is a render and a PNG
+      while (jobs.length && performance.now() - t0 < 6) jobs.shift()!();
+      if (jobs.length) idle(next);
+    };
+    idle(next);
   }
 
   // ------------------------------------------------------------ navigation
@@ -332,7 +361,8 @@ export class App {
       if (moved) this.game.director.snap();
       this.fade.classList.remove('on');
     };
-    if (place === this.game.place) apply();
+    // (at launch there is nothing on screen to dip from: the loading screen covers it)
+    if (place === this.game.place || !this.booted) apply();
     else {
       this.fade.classList.add('on');
       this.placeTimer = window.setTimeout(apply, 170);
@@ -409,6 +439,20 @@ export class App {
       void forceUpdate();
     }, tr);
     refresh.title = 'Check for updates';
+    if (fullscreenSupported()) {
+      const fs = button('icon-btn', '', () => {
+        this.tap('select');
+        void toggleFullscreen();
+      }, tr);
+      const sync = () => {
+        const on = isFullscreen();
+        fs.innerHTML = on ? ICON.shrink : ICON.fullscreen;
+        fs.title = on ? 'Exit fullscreen' : 'Fullscreen';
+        fs.setAttribute('aria-label', fs.title);
+      };
+      onFullscreenChange(sync);
+      sync();
+    }
     button('icon-btn', ICON.gear, () => this.settings(), tr).title = 'Settings';
     this.syncSound();
 
@@ -1595,6 +1639,15 @@ export class App {
         })),
       ]);
       const stage = this.game.stage;
+      // ray-traced lighting needs the high-quality pipeline; it rebuilds every shader, so it reloads
+      if (this.quality === 'high') {
+        const rtSaved = loadRT();
+        this.segRow(gfx, rtSaved === null ? `Ray tracing <span>Auto: ${stage.rt ? 'on' : 'off'}</span>` : 'Ray tracing', () => [
+          { text: 'Auto', on: rtSaved === null, pick: () => rtSaved !== null && (saveRT(null), location.reload()) },
+          { text: 'Off', on: rtSaved === false, pick: () => rtSaved !== false && (saveRT(false), location.reload()) },
+          { text: 'On', on: rtSaved === true, pick: () => rtSaved !== true && (saveRT(true), location.reload()) },
+        ]);
+      }
       const native = resScaleChoices().at(-1)!.value;
       const resOpts: { value: ResScale; text: string }[] = [
         { value: null, text: 'Auto' },

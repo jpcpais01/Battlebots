@@ -794,26 +794,29 @@ export function sanitizeSize(v: unknown): number {
 }
 
 /**
- * What a frame size does to the stats, as fractions per unit of size away from 1 (hp 0.4
- * at size 1.2 is +8% HP). A big frame has more HP and armour, hits harder and is hard to
- * knock down, but is slow to move and to react; a small one is quick, sharp and accurate.
- * Reach and target size come from the body itself (the sim scales it): a giant out-reaches
- * and lands head shots from above, a small bot gets inside and works the body. Tuned with
- * mirrored sim fights so 0.8 vs 1.2 comes out roughly even.
+ * What a frame size does to the stats, as fractions per unit of size away from 1 (power 1.0
+ * at size 1.2 is +20% strike power, at 0.8 it is -20%). A big frame hits much harder (its
+ * blows land ~1.5x as hard as a 0.8 frame's, and knock people down far more), has a bit more
+ * HP and is hard to knock down, but is slow to move, to throw and to react, and is an easy
+ * target; a small one is quick, sharp and accurate, lands far more shots and has to win on
+ * volume. Reach and target size come from the body itself (the sim scales it): a giant
+ * out-reaches and lands head shots from above, a small bot gets inside and works the body.
+ * Tuned with mirrored sim fights (same loadouts, sizes swapped) so size matchups stay
+ * roughly even.
  */
 export const SIZE_EFFECT = {
-  hp: 0.4,
-  armor: 0.1,
+  hp: 0.1,
+  armor: 0,
   /**
    * Part durability. Small frames are compact (short levers, plates close to the frame),
    * so their parts hold together a little longer; a giant's head is up where every shot lands.
    */
   tough: -0.4,
-  power: 0.25,
+  power: 1.0,
   stability: 1.2,
-  moveSpeed: -0.8,
+  moveSpeed: -1.0,
   agility: -1.4,
-  punchSpeed: -0.8,
+  punchSpeed: -1.0,
   reaction: -1.0,
   accuracy: -0.6,
   staminaRegen: -0.4,

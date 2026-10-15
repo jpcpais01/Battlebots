@@ -5,6 +5,42 @@ import { RippleOverlay, Ripples } from './ripple';
 import { RenderSettings } from './settings';
 import { ResolutionGovernor } from './governor';
 import { contactAO } from './ao';
+import { loadRT, rtDefault, RT_MARK, saveRT, ScreenSpaceLighting, type ReflectLook } from './rt';
+import { installPCSS, updatePCSS } from './pcss';
+import { EnvProbe } from './envProbe';
+
+/** The key light's width for its soft shadows: a bank of stage lamps, in metres. */
+const KEY_SIZE = 1.6;
+/** How long one slice of up-front work (precompile, uploadTextures) may hold the main thread, in ms. */
+const SLICE = 24;
+
+/**
+ * Resolves after the next frame has been painted, so a loading screen updated before it shows.
+ * (A hidden tab gets no frames: a timer stands in so loading carries on in the background.)
+ */
+export function nextFrame() {
+  return new Promise<void>((ok) => {
+    let done = false;
+    const go = () => {
+      if (done) return;
+      done = true;
+      setTimeout(ok, 0);
+    };
+    requestAnimationFrame(go);
+    setTimeout(go, 150);
+  });
+}
+
+/** Collect what renderer.compile built. */
+function compileInto(into: Set<THREE.Material>, got: Iterable<THREE.Material> | undefined) {
+  if (got) for (const m of got) into.add(m);
+}
+
+/** What three keeps per program (not in its typings): is the driver done with it, and its uniforms (reading them finishes the link). */
+interface ProgramState {
+  isReady(): boolean;
+  getUniforms(): unknown;
+}
 
 export type Quality = 'low' | 'med' | 'high';
 
@@ -79,6 +115,18 @@ export class Stage {
   /** The arena's lighting, captured at start so a place that relights the scene can hand it back. */
   readonly arenaLook: LightLook;
   quality: Quality;
+  /**
+   * Ray-traced lighting (high quality only; on by default on desktops): screen-space GI, AO,
+   * contact shadows and reflections, and contact-hardening soft shadows. See rt.ts and pcss.ts.
+   */
+  readonly rt: boolean;
+  /** The studio reflections everything starts with (and places without a probe keep). */
+  private studioEnv: THREE.Texture;
+  private pmrem: THREE.PMREMGenerator;
+  private probe: EnvProbe | null = null;
+  /** The environment's brightness from the current look, and the gain the current map needs on top. */
+  private lookEnv = 0.55;
+  private envGain = 1;
   private maxPixelRatio = 2;
   private governor: ResolutionGovernor;
   /** A resolution picked in settings; while set it overrides the governor and the quality cap. */
@@ -99,6 +147,8 @@ export class Stage {
     RenderSettings.bloom = quality === 'high';
     RenderSettings.quality = quality;
     contactAO.setQuality(quality);
+    // (before any material compiles: the soft shadows change three's shadow code for all of them)
+    this.rt = quality === 'high' && (loadRT() ?? rtDefault(quality)) && installPCSS();
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: quality !== 'high',
@@ -117,10 +167,11 @@ export class Stage {
     const scene = this.scene;
     scene.background = new THREE.Color(0x070a12);
     scene.fog = new THREE.FogExp2(0x070a12, 0.016);
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    const pmrem = (this.pmrem = new THREE.PMREMGenerator(this.renderer));
+    const room = new RoomEnvironment();
+    scene.environment = this.studioEnv = pmrem.fromScene(room, 0.04).texture;
+    room.dispose();
     scene.environmentIntensity = 0.55;
-    pmrem.dispose();
 
     this.hemi = new THREE.HemisphereLight(0x9cc0ff, 0x241a14, 0.42);
     scene.add(this.hemi);
@@ -151,8 +202,15 @@ export class Stage {
 
     this.maxPixelRatio = quality === 'high' ? 2 : quality === 'med' ? 1.5 : 1;
     this.governor = new ResolutionGovernor(this.deviceRatio());
-    if (quality === 'high') this.post = new PostFX(this.renderer, this.ripples);
-    else this.rippleOverlay = new RippleOverlay(this.ripples);
+    if (quality === 'high') {
+      const mobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+      const ssl = this.rt ? new ScreenSpaceLighting(mobile) : null;
+      if (ssl) {
+        ssl.keyLight = this.key;
+        this.watchShaders();
+      }
+      this.post = new PostFX(this.renderer, this.ripples, ssl);
+    } else this.rippleOverlay = new RippleOverlay(this.ripples);
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -190,7 +248,8 @@ export class Stage {
     const fog = this.scene.fog as THREE.FogExp2;
     fog.color.setHex(l.fog);
     fog.density = l.fogDensity;
-    this.scene.environmentIntensity = l.envIntensity;
+    this.lookEnv = l.envIntensity;
+    this.scene.environmentIntensity = l.envIntensity * this.envGain;
     this.hemi.color.setHex(l.hemi.sky);
     this.hemi.groundColor.setHex(l.hemi.ground);
     this.hemi.intensity = l.hemi.intensity;
@@ -215,6 +274,49 @@ export class Stage {
       p.position.fromArray(r.pos);
     });
   }
+
+  /**
+   * Photograph the place around `at` (only `show`, direct children of the scene, visible) into a
+   * reflection map for `useEnv`. One cube render and a filter: do it at a quiet moment.
+   */
+  captureEnv(show: THREE.Object3D[], at: THREE.Vector3) {
+    // (the studio's size: a reflection map of another size would rebuild every lit shader on a switch)
+    this.probe ??= new EnvProbe(256);
+    return this.probe.capture(this.renderer, this.pmrem, this.scene, show, at);
+  }
+
+  /** Reflect `map` (from captureEnv) at `gain`, or the stock studio (null). */
+  useEnv(map: THREE.Texture | null, gain = 1) {
+    this.scene.environment = map ?? this.studioEnv;
+    this.envGain = map ? gain : 1;
+    this.scene.environmentIntensity = this.lookEnv * this.envGain;
+  }
+
+  /** What the ray-traced reflections may reflect in (the arena's canvas and floor), or null for nothing. */
+  setReflect(r: ReflectLook | null) {
+    const ssl = this.post?.rt;
+    if (ssl) ssl.reflect = r ?? NO_REFLECT;
+  }
+
+  /**
+   * If a driver can't compile the ray-traced shaders, switch the setting off and reload with the
+   * plain look rather than drawing black (three caches the broken programs, so it can't be undone
+   * in place). Only an automatic or chosen setting on this device is changed, and only once.
+   */
+  private watchShaders() {
+    const r = this.renderer;
+    r.debug.onShaderError = (gl, program, vs, fs) => {
+      const log = (sh: WebGLShader) => gl.getShaderInfoLog(sh)?.trim();
+      console.error('THREE.WebGLProgram: shader error', gl.getError(), gl.getProgramInfoLog(program)?.trim(), log(vs), log(fs));
+      const src = (gl.getShaderSource(vs) ?? '') + (gl.getShaderSource(fs) ?? '');
+      if (!src.includes(RT_MARK) || this.rtFailed) return;
+      this.rtFailed = true;
+      console.warn('ray-traced lighting off: this GPU could not compile it');
+      saveRT(false);
+      location.reload();
+    };
+  }
+  private rtFailed = false;
 
   get resScale(): ResScale {
     return this.fixedRatio;
@@ -320,6 +422,124 @@ export class Stage {
     }
   }
 
+  /** Draw that throwaway frame (see warmUp) right now, for everything under `roots`. */
+  warmNow(roots: THREE.Object3D[], extras: THREE.Object3D[] = []) {
+    this.warmUp(roots, extras);
+    this.warmFrame();
+  }
+
+  /**
+   * Build the shaders of everything under `roots` (children of the scene, or not in it yet), shown
+   * or hidden, for the lights and reflections the scene has right now (so set the place up as it
+   * will be seen first: the lights are part of every shader), without freezing the page. three
+   * hands them all to the driver, which builds them on its own threads where it can
+   * (KHR_parallel_shader_compile) while this checks each one off as it lands; where it can't, they
+   * are finished one by one, a slice of a frame at a time. `progress` gets the share done, and how
+   * many of how many.
+   */
+  async precompile(roots: THREE.Object3D[], progress: (k: number, done: number, of: number) => void = () => {}) {
+    const r = this.renderer;
+    const scene = this.scene;
+    const mats = new Set<THREE.Material>();
+    // One pass over the scene with just these (and the lights) in it: compiling a part of the
+    // scene on its own would count the lights inside it twice, and build shaders for the wrong set.
+    const holder = scene as { children: THREE.Object3D[] };
+    const all = holder.children;
+    const keep = new Set<THREE.Object3D>(roots);
+    holder.children = all.filter((o) => keep.has(o) || (o as { isLight?: boolean }).isLight);
+    try {
+      compileInto(mats, r.compile(scene, this.camera));
+    } finally {
+      holder.children = all;
+    }
+    // (things not in the scene yet, like a torn-off part, have no lights of their own)
+    for (const o of roots) if (!o.parent) compileInto(mats, r.compile(o, this.camera, scene));
+    await this.finishPrograms(mats, progress);
+  }
+
+  /** The same for the screen passes every frame ends with (bloom, ray-traced lighting, the final image). */
+  async precompilePasses(progress: (k: number, done: number, of: number) => void = () => {}) {
+    const passes = this.post?.passes() ?? [];
+    const r = this.renderer;
+    const quad = new THREE.Mesh<THREE.BufferGeometry, THREE.Material>(new THREE.PlaneGeometry(2, 2));
+    // (where a pass draws is part of its shader: the passes between draw into buffers)
+    const off = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
+    const was = r.getRenderTarget();
+    const mats = new Set<THREE.Material>();
+    try {
+      for (const p of passes) {
+        quad.material = p.material;
+        r.setRenderTarget(p.screen ? null : off);
+        compileInto(mats, r.compile(quad, this.camera, this.scene));
+      }
+    } finally {
+      r.setRenderTarget(was);
+      off.dispose();
+      quad.geometry.dispose();
+    }
+    await this.finishPrograms(mats, progress);
+  }
+
+  private async finishPrograms(mats: Set<THREE.Material>, progress: (k: number, done: number, of: number) => void) {
+    const r = this.renderer;
+    const gl = r.getContext();
+    const left = [...mats];
+    const of = left.length;
+    progress(of ? 0 : 1, 0, of);
+    // (a lost context never finishes anything: give up rather than wait forever)
+    const until = performance.now() + 30_000;
+    while (left.length && !gl.isContextLost() && performance.now() < until) {
+      const t0 = performance.now();
+      for (let i = left.length - 1; i >= 0 && performance.now() - t0 < SLICE; i--) {
+        const prog = (r.properties.get(left[i]) as { currentProgram?: ProgramState }).currentProgram;
+        if (prog && !prog.isReady()) continue;
+        prog?.getUniforms();
+        left.splice(i, 1);
+      }
+      progress(1 - left.length / of, of - left.length, of);
+      if (left.length) await nextFrame();
+    }
+  }
+
+  /**
+   * Upload every texture the materials under `roots` use (signs, crowds, decals, noise), a slice of
+   * a frame at a time, instead of all at once on the first frame that shows them.
+   */
+  async uploadTextures(roots: THREE.Object3D[], progress: (k: number) => void = () => {}) {
+    const found = new Set<THREE.Texture>();
+    const add = (v: unknown) => {
+      const t = v as { isTexture?: boolean; isRenderTargetTexture?: boolean; isDepthTexture?: boolean; image?: unknown; version?: number } | null;
+      if (t?.isTexture && !t.isRenderTargetTexture && !t.isDepthTexture && t.image && (t.version ?? 0) > 0) found.add(v as THREE.Texture);
+    };
+    const scan = (m: THREE.Material) => {
+      for (const v of Object.values(m)) add(v);
+      const u = (m as { uniforms?: Record<string, { value: unknown } | undefined> }).uniforms;
+      if (u)
+        for (const k in u) {
+          const v = u[k]?.value;
+          if (Array.isArray(v)) v.forEach(add);
+          else add(v);
+        }
+    };
+    for (const root of roots) {
+      root.traverse((o) => {
+        const m = (o as { material?: THREE.Material | THREE.Material[] }).material;
+        if (Array.isArray(m)) m.forEach(scan);
+        else if (m) scan(m);
+      });
+    }
+    const list = [...found];
+    const r = this.renderer;
+    let i = 0;
+    while (i < list.length) {
+      const t0 = performance.now();
+      while (i < list.length && performance.now() - t0 < SLICE) r.initTexture(list[i++]);
+      progress(i / list.length);
+      if (i < list.length) await nextFrame();
+    }
+    progress(1);
+  }
+
   render() {
     if (this.warmRoots.length || this.warmExtras.length) this.warmFrame();
     this.draw();
@@ -329,6 +549,7 @@ export class Stage {
     const size = this.renderer.getDrawingBufferSize(_size);
     const box = this.ripples.prepare(this.camera, size.x / Math.max(1, size.y));
     contactAO.renderMap(this.renderer);
+    if (this.rt && !this.rtFailed) updatePCSS(this.key, KEY_SIZE);
     if (this.post) this.post.render(this.scene, this.camera);
     else {
       this.renderer.setRenderTarget(null);
@@ -339,3 +560,4 @@ export class Stage {
 }
 
 const _size = new THREE.Vector2();
+const NO_REFLECT: ReflectLook = { canvas: [0, 1], floor: [0, 1, 0] };

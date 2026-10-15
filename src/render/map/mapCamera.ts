@@ -65,31 +65,42 @@ export class MapCamera {
   }
 
   private pose() {
-    this.place(this.target, this.dist, this.pos);
-    this.pos.y = Math.max(this.pos.y, this.roofs(this.pos.x, this.pos.z) + 14);
-    for (const o of this.obstacles) {
-      if (this.pos.y > o.top + 20) continue;
-      const dx = this.pos.x - o.x, dz = this.pos.z - o.z;
-      const d = Math.hypot(dx, dz), R = o.r + 26;
-      if (d >= R) continue;
-      // (straight under the camera's own approach: out towards the viewer)
-      const k = d > 1e-3 ? R / d : 0;
-      this.pos.x = d > 1e-3 ? o.x + dx * k : o.x;
-      this.pos.z = d > 1e-3 ? o.z + dz * k : o.z + R;
-    }
+    this.posed(this.target, this.dist, this.pos);
     this.look.copy(this.target);
+  }
+
+  /** Where the lens really sits for a target and distance: lifted over roofs, pushed round towers. */
+  private posed(target: THREE.Vector3, d: number, out: THREE.Vector3) {
+    this.place(target, d, out);
+    out.y = Math.max(out.y, this.roofs(out.x, out.z) + 14);
+    for (const o of this.obstacles) {
+      if (out.y > o.top + 20) continue;
+      const dx = out.x - o.x, dz = out.z - o.z;
+      const l = Math.hypot(dx, dz), R = o.r + 26;
+      if (l >= R) continue;
+      // (straight under the camera's own approach: out towards the viewer)
+      const k = l > 1e-3 ? R / l : 0;
+      out.x = l > 1e-3 ? o.x + dx * k : o.x;
+      out.z = l > 1e-3 ? o.z + dz * k : o.z + R;
+    }
+    return out;
   }
 
   /** The scratch camera, posed as the map is now with the real camera's lens. */
   private lens() {
+    return this.lensAt(this.target, this.dist);
+  }
+
+  /** The scratch camera with the real camera's lens, posed as the map would be for a target and distance. */
+  private lensAt(target: THREE.Vector3, d: number) {
     const c = this.scratch;
     c.fov = this.camera.fov;
     c.aspect = this.camera.aspect;
     c.near = 1;
     c.far = 20000;
     c.updateProjectionMatrix();
-    this.place(this.target, this.dist, c.position);
-    c.lookAt(this.target);
+    this.posed(target, d, c.position);
+    c.lookAt(target);
     c.updateMatrixWorld();
     return c;
   }
@@ -225,6 +236,32 @@ export class MapCamera {
     this.vel.set(0, 0);
     this.zoomVel = 0;
     this.fly = { from: this.target.clone(), to: to.clone(), d0: this.dist, d1: d, t: 0, dur };
+  }
+
+  /**
+   * Glide so that `point` (anywhere, at any height: a pin on a tower top, say) ends up at `ndcX, ndcY`
+   * on screen, seen from distance `d`. The camera looks at the ground, so the target that does that is
+   * solved for with the lens it will really have there (its height over the ground, towers pushing it).
+   */
+  frame(point: THREE.Vector3, d: number, ndcX = 0, ndcY = 0, dur = 1.2) {
+    d = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, d));
+    const to = new THREE.Vector3(point.x, 0, point.z);
+    const at = new THREE.Vector3();
+    for (let i = 0; i < 8; i++) {
+      to.y = Math.max(0, this.ground(to.x, to.z));
+      const c = this.lensAt(to, d);
+      // where the ray through the wanted spot crosses the point's height: shift the view by the miss
+      _ndc.set(ndcX, ndcY);
+      _ray.setFromCamera(_ndc, c);
+      _plane.set(_a.set(0, 1, 0), -point.y);
+      if (!_ray.ray.intersectPlane(_plane, at)) break;
+      const mx = point.x - at.x, mz = point.z - at.z;
+      to.x += mx;
+      to.z += mz;
+      if (mx * mx + mz * mz < 0.01) break;
+    }
+    to.y = Math.max(0, this.ground(to.x, to.z));
+    this.flyTo(to, d, dur);
   }
 
   /** Jump straight to a view. */
