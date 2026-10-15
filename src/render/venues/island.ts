@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { AX, FLOOR, ROWS, TUNNEL_OPEN_H, TUNNEL_OPEN_HW, aislesAt, outline } from '../bowl';
-import { Mesher, Tris, billboards, lin, litMaterial, paintTexture, prng, vMaterial, V_GLSL, V_OUT, waterMaterial, type Daylight, type VenueUniforms } from './kit';
+import { Mesher, Tris, billboards, lin, litMaterial, paintTexture, prng, vMaterial, V_GLSL, V_OUT, waterMaterial, type Daylight } from './kit';
 import { OutdoorVenue, STANDS_D, STANDS_TOP, sunLook } from './outdoor';
-import { block, boulder, flag, hullGeometry, palm, parasol, rod, sail, torch } from './props';
+import { block, boulder, flag, gulls, hullGeometry, palm, parasol, rod, sail, torch } from './props';
 
 /**
  * Coral Beach Ring: the Island Championship, on a little island out in the bay. Bleachers of
@@ -535,33 +535,6 @@ function hills(v: OutdoorVenue) {
     t.quad(p(a0, WATER_Y - 2), p(a1, WATER_Y - 2), p(a1, WATER_Y + h1), p(a0, WATER_Y + h0), [-Math.cos(a0), 0.4, -Math.sin(a0)], col, col, top, top);
   }
   return new THREE.Mesh(t.geometry(), litMaterial(v.u, { side: THREE.DoubleSide }));
-}
-
-/** A handful of gulls wheeling over the beach. */
-function gulls(u: VenueUniforms, tick: ((dt: number, t: number) => void)[], r: () => number) {
-  const geo = new THREE.BufferGeometry();
-  // a shallow V of two wings
-  geo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0.18, -0.55, 0.12, -0.05, 0, 0, -0.12, 0, 0, 0.18, 0, 0, -0.12, 0.55, 0.12, -0.05], 3));
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(new Array(18).fill(0.85), 3));
-  const n = 9;
-  const mesh = new THREE.InstancedMesh(geo, litMaterial(u, { wrap: 0.6, side: THREE.DoubleSide }), n);
-  mesh.frustumCulled = false;
-  const birds = Array.from({ length: n }, () => ({ c: new THREE.Vector2((r() - 0.5) * 70, (r() - 0.5) * 70), rad: 12 + r() * 25, h: 16 + r() * 16, w: (0.15 + r() * 0.12) * (r() < 0.5 ? -1 : 1), ph: r() * 10, s: 0.9 + r() * 0.5 }));
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(), e = new THREE.Euler();
-  tick.push((_dt, t) => {
-    birds.forEach((b, i) => {
-      const a = b.ph + t * b.w;
-      p.set(b.c.x + Math.cos(a) * b.rad, b.h + Math.sin(t * 0.7 + b.ph) * 1.5, b.c.y + Math.sin(a) * b.rad);
-      e.set(0, -a - (b.w > 0 ? 0 : Math.PI), Math.sin(a) * 0.3);
-      q.setFromEuler(e);
-      const flap = 0.7 + 0.3 * Math.sin(t * 7 + b.ph * 5);
-      s.set(b.s, b.s * flap * 1.6, b.s);
-      mesh.setMatrixAt(i, m.compose(p, q, s));
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-  });
-  return mesh;
 }
 
 /** The deck round the ring: weathered teak planks running east-west, with their seams and grain. */

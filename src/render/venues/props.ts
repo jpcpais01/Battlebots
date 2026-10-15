@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Mesher, Tris } from './kit';
+import { Mesher, Tris, litMaterial, type VenueUniforms } from './kit';
 
 /**
  * Pieces the outdoor venues are dressed with, built straight into merged meshes: posts and beams
@@ -191,4 +191,31 @@ export function flag(t: Tris, top: Vec3, dir: number, w: number, h: number, col:
     const p = (u: number, y: number): Vec3 => [top[0] + dx * u - dz * ripple(u), y, top[2] + dz * u + dx * ripple(u)];
     t.quad(p(u0, top[1]), p(u1, top[1]), p(u1, top[1] - h), p(u0, top[1] - h), [-dz, 0, dx], col);
   }
+}
+
+/** A handful of gulls wheeling overhead. */
+export function gulls(u: VenueUniforms, tick: ((dt: number, t: number) => void)[], r: () => number) {
+  const geo = new THREE.BufferGeometry();
+  // a shallow V of two wings
+  geo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0.18, -0.55, 0.12, -0.05, 0, 0, -0.12, 0, 0, 0.18, 0, 0, -0.12, 0.55, 0.12, -0.05], 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(new Array(18).fill(0.85), 3));
+  const n = 9;
+  const mesh = new THREE.InstancedMesh(geo, litMaterial(u, { wrap: 0.6, side: THREE.DoubleSide }), n);
+  mesh.frustumCulled = false;
+  const birds = Array.from({ length: n }, () => ({ c: new THREE.Vector2((r() - 0.5) * 70, (r() - 0.5) * 70), rad: 12 + r() * 25, h: 16 + r() * 16, w: (0.15 + r() * 0.12) * (r() < 0.5 ? -1 : 1), ph: r() * 10, s: 0.9 + r() * 0.5 }));
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(), e = new THREE.Euler();
+  tick.push((_dt, t) => {
+    birds.forEach((b, i) => {
+      const a = b.ph + t * b.w;
+      p.set(b.c.x + Math.cos(a) * b.rad, b.h + Math.sin(t * 0.7 + b.ph) * 1.5, b.c.y + Math.sin(a) * b.rad);
+      e.set(0, -a - (b.w > 0 ? 0 : Math.PI), Math.sin(a) * 0.3);
+      q.setFromEuler(e);
+      const flap = 0.7 + 0.3 * Math.sin(t * 7 + b.ph * 5);
+      s.set(b.s, b.s * flap * 1.6, b.s);
+      mesh.setMatrixAt(i, m.compose(p, q, s));
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+  });
+  return mesh;
 }
