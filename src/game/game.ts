@@ -346,54 +346,65 @@ export class Game {
     }
     if (p === 'garage' && this.garage) return { roots: [this.garage.group, this.fx.group, ...shown], extras: [] };
     if (p === 'home' && this.home) return { roots: [this.home.group, this.fx.group], extras: [] };
+    if (p === 'map' && this.world) return { roots: [this.world.group], extras: [] };
     return { roots: [], extras: [] };
   }
 
   /**
    * Behind the loading screen: get the places the player is about to see ready, so nothing is
-   * built in the middle of the game. It visits the arena, the workshop and the home screen's place
-   * in turn, each lit as it will be seen (the lights and reflections are part of every shader),
-   * builds their shaders, uploads their textures, photographs the arena for its reflections and
-   * draws one hidden frame in each, then ends up back where it started. The screen passes (bloom,
-   * ray-traced lighting) are built first. `progress` gets the share done (0..1) and what it's on.
+   * built in the middle of the game. It visits the arena, the world map, the workshop and every
+   * home background in turn, each lit as it will be seen (the lights and reflections are part of
+   * every shader), builds their shaders, uploads their textures, photographs the arena for its
+   * reflections and draws one hidden frame in each, then ends up back where it started. The world
+   * map is built first (it's otherwise built the first time it's opened). The screen passes
+   * (bloom, ray-traced lighting) are built before all of it. `progress` gets the share done (0..1)
+   * and, in a few friendly words, what it's on.
    */
-  async prepare(progress: (k: number, what: string, detail?: string) => void) {
+  async prepare(progress: (k: number, what: string) => void) {
     const back = this.place;
     const shownHome = this.home?.id ?? 'beach';
     // every home background, not just the one showing: switching to one that isn't built takes seconds
     const homes = this.homeBroken ? [] : HOME_SCENES.filter((id) => id !== shownHome || back !== 'home');
     type Visit = { p: Place; scene?: HomeSceneId };
-    const visits: Visit[] = [...(back === 'arena' ? [] : [{ p: 'arena' as Place }]), { p: 'garage' }, ...homes.map((scene) => ({ p: 'home' as Place, scene }))];
+    const visits: Visit[] = [
+      ...(back === 'arena' ? [] : [{ p: 'arena' as Place }]),
+      ...(back === 'map' ? [] : [{ p: 'map' as Place }]),
+      { p: 'garage' },
+      ...homes.map((scene) => ({ p: 'home' as Place, scene })),
+    ];
     // finish where it started, so that place is the last one set up
-    if (back === 'arena') visits.push({ p: 'arena' });
+    if (back === 'arena' || back === 'map') visits.push({ p: back });
     else if (back === 'home') visits.push({ p: 'home', scene: shownHome });
-    const WEIGHT: Partial<Record<Place, number>> = { arena: 4, garage: 2, home: 3 };
-    const name = (v: Visit) => (v.p === 'arena' ? 'Lighting the arena' : v.p === 'garage' ? 'Opening the workshop' : `Setting up the ${v.scene}`);
-    const plan = [{ w: 0.6, what: 'Polishing the picture' }, ...visits.map((v) => ({ w: WEIGHT[v.p] ?? 2, what: name(v) }))];
+    const WEIGHT: Partial<Record<Place, number>> = { arena: 4, map: 6, garage: 2, home: 3 };
+    const NAME: Record<Place, string> = { arena: 'Lighting the arena', map: 'Drawing the world map', garage: 'Opening the garage', home: 'Setting the scene' };
+    const plan = [{ w: 0.6, what: 'Warming up' }, ...visits.map((v) => ({ w: WEIGHT[v.p] ?? 2, what: NAME[v.p] }))];
     const total = plan.reduce((a, s) => a + s.w, 0);
     let before = 0;
-    const report = (i: number, k: number, detail?: string) => progress((before + plan[i].w * k) / total, plan[i].what, detail);
-    const shaders = (i: number, share: number) => (k: number, n: number, of: number) => report(i, k * share, of ? `${n} / ${of} shaders` : undefined);
+    const report = (i: number, k: number) => progress((before + plan[i].w * k) / total, plan[i].what);
 
-    await this.stage.precompilePasses(shaders(0, 1));
+    await this.stage.precompilePasses((k) => report(0, k));
     before += plan[0].w;
     for (let i = 0; i < visits.length; i++) {
       const { p, scene } = visits[i];
       const step = i + 1;
+      // the map has to be built before it can be warmed: that's the first part of its step
+      const built = p === 'map' ? 0.45 : 0;
+      if (p === 'map') await this.loadWorld((k) => report(step, built * k)).catch((e) => console.error('map failed', e));
       if (scene) this.homeScene(scene);
-      this.setPlace(p);
-      // (a home scene that can't be built leaves the game in the arena)
+      if (p !== 'map' || this.world) this.setPlace(p);
+      // (a home scene that can't be built leaves the game in the arena, a map that can't be built where it was)
       if (this.place !== p) {
         before += plan[step].w;
         continue;
       }
+      const part = (a: number, b: number) => (k: number) => report(step, built + (1 - built) * (a + (b - a) * k));
       // in a home place, only its own scenery: the others are lit differently
       const restore = p === 'home' ? this.home?.isolate() : undefined;
       try {
         const { roots, extras } = this.placeRoots(p);
         const all = roots.concat(extras);
-        await this.stage.precompile(all, shaders(step, 0.75));
-        await this.stage.uploadTextures(all, (k) => report(step, 0.75 + 0.2 * k, 'textures'));
+        await this.stage.precompile(all, part(0, 0.75));
+        await this.stage.uploadTextures(all, part(0.75, 0.95));
         if (p === 'arena') {
           // its reflections are a photograph of it, taken the first time it's on screen: now
           this.syncEnv();
@@ -412,7 +423,7 @@ export class Game {
     progress(1, plan[plan.length - 1].what);
   }
 
-  /** Fetch the code of the world map and the event venues ahead of time (they're built when first opened). */
+  /** Fetch the code of the event venues ahead of time (they're built when first fought in; the map is built while loading). */
   prefetch() {
     void import('../render/venues').catch(() => {});
     void import('../render/map/world').catch(() => {});

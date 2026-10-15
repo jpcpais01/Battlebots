@@ -17,8 +17,11 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 12:00",
-    title: "Fullscreen button",
+    title: "Fullscreen button and a fresh loading screen",
     notes: [
+      "A brand new loading screen: flowing ribbons of light, drifting sparkles and a clean progress line.",
+      "The world map is now built while the game loads, so it opens straight away.",
+      "Loading messages are simpler and tell you what's happening in plain words.",
       "New fullscreen button on the home screen, next to settings. Tap it to go fullscreen or back to a window; once you turn fullscreen off, the game stops switching it back on by itself.",
     ],
   },
