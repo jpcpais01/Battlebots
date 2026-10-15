@@ -17,8 +17,9 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 12:00",
-    title: "Fullscreen button",
+    title: "Fullscreen button and the river's mouth",
     notes: [
+      "On the world map the river now runs out into the sea through a real estuary: level with the sea instead of ending in a hard edge, over a wide shallow delta with sandbars, its greener water fanning out and fading into the blue, with surf following the new shores.",
       "New fullscreen button on the home screen, next to settings. Tap it to go fullscreen or back to a window; once you turn fullscreen off, the game stops switching it back on by itself.",
     ],
   },
