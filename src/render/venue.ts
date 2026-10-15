@@ -517,7 +517,7 @@ function tunnelTexture(colour: string, tunnelH: number): THREE.CanvasTexture {
 /** The LED marquee over a tunnel mouth: its corner's name in lit dots, with a border of bulbs. */
 function marqueeTexture(colour: string, label: string): THREE.CanvasTexture {
   const W = 512, H = 72;
-  const [src, s] = canvas(W, H);
+  const [, s] = canvas(W, H);
   s.fillStyle = '#000';
   s.fillRect(0, 0, W, H);
   s.fillStyle = '#fff';
