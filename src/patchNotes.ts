@@ -17,8 +17,17 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 00:00",
+    title: "A livelier beach",
+    notes: [
+      "Beach: a kite swoops over the shallows, a yacht crosses the bay trailing its wake, and a little robot paddleboards past the buoys.",
+      "Beach: more parasols, towels and a windbreak down the shore, bunting at the beach bar, shells in the sand, flags on the sandcastle, spray glittering off the surf and a cocktail on the side table.",
+    ],
+  },
+  {
+    hour: "2026-10-15 00:00",
     title: "Online replays, light-up entrance tunnels",
     notes: [
+      "Beach: dune grass and flowering shrubs sway in the breeze, and dry fronds lie fallen under the palms.",
       "The hover stretcher is longer, so the loser lies on it with room to spare, and it's sized to match the bot riding it.",
       "Gym: the bot no longer shakes and glitches as it pushes the doors open on its way to a fight.",
       "Online fights have replays too: tap Replay or Save replay on the results. Your opponent waits in the room, and Rematch is right there on the replay's results.",
