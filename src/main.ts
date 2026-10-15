@@ -81,7 +81,7 @@ async function boot() {
   sync.done();
 
   try {
-    await game.prepare((k, what) => prep.set(k, what));
+    await game.prepare((k, what, until) => prep.set(k, what, until));
   } catch (e) {
     // nothing is lost: whatever wasn't built builds the first time it's seen, as before
     console.error('warm-up failed', e);
