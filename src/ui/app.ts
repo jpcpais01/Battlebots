@@ -2,7 +2,7 @@ import type { Game, Place, Tape } from '../game/game';
 import { resScaleChoices, type Quality, type ResScale } from '../render/stage';
 import { loadRT, saveRT } from '../render/rt';
 import type { FpsCap } from '../render/pacer';
-import { enterLandscape } from '../fullscreen';
+import { enterLandscape, fullscreenSupported, isFullscreen, onFullscreenChange, toggleFullscreen } from '../fullscreen';
 import { Rng } from '../sim/math';
 import { MOVES, type MoveId } from '../sim/moves';
 import type { Fighter } from '../sim/fighter';
@@ -439,6 +439,20 @@ export class App {
       void forceUpdate();
     }, tr);
     refresh.title = 'Check for updates';
+    if (fullscreenSupported()) {
+      const fs = button('icon-btn', '', () => {
+        this.tap('select');
+        void toggleFullscreen();
+      }, tr);
+      const sync = () => {
+        const on = isFullscreen();
+        fs.innerHTML = on ? ICON.shrink : ICON.expand;
+        fs.title = on ? 'Exit fullscreen' : 'Fullscreen';
+        fs.setAttribute('aria-label', fs.title);
+      };
+      onFullscreenChange(sync);
+      sync();
+    }
     button('icon-btn', ICON.gear, () => this.settings(), tr).title = 'Settings';
     this.syncSound();
 

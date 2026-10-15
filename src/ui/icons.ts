@@ -38,6 +38,8 @@ export const ICON = {
   play: svg('<path d="M7 4l13 8-13 8z" fill="currentColor"/>'),
   dice: svg('<rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="15" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/><circle cx="9" cy="15" r="1" fill="currentColor"/>'),
   refresh: svg('<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v4h-4"/>'),
+  expand: svg('<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>'),
+  shrink: svg('<path d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5"/>'),
   gear: svg('<path d="M19.3 10.0L21.9 10.3L21.9 13.7L19.3 14.0L18.6 15.7L20.2 17.8L17.8 20.2L15.7 18.6L14.0 19.3L13.7 21.9L10.3 21.9L10.0 19.3L8.3 18.6L6.2 20.2L3.8 17.8L5.4 15.7L4.7 14.0L2.1 13.7L2.1 10.3L4.7 10.0L5.4 8.3L3.8 6.2L6.2 3.8L8.3 5.4L10.0 4.7L10.3 2.1L13.7 2.1L14.0 4.7L15.7 5.4L17.8 3.8L20.2 6.2L18.6 8.3z"/><circle cx="12" cy="12" r="3"/>'),
   wrench: svg('<path d="M14.5 6.5a4 4 0 0 0-5.3 5.3L3 18l3 3 6.2-6.2a4 4 0 0 0 5.3-5.3l-2.5 2.5-2.5-.5-.5-2.5z"/>'),
   swords: svg('<path d="M4 4l9 9M4 4h4M4 4v4"/><path d="M20 4l-9 9M20 4h-4M20 4v4"/><path d="M7 15l2 2-3 3-2-2zM17 15l-2 2 3 3 2-2z"/>'),

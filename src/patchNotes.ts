@@ -17,6 +17,13 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 12:00",
+    title: "Fullscreen button",
+    notes: [
+      "New fullscreen button on the home screen, next to settings. Tap it to go fullscreen or back to a window; once you turn fullscreen off, the game stops switching it back on by itself.",
+    ],
+  },
+  {
+    hour: "2026-10-15 12:00",
     title: "Home scenes load up front, river and skies",
     notes: [
       "Every home background (beach, gym and lounge) is now built while the game loads, so switching between them shows the new one straight away instead of after a few seconds.",
