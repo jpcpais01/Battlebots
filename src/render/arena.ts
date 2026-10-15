@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RenderSettings } from './settings';
 import { RING_CORNER, ROPE_LINE, ropeSide as sideOf, SIDE_NX, SIDE_NZ } from '../sim/body';
-import { Venue } from './venue';
+import { Venue, type VenueLike } from './venue';
 import { splitWedges } from './wedges';
 import { contactAO } from './ao';
 import { FLOOR } from './bowl';
@@ -51,7 +51,11 @@ const TRUSS_Y = 8.75;
 
 export class Arena {
   readonly group = new THREE.Group();
-  readonly venue: Venue;
+  /** The indoor arena: quick fights, online, and the Grand Championship. */
+  readonly indoor: Venue;
+  /** Whatever surrounds the ring now: the indoor arena, or an event's own venue (setVenue). */
+  venue: VenueLike;
+  private beams: THREE.Object3D | null = null;
   /** The fighters' corners: lift hatches, corner pads, CO2 cannons. */
   readonly corners = new Corners();
   private ropeMat: THREE.MeshBasicMaterial;
@@ -75,7 +79,7 @@ export class Arena {
   constructor(quality: 'low' | 'med' | 'high') {
     const g = this.group;
     // the arena around the ring: stands, crowd, boards, roof (added to the scene beside `group`)
-    this.venue = new Venue(quality, this.uniforms);
+    this.venue = this.indoor = new Venue(quality, this.uniforms);
     // the bowl wraps all the way round the camera: cut its big meshes into wedges that can be culled
     splitWedges(this.venue.group, { skip: [this.venue.crowd.group] });
     this.buildStage(quality);
@@ -87,14 +91,23 @@ export class Arena {
     g.add(new THREE.Mesh(mergeGeometries(glow)!, this.glowMat));
 
     // light beams (fake volumetrics)
-    if (quality !== 'low') g.add(this.buildBeams());
+    if (quality !== 'low') g.add((this.beams = this.buildBeams()));
 
-    // nearest first, so what is hidden behind the ring and the fans is never shaded
-    const v = this.venue;
     layer(g, LAYER.ring);
+    Arena.layers(this.venue);
+  }
+
+  /** Nearest first, so what is hidden behind the ring and the fans is never shaded. */
+  static layers(v: VenueLike) {
     layer(v.floorMesh, LAYER.floor);
     layer(v.crowd.group, LAYER.crowd);
     layer(v.group, LAYER.stands);
+  }
+
+  /** Put the ring in another venue (the caller swaps the venues' groups in the scene). */
+  setVenue(v: VenueLike) {
+    this.venue = v;
+    if (this.beams) this.beams.visible = v.beams;
   }
 
   /**

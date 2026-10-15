@@ -171,6 +171,8 @@ export class Director {
   sceneLambda = 3;
   /** Near and far clip planes for a scene far bigger than the arena (the world map), or null. */
   clip: [number, number] | null = null;
+  /** The far clip plane in the arena (an outdoor venue sees further than the indoor bowl). */
+  far = 120;
   private snapNext = false;
   private narrow = false;
   /** Horizontal framing offset as a fraction of the view width (positive puts the subject left of center). */
@@ -526,7 +528,7 @@ export class Director {
     const fov = lensFov - this.fovKick;
     // behind a bot's eyes, its own guard comes right up to the lens: clip what is nearer than a visor
     const near = this.clip ? this.clip[0] : this.pov >= 0 ? 0.2 : 0.1;
-    const far = this.clip ? this.clip[1] : 120;
+    const far = this.clip ? this.clip[1] : this.far;
     if (Math.abs(this.camera.fov - fov) > 0.01 || this.camera.near !== near || this.camera.far !== far) {
       this.camera.fov = fov;
       this.camera.near = near;

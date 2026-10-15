@@ -11,7 +11,7 @@ import { BotModel } from '../render/botModel';
 import { impactPace, Match, PRESENT, SIM_DT, type DetachInfo, type HitInfo } from '../sim/match';
 import type { CoachCall } from '../sim/coach';
 import { CUT_JOINTS, P, PART_COUNT } from '../sim/damage';
-import { Debris } from '../render/debris';
+import { Debris, outerGround } from '../render/debris';
 import { Oil } from '../render/oil';
 import { Steam } from '../render/steam';
 import { Fighter } from '../sim/fighter';
@@ -34,6 +34,8 @@ import { warnNonFinite } from '../render/finite';
 import { Garage } from '../render/garage';
 import { HomeStage, type HomeSceneId } from '../render/home/homeStage';
 import type { WorldMap } from '../render/map/world';
+import type { VenueLike } from '../render/venue';
+import type { ArenaId } from './events';
 import { PartThumbs } from '../render/partPreview';
 import { walkOnFor } from '../audio/walkOn';
 import { ENTRY, hatchXZ } from '../sim/entrance';
@@ -71,12 +73,15 @@ export interface Tape {
   /** An online fight, and the corner this player fought from (offline: always 0). */
   online?: boolean;
   me?: number;
+  /** Where it was fought (none: the indoor arena). */
+  arena?: ArenaId;
 }
 
 /** Longest a replay seek may run the sim in one animation frame, in ms (the rest waits a frame). */
 const SEEK_BUDGET = 14;
 
 const _v = new THREE.Vector3();
+const _size = new THREE.Vector2();
 const _u = new THREE.Vector3();
 const _pan = new THREE.Vector3();
 const _dp = new THREE.Vector3();
@@ -244,6 +249,10 @@ export class Game {
   /** The world map, built the first time it's opened. */
   private world: WorldMap | null = null;
   private worldBuild: Promise<WorldMap> | null = null;
+  /** The world map events' own venues, built on first use. */
+  private venues = new Map<ArenaId, Promise<VenueLike>>();
+  /** The venue fights are in now. */
+  private arenaId: ArenaId = 'grand';
   /** The animated home screen places (beach, gym), built on first use. */
   private home: HomeStage | null = null;
   /** A home scene failed: the home screen stays in the arena from now on. */
@@ -361,6 +370,7 @@ export class Game {
     this.arena.group.visible = inArena;
     this.arena.venue.group.visible = inArena;
     this.drones.group.visible = inArena;
+    this.director.far = inArena ? this.arena.venue.far : 120;
     if (this.showcase) this.showcase.model.root.visible = p !== 'home' && p !== 'map';
     const inMap = p === 'map' && !!this.world;
     if (this.world) this.world.group.visible = inMap;
@@ -368,7 +378,7 @@ export class Game {
     if (inGarage) this.garage!.enter(this.stage);
     else {
       this.garage?.exit();
-      this.stage.applyLook(inMap ? this.world!.look : this.stage.arenaLook);
+      this.stage.applyLook(inMap ? this.world!.look : this.look);
     }
     if (p === 'home') {
       try {
@@ -379,6 +389,64 @@ export class Game {
         this.homeFailed(e);
       }
     }
+  }
+
+  /** How the arena is lit now: its venue's own light, or the indoor arena's. */
+  private get look() {
+    return this.arena.venue.look ?? this.stage.arenaLook;
+  }
+
+  /** Build a world map event's venue (once; later calls get the same one). */
+  loadVenue(id: ArenaId): Promise<VenueLike> {
+    if (id === 'grand') return Promise.resolve(this.arena.indoor);
+    let p = this.venues.get(id);
+    if (!p) {
+      // (their own chunk, downloaded the first time someone fights an event)
+      p = import('../render/venues').then(({ buildVenue }) => {
+        const v = buildVenue(id, this.stage.quality, this.arena.uniforms);
+        if (!v) return this.arena.indoor;
+        Arena.layers(v);
+        v.group.visible = false;
+        v.setPixelScale(this.stage.renderer.getDrawingBufferSize(_size).y);
+        this.stage.scene.add(v.group);
+        this.probe.tag(v.group, 'venue');
+        this.probe.tag(v.crowd.group, 'crowd');
+        return v;
+      });
+      p.catch(() => this.venues.delete(id));
+      this.venues.set(id, p);
+    }
+    return p;
+  }
+
+  /**
+   * Fight in this venue from now on. One not built yet (see loadVenue) goes up when it's ready;
+   * if it can't be built, fights stay indoors.
+   */
+  setArena(id: ArenaId) {
+    this.arenaId = id;
+    if (id === 'grand') return this.useVenue(this.arena.indoor);
+    this.loadVenue(id)
+      .then((v) => this.arenaId === id && this.useVenue(v))
+      .catch((e) => {
+        console.error('venue failed', e);
+        if (this.arenaId === id) this.useVenue(this.arena.indoor);
+      });
+  }
+
+  private useVenue(v: VenueLike) {
+    const was = this.arena.venue;
+    if (was === v) return;
+    was.group.visible = false;
+    this.arena.setVenue(v);
+    v.group.visible = this.place === 'arena';
+    outerGround.y = v.outer;
+    if (this.place === 'arena') {
+      this.stage.applyLook(this.look);
+      this.director.far = v.far;
+    }
+    // its shaders are built on the next frame, before anything of it is seen
+    this.stage.warmUp([v.group]);
   }
 
   /** Build the world map (once; later calls get the same one), reporting progress 0..1. */
@@ -772,6 +840,7 @@ export class Game {
   // ---------------------------------------------------------------- replays
   /** Play a fight back from its tape: the same seed, intro cut and coach calls. */
   startReplay(t: Tape) {
+    this.setArena(t.arena ?? 'grand');
     // (filmed from the player's side, as it was live; the intro ends where it did, see replayCut)
     const m = this.startMatch(t.a, t.b, t.seed, false, t.me ?? 0);
     m.replayCut = t.cut;
@@ -1260,7 +1329,7 @@ export class Game {
       this.arena.update(dt, this.time);
       this.arena.corners.update(still ? 0 : dt, this.time, m, this.fx, seeking);
       // the house light on each side swings to that bot's colours while it makes its entrance
-      const look = this.stage.arenaLook.rims;
+      const look = this.look.rims;
       for (let j = 0; j < look.length; j++) {
         // the fighter whose corner this light hangs over
         const i = look[j].pos[0] * hatchXZ(0)[0] + look[j].pos[2] * hatchXZ(0)[1] > 0 ? 0 : 1;

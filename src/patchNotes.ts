@@ -19,6 +19,8 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: "2026-10-15 01:00",
     title: "The World map",
     notes: [
+      "The Island Championship now has its own venue, Coral Beach Ring: sun-bleached bleachers under striped shade sails on a little island, palms over the sand, a jetty with the ferry tied up, surf breaking on the beach and the city's towers far across the sea.",
+      "Outdoor fights are lit by the late afternoon sun, and a saved replay remembers which venue its fight was in.",
       "New World map, from the home screen: a big neon-lit harbour city at golden hour, with hills, farms, forests, a waterfall and an island out at sea. Drag to look around, pinch or scroll to zoom.",
     ],
   },
