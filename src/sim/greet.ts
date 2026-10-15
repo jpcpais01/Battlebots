@@ -45,7 +45,8 @@ export class Greeting {
     if (this.bumpAt < 0) {
       // out of the corners to the centre, gloves low, settling into a long arm's length;
       // the fist goes out on the last stride, so arriving and reaching are one motion
-      speed = clamp((d - BUMP_D) * 2.4, 0, 1.6);
+      // (an unhurried walk: no rushing out to meet them)
+      speed = clamp((d - BUMP_D) * 2.4, 0, 1.25);
       drop = 0.55;
       if (d < BUMP_D + 0.4 || this.t > 4.5) {
         this.bumpAt = this.t;

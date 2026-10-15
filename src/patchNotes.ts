@@ -17,11 +17,19 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 12:00",
-    title: "A fresh loading screen and roads at night",
+    title: "A fresh loading screen",
     notes: [
       "A brand new loading screen: flowing ribbons of light, drifting sparkles and a clean progress line.",
+    ],
+  },
+  {
+    hour: "2026-10-15 12:00",
+    title: "Natural walking, quicker map and roads at night",
+    notes: [
       "The world map is now built while the game loads, so it opens straight away.",
       "Loading messages are simpler and tell you what's happening in plain words.",
+      "Bots walk like they have weight now: slower, longer strides that roll heel to toe, one foot at a time, with the arms swinging when the hands are down. Walking out to touch gloves and the gym walk to the arena door are calmer, and bigger bots take slower steps.",
+      "Fight footwork is less fidgety: bots move in fewer, smoother steps instead of constant quick shuffles, and stop re-planting their feet every moment while they wait.",
       "At night the roads light up properly: pools of lamplight along the streets and the expressway, lamps in the villages, and headlights and tail lights moving along the country roads.",
     ],
   },
