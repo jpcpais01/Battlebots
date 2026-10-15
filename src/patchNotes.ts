@@ -17,6 +17,14 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 12:00",
+    title: "A flowing river",
+    notes: [
+      "The river on the world map now really flows: fast down the middle and slow by the banks, with ripples and lines of foam carried downstream, white water churning over the rapids, foam lacing the banks, and the sun glittering on it and dancing over the stony shallows. The lake above the falls shows its shallows too.",
+      "Cascade Falls drops sheer off the cliff again in a tall white curtain with spray at its foot, the dam sits on the cliff edge instead of hanging in the air, and the river below now runs down its valley instead of floating over it, tumbling through a run of rapids on the way to the city.",
+    ],
+  },
+  {
+    hour: "2026-10-15 12:00",
     title: "New loading screen, map and big bots",
     notes: [
       "A new loading screen: stage lights swing over the arena floor while a power core fills with the game's real progress, showing what it's doing right now (lighting the arena, opening the workshop, setting up your home scene) and a tip to read while you wait.",
