@@ -17,8 +17,9 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 15:00",
-    title: "Summer beach",
+    title: "Summer beach and a cleaner loading screen",
     notes: [
+      "The turning ring is gone from the loading screen: the logo and progress line now sit centred over the flowing light.",
       "The robot dog is rebuilt from scratch, with proper legs: it trots after its owner, gallops off, splashes in the surf, sniffs around and shakes itself dry.",
       "New boats out at sea: sailing sloops, a motor yacht, a catamaran and a fishing boat, plus a paddleboarder and a windsurfer.",
       "Brighter summer day at the beach: bluer sky, turquoise water and big layered mountains on the horizon.",

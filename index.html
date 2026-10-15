@@ -31,11 +31,10 @@
         color: #f2f6ff;
         font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
         background:
-          radial-gradient(60% 55% at 70% 58%, rgba(40, 92, 220, 0.34), transparent 70%),
+          radial-gradient(55% 50% at 50% 46%, rgba(40, 92, 220, 0.3), transparent 70%),
           radial-gradient(120% 90% at 50% 120%, #0d2266 0%, #071240 34%, #040a24 62%, #03050d 100%);
         -webkit-user-select: none;
         user-select: none;
-        --ring: min(52vh, 33vw, 470px);
         --ink: rgba(214, 226, 255, 0.72);
         --dim: rgba(190, 206, 240, 0.48);
         --hot: #ff7a2a;
@@ -81,9 +80,9 @@
       /* ribbons of light flowing low across the screen: each strip is two periods wide and slides one along */
       .bt-waves {
         top: auto !important;
-        height: 46vh;
-        bottom: -6vh !important;
-        opacity: 0.55;
+        height: 52vh;
+        bottom: 2vh !important;
+        opacity: 0.9;
         -webkit-mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
         mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
       }
@@ -179,186 +178,19 @@
         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
       }
       .bt-vig {
-        background: radial-gradient(ellipse 80% 75% at 55% 50%, transparent 50%, rgba(0, 0, 0, 0.6) 100%);
-      }
-
-      /* ---- the centrepiece: a neon ring, turning slowly in the dark ---- */
-      .bt-hero {
-        position: absolute;
-        left: 71%;
-        top: 49%;
-        width: var(--ring);
-        height: var(--ring);
-        margin: calc(var(--ring) * -0.5) 0 0 calc(var(--ring) * -0.5);
-        perspective: calc(var(--ring) * 2.4);
-        perspective-origin: 50% 30%;
-        pointer-events: none;
-        animation: bt-hero-in 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-        transition:
-          transform 0.9s cubic-bezier(0.5, 0, 0.2, 1),
-          opacity 0.6s ease;
-      }
-      @keyframes bt-hero-in {
-        from {
-          opacity: 0;
-          transform: translateY(6%) scale(0.9);
-        }
-        to {
-          opacity: 1;
-          transform: none;
-        }
-      }
-      /* the light the ring throws on the floor around it */
-      .bt-pool {
-        position: absolute;
-        left: -45%;
-        right: -45%;
-        top: 22%;
-        bottom: 6%;
-        border-radius: 50%;
-        background:
-          radial-gradient(closest-side, rgba(90, 160, 255, 0.36), rgba(60, 110, 255, 0.12) 55%, transparent),
-          radial-gradient(closest-side, rgba(255, 120, 40, 0.14), transparent 60%);
-        animation: bt-breathe 3.2s ease-in-out infinite alternate;
-      }
-      @keyframes bt-breathe {
-        from {
-          opacity: 0.7;
-        }
-        to {
-          opacity: 1;
-        }
-      }
-      .bt-ring {
-        position: absolute;
-        inset: 0;
-        transform-style: preserve-3d;
-        transform: rotateX(62deg) rotateZ(0deg);
-        animation: bt-turn-ring 44s linear infinite;
-        will-change: transform;
-      }
-      @keyframes bt-turn-ring {
-        to {
-          transform: rotateX(62deg) rotateZ(-360deg);
-        }
-      }
-      .bt-ring > * {
-        position: absolute;
-        box-sizing: border-box;
-      }
-      .bt-base {
-        inset: -7%;
-        transform: translateZ(calc(var(--ring) * -0.05));
-        border: 1px solid rgba(255, 140, 60, 0.55);
-        background: linear-gradient(135deg, rgba(14, 22, 52, 0.95), rgba(6, 10, 26, 0.95));
-        box-shadow:
-          0 0 30px rgba(255, 110, 30, 0.25),
-          inset 0 0 0 calc(var(--ring) * 0.012) rgba(255, 255, 255, 0.03);
-      }
-      .bt-canvas {
-        inset: 0;
-        border: 2px solid rgba(140, 205, 255, 0.85);
-        background:
-          radial-gradient(circle, rgba(70, 130, 255, 0.4), rgba(20, 40, 110, 0.55) 45%, rgba(8, 16, 44, 0.92) 75%),
-          repeating-linear-gradient(0deg, rgba(140, 200, 255, 0.1) 0 1px, transparent 1px 10%),
-          repeating-linear-gradient(90deg, rgba(140, 200, 255, 0.1) 0 1px, transparent 1px 10%);
-        background-blend-mode: screen;
-        box-shadow:
-          0 0 24px rgba(90, 170, 255, 0.55),
-          inset 0 0 40px rgba(90, 170, 255, 0.3);
-      }
-      .bt-mark {
-        left: 33%;
-        top: 33%;
-        width: 34%;
-        height: 34%;
-        border-radius: 50%;
-        border: 2px solid rgba(255, 140, 60, 0.9);
-        box-shadow:
-          0 0 18px rgba(255, 120, 40, 0.6),
-          inset 0 0 18px rgba(255, 120, 40, 0.35);
-        transform: translateZ(1px);
-      }
-      .bt-mark::before {
-        content: '';
-        position: absolute;
-        inset: 18%;
-        border-radius: 50%;
-        border: 1px dashed rgba(255, 200, 150, 0.55);
-      }
-      .bt-rope {
-        inset: 3%;
-        border: 2px solid;
-        transform: translateZ(calc(var(--ring) * var(--h)));
-      }
-      .bt-rope.r1 {
-        --h: 0.07;
-        color: var(--ice);
-      }
-      .bt-rope.r2 {
-        --h: 0.13;
-        color: #ffffff;
-      }
-      .bt-rope.r3 {
-        --h: 0.19;
-        color: var(--hot);
-      }
-      .bt-rope {
-        border-color: currentColor;
-        box-shadow:
-          0 0 10px currentColor,
-          inset 0 0 10px currentColor;
-        opacity: 0.85;
-      }
-      /* corner posts: two crossed planes each, so they show from every side */
-      .bt-post {
-        width: calc(var(--ring) * 0.016);
-        height: calc(var(--ring) * 0.22);
-        margin-left: calc(var(--ring) * -0.008);
-        margin-top: calc(var(--ring) * -0.22);
-        border-radius: 2px;
-        background: linear-gradient(0deg, rgba(255, 255, 255, 0.25), #ffffff 60%, #ffd6b0);
-        box-shadow: 0 0 12px rgba(255, 190, 140, 0.8);
-        transform-origin: 50% 100%;
-        transform: rotateX(-90deg);
-      }
-      .bt-post.y {
-        transform: rotateX(-90deg) rotateY(90deg);
-      }
-      .bt-post.p1 {
-        left: 3%;
-        top: 3%;
-      }
-      .bt-post.p2 {
-        left: 97%;
-        top: 3%;
-      }
-      .bt-post.p3 {
-        left: 97%;
-        top: 97%;
-      }
-      .bt-post.p4 {
-        left: 3%;
-        top: 97%;
-      }
-      .bt-post.blue {
-        background: linear-gradient(0deg, rgba(120, 200, 255, 0.25), #c8ecff 60%, #ffffff);
-        box-shadow: 0 0 12px rgba(110, 200, 255, 0.9);
-      }
-      .bt-post.red {
-        background: linear-gradient(0deg, rgba(255, 140, 80, 0.25), #ffc79c 60%, #ffffff);
-        box-shadow: 0 0 12px rgba(255, 120, 50, 0.9);
+        background: radial-gradient(ellipse 80% 75% at 50% 48%, transparent 50%, rgba(0, 0, 0, 0.6) 100%);
       }
 
       /* ---- the words: logo, line, what's happening ---- */
       .bt-mid {
         position: absolute;
-        left: max(7vw, calc(env(safe-area-inset-left) + 24px));
-        top: 50%;
-        width: min(40vw, 420px);
+        left: 50%;
+        top: 45%;
+        width: min(62vw, 460px);
         display: grid;
-        justify-items: start;
-        transform: translateY(-50%);
+        justify-items: center;
+        text-align: center;
+        transform: translate(-50%, -50%);
         transition:
           transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1),
           opacity 0.5s ease;
@@ -394,18 +226,24 @@
         text-transform: uppercase;
         color: var(--dim);
       }
-      .bt-kicker::before {
+      .bt-kicker::before,
+      .bt-kicker::after {
         content: '';
         width: 28px;
         height: 2px;
         border-radius: 2px;
-        background: linear-gradient(90deg, var(--hot), #ffc15a);
+        background: linear-gradient(90deg, transparent, var(--hot));
         box-shadow: 0 0 8px rgba(255, 122, 42, 0.8);
+      }
+      .bt-kicker::after {
+        /* (the letter spacing trails after the last letter: take it back so the words sit centred) */
+        margin-left: -0.42em;
+        background: linear-gradient(90deg, var(--hot), transparent);
       }
       .bt-logo {
         font-family: 'Russo One', system-ui, sans-serif;
         font-style: italic;
-        font-size: min(13vh, 7.4vw, 76px);
+        font-size: min(14vh, 9vw, 84px);
         line-height: 0.95;
         white-space: nowrap;
         letter-spacing: 0.01em;
@@ -558,7 +396,7 @@
         color: #fff;
         vertical-align: 0.1em;
       }
-      /* done: the line flashes white, then the ring rushes in and everything lifts away */
+      /* done: the line flashes white, then everything lifts away onto the game */
       .boot.full .bt-fill {
         background: #fff;
       }
@@ -572,11 +410,7 @@
       }
       .boot.out .bt-mid {
         opacity: 0;
-        transform: translate(-4vw, -50%);
-      }
-      .boot.out .bt-hero {
-        opacity: 0;
-        transform: scale(1.35);
+        transform: translate(-50%, -50%) scale(1.06);
       }
       .boot.failed .bt-fill {
         background: #ff4d6a;
@@ -611,36 +445,19 @@
           font-size: 10px;
         }
       }
-      /* tall screens: the ring above, the words under it */
+      /* tall screens: the words a little higher, the tip centred above the spinner */
       @media (max-aspect-ratio: 1/1) {
-        .boot {
-          --ring: min(56vw, 30vh, 400px);
-          background:
-            radial-gradient(70% 40% at 50% 34%, rgba(40, 92, 220, 0.34), transparent 70%),
-            radial-gradient(120% 90% at 50% 120%, #0d2266 0%, #071240 34%, #040a24 62%, #03050d 100%);
-        }
-        .bt-hero {
-          left: 50%;
-          top: 31%;
-        }
-        .bt-waves {
-          opacity: 0.35;
-        }
         .bt-mid {
-          left: 50%;
-          top: auto;
-          bottom: max(23vh, 150px);
+          top: 42%;
           width: min(84vw, 420px);
-          justify-items: center;
-          text-align: center;
-          transform: translateX(-50%);
-        }
-        .boot.out .bt-mid {
-          transform: translate(-50%, 3vh);
         }
         .bt-logo {
-          font-size: min(12vw, 64px);
+          font-size: min(12.5vw, 64px);
           margin-bottom: 30px;
+        }
+        .bt-waves {
+          height: 40vh;
+          bottom: 6vh !important;
         }
         .bt-tip {
           left: 50%;
@@ -660,9 +477,7 @@
       }
       @media (prefers-reduced-motion: reduce) {
         .bt-aura i,
-        .bt-wave,
-        .bt-ring,
-        .bt-pool {
+        .bt-wave {
           animation: none;
         }
         .bt-dust {
@@ -680,25 +495,6 @@
         <div class="bt-aura"><i></i><i></i></div>
         <div class="bt-waves"></div>
         <div class="bt-dust"></div>
-      </div>
-      <div class="bt-hero" aria-hidden="true">
-        <div class="bt-pool"></div>
-        <div class="bt-ring">
-          <div class="bt-base"></div>
-          <div class="bt-canvas"></div>
-          <div class="bt-mark"></div>
-          <div class="bt-rope r1"></div>
-          <div class="bt-rope r2"></div>
-          <div class="bt-rope r3"></div>
-          <div class="bt-post p1 blue"></div>
-          <div class="bt-post p1 blue y"></div>
-          <div class="bt-post p2"></div>
-          <div class="bt-post p2 y"></div>
-          <div class="bt-post p3 red"></div>
-          <div class="bt-post p3 red y"></div>
-          <div class="bt-post p4"></div>
-          <div class="bt-post p4 y"></div>
-        </div>
       </div>
       <div class="bt-stage" aria-hidden="true">
         <div class="bt-grain"></div>
