@@ -17,6 +17,13 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 12:00",
+    title: "Big bots hit harder",
+    notes: [
+      "Frame size now really matters for strike power: a max-size bot hits about 20% harder than a standard one and roughly half again as hard as a tiny one, and knocks people down far more often. In exchange big bots are a little slower on their feet and with their hands, and gain less extra health than before, so small bots still win by landing far more shots.",
+    ],
+  },
+  {
+    hour: "2026-10-15 12:00",
     title: "Smoother arms, natural mountains",
     notes: [
       "The mountains on the world map are no longer a forest of spikes: long rounded ridgelines and big massifs, with valleys between, snow on the highest crests and gullies running down every slope where water has worn them.",
