@@ -17,12 +17,19 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 12:00",
-    title: "New roads and a fullscreen button",
+    title: "Roads at night",
+    notes: [
+      "At night the roads light up properly: pools of lamplight along the streets and the expressway, lamps in the villages, and headlights and tail lights moving along the country roads.",
+    ],
+  },
+  {
+    hour: "2026-10-15 12:00",
+    title: "New roads, fullscreen and the river's mouth",
     notes: [
       "The world map has real roads now, each kind its own: an expressway with a lit median runs out of the city into a mountain tunnel, country roads wind out to Lantern Grove and the lighthouse on grassy banks, a mountain road with a double yellow line and stone walls climbs the valley, and village lanes and dirt farm tracks run between the fields.",
       "City streets have crisp kerbs and pavements instead of blurry edges: rounded corners, zebra crossings and stop lines at every junction, scramble crossings where the avenues meet, bus lanes and tree-lined medians that glow neon at night, and little cobbled alleys hung with paper lanterns.",
       "A red funicular now carries visitors from the end of the mountain road up the cliff to Cascade Falls.",
-      "At night the roads light up properly: pools of lamplight along the streets and the expressway, lamps in the villages, and headlights and tail lights moving along the country roads.",
+      "On the world map the river now runs out into the sea through a real estuary: level with the sea instead of ending in a hard edge, over a wide shallow delta with sandbars, its greener water fanning out and fading into the blue, with surf following the new shores.",
       "New fullscreen button on the home screen, next to settings. Tap it to go fullscreen or back to a window; once you turn fullscreen off, the game stops switching it back on by itself.",
     ],
   },
