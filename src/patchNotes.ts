@@ -17,8 +17,9 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 02:00",
-    title: "Pier 9 Container Yard",
+    title: "Pier 9 and the Lantern Grove",
     notes: [
+      "The Lantern Grove Cup now has its own venue, The Lantern Grove: a clearing among giant cedars at dusk, strings of paper lanterns round the stands, vermilion torii at the east and west corners, raked white gravel, a path of a hundred little gates up into the forest, a shrine on its stone terrace, a pond with a red bridge, fireflies, mist and sky lanterns drifting up.",
       "The Harbor Cup now has its own venue, Pier 9 Container Yard: a ring on the quay at sunset, stands painted in container colours inside a wall of boxes strung with festoon lights, giant cranes unloading a container ship alongside, a tug and a lighthouse out on the water, and the city's mega-towers glowing across the yard.",
       "World map pins are just their icons now, so the names no longer cover the city. Tap one to see the event.",
     ],
