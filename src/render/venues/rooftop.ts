@@ -170,7 +170,7 @@ function crown(u: VenueUniforms) {
       attribute float aKind;
       varying vec3 vN, vW;
       varying vec2 vUV;
-      varying float vKind;
+      flat varying float vKind;
       void main() {
         vN = normal;
         vUV = aUV;
@@ -184,7 +184,7 @@ function crown(u: VenueUniforms) {
       ${AA_GLSL}
       varying vec3 vN, vW;
       varying vec2 vUV;
-      varying float vKind;
+      flat varying float vKind;
       // what the glass mirrors: the night overhead, the city's violet glow round the horizon, the
       // lit streets far below
       vec3 skyRefl(vec3 r) {
