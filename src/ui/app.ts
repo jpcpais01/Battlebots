@@ -1,5 +1,6 @@
 import type { Game, Place, Tape } from '../game/game';
 import { resScaleChoices, type Quality, type ResScale } from '../render/stage';
+import { loadRT, saveRT } from '../render/rt';
 import type { FpsCap } from '../render/pacer';
 import { enterLandscape } from '../fullscreen';
 import { Rng } from '../sim/math';
@@ -1595,6 +1596,15 @@ export class App {
         })),
       ]);
       const stage = this.game.stage;
+      // ray-traced lighting needs the high-quality pipeline; it rebuilds every shader, so it reloads
+      if (this.quality === 'high') {
+        const rtSaved = loadRT();
+        this.segRow(gfx, rtSaved === null ? `Ray tracing <span>Auto: ${stage.rt ? 'on' : 'off'}</span>` : 'Ray tracing', () => [
+          { text: 'Auto', on: rtSaved === null, pick: () => rtSaved !== null && (saveRT(null), location.reload()) },
+          { text: 'Off', on: rtSaved === false, pick: () => rtSaved !== false && (saveRT(false), location.reload()) },
+          { text: 'On', on: rtSaved === true, pick: () => rtSaved !== true && (saveRT(true), location.reload()) },
+        ]);
+      }
       const native = resScaleChoices().at(-1)!.value;
       const resOpts: { value: ResScale; text: string }[] = [
         { value: null, text: 'Auto' },

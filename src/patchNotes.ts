@@ -23,6 +23,28 @@ export const PATCH_NOTES: PatchNote[] = [
     ],
   },
   {
+    hour: "2026-10-15 12:00",
+    title: "Smoother arms, natural mountains",
+    notes: [
+      "The mountains on the world map are no longer a forest of spikes: long rounded ridgelines and big massifs, with valleys between, snow on the highest crests and gullies running down every slope where water has worn them.",
+      "Mountainsides now weather like real ones: grey rock on the spurs and tops, green in the gullies, and the lake above the falls sits in a high valley between two mountain shoulders.",
+      "The far ranges behind the map are drawn in finer detail and coloured to match, so they fade into the haze without blocky faces.",
+      "Fists and forearms no longer twitch. They used to spin round in a single frame when an arm crossed the body or straightened, and jolt whenever they brushed armour; now they turn and slide smoothly, in fights and in the home scenes.",
+      "Arms flow back into the guard after kicks and dodges instead of snapping there, fists turn smoothly into each punch, and on the beach the robot no longer bobs the coconut with a jerk while it drinks.",
+    ],
+  },
+  {
+    hour: "2026-10-15 12:00",
+    title: "Ray-traced lighting",
+    notes: [
+      "New ray-traced lighting, on by default on PC: light now bounces off whatever is near it, so the orange ring skirt glows on the floor and a red robot tints the canvas, and every corner, seam and joint sits in its own soft shade.",
+      "The canvas and the arena floor are glossy now and mirror the robots, the ropes, the LED skirt and the lights above: sharp where a foot meets the floor, blurring with distance. Event venues with smooth floors (the Harbor plates, Skydeck's deck, the wet pavers at the dam) reflect too.",
+      "Shadows soften the way real ones do: crisp where a robot's feet meet the canvas and wider and softer the higher up the body casts them, and small shadows now show in fingers, joints and armour seams.",
+      "Chrome and paint now reflect the venue you actually fight in (the truss lamps, the screens, the crowd, the harbour sunset) instead of a plain studio, and robot plating has a finer finish: brushed metal, patchy sheen and a faint ripple in the paint.",
+      "Phones can switch ray tracing on in Settings, under Graphics (it is off there by default to keep fights smooth). The Performance stats GPU tab shows what it costs on its own Ray tracing row.",
+    ],
+  },
+  {
     hour: "2026-10-15 11:00",
     title: "Real dents and performance stats",
     notes: [
