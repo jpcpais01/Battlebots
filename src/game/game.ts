@@ -358,9 +358,9 @@ export class Game {
    * reflections and draws one hidden frame in each, then ends up back where it started. The world
    * map is built first (it's otherwise built the first time it's opened). The screen passes
    * (bloom, ray-traced lighting) are built before all of it. `progress` gets the share done (0..1)
-   * and, in a few friendly words, what it's on.
+   * and, in a few friendly words, what it's on, and the share done once the step it's on is.
    */
-  async prepare(progress: (k: number, what: string) => void) {
+  async prepare(progress: (k: number, what: string, until: number) => void) {
     const back = this.place;
     const shownHome = this.home?.id ?? 'beach';
     // every home background, not just the one showing: switching to one that isn't built takes seconds
@@ -380,7 +380,7 @@ export class Game {
     const plan = [{ w: 0.6, what: 'Warming up' }, ...visits.map((v) => ({ w: WEIGHT[v.p] ?? 2, what: NAME[v.p] }))];
     const total = plan.reduce((a, s) => a + s.w, 0);
     let before = 0;
-    const report = (i: number, k: number) => progress((before + plan[i].w * k) / total, plan[i].what);
+    const report = (i: number, k: number) => progress((before + plan[i].w * k) / total, plan[i].what, (before + plan[i].w) / total);
 
     await this.stage.precompilePasses((k) => report(0, k));
     before += plan[0].w;
@@ -420,7 +420,7 @@ export class Game {
     }
     if (back === 'home' && !this.homeBroken && this.home?.id !== shownHome) this.homeScene(shownHome);
     if (this.place !== back && !(back === 'home' && this.homeBroken)) this.setPlace(back);
-    progress(1, plan[plan.length - 1].what);
+    progress(1, plan[plan.length - 1].what, 1);
   }
 
   /** Fetch the code of the event venues ahead of time (they're built when first fought in; the map is built while loading). */

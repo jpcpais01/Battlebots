@@ -17,8 +17,9 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 13:00",
-    title: "Smoother walking",
+    title: "Smoother walking and loading",
     notes: [
+      "The loading screen stays smooth while the game loads: the bar glides steadily instead of jumping, and the spinner never stops turning.",
       "Bots no longer sink down while they walk: every stride now fits the legs, a trailing foot rolls up onto its toes instead of dragging the hips down, and a foot that gets left behind takes a quick catch step.",
       "Steps land where they should: a stride re-aims mid-swing when the bot speeds up, slows or turns, and when a bot stops its last foot lands under it instead of out in front.",
       "Setting off and pulling up look natural: bots ease into a walk and out of it instead of lurching, and they stay standing as they walked instead of shuffling back into a fighting stance.",

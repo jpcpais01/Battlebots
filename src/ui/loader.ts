@@ -1,11 +1,15 @@
 /**
  * The loading screen. Its markup and look are inline in index.html, so it's up before any script
  * has downloaded; this drives it. Progress is real: the boot lists its jobs up front, each with
- * a weight for its share of the wait, and each job reports how far it has got. The line eases
- * toward that total but never runs ahead of it, and it only reads 100% when everything is done.
- * The caption stays simple: a few friendly words on what's happening, never the nuts and bolts.
+ * a weight for its share of the wait, and each job reports how far it has got (and where the step
+ * it's on ends). The caption stays simple: a few friendly words on what's happening.
+ *
+ * Nothing on it waits for the page's own thread, which is busy building the game the whole time:
+ * the spinner and the background are CSS animations, and the line is a Web Animation the browser
+ * plays by itself. Each time progress comes in the line is handed a new glide (an easing curve
+ * from where it is now toward a little past the real progress, never past the end of the current
+ * step), so it keeps moving smoothly through a long step instead of jumping when the step reports.
  */
-
 const TIPS = [
   'Wear three or six parts from one maker to unlock its set bonus.',
   'Tap a part in the garage to try it on before you fit it.',
@@ -18,18 +22,32 @@ const TIPS = [
 ];
 
 export interface LoadJob {
-  /** How far this job has got (0..1), and (if it's moved on to something else) what it's on now. */
-  set(k: number, label?: string): void;
+  /**
+   * How far this job has got (0..1), (if it's moved on to something else) what it's on now, and
+   * how far the job will have got when the step it's on is done (the line may glide toward that).
+   */
+  set(k: number, label?: string, until?: number): void;
   done(): void;
 }
 
+/** How quickly the line closes in on where it's heading (s): it covers ~63% of the gap in this long. */
+const TAU = 1.4;
+/** How far into the rest of the current step the line runs ahead of the real progress. */
+const LEAD = 0.7;
+/** Points along each glide handed to the browser (it draws straight between them). */
+const SAMPLES = 24;
+
+type Job = { label: string; w: number; k: number; until: number; quiet: boolean };
+
 export class Loader {
   private root = document.getElementById('boot');
-  private jobs: { label: string; w: number; k: number }[] = [];
-  /** The share shown, easing toward the real one. */
-  private shown = 0;
+  private jobs: Job[] = [];
+  /** The job the caption (and the line's lead) follows. */
+  private current: Job | null = null;
+  /** The glide the line is on: from `from` to `to`, starting at `t0`, with time constant `tau` (s). */
+  private glide = { from: 0, to: 0, t0: performance.now(), tau: TAU };
+  private anims: Animation[] = [];
   private lastPct = -1;
-  private last = performance.now();
   private raf = 0;
   private what = '';
   private tipTimer = 0;
@@ -57,32 +75,87 @@ export class Loader {
 
   /** A job worth `weight` of the wait. `quiet` jobs run alongside others and don't take over the caption. */
   job(label: string, weight: number, quiet = false): LoadJob {
-    const j = { label, w: weight, k: 0 };
+    const j: Job = { label, w: weight, k: 0, until: 1, quiet };
     this.jobs.push(j);
     return {
-      set: (k, override) => {
+      set: (k, override, until = 1) => {
         j.k = Math.max(j.k, Math.min(1, k));
-        if (!quiet) this.caption(override ?? label);
+        j.until = Math.max(j.k, Math.min(1, until));
+        if (!quiet) {
+          this.current = j;
+          this.caption(override ?? label);
+        }
+        this.steer();
       },
       done: () => {
-        j.k = 1;
+        j.k = j.until = 1;
+        this.steer();
       },
     };
   }
 
-  /** The fonts are in: the logo and the number can show without a swap. */
+  /** The fonts are in: the logo can show without a swap. */
   fontsReady() {
     this.root?.classList.add('fonts');
   }
 
-  private get real() {
+  private get total() {
     let w = 0;
+    for (const j of this.jobs) w += j.w;
+    return w || 1;
+  }
+
+  private get real() {
     let k = 0;
-    for (const j of this.jobs) {
-      w += j.w;
-      k += j.w * j.k;
+    for (const j of this.jobs) k += j.w * j.k;
+    return k / this.total;
+  }
+
+  /**
+   * Where the line is on its glide at `now` (0..1). Timed from when the browser started playing it
+   * (its own clock reads the same as performance.now), or from when it was handed over while that
+   * news hasn't reached this thread yet: the page's view of animation time stands still while it's
+   * busy, but the browser kept playing, so that view would put the line back.
+   */
+  private at(now: number) {
+    const g = this.glide;
+    const start = this.anims[0]?.startTime;
+    const t = (now - (typeof start === 'number' ? start : g.t0)) / 1000;
+    return t >= 4 * g.tau ? g.to : g.to - (g.to - g.from) * Math.exp(-t / g.tau);
+  }
+
+  /** Progress came in: head a little past it, up to the end of the step being worked on. */
+  private steer() {
+    if (this.ended) return;
+    const real = this.real;
+    const j = this.current;
+    const ceiling = j && j.k < 1 ? real + (j.w * (j.until - j.k)) / this.total : real;
+    const goal = Math.min(1, real + LEAD * (ceiling - real));
+    // (small changes ride the glide already going: a new one each time would be a lot of restarts)
+    if (goal > this.glide.to + 0.004) this.retarget(goal, TAU);
+  }
+
+  /** Start a new glide from wherever the line is now toward `goal`, for the browser to play. */
+  private retarget(goal: number, tau: number) {
+    const now = performance.now();
+    const from = this.at(now);
+    this.glide = { from, to: Math.max(goal, from), t0: now, tau };
+    const g = this.glide;
+    const frames: Keyframe[] = [];
+    for (let i = 0; i <= SAMPLES; i++) {
+      const t = (i / SAMPLES) * 4 * tau;
+      const p = i === SAMPLES ? g.to : g.to - (g.to - from) * Math.exp(-t / tau);
+      frames.push({ transform: `translateX(${((p - 1) * 100).toFixed(3)}%)` });
     }
-    return w ? k / w : 0;
+    const was = this.anims;
+    this.anims = [];
+    for (const el of [this.els.fill, this.els.head]) {
+      if (!el) continue;
+      if (typeof el.animate === 'function') this.anims.push(el.animate(frames, { duration: 4 * tau * 1000, fill: 'forwards' }));
+      else el.style.transform = frames[SAMPLES].transform as string;
+    }
+    // (the new ones are already on top, so dropping the old ones shows no gap)
+    for (const a of was) a.cancel();
   }
 
   private caption(t: string) {
@@ -91,34 +164,21 @@ export class Loader {
     this.els.what.textContent = t;
   }
 
+  /** The number only: the line moves by itself. */
   private tick = (now: number) => {
-    const dt = Math.min(0.1, (now - this.last) / 1000);
-    this.last = now;
-    const real = this.real;
-    // quick to catch up, smooth on the way: a big step lands in about a third of a second
-    this.shown += (real - this.shown) * Math.min(1, dt * 9);
-    if (real - this.shown < 0.002) this.shown = real;
-    this.draw();
-    if (this.reached && this.shown >= 0.9995) {
+    const shown = this.at(now);
+    const whole = Math.floor(shown * 100 + 1e-6);
+    if (whole !== this.lastPct) {
+      this.lastPct = whole;
+      if (this.els.pct) this.els.pct.textContent = `${whole}%`;
+      this.root?.setAttribute('aria-valuenow', String(whole));
+    }
+    if (this.reached && shown >= 0.99) {
       this.reached();
       this.reached = null;
     }
     this.raf = requestAnimationFrame(this.tick);
   };
-
-  private draw() {
-    const pct = this.shown * 100;
-    const e = this.els;
-    const at = `translateX(${(pct - 100).toFixed(2)}%)`;
-    if (e.fill) e.fill.style.transform = at;
-    if (e.head) e.head.style.transform = at;
-    const whole = Math.floor(pct + 1e-6);
-    if (whole !== this.lastPct) {
-      this.lastPct = whole;
-      if (e.pct) e.pct.textContent = `${whole}%`;
-      this.root?.setAttribute('aria-valuenow', String(whole));
-    }
-  }
 
   private nextTip() {
     const el = this.els.tip;
@@ -136,16 +196,17 @@ export class Loader {
   /** Everything is done: fill the line, flash, and lift away. Resolves once the game shows through. */
   async finish() {
     const root = this.root;
-    for (const j of this.jobs) j.k = 1;
+    for (const j of this.jobs) j.k = j.until = 1;
     if (!root) return;
     this.caption('Ready');
+    // a quick, smooth run to the end
+    this.retarget(1, 0.2);
     await new Promise<void>((ok) => {
       this.reached = ok;
       // (no frames in a hidden tab: don't wait on the animation there)
-      setTimeout(ok, 1200);
+      setTimeout(ok, 1400);
     });
-    this.shown = 1;
-    this.draw();
+    if (this.els.pct) this.els.pct.textContent = '100%';
     root.classList.add('full');
     await wait(300);
     this.ended = true;

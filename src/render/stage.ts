@@ -12,7 +12,7 @@ import { EnvProbe } from './envProbe';
 /** The key light's width for its soft shadows: a bank of stage lamps, in metres. */
 const KEY_SIZE = 1.6;
 /** How long one slice of up-front work (precompile, uploadTextures) may hold the main thread, in ms. */
-const SLICE = 24;
+const SLICE = 14;
 
 /**
  * Resolves after the next frame has been painted, so a loading screen updated before it shows.
@@ -431,30 +431,66 @@ export class Stage {
   /**
    * Build the shaders of everything under `roots` (children of the scene, or not in it yet), shown
    * or hidden, for the lights and reflections the scene has right now (so set the place up as it
-   * will be seen first: the lights are part of every shader), without freezing the page. three
-   * hands them all to the driver, which builds them on its own threads where it can
-   * (KHR_parallel_shader_compile) while this checks each one off as it lands; where it can't, they
-   * are finished one by one, a slice of a frame at a time. `progress` gets the share done, and how
-   * many of how many.
+   * will be seen first: the lights are part of every shader), without freezing the page.
+   *
+   * A few at a time (see compileBatched): building a shader holds up the graphics driver, and on
+   * many phones the screen itself waits on the same driver, so handing it a hundred at once would
+   * freeze even the loading screen's animations. `progress` gets the share done, and how many of
+   * how many materials.
    */
   async precompile(roots: THREE.Object3D[], progress: (k: number, done: number, of: number) => void = () => {}) {
+    type Drawn = { material: THREE.Material | THREE.Material[] | null };
     const r = this.renderer;
     const scene = this.scene;
-    const mats = new Set<THREE.Material>();
-    // One pass over the scene with just these (and the lights) in it: compiling a part of the
-    // scene on its own would count the lights inside it twice, and build shaders for the wrong set.
-    const holder = scene as { children: THREE.Object3D[] };
-    const all = holder.children;
-    const keep = new Set<THREE.Object3D>(roots);
-    holder.children = all.filter((o) => keep.has(o) || (o as { isLight?: boolean }).isLight);
-    try {
-      compileInto(mats, r.compile(scene, this.camera));
-    } finally {
-      holder.children = all;
+    // everything drawable, and who wears each material
+    const drawn: Drawn[] = [];
+    const wearers = new Map<THREE.Material, Drawn[]>();
+    for (const root of roots) {
+      root.traverse((o) => {
+        const d = o as unknown as Drawn;
+        const m = d.material;
+        if (!m) return;
+        drawn.push(d);
+        for (const one of Array.isArray(m) ? m : [m]) {
+          const list = wearers.get(one);
+          if (list) list.push(d);
+          else wearers.set(one, [d]);
+        }
+      });
     }
-    // (things not in the scene yet, like a torn-off part, have no lights of their own)
-    for (const o of roots) if (!o.parent) compileInto(mats, r.compile(o, this.camera, scene));
-    await this.finishPrograms(mats, progress);
+    const mats = [...wearers.keys()];
+    const holder = scene as { children: THREE.Object3D[] };
+    const keep = new Set<THREE.Object3D>(roots);
+    await this.compileBatched(
+      mats.length,
+      (from, to) => {
+        const pick = new Set<Drawn>();
+        for (let i = from; i < to; i++) for (const d of wearers.get(mats[i])!) pick.add(d);
+        const got = new Set<THREE.Material>();
+        // only this batch's wearers keep their materials (three skips anything without one), each
+        // put back as it is now, straight after
+        const held: [Drawn, Drawn['material']][] = [];
+        const all = holder.children;
+        try {
+          for (const d of drawn) {
+            if (pick.has(d) || !d.material) continue;
+            held.push([d, d.material]);
+            d.material = null;
+          }
+          // One pass over the scene with just these (and the lights) in it: compiling a part of the
+          // scene on its own would count the lights inside it twice, and build shaders for the wrong set.
+          holder.children = all.filter((o) => keep.has(o) || (o as { isLight?: boolean }).isLight);
+          compileInto(got, r.compile(scene, this.camera));
+          // (things not in the scene yet, like a torn-off part, have no lights of their own)
+          for (const o of roots) if (!o.parent) compileInto(got, r.compile(o, this.camera, scene));
+        } finally {
+          holder.children = all;
+          for (const [d, m] of held) d.material = m;
+        }
+        return got;
+      },
+      progress,
+    );
   }
 
   /** The same for the screen passes every frame ends with (bloom, ray-traced lighting, the final image). */
@@ -464,29 +500,71 @@ export class Stage {
     const quad = new THREE.Mesh<THREE.BufferGeometry, THREE.Material>(new THREE.PlaneGeometry(2, 2));
     // (where a pass draws is part of its shader: the passes between draw into buffers)
     const off = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
-    const was = r.getRenderTarget();
-    const mats = new Set<THREE.Material>();
     try {
-      for (const p of passes) {
-        quad.material = p.material;
-        r.setRenderTarget(p.screen ? null : off);
-        compileInto(mats, r.compile(quad, this.camera, this.scene));
-      }
+      await this.compileBatched(
+        passes.length,
+        (from, to) => {
+          const got = new Set<THREE.Material>();
+          const was = r.getRenderTarget();
+          try {
+            for (let i = from; i < to; i++) {
+              quad.material = passes[i].material;
+              r.setRenderTarget(passes[i].screen ? null : off);
+              compileInto(got, r.compile(quad, this.camera, this.scene));
+            }
+          } finally {
+            r.setRenderTarget(was);
+          }
+          return got;
+        },
+        progress,
+      );
     } finally {
-      r.setRenderTarget(was);
       off.dispose();
       quad.geometry.dispose();
     }
-    await this.finishPrograms(mats, progress);
   }
 
-  private async finishPrograms(mats: Set<THREE.Material>, progress: (k: number, done: number, of: number) => void) {
+  /**
+   * Build `count` things' shaders a batch at a time: `issue(from, to)` starts those (three hands
+   * them to the driver), then this waits until the driver has finished them before handing it the
+   * next batch, a frame apart, so the screen keeps being drawn in between. Where the driver builds
+   * them on its own threads (KHR_parallel_shader_compile), batches grow; where each one stalls it,
+   * they shrink to one.
+   */
+  private async compileBatched(count: number, issue: (from: number, to: number) => Set<THREE.Material>, progress: (k: number, done: number, of: number) => void) {
+    const gl = this.renderer.getContext();
+    progress(count ? 0 : 1, 0, count);
+    let batch = 2;
+    let i = 0;
+    let rested = performance.now();
+    // (a lost context never finishes anything: give up rather than wait forever)
+    const until = performance.now() + 45_000;
+    while (i < count && !gl.isContextLost() && performance.now() < until) {
+      const to = Math.min(count, i + Math.max(1, Math.round(batch)));
+      const t0 = performance.now();
+      const frames = await this.finishPrograms(issue(i, to));
+      const took = performance.now() - t0;
+      if (frames) rested = performance.now();
+      i = to;
+      progress(i / count, i, count);
+      // quick (already built, or built off to the side): more next time; a stall: fewer
+      if (frames <= 1 && took < 12) batch = Math.min(48, batch * 2);
+      else if (took > 40) batch = Math.max(1, batch / 2);
+      // (let a frame through whenever the page has been held for a slice)
+      if (i < count && performance.now() - rested > SLICE) {
+        await nextFrame();
+        rested = performance.now();
+      }
+    }
+  }
+
+  /** Wait (a frame at a time) for the driver to finish these materials' programs; returns how many frames that took. */
+  private async finishPrograms(mats: Set<THREE.Material>) {
     const r = this.renderer;
     const gl = r.getContext();
     const left = [...mats];
-    const of = left.length;
-    progress(of ? 0 : 1, 0, of);
-    // (a lost context never finishes anything: give up rather than wait forever)
+    let frames = 0;
     const until = performance.now() + 30_000;
     while (left.length && !gl.isContextLost() && performance.now() < until) {
       const t0 = performance.now();
@@ -496,9 +574,12 @@ export class Stage {
         prog?.getUniforms();
         left.splice(i, 1);
       }
-      progress(1 - left.length / of, of - left.length, of);
-      if (left.length) await nextFrame();
+      if (left.length) {
+        await nextFrame();
+        frames++;
+      }
     }
+    return frames;
   }
 
   /**
