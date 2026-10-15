@@ -32,7 +32,7 @@ import { contactAO } from '../render/ao';
 import { house } from '../render/house';
 import { warnNonFinite } from '../render/finite';
 import { Garage } from '../render/garage';
-import { HomeStage, type HomeSceneId } from '../render/home/homeStage';
+import { HOME_SCENES, HomeStage, type HomeSceneId } from '../render/home/homeStage';
 import type { WorldMap } from '../render/map/world';
 import type { VenueLike } from '../render/venue';
 import type { ArenaId } from './events';
@@ -359,13 +359,17 @@ export class Game {
    */
   async prepare(progress: (k: number, what: string, detail?: string) => void) {
     const back = this.place;
-    const order: Place[] = ['arena', 'garage'];
-    if (back === 'home') order.push('home');
+    const shownHome = this.home?.id ?? 'beach';
+    // every home background, not just the one showing: switching to one that isn't built takes seconds
+    const homes = this.homeBroken ? [] : HOME_SCENES.filter((id) => id !== shownHome || back !== 'home');
+    type Visit = { p: Place; scene?: HomeSceneId };
+    const visits: Visit[] = [...(back === 'arena' ? [] : [{ p: 'arena' as Place }]), { p: 'garage' }, ...homes.map((scene) => ({ p: 'home' as Place, scene }))];
     // finish where it started, so that place is the last one set up
-    const visits = order.filter((p) => p !== back).concat(order.includes(back) ? [back] : []);
+    if (back === 'arena') visits.push({ p: 'arena' });
+    else if (back === 'home') visits.push({ p: 'home', scene: shownHome });
     const WEIGHT: Partial<Record<Place, number>> = { arena: 4, garage: 2, home: 3 };
-    const NAME: Partial<Record<Place, string>> = { arena: 'Lighting the arena', garage: 'Opening the workshop', home: `Setting up the ${this.home?.id ?? 'scene'}` };
-    const plan = [{ w: 0.6, what: 'Polishing the picture' }, ...visits.map((p) => ({ w: WEIGHT[p] ?? 2, what: NAME[p] ?? 'Getting ready' }))];
+    const name = (v: Visit) => (v.p === 'arena' ? 'Lighting the arena' : v.p === 'garage' ? 'Opening the workshop' : `Setting up the ${v.scene}`);
+    const plan = [{ w: 0.6, what: 'Polishing the picture' }, ...visits.map((v) => ({ w: WEIGHT[v.p] ?? 2, what: name(v) }))];
     const total = plan.reduce((a, s) => a + s.w, 0);
     let before = 0;
     const report = (i: number, k: number, detail?: string) => progress((before + plan[i].w * k) / total, plan[i].what, detail);
@@ -374,28 +378,36 @@ export class Game {
     await this.stage.precompilePasses(shaders(0, 1));
     before += plan[0].w;
     for (let i = 0; i < visits.length; i++) {
-      const p = visits[i];
+      const { p, scene } = visits[i];
       const step = i + 1;
+      if (scene) this.homeScene(scene);
       this.setPlace(p);
       // (a home scene that can't be built leaves the game in the arena)
       if (this.place !== p) {
         before += plan[step].w;
         continue;
       }
-      const { roots, extras } = this.placeRoots(p);
-      const all = roots.concat(extras);
-      await this.stage.precompile(all, shaders(step, 0.75));
-      await this.stage.uploadTextures(all, (k) => report(step, 0.75 + 0.2 * k, 'textures'));
-      if (p === 'arena') {
-        // its reflections are a photograph of it, taken the first time it's on screen: now
-        this.syncEnv();
-        this.arenaWarm = true;
+      // in a home place, only its own scenery: the others are lit differently
+      const restore = p === 'home' ? this.home?.isolate() : undefined;
+      try {
+        const { roots, extras } = this.placeRoots(p);
+        const all = roots.concat(extras);
+        await this.stage.precompile(all, shaders(step, 0.75));
+        await this.stage.uploadTextures(all, (k) => report(step, 0.75 + 0.2 * k, 'textures'));
+        if (p === 'arena') {
+          // its reflections are a photograph of it, taken the first time it's on screen: now
+          this.syncEnv();
+          this.arenaWarm = true;
+        }
+        this.stage.warmNow(roots, extras);
+      } finally {
+        restore?.();
       }
-      this.stage.warmNow(roots, extras);
       report(step, 1);
       before += plan[step].w;
       await nextFrame();
     }
+    if (back === 'home' && !this.homeBroken && this.home?.id !== shownHome) this.homeScene(shownHome);
     if (this.place !== back && !(back === 'home' && this.homeBroken)) this.setPlace(back);
     progress(1, plan[plan.length - 1].what);
   }
