@@ -446,7 +446,7 @@ export class App {
       }, tr);
       const sync = () => {
         const on = isFullscreen();
-        fs.innerHTML = on ? ICON.shrink : ICON.expand;
+        fs.innerHTML = on ? ICON.shrink : ICON.fullscreen;
         fs.title = on ? 'Exit fullscreen' : 'Fullscreen';
         fs.setAttribute('aria-label', fs.title);
       };
