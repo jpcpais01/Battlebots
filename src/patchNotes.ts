@@ -16,6 +16,15 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-15 01:00",
+    title: "Smoother grappling",
+    notes: [
+      "Clinches look and feel weightier: bodies ease into the tie-up, arms swim inside for the underhooks, drives walk them onto the ropes and settle there, and plum knees pull the head down onto them.",
+      "Takedowns are real moves now: trips step in behind the heel and reap the leg, body-lock lifts carry them up and round before the slam, and double legs drive in off a deep penetration step, scoop the legs and turn the corner.",
+      "Push-offs, referee breaks, sprawls, two-handed shoves and the step back after a takedown all play out smoothly instead of snapping apart.",
+    ],
+  },
+  {
     hour: "2026-10-15 00:00",
     title: "A livelier beach",
     notes: [
