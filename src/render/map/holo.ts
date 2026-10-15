@@ -1,32 +1,16 @@
 import * as THREE from 'three';
 import { CITY_Y, DOWNTOWN } from './layout';
 import { HOLO_PLAZA, Style, type Box } from './plan';
-import { AA_GLSL, MAP_GLSL, MAP_OUT, mapMaterial, type MapUniforms } from './kit';
+import { AA_GLSL, HOLO_GLSL, MAP_GLSL, MAP_OUT, holoMaterial, type MapUniforms } from './kit';
+import { holoProjections } from './projections';
 
 /**
  * The holograms over downtown, all additive light drawn in scanlines that never write depth: the
- * koi circling the towers, a whale swimming slow laps high round the mega-towers, jellyfish
- * drifting between them, a giant holographic fighting robot shadow-boxing in the plaza in front
- * of them, and glitching adverts projected off the tall towers. Brighter at night.
+ * koi circling the towers, a whale swimming slow laps high round the mega-towers, a giant
+ * holographic fighting robot shadow-boxing in the plaza in front of them, glitching adverts off the
+ * tall towers, and ad screens beamed up into the air off rooftop projectors (projections.ts).
+ * Brighter at night.
  */
-
-/** Shared by every hologram: how bright they are (more at night) and the scanline. */
-const HOLO_GLSL = /* glsl */ `
-  float holoLevel() { return uGlow * mix(1.0, 1.5, uNight); }
-  float scanline(float y, float speed) { return 0.6 + 0.4 * step(0.5, fract(y * 0.5 - uTime * speed)); }
-`;
-
-function holoMaterial(u: MapUniforms, vertexShader: string, fragmentShader: string, uniforms: Record<string, THREE.IUniform> = {}) {
-  return mapMaterial(u, {
-    uniforms,
-    vertexShader,
-    fragmentShader,
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-}
 
 // ------------------------------------------------------------------ swimmers (koi and whale)
 /**
@@ -216,147 +200,6 @@ function holoWhale(u: MapUniforms) {
   );
   const m = new THREE.Mesh(g, mat);
   m.renderOrder = 5;
-  return m;
-}
-
-// ------------------------------------------------------------------ jellyfish
-const JELLIES: [number, number, number, number][] = [
-  // centre x, y, z, bell radius
-  // (clear of the mega-towers, and above everything else)
-  [142, 300, -46, 26],
-  [-86, 272, 14, 22],
-  [112, 384, -208, 24],
-  [22, 424, -28, 20],
-  [-194, 296, -106, 26],
-  [-74, 344, -268, 24],
-  [-176, 262, -208, 22],
-  [28, 360, -280, 28],
-];
-
-/** Jellyfish drifting between the towers: pulsing bells trailing tentacles and frilled arms. */
-function holoJellies(u: MapUniforms) {
-  const pos: number[] = [], part: number[] = [], idx: number[] = [];
-  const v = (x: number, y: number, z: number, kind: number, along: number, ph: number) => {
-    pos.push(x, y, z);
-    part.push(kind, along, ph);
-    return pos.length / 3 - 1;
-  };
-  // the bell: a dome with a flared rim
-  const LAT = 9, LON = 20;
-  for (let i = 0; i <= LAT; i++) {
-    const phi = (i / LAT) * Math.PI * 0.55;
-    const r = Math.sin(phi) * (1 + 0.08 * (i / LAT)), y = Math.cos(phi) * 0.75 - 0.05;
-    for (let j = 0; j <= LON; j++) {
-      const a = (j / LON) * Math.PI * 2;
-      v(Math.cos(a) * r, y, Math.sin(a) * r, 0, i / LAT, j / LON);
-    }
-  }
-  for (let i = 0; i < LAT; i++)
-    for (let j = 0; j < LON; j++) {
-      const a = i * (LON + 1) + j, b = a + LON + 1;
-      idx.push(a, b, a + 1, a + 1, b, b + 1);
-    }
-  // tentacles from round the rim and frilled arms from the middle: ribbons hanging down
-  const ribbon = (x: number, z: number, len: number, wid: number, kind: number, ph: number) => {
-    const N = 12;
-    const ang = Math.atan2(z, x) + Math.PI / 2;
-    const tx = Math.cos(ang) * wid, tz = Math.sin(ang) * wid;
-    let prev: [number, number] | null = null;
-    for (let i = 0; i <= N; i++) {
-      const s = i / N;
-      const w = 1 - s * 0.7;
-      const y = 0.1 - s * len;
-      const a = v(x - tx * w, y, z - tz * w, kind, s, ph), b = v(x + tx * w, y, z + tz * w, kind, s, ph);
-      if (prev) idx.push(prev[0], a, prev[1], prev[1], a, b);
-      prev = [a, b];
-    }
-  };
-  for (let k = 0; k < 12; k++) {
-    const a = (k / 12) * Math.PI * 2;
-    ribbon(Math.cos(a) * 0.95, Math.sin(a) * 0.95, 2.6 + (k % 3) * 0.5, 0.04, 1, k * 0.73);
-  }
-  for (let k = 0; k < 4; k++) {
-    const a = (k / 4) * Math.PI * 2 + 0.4;
-    ribbon(Math.cos(a) * 0.18, Math.sin(a) * 0.18, 1.7, 0.22, 2, k * 1.9);
-  }
-  const g = new THREE.InstancedBufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('aPart', new THREE.Float32BufferAttribute(part, 3));
-  g.setIndex(idx);
-  const inst: number[] = [], inst2: number[] = [];
-  JELLIES.forEach(([x, y, z, r], i) => {
-    inst.push(x, y, z, r);
-    inst2.push(i * 1.37, i % 4, 8 + (i % 3) * 2, (i % 2 ? 1 : -1) * (0.05 + (i % 3) * 0.015));
-  });
-  g.setAttribute('aJelly', new THREE.InstancedBufferAttribute(new Float32Array(inst), 4));
-  g.setAttribute('aJelly2', new THREE.InstancedBufferAttribute(new Float32Array(inst2), 4));
-  g.instanceCount = JELLIES.length;
-  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 300, -120), 420);
-  const mat = holoMaterial(
-    u,
-    /* glsl */ `
-      attribute vec3 aPart;
-      attribute vec4 aJelly, aJelly2;
-      uniform float uTime;
-      varying vec3 vPart, vWorld, vN;
-      varying float vHue;
-      #include <fog_pars_vertex>
-      void main() {
-        vPart = aPart;
-        vHue = aJelly2.y;
-        float t = uTime + aJelly2.x * 10.0;
-        // the bell pulses: squeezes in at the rim, and the jelly surges up a little with each beat
-        float beat = sin(t * 1.5);
-        vec3 p = position;
-        if (aPart.x < 0.5) {
-          float rim = aPart.y;
-          p.xz *= 1.0 - 0.14 * beat * rim * rim;
-          p.y *= 1.0 + 0.08 * beat;
-        } else {
-          // tentacles trail and sway, more towards their tips
-          float s = aPart.y;
-          p.x += sin(t * 1.1 + s * 3.5 + aPart.z) * s * 0.35;
-          p.z += cos(t * 0.9 + s * 3.0 + aPart.z * 1.3) * s * 0.35;
-          p.xz *= 1.0 - 0.1 * beat * (1.0 - s);
-        }
-        float R = aJelly.w;
-        vec3 c = aJelly.xyz + vec3(cos(t * aJelly2.w) * aJelly2.z, sin(t * 0.3) * 14.0 + max(beat, 0.0) * 3.0, sin(t * aJelly2.w) * aJelly2.z);
-        vec3 w = c + p * R;
-        vN = normalize(position + vec3(0.0, 0.3, 0.0));
-        vWorld = w;
-        vec4 mvPosition = viewMatrix * vec4(w, 1.0);
-        gl_Position = projectionMatrix * mvPosition;
-        #include <fog_vertex>
-      }`,
-    /* glsl */ `
-      ${MAP_GLSL}
-      ${AA_GLSL}
-      ${HOLO_GLSL}
-      varying vec3 vPart, vWorld, vN;
-      varying float vHue;
-      #include <fog_pars_fragment>
-      void main() {
-        vec3 V = normalize(cameraPosition - vWorld);
-        vec3 col = vHue < 0.5 ? vec3(1.0, 0.35, 0.75) : vHue < 1.5 ? vec3(0.65, 0.45, 1.0) : vHue < 2.5 ? vec3(0.35, 0.95, 1.0) : vec3(1.0, 0.7, 0.4);
-        float k;
-        if (vPart.x < 0.5) {
-          // the bell: bright rim and edge, radial canals, a glowing heart
-          float rim = pow(1.0 - abs(dot(V, normalize(vN))), 2.0);
-          float canal = fband(fract(vPart.z * 8.0), 0.0, 0.12, fwidth(vPart.z) * 8.0);
-          float edge = smoothstep(0.75, 1.0, vPart.y);
-          k = 0.12 + rim * 0.8 + canal * 0.35 + edge * 0.6 + smoothstep(0.35, 0.0, vPart.y) * 0.4;
-        } else {
-          // tentacles fade towards their tips; the arms are frilly
-          k = (1.0 - vPart.y) * (vPart.x > 1.5 ? 0.55 + 0.25 * sin(vPart.y * 40.0) : 0.7);
-        }
-        k *= scanline(vWorld.y, 1.8);
-        gl_FragColor = vec4(col * k * holoLevel() * 0.16, 1.0);
-        ${MAP_OUT}
-      }`,
-  );
-  const m = new THREE.Mesh(g, mat);
-  m.renderOrder = 5;
-  m.frustumCulled = false;
   return m;
 }
 
@@ -644,7 +487,7 @@ export interface Holograms {
 export function buildHolograms(u: MapUniforms, boxes: Box[]): Holograms {
   const group = new THREE.Group();
   const robot = holoRobot(u);
-  group.add(holoKoi(u), holoWhale(u), holoJellies(u), robot.mesh, holoAds(u, boxes));
+  group.add(holoKoi(u), holoWhale(u), robot.mesh, holoAds(u, boxes), holoProjections(u, boxes));
   robot.update(0);
   return { group, update: robot.update };
 }
