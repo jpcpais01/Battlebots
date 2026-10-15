@@ -72,21 +72,51 @@ export class Hull {
   }
 
   /**
-   * If local point p is closer than `margin` to the inside of the hull, write the
-   * outward push (local) to `out` and return its length; else return 0.
+   * If local point p is closer than `margin` to the hull, write the outward push (local) to `out`
+   * and return its length; else return 0.
+   *
+   * The push is continuous in p: the hull's ends are rounded off (a fist under the chin or over
+   * the head is pushed off that end, instead of jumping sideways the moment it crosses a height
+   * cut-off), and inside the hull the way out blends between the side and the nearer end.
    */
   penetration(p: THREE.Vector3, margin: number, out: THREE.Vector3) {
-    if (p.y < this.y0 - margin * 0.5 || p.y > this.y1 + margin * 0.5) return 0;
+    // how far past the hull's ends
+    const e = p.y < this.y0 ? this.y0 - p.y : p.y > this.y1 ? p.y - this.y1 : 0;
+    if (e >= margin) return 0;
     const rho = Math.hypot(p.x, p.z);
-    const th = rho > 1e-4 ? Math.atan2(p.x, p.z) : 0;
-    const lim = this.radius(p.y, th) + margin;
-    if (rho >= lim) return 0;
-    const d = lim - rho;
-    if (rho > 1e-4) out.set(p.x / rho, 0, p.z / rho).multiplyScalar(d);
-    else out.set(0, 0, d);
+    const ux = rho > 1e-5 ? p.x / rho : 0, uz = rho > 1e-5 ? p.z / rho : 1;
+    const g = rho - this.radius(p.y, rho > 1e-5 ? Math.atan2(p.x, p.z) : 0);
+    const sy = p.y < (this.y0 + this.y1) * 0.5 ? -1 : 1;
+    // signed distance from the hull (negative inside) and the way out, as radial and axial parts
+    let dist: number, nr: number, ny: number;
+    if (g >= 0 || e > 0) {
+      const gr = Math.max(0, g);
+      dist = Math.hypot(gr, e);
+      if (dist > 1e-6) {
+        nr = gr / dist;
+        ny = e / dist;
+      } else {
+        nr = 1;
+        ny = 0;
+      }
+    } else {
+      const dr = -g;
+      const dc = sy > 0 ? this.y1 - p.y : p.y - this.y0;
+      // radial where the side is clearly nearer, axial where an end is; they meet at the edges
+      const w = dr + dc > 1e-9 ? smooth01((dc / (dr + dc) - 0.5) * 3 + 0.5) : 1;
+      dist = -(dr * w + dc * (1 - w));
+      const l = Math.hypot(w, 1 - w);
+      nr = w / l;
+      ny = (1 - w) / l;
+    }
+    if (dist >= margin) return 0;
+    const d = margin - dist;
+    out.set(ux * nr * d, sy * ny * d, uz * nr * d);
     return d;
   }
 }
+
+const smooth01 = (u: number) => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
 
 /** Surface sample points (in the builder's frame) of a part, skipping some material keys. */
 export function samplePB(pb: PB, skip?: ReadonlySet<MatKey>, into: number[] = []) {
@@ -159,4 +189,138 @@ export const contactStats = { enabled: true, frames: 0, hits: 0, maxDepth: 0, su
 export function tally(key: string, d: number) {
   const by = contactStats.by;
   if (by && d > 0.01) by[key] = (by[key] ?? 0) + 1;
+}
+
+/**
+ * Several samples pushing one joint: a blend of their pushes weighted towards the biggest, so
+ * the result is the deepest push when one dominates and slides smoothly from one to the next
+ * (picking just the biggest flips the push between samples of similar depth).
+ */
+class PushMix {
+  private readonly s = new THREE.Vector3();
+  private w = 0;
+  clear() {
+    this.s.set(0, 0, 0);
+    this.w = 0;
+  }
+  add(v: THREE.Vector3, k = 1) {
+    const l2 = v.lengthSq() * k * k;
+    if (l2 <= 0) return;
+    const w = l2 * l2;
+    this.s.addScaledVector(v, k * w);
+    this.w += w;
+  }
+  addTo(p: THREE.Vector3) {
+    if (this.w > 0) p.addScaledVector(this.s, 1 / this.w);
+  }
+}
+
+const _push = new THREE.Vector3();
+const _mid0 = new THREE.Vector3();
+const _end0 = new THREE.Vector3();
+const _mixM = new PushMix();
+const _mixE = new PushMix();
+const _s = new THREE.Vector3();
+const _ld = new THREE.Vector3();
+const _pole = new THREE.Vector3();
+const _perp = new THREE.Vector3();
+// the upper bone's first half lives under the pauldron/hip armour, where overlap is hidden
+const UPPER_T = [0.72, 1];
+const LOWER_T = [0.33, 0.66];
+
+/**
+ * Two-bone limb (root fixed) against armour hulls. Samples along both bones and the end
+ * effector; pushes become a new end target and elbow/knee pole, then the chain is re-solved
+ * with its current bone lengths. Returns the deepest contact.
+ *
+ * Every step is continuous in the joints, and the correction comes in gently: a limb just
+ * touching armour is moved only part of the way out, all of it once it would sink in by `ease`.
+ * Taken whole from the first touch, the push starts at full speed (a limb moving onto armour
+ * at any pace is kicked off it in a frame), which reads as a twitch.
+ */
+export function solveLimb(root: THREE.Vector3, mid: THREE.Vector3, end: THREE.Vector3, hulls: PlacedHull[], nOwn: number, rUp: number, rLo: number, rEnd: number, endOff: number, tag: string, ease = rEnd * 0.4) {
+  const la = root.distanceTo(mid);
+  const lb = mid.distanceTo(end);
+  if (la < 1e-4 || lb < 1e-4) return 0;
+  _mid0.copy(mid);
+  _end0.copy(end);
+  let worst = 0;
+  for (let it = 0; it < 6; it++) {
+    _mixM.clear();
+    _mixE.clear();
+    let hit = false;
+    for (let hi = 0; hi < hulls.length; hi++) {
+      const h = hulls[hi];
+      const key = `${tag}${hi < nOwn ? '' : '>'}${h.name}`;
+      for (const t of UPPER_T) {
+        _s.lerpVectors(root, mid, t);
+        const d = pushOut(h, _s, rUp * (0.75 + 0.25 * t), _push);
+        if (d > 0) {
+          hit = true;
+          if (it === 0) {
+            worst = Math.max(worst, d);
+            tally(`${key}:up${t}`, d);
+          }
+          _mixE.add(_push, 0.5 * t);
+          _mixM.add(_push, 1 / t);
+        }
+      }
+      for (const t of LOWER_T) {
+        _s.lerpVectors(mid, end, t);
+        const d = pushOut(h, _s, rLo, _push);
+        if (d > 0) {
+          hit = true;
+          if (it === 0) {
+            worst = Math.max(worst, d);
+            tally(`${key}:lo${t}`, d);
+          }
+          const k = 1 / ((1 - t) * (1 - t) + t * t);
+          _mixM.add(_push, (1 - t) * k);
+          _mixE.add(_push, t * k);
+        }
+      }
+      _ld.subVectors(end, mid).normalize();
+      _s.copy(end).addScaledVector(_ld, endOff);
+      const d = pushOut(h, _s, rEnd, _push);
+      if (d > 0) {
+        hit = true;
+        if (it === 0) {
+          worst = Math.max(worst, d);
+          tally(`${key}:end`, d);
+        }
+        _mixE.add(_push);
+      }
+    }
+    if (!hit) break;
+    _mixM.addTo(mid);
+    _mixE.addTo(end);
+    // re-solve the chain to the pushed end with the pushed elbow as the bend direction
+    _ld.subVectors(end, root);
+    let dist = _ld.length();
+    if (dist < 1e-5) break;
+    _ld.multiplyScalar(1 / dist);
+    dist = Math.min(Math.max(dist, Math.abs(la - lb) + 0.02), (la + lb) * 0.999);
+    end.copy(root).addScaledVector(_ld, dist);
+    const cosA = Math.min(1, Math.max(-1, (la * la + dist * dist - lb * lb) / (2 * la * dist)));
+    const sinA = Math.sqrt(1 - cosA * cosA);
+    _pole.subVectors(mid, root);
+    _perp.copy(_pole).addScaledVector(_ld, -_pole.dot(_ld));
+    if (_perp.lengthSq() < 1e-8) break;
+    _perp.normalize();
+    mid.copy(root).addScaledVector(_ld, la * cosA).addScaledVector(_perp, la * sinA);
+  }
+  if (worst > 0 && worst < ease) {
+    const u = worst / ease;
+    const k = u * u * (3 - 2 * u);
+    mid.lerpVectors(_mid0, mid, k);
+    end.lerpVectors(_end0, end, k);
+    // the blend shortens the bones a hair: put the elbow or knee back at its length
+    _ld.subVectors(mid, root);
+    const l1 = _ld.length();
+    if (l1 > 1e-5) mid.copy(root).addScaledVector(_ld, la / l1);
+    _ld.subVectors(end, mid);
+    const l2 = _ld.length();
+    if (l2 > 1e-5) end.copy(mid).addScaledVector(_ld, lb / l2);
+  }
+  return worst;
 }

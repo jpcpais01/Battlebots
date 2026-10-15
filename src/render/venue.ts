@@ -42,6 +42,7 @@ import { cornerAngle } from './ring';
 import { RING_CORNER } from '../sim/body';
 import { batchStatic } from './batch';
 import type { LightLook } from './stage';
+import { CANVAS_GLOSS, type ReflectLook } from './rt';
 
 /**
  * The indoor arena around the ring: a two-tier seating bowl with a suite level, LED ribbon
@@ -707,6 +708,8 @@ export interface VenueLike {
   readonly beams: boolean;
   /** Height of whatever lies past the front of the stands' top tier (debris lands on it), or null: the bowl's. */
   readonly outer: number | null;
+  /** What shows reflections with ray-traced lighting on: the canvas and how glossy the floor is. */
+  readonly reflect?: ReflectLook;
   setPixelScale(h: number): void;
   event(type: string, data?: unknown): void;
   score(dt: number, s: ScoreState | null): void;
@@ -721,6 +724,8 @@ export class Venue implements VenueLike {
   readonly far = 120;
   readonly beams = true;
   readonly outer = null;
+  /** A polished black floor round the stage that mirrors the skirt, the halo and the stands' lights. */
+  readonly reflect: ReflectLook = { canvas: CANVAS_GLOSS, floor: [0.95, 0.14, FLOOR] };
   readonly crowd: Crowd;
   readonly floor: FloorShow;
   /** The arena floor round the stage. */

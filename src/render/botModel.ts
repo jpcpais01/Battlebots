@@ -25,10 +25,11 @@ import {
   type MatKey,
 } from './parts';
 import { RenderSettings } from './settings';
+import { patchSurfaceDetail } from './surfaceDetail';
 import { makerSurfaces, surf, vertexPBR, type GlowKey, type Surfaces } from './bake';
 import { CH_CORE, CH_GLOW, CH_RARITY, rigid, rigidDepth, SkinBuilder, type DetailLod } from './skin';
 import { contactAO } from './ao';
-import { contactStats, Hull, partRadius, pushOut, samplePB, tally, type PlacedHull } from './contact';
+import { contactStats, Hull, partRadius, samplePB, solveLimb, tally, type PlacedHull } from './contact';
 import { damageDepthMaterial, damageUniforms, patchDamage, patchDamageGlow, DENTS, MARKS, MARK_OIL, MARK_SOCKET, type DamageUniforms } from './damageLook';
 import { P, PART_COUNT } from '../sim/damage';
 
@@ -146,6 +147,8 @@ const _b = new THREE.Vector3();
 const _qa = new THREE.Quaternion();
 const _qb = new THREE.Quaternion();
 const _qc = new THREE.Quaternion();
+const _h = new THREE.Vector3();
+const _rz = new THREE.Vector3();
 
 function setBasis(obj: THREE.Object3D, x: THREE.Vector3, y: THREE.Vector3, z: THREE.Vector3) {
   _m.makeBasis(x, y, z);
@@ -177,14 +180,33 @@ function orientFrame(obj: THREE.Object3D, pos: THREE.Vector3, xa: THREE.Vector3,
   obj.position.copy(pos);
 }
 
-/** Point obj's +Y from `from` towards `to`. */
-function aim(obj: THREE.Object3D, from: THREE.Vector3, to: THREE.Vector3) {
-  _y.subVectors(to, from);
+/** How strongly a bone keeps last frame's roll against a weak hint (see orientHeld). */
+const HOLD = 0.15;
+
+/**
+ * orientSegment for a bone whose roll comes from a hint that can line up with the bone itself:
+ * an upper arm faces its elbow's bend, which vanishes as the arm straightens, and a forearm's
+ * back faces outward, which runs along the forearm when it crosses the body (a hook, a block,
+ * a drink) or points out to the side. Only the hint's part across the bone means anything, and
+ * its length says how far to trust it: where it runs short the bone keeps the roll it had last
+ * frame, carried over to its new direction, instead of spinning round on what little is left.
+ * A clear hint wins outright, so a held pose settles exactly where the hint says.
+ */
+function orientHeld(obj: THREE.Object3D, a: THREE.Vector3, b: THREE.Vector3, hint: THREE.Vector3, held: THREE.Vector3, fallback: THREE.Vector3) {
+  _y.subVectors(b, a);
   const len = _y.length();
-  obj.position.copy(from);
+  obj.position.copy(a);
   if (len < 1e-5) return len;
   _y.multiplyScalar(1 / len);
-  obj.quaternion.setFromUnitVectors(_up, _y);
+  _z.copy(hint).addScaledVector(_y, -hint.dot(_y));
+  _h.copy(held).addScaledVector(_y, -held.dot(_y));
+  const hl = _h.length();
+  if (hl > 1e-3) _z.addScaledVector(_h, HOLD / hl);
+  if (_z.lengthSq() < 1e-8) _z.copy(fallback).addScaledVector(_y, -fallback.dot(_y));
+  _z.normalize();
+  held.copy(_z);
+  _x.crossVectors(_y, _z);
+  setBasis(obj, _x, _y, _z);
   return len;
 }
 
@@ -214,7 +236,9 @@ export function botGlows(paint: Paint, coreLook: number, rarity: number): Record
 
 /** Standard PBR material reading colour, metalness and roughness per vertex. */
 function makeOpaqueMaterial(dmg: DamageUniforms) {
-  const m = patchDamage(vertexPBR(new THREE.MeshStandardMaterial(), 'bot-opaque'), dmg);
+  let m = patchDamage(vertexPBR(new THREE.MeshStandardMaterial(), 'bot-opaque'), dmg);
+  // brushed grain, patchy sheen and a faint ripple in the plating, where the GPU can spare it
+  if (RenderSettings.quality === 'high') m = patchSurfaceDetail(m);
   // limbs, torsos and the opponent shade each other; legs and feet darken towards the canvas
   return rigid(contactAO.patch(m, { spheres: true, strength: 1.8, ground: { y: 0, height: 0.5, k: 0.5 }, direct: 0.6 }));
 }
@@ -234,99 +258,6 @@ function makeEmissiveMaterial(cols: THREE.Color[]) {
   };
   m.customProgramCacheKey = () => `bot-emissive-${cols.length}`;
   return rigid(m);
-}
-
-const _push = new THREE.Vector3();
-const _dm = new THREE.Vector3();
-const _de = new THREE.Vector3();
-const _s = new THREE.Vector3();
-const _ld = new THREE.Vector3();
-const _pole = new THREE.Vector3();
-const _perp = new THREE.Vector3();
-// the upper bone's first half lives under the pauldron/hip armour, where overlap is hidden
-const UPPER_T = [0.72, 1];
-const LOWER_T = [0.33, 0.66];
-
-/** Keep the larger of two pushes (several samples hitting the same plate shouldn't stack). */
-function keepMax(acc: THREE.Vector3, v: THREE.Vector3) {
-  if (v.lengthSq() > acc.lengthSq()) acc.copy(v);
-}
-
-/**
- * Two-bone limb (root fixed) against armour hulls. Samples along both bones and
- * the end effector; pushes become a new end target and elbow/knee pole, then the
- * chain is re-solved with its current bone lengths. Returns the deepest contact.
- */
-function solveLimb(root: THREE.Vector3, mid: THREE.Vector3, end: THREE.Vector3, hulls: PlacedHull[], nOwn: number, rUp: number, rLo: number, rEnd: number, endOff: number, tag: string) {
-  const la = root.distanceTo(mid);
-  const lb = mid.distanceTo(end);
-  if (la < 1e-4 || lb < 1e-4) return 0;
-  let worst = 0;
-  for (let it = 0; it < 6; it++) {
-    _dm.set(0, 0, 0);
-    _de.set(0, 0, 0);
-    let hit = false;
-    for (let hi = 0; hi < hulls.length; hi++) {
-      const h = hulls[hi];
-      const key = `${tag}${hi < nOwn ? '' : '>'}${h.name}`;
-      for (const t of UPPER_T) {
-        _s.lerpVectors(root, mid, t);
-        const d = pushOut(h, _s, rUp * (0.75 + 0.25 * t), _push);
-        if (d > 0) {
-          hit = true;
-          if (it === 0) {
-            worst = Math.max(worst, d);
-            tally(`${key}:up${t}`, d);
-          }
-          keepMax(_de, _ld.copy(_push).multiplyScalar(0.5 * t));
-          keepMax(_dm, _push.multiplyScalar(1 / t));
-        }
-      }
-      for (const t of LOWER_T) {
-        _s.lerpVectors(mid, end, t);
-        const d = pushOut(h, _s, rLo, _push);
-        if (d > 0) {
-          hit = true;
-          if (it === 0) {
-            worst = Math.max(worst, d);
-            tally(`${key}:lo${t}`, d);
-          }
-          const k = 1 / ((1 - t) * (1 - t) + t * t);
-          keepMax(_dm, _ld.copy(_push).multiplyScalar((1 - t) * k));
-          keepMax(_de, _push.multiplyScalar(t * k));
-        }
-      }
-      _ld.subVectors(end, mid).normalize();
-      _s.copy(end).addScaledVector(_ld, endOff);
-      const d = pushOut(h, _s, rEnd, _push);
-      if (d > 0) {
-        hit = true;
-        if (it === 0) {
-          worst = Math.max(worst, d);
-          tally(`${key}:end`, d);
-        }
-        keepMax(_de, _push);
-      }
-    }
-    if (!hit) break;
-    mid.add(_dm);
-    end.add(_de);
-    // re-solve the chain to the pushed end with the pushed elbow as the bend direction
-    _ld.subVectors(end, root);
-    let dist = _ld.length();
-    if (dist < 1e-5) break;
-    _ld.multiplyScalar(1 / dist);
-    dist = Math.min(Math.max(dist, Math.abs(la - lb) + 0.02), (la + lb) * 0.999);
-    end.copy(root).addScaledVector(_ld, dist);
-    const cosA = Math.min(1, Math.max(-1, (la * la + dist * dist - lb * lb) / (2 * la * dist)));
-    const sinA = Math.sqrt(1 - cosA * cosA);
-    _pole.subVectors(mid, root);
-    _perp.copy(_pole).addScaledVector(_ld, -_pole.dot(_ld));
-    if (_perp.lengthSq() < 1e-8) break;
-    _perp.normalize();
-    mid.copy(root).addScaledVector(_ld, la * cosA).addScaledVector(_perp, la * sinA);
-  }
-  return worst;
 }
 
 export class BotModel {
@@ -352,6 +283,9 @@ export class BotModel {
   private torsoX = new THREE.Vector3();
   private torsoZ = new THREE.Vector3();
   private torsoUp = new THREE.Vector3();
+  /** Last frame's roll (bone Z) of the upper arms and forearms, L then R: see orientHeld. */
+  private heldUp = [new THREE.Vector3(), new THREE.Vector3()];
+  private heldFore = [new THREE.Vector3(), new THREE.Vector3()];
   /** Per-part wear, hit flare and clock for the damage shading (shared by both materials and any torn-off pieces). */
   readonly dmg: DamageUniforms = damageUniforms();
   /** Bones of torn-off parts: collapsed to nothing on the body. */
@@ -657,18 +591,18 @@ export class BotModel {
       // upper arm: front faces the bend (a stump just hangs off the shoulder)
       if (this.anchors[L ? J.HandL : J.HandR]) _tmp.copy(torsoZ);
       else _tmp.subVectors(hd, el).normalize();
-      orientSegment(up, sh, el, _tmp, torsoZ);
-      // forearm: the back of the hand turns from "outward" (vertical fist) by the roll
+      orientHeld(up, sh, el, _tmp, this.heldUp[side], torsoZ);
+      // forearm: the back of the hand turns from "outward" (vertical fist) by the roll. Outward
+      // is kept to its part across the forearm, unnormalised: its length is how much it says.
       _tmp.subVectors(hd, el);
       const len = _tmp.length();
       _tmp.multiplyScalar(1 / Math.max(1e-5, len));
       const outward = _tmp2.copy(torsoX).multiplyScalar(L ? 1 : -1);
-      outward.addScaledVector(_tmp, -outward.dot(_tmp)).normalize();
+      outward.addScaledVector(_tmp, -outward.dot(_tmp));
       _a.crossVectors(_tmp, outward);
       const phi = f.handRoll[side] * (Math.PI / 2) * (L ? 1 : -1);
       _b.copy(outward).multiplyScalar(Math.cos(phi)).addScaledVector(_a, Math.sin(phi));
-      if (_b.lengthSq() < 1e-4) _b.copy(torsoUp);
-      orientSegment(fore, el, hd, _b, torsoUp);
+      orientHeld(fore, el, hd, _b, this.heldFore[side], torsoUp);
       fist.position.copy(hd);
       fist.quaternion.copy(fore.quaternion);
       if (this.rocket[side]) {
@@ -682,8 +616,10 @@ export class BotModel {
       fore.updateMatrix();
       _a.copy(ARM_A).applyMatrix4(up.matrix);
       _b.copy(ARM_B).applyMatrix4(fore.matrix);
-      aim(bn[L ? B.ArmBarL : B.ArmBarR], _a, _b);
-      aim(bn[L ? B.ArmRodL : B.ArmRodR], _b, _a);
+      // rolled with the arm (aiming from world up spun them round whenever they pointed down)
+      _rz.set(0, 0, 1).applyQuaternion(up.quaternion);
+      orientSegment(bn[L ? B.ArmBarL : B.ArmBarR], _a, _b, _rz, torsoZ);
+      orientSegment(bn[L ? B.ArmRodL : B.ArmRodR], _b, _a, _rz, torsoZ);
 
       // legs: the front of thigh and shin faces where the knee points
       const hip = P[L ? J.HipL : J.HipR];
@@ -699,8 +635,9 @@ export class BotModel {
       shin.updateMatrix();
       _a.copy(LEG_A).applyMatrix4(thigh.matrix);
       _b.copy(LEG_B).applyMatrix4(shin.matrix);
-      aim(bn[L ? B.LegBarL : B.LegBarR], _a, _b);
-      aim(bn[L ? B.LegRodL : B.LegRodR], _b, _a);
+      _rz.set(0, 0, 1).applyQuaternion(thigh.quaternion);
+      orientSegment(bn[L ? B.LegBarL : B.LegBarR], _a, _b, _rz, torsoZ);
+      orientSegment(bn[L ? B.LegRodL : B.LegRodR], _b, _a, _rz, torsoZ);
 
       // foot: flat on the floor when planted (with heel lift), hinged off the shin in the air
       const fb = bn[L ? B.FootL : B.FootR];

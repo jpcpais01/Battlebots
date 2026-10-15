@@ -170,7 +170,7 @@ function crown(u: VenueUniforms) {
       attribute float aKind;
       varying vec3 vN, vW;
       varying vec2 vUV;
-      varying float vKind;
+      flat varying float vKind;
       void main() {
         vN = normal;
         vUV = aUV;
@@ -184,7 +184,7 @@ function crown(u: VenueUniforms) {
       ${AA_GLSL}
       varying vec3 vN, vW;
       varying vec2 vUV;
-      varying float vKind;
+      flat varying float vKind;
       // what the glass mirrors: the night overhead, the city's violet glow round the horizon, the
       // lit streets far below
       vec3 skyRefl(vec3 r) {
@@ -788,7 +788,7 @@ export class RooftopVenue extends OutdoorVenue {
       day: DAY,
       sky: { zenith: 0x03051a, horizon: 0x2c1f4c, glow: 0x5a6aa8, glowSize: 0.12, cloud: 0.32, cloudLit: 0x6a4a86, cloudShade: 0x15142a, stars: 0.8, moon: MOON, disc: 0 },
       look: { ...look, background: NIGHT_COLORS.fog, fog: NIGHT_COLORS.fog, fogDensity: FOG },
-      floor: { map: deckTileTexture(), metres: 4, roughness: 0.55 },
+      floor: { map: deckTileTexture(), metres: 4, roughness: 0.55, gloss: 0.65 },
       stands: {
         tread: (ri, k) => dark[(ri + k) % dark.length].clone().multiplyScalar(ri % 5 === 4 ? 1.25 : 1),
         riser: (ri) => (ri % 5 === 4 ? lin(0xff3fa4, 0.5) : lin(0x17181e)),
