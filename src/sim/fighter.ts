@@ -167,6 +167,9 @@ const _tZ = new Vector3();
 const _bp = new Vector3();
 const _bs = new Vector3();
 const _bm = new Vector3();
+const _settle = new Float64Array(6);
+/** A smooth max(0, x): no corner at zero for a motion to kick off from. */
+const softPos = (x: number) => 0.5 * (x + Math.sqrt(x * x + 0.01));
 const _be = new Vector3();
 const _bd = new Vector3();
 const _ka = new Vector3();
@@ -243,6 +246,15 @@ const GETUP_FLAT = new Map<GetupKey[], number[][]>([
 const BUCKLE = 0.36;
 /** How quickly a calmed arm follows its pose (rad/s, critically damped): settles in about a third of a second. */
 const CALM = 13;
+/**
+ * How quickly an arm hand-off (see settleArm) dies away (rad/s, critically damped): about a
+ * quarter of a second.
+ */
+const SETTLE = 17;
+/** Smallest jump at a hand-off (unit-space metres) worth taking up. */
+const SETTLE_MIN = 0.006;
+/** How quickly the fist turns to a new roll (rad/s, critically damped). */
+const ROLL_RATE = 34;
 const TRUNK_Y = [-0.62, -0.5, -0.36, -0.2, -0.1, -0.02, 0.14, 0.22, 0.28];
 const TRUNK_W = [0.14, 0.2, 0.16, 0.17, 0.2, 0.25, 0.27, 0.22, 0.1];
 const TRUNK_F = [0.1, 0.13, 0.12, 0.14, 0.16, 0.21, 0.21, 0.1, 0.06];
@@ -417,6 +429,15 @@ export class Fighter {
   private gsp = Array.from({ length: 4 }, () => new Spring1());
   /** Arm calming: springs for elbow and fist (shoulder frame), per side, and how much each arm is calmed. */
   private csp = Array.from({ length: 12 }, () => new Spring1());
+  /** Arm hand-off offsets (elbow then fist, shoulder frame, per side): settleArm. */
+  private isp = Array.from({ length: 12 }, () => new Spring1());
+  /** Last drawn elbow and fist per side (shoulder frame, then their speeds): settleArm. */
+  private armOut = [new Float64Array(12), new Float64Array(12)];
+  private armOutSet = [false, false];
+  /** What drove each arm last step (the strike or dodge, and the state): settleArm. */
+  private armSrc: (object | null)[] = [null, null];
+  private armState: (FState | null)[] = [null, null];
+  private rollSp = [new Spring1(), new Spring1()];
   private calmW = [1, 1];
   private breathPhase = 0;
   /** Knockout buckle: time left, its length, where the feet stood and which way it faced. */
@@ -1639,7 +1660,8 @@ export class Fighter {
       pitch = -0.12;
       shTw = DM.sin(t * 2) * 0.2;
       hipTw = shTw * 0.4;
-      crouch = 0.02 + Math.abs(DM.sin(t * 4)) * 0.04;
+      // bouncing on its toes, smoothly (an |sin| bounce turns round with a jolt at the bottom)
+      crouch = 0.04 - DM.cos(t * 8) * 0.02;
     }
     if (this.taunt > 0) {
       pitch -= 0.15 * this.taunt;
@@ -1827,7 +1849,7 @@ export class Fighter {
       if (isLead) {
         hand.x += this.noise.at(t * 0.7 + 70) * 0.025 * paw;
         hand.y += this.noise.at(t * 0.8 + 85) * 0.018 * paw + bob * 0.5 + breath * 0.006;
-        hand.z += (this.noise.at(t * 0.6 + 100) * 0.04 + Math.max(0, this.noise.at(t * 1.1 + 115)) * 0.03) * paw;
+        hand.z += (this.noise.at(t * 0.6 + 100) * 0.04 + softPos(this.noise.at(t * 1.1 + 115)) * 0.03) * paw;
       } else {
         hand.x += this.noise.at(t * 0.5 + 130) * 0.01 * paw;
         hand.y += this.noise.at(t * 0.6 + 145) * 0.012 * paw + bob * 0.35 + breath * 0.008;
@@ -1914,6 +1936,7 @@ export class Fighter {
       if (gu || (this.state === 'win' && !this.emote) || (em && em.w * em.ch[EC.ARM + side * 8 + 7] > 0.05) || grip > 0.05) calmT = 0;
       this.calmW[side] = dt > 0 ? damp(this.calmW[side], calmT, calmT < this.calmW[side] ? 40 : 6, dt) : calmT;
       this.calmArm(side, L[shIdx], L[elIdx], hand, fore, dt);
+      this.settleArm(side, L[shIdx], L[elIdx], hand, fore, dt, s ?? d ?? null);
       this.storeBend(side, L[shIdx], L[elIdx], hand, dt);
     }
 
@@ -2044,6 +2067,76 @@ export class Fighter {
       _bp.subVectors(el, sh);
       ik2(sh, hd, UPPER, fore, _bp, el, hd);
     }
+  }
+
+  /**
+   * Arm hand-offs. When what drives an arm changes (a strike or dodge starts or ends, the state
+   * changes), its new pose can begin somewhere other than where the arm is: a kick's arm swing
+   * doesn't end on the guard, a stagger drops the hands. Rather than snap there, the arm takes
+   * the jump up as an offset that dies away on a spring, starting out at the speed the arm was
+   * moving, so it carries on and curves into the new pose (inertialisation). Small jumps are left
+   * alone, so a strike flowing out of the guard starts exactly as authored. Shoulder frame, like
+   * calmArm, so the offset rides the body's turns.
+   */
+  private settleArm(side: number, sh: Vector3, el: Vector3, hd: Vector3, fore: number, dt: number, src: object | null) {
+    const sp = this.isp, o = side * 6, out = this.armOut[side];
+    this.trunkFrame();
+    const raw = _settle;
+    _bs.subVectors(el, sh);
+    raw[0] = _bs.dot(_tX);
+    raw[1] = _bs.dot(_tU);
+    raw[2] = _bs.dot(_tZ);
+    _bs.subVectors(hd, sh);
+    raw[3] = _bs.dot(_tX);
+    raw[4] = _bs.dot(_tU);
+    raw[5] = _bs.dot(_tZ);
+    if (dt <= 0) {
+      for (let i = 0; i < 6; i++) sp[o + i].to(0, SETTLE, 1, 0);
+    } else if (this.armOutSet[side] && (src !== this.armSrc[side] || this.state !== this.armState[side])) {
+      // where the old motion would have carried the arm this step, against where the new pose is
+      let big = 0;
+      for (let i = 0; i < 6; i++) big = Math.max(big, Math.abs(out[i] + out[6 + i] * dt - raw[i]));
+      if (big > SETTLE_MIN) {
+        for (let i = 0; i < 6; i++) {
+          const q = sp[o + i];
+          q.v = out[i] + out[6 + i] * dt - raw[i];
+          q.vel = out[6 + i];
+        }
+      }
+    }
+    this.armSrc[side] = src;
+    this.armState[side] = this.state;
+    let live = false;
+    for (let i = 0; i < 6; i++) {
+      const q = sp[o + i];
+      if (q.v === 0 && q.vel === 0) continue;
+      if (Math.abs(q.v) < 1e-5 && Math.abs(q.vel) < 1e-3) {
+        q.v = q.vel = 0;
+        continue;
+      }
+      if (dt > 0) q.to(0, SETTLE, 1, dt);
+      live = true;
+    }
+    if (live) {
+      el.copy(sh).addScaledVector(_tX, raw[0] + sp[o].v).addScaledVector(_tU, raw[1] + sp[o + 1].v).addScaledVector(_tZ, raw[2] + sp[o + 2].v);
+      hd.copy(sh).addScaledVector(_tX, raw[3] + sp[o + 3].v).addScaledVector(_tU, raw[4] + sp[o + 4].v).addScaledVector(_tZ, raw[5] + sp[o + 5].v);
+      _bp.subVectors(el, sh);
+      ik2(sh, hd, UPPER, fore, _bp, el, hd);
+    }
+    // what was drawn, and how fast it moved
+    _bs.subVectors(el, sh);
+    raw[0] = _bs.dot(_tX);
+    raw[1] = _bs.dot(_tU);
+    raw[2] = _bs.dot(_tZ);
+    _bs.subVectors(hd, sh);
+    raw[3] = _bs.dot(_tX);
+    raw[4] = _bs.dot(_tU);
+    raw[5] = _bs.dot(_tZ);
+    for (let i = 0; i < 6; i++) {
+      out[6 + i] = dt > 0 && this.armOutSet[side] ? (raw[i] - out[i]) / dt : 0;
+      out[i] = raw[i];
+    }
+    this.armOutSet[side] = true;
   }
 
   /** Ease a limb's bend direction toward `want` (normalised in place to the smoothed value). */
@@ -2854,7 +2947,8 @@ export class Fighter {
       this.footHeel[i] = f.locked ? 0 : this.heel[i];
       this.footAir[i] += (this.footAirT[i] - this.footAir[i]) * k;
       this.footFlex[i] += (this.footFlexT[i] - this.footFlex[i]) * k;
-      this.handRoll[i] += (this.handRollT[i] - this.handRoll[i]) * (dt > 0 ? 1 - DM.exp(-22 * dt) : 1);
+      // a spring, not a lag: a lag starts turning at full speed the moment the roll it wants changes
+      this.handRoll[i] = this.rollSp[i].to(this.handRollT[i], ROLL_RATE, 1, dt);
     }
     // trails
     const s = this.strike;

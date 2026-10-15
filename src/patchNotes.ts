@@ -17,6 +17,14 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 12:00",
+    title: "Smoother arms",
+    notes: [
+      "Fists and forearms no longer twitch. They used to spin round in a single frame when an arm crossed the body or straightened, and jolt whenever they brushed armour; now they turn and slide smoothly, in fights and in the home scenes.",
+      "Arms flow back into the guard after kicks and dodges instead of snapping there, fists turn smoothly into each punch, and on the beach the robot no longer bobs the coconut with a jerk while it drinks.",
+    ],
+  },
+  {
+    hour: "2026-10-15 12:00",
     title: "Ray-traced lighting",
     notes: [
       "New ray-traced lighting, on by default on PC: light now bounces off whatever is near it, so the orange ring skirt glows on the floor and a red robot tints the canvas, and every corner, seam and joint sits in its own soft shade.",
