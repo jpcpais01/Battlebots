@@ -17,6 +17,13 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 15:00",
+    title: "No shadows at night",
+    notes: [
+      "At night the world map no longer shows the big buildings' long daytime shadows (or the hills'): they fade away as it gets dark and come back with the morning sun.",
+    ],
+  },
+  {
+    hour: "2026-10-15 15:00",
     title: "Summer beach and a cleaner loading screen",
     notes: [
       "The turning ring is gone from the loading screen: the logo and progress line now sit centred over the flowing light.",

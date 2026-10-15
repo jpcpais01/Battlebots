@@ -88,12 +88,13 @@ export const MAP_GLSL = /* glsl */ `
   uniform float uShadowHalf, uDusk, uGlow, uNight;
   uniform vec3 uFogOut, uMapShift;
   float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
-  // 1 in sunlight, 0 in a shadow (terrain, buildings), softened over a couple of metres
+  // 1 in sunlight, 0 in a shadow (terrain, buildings), softened over a couple of metres; the
+  // shadows are the day sun's, so they fade away as night falls (the moon's soft light casts none)
   float sunShadow(vec3 w) {
     vec2 uv = w.xz / (2.0 * uShadowHalf) + 0.5;
-    if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return 1.0;
+    if (uNight > 0.999 || uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return 1.0;
     float top = texture2D(uShadow, uv).r;
-    return smoothstep(top - 2.0, top + 1.0, w.y);
+    return mix(smoothstep(top - 2.0, top + 1.0, w.y), 1.0, uNight);
   }
   // the clouds' shadows drifting over everything
   float cloudShade(vec2 xz) {
