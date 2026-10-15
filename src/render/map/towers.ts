@@ -335,7 +335,8 @@ function towerMaterial(u: MapUniforms) {
       attribute vec3 color, aUV;
       attribute vec4 aKind;
       varying vec3 vWorld, vN, vCol, vUV;
-      varying vec4 vKind;
+      // (flat: the window hashes must see exactly the same seed across a face)
+      flat varying vec4 vKind;
       #include <fog_pars_vertex>
       uniform vec3 uMapShift;
       void main() {
@@ -354,7 +355,8 @@ function towerMaterial(u: MapUniforms) {
       ${AA_GLSL}
       uniform vec3 uNeon[5];
       varying vec3 vWorld, vN, vCol, vUV;
-      varying vec4 vKind;
+      // (flat: the window hashes must see exactly the same seed across a face)
+      flat varying vec4 vKind;
       #include <fog_pars_fragment>
 
       // an advert: a colour field, a logo ring, a column of characters, sweeping bands; a new one

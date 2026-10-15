@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: "2026-10-15 11:00",
     title: "Real dents and performance stats",
     notes: [
+      "Fixed windows on the world map's buildings and towers sparkling with static: every window is now cleanly lit or dark, and far-off houses' windows no longer flicker against their walls.",
       "Robots now dent for real. Every blow that lands punches a dent where it struck, pushed in the way the blow travelled, with a lip of bent metal around it and the paint knocked off its floor. Hit the same spot again and it caves in deeper and wider, so a chest that keeps eating hooks ends up visibly crushed.",
       "Battered plates now buckle out of shape instead of just looking scuffed: the armour bends, light rolls into the dents, their shadows follow, and a torn-off arm or head keeps every dent it took. Replays rebuild the dents when you skip ahead.",
       "The GPU tab in Performance stats now splits Bloom/post into MSAA resolve, Bloom and Final pass, so you can see which one is taking the time.",

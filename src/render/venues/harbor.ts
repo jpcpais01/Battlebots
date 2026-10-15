@@ -905,7 +905,8 @@ function skyline(v: OutdoorVenue, r: () => number, low: boolean) {
   const mat = vMaterial(v.u, {
     vertexShader: /* glsl */ `
       attribute vec3 color;
-      varying vec3 vCol, vN, vW;
+      flat varying vec3 vCol;
+      varying vec3 vN, vW;
       void main() {
         vCol = color;
         vN = normal;
@@ -915,7 +916,8 @@ function skyline(v: OutdoorVenue, r: () => number, low: boolean) {
       }`,
     fragmentShader: /* glsl */ `
       ${V_GLSL}
-      varying vec3 vCol, vN, vW;
+      flat varying vec3 vCol;
+      varying vec3 vN, vW;
       void main() {
         vec3 n = normalize(vN);
         vec3 c = vCol * vLight(n);

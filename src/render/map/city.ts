@@ -47,10 +47,13 @@ function buildingMaterial(u: MapUniforms) {
       attribute vec3 aSize;
       attribute vec4 aInfo;
       attribute float aNeon;
-      varying vec3 vWorld, vN, vCol, vSize;
-      varying vec4 vInfo;
+      varying vec3 vWorld, vN, vCol;
       varying vec2 vFace;
-      varying float vNeon, vFaceW, vFaceId;
+      // (per building and per face: flat, so the window hashes see exactly the same numbers
+      // across a face; interpolated, they drift in the last bits and windows sparkle)
+      flat varying vec3 vSize;
+      flat varying vec4 vInfo;
+      flat varying float vNeon, vFaceW, vFaceId;
       #include <fog_pars_vertex>
       uniform vec3 uMapShift;
       void main() {
@@ -76,10 +79,13 @@ function buildingMaterial(u: MapUniforms) {
       ${AA_GLSL}
       ${SKY_GLSL}
       uniform vec3 uNeon[5];
-      varying vec3 vWorld, vN, vCol, vSize;
-      varying vec4 vInfo;
+      varying vec3 vWorld, vN, vCol;
       varying vec2 vFace;
-      varying float vNeon, vFaceW, vFaceId;
+      // (per building and per face: flat, so the window hashes see exactly the same numbers
+      // across a face; interpolated, they drift in the last bits and windows sparkle)
+      flat varying vec3 vSize;
+      flat varying vec4 vInfo;
+      flat varying float vNeon, vFaceW, vFaceId;
       #include <fog_pars_fragment>
 
       void main() {
@@ -239,7 +245,7 @@ function signMaterial(u: MapUniforms) {
     vertexShader: /* glsl */ `
       attribute vec4 aSign;
       varying vec2 vUv;
-      varying vec4 vSign;
+      flat varying vec4 vSign;
       varying vec3 vCol, vWorld;
       #include <fog_pars_vertex>
       uniform vec3 uMapShift;
@@ -257,7 +263,7 @@ function signMaterial(u: MapUniforms) {
       ${MAP_GLSL}
       ${AA_GLSL}
       varying vec2 vUv;
-      varying vec4 vSign;
+      flat varying vec4 vSign;
       varying vec3 vCol, vWorld;
       #include <fog_pars_fragment>
       void main() {
