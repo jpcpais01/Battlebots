@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-15 10:00",
+    title: "Fixes",
+    notes: [
+      "The What's new button on the home screen works again: the hidden world map was sitting on top of it and swallowing the taps.",
+    ],
+  },
+  {
     hour: "2026-10-15 03:00",
     title: "Skydeck 88",
     notes: [
