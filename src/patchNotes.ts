@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-15 11:00",
+    title: "Performance stats",
+    notes: [
+      "The GPU tab in Performance stats now splits Bloom/post into MSAA resolve, Bloom and Final pass, so you can see which one is taking the time.",
+    ],
+  },
+  {
     hour: "2026-10-15 10:00",
     title: "Fixes",
     notes: [
