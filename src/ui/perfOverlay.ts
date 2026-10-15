@@ -154,7 +154,8 @@ export class PerfOverlay {
     const measured = live ? null : probe.result;
     for (const p of PARTS) {
       const row = this.rows.get(`part.${p.id}`)!;
-      const ms = live ? live[p.id] : measured ? measured.ms[p.id] : null;
+      const v = live ? live[p.id] : measured ? measured.ms[p.id] : NaN;
+      const ms = Number.isFinite(v) ? v : null;
       row.ms.textContent = ms === null ? '–' : ms.toFixed(2);
       row.bar.style.width = `${ms === null ? 0 : Math.min(100, (ms / BUDGET) * 100)}%`;
       const d = snap.draws[p.id];

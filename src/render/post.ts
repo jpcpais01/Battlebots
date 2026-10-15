@@ -190,6 +190,11 @@ export class PostFX {
     });
   }
 
+  /** The final pass, which writes the canvas (the perf overlay times it on its own). */
+  get screenMaterial(): THREE.Material {
+    return this.composite;
+  }
+
   /** Size in drawing-buffer pixels. */
   setSize(w: number, h: number) {
     w = Math.max(1, Math.floor(w));

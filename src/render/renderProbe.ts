@@ -5,7 +5,7 @@ import type { Stage } from './stage';
 type TimerExt = { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number };
 
 /** What each draw call belongs to, for the GPU-by-part view. */
-export type Part = 'shadows' | 'bots' | 'crowd' | 'venue' | 'ring' | 'ropes' | 'beams' | 'effects' | 'post' | 'other';
+export type Part = 'shadows' | 'bots' | 'crowd' | 'venue' | 'ring' | 'ropes' | 'beams' | 'effects' | 'resolve' | 'post' | 'screen' | 'other';
 
 export const PARTS: { id: Part; label: string }[] = [
   { id: 'bots', label: 'Bots' },
@@ -16,7 +16,9 @@ export const PARTS: { id: Part; label: string }[] = [
   { id: 'beams', label: 'Beams' },
   { id: 'effects', label: 'Effects' },
   { id: 'shadows', label: 'Shadows' },
-  { id: 'post', label: 'Bloom/post' },
+  { id: 'resolve', label: 'MSAA resolve' },
+  { id: 'post', label: 'Bloom' },
+  { id: 'screen', label: 'Final pass' },
   { id: 'other', label: 'Other' },
 ];
 const IDS = PARTS.map((p) => p.id);
@@ -169,11 +171,21 @@ export class RenderProbe {
     // the shadow map draws with no scene, post-processing passes draw their own full-screen quads
     r.renderBufferDirect = (camera, sc, geometry, material, object, group) => {
       // (helper passes drawn outside the scene count as post-processing unless their mesh is tagged)
-      if (this.counting) this.onDraw(sc === null ? INDEX.shadows : sc === scene || this.tags.has(object) ? this.resolve(object) : INDEX.post, geometry, object, group);
+      if (this.counting) this.onDraw(sc === null ? INDEX.shadows : sc === scene || this.tags.has(object) ? this.resolve(object) : this.postPart(material), geometry, object, group);
       draw(camera, sc, geometry, material, object, group);
     };
   }
   private installed = false;
+
+  /**
+   * The pass that writes the canvas is timed apart from the bloom chain: drawing into the page's
+   * back buffer can wait on the browser handing that buffer back (on laptops with two GPUs, after
+   * copying the last frame to the one driving the screen). That wait shows as GPU time here but is
+   * idle, not work, and does not shrink with a faster GPU.
+   */
+  private postPart(material: THREE.Material) {
+    return material === this.stage.post?.screenMaterial ? INDEX.screen : INDEX.post;
+  }
 
   /**
    * The multisampled scene buffer is resolved inside `renderer.render`, right after the last draw,
@@ -189,7 +201,7 @@ export class RenderProbe {
     );
     m.renderOrder = Number.MAX_SAFE_INTEGER;
     m.frustumCulled = false;
-    this.tag(m, 'post');
+    this.tag(m, 'resolve');
     return m;
   }
 
@@ -337,7 +349,9 @@ export class RenderProbe {
     const noShadows = med('noShadows');
     const base = post ? med('noPost') : noShadows;
     ms.shadows = Math.max(0, full - noShadows);
+    // redrawing can't split post-processing up: all of it, with the scene's MSAA, lands on Bloom
     ms.post = post ? Math.max(0, noShadows - base) : 0;
+    ms.resolve = ms.screen = NaN;
     let parts = 0;
     for (const p of HIDEABLE) {
       if (!this.samples.has(p)) continue;
