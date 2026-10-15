@@ -28,6 +28,7 @@ import { AD_ASPECT, adAtlas } from '../ads';
 import { RenderSettings } from '../settings';
 import { Scoreboard, bar, gateMaterial, led, ledMaterial, type ScoreState, type VenueLike } from '../venue';
 import type { LightLook } from '../stage';
+import { CANVAS_GLOSS, type ReflectLook } from '../rt';
 import { Mesher, Tris, glowMaterial, lin, litMaterial, skyDome, venueUniforms, type Daylight, type SkyLook, type VenueUniforms } from './kit';
 
 /**
@@ -58,7 +59,8 @@ export interface OutdoorSpec {
   day: Daylight;
   sky: SkyLook;
   look: LightLook;
-  floor: { map: THREE.Texture; metres: number; roughness?: number; color?: number };
+  /** `gloss`: how strongly the floor reflects with ray-traced lighting on (0, the default: not at all). */
+  floor: { map: THREE.Texture; metres: number; roughness?: number; color?: number; gloss?: number };
   stands: StandStyle;
   /** How much daylight lights the fans (0..1), and its colour and strength. */
   crowd: { day: number; light: number; k: number };
@@ -103,6 +105,7 @@ export class OutdoorVenue implements VenueLike {
   readonly far: number = 900;
   readonly beams = false;
   readonly outer: number;
+  readonly reflect: ReflectLook;
   readonly u: VenueUniforms;
   protected show: ArenaShow;
   /** Shared matte scenery and glow materials. */
@@ -126,6 +129,8 @@ export class OutdoorVenue implements VenueLike {
     this.u = venueUniforms(spec.day, arena);
     this.look = spec.look;
     this.outer = spec.outer;
+    // a smoother floor gives a sharper reflection
+    this.reflect = { canvas: CANVAS_GLOSS, floor: [spec.floor.gloss ?? 0, Math.min(0.8, Math.max(0.1, (spec.floor.roughness ?? 0.9) - 0.3)), FLOOR] };
     g.add(skyDome(this.u, spec.sky));
     this.lit = litMaterial(this.u, { grain: 0.1 });
     this.glow = glowMaterial(this.u);

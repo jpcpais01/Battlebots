@@ -82,6 +82,8 @@ const SEEK_BUDGET = 14;
 
 const _v = new THREE.Vector3();
 const _size = new THREE.Vector2();
+/** Where the arena is photographed from for reflections: mid-ring, at a robot's chest. */
+const _probeAt = new THREE.Vector3(0, 1.3, 0);
 const _u = new THREE.Vector3();
 const _pan = new THREE.Vector3();
 const _dp = new THREE.Vector3();
@@ -329,6 +331,25 @@ export class Game {
     this.stage.warmUp([this.arena.group, this.arena.venue.group, this.fx.group, this.debris.group, this.oil.group, this.steam.group, this.drones.group, this.stretcher.group]);
   }
 
+  /**
+   * In the arena, metal and paint reflect the place itself: the first time each venue is on
+   * screen, the stage photographs it from the middle of the ring (Stage.captureEnv). The glossy
+   * canvas and floor reflect what is on screen there (ray-traced lighting only), nothing elsewhere.
+   */
+  private syncEnv() {
+    const inArena = this.place === 'arena';
+    const v = this.arena.venue;
+    this.stage.setReflect(inArena ? (v.reflect ?? null) : null);
+    if (!inArena) return;
+    let e = this.envs.get(v);
+    if (!e) {
+      e = this.stage.captureEnv([this.arena.group, v.group], _probeAt);
+      this.envs.set(v, e);
+    }
+    if (this.stage.scene.environment !== e.map.texture) this.stage.useEnv(e.map.texture, e.gain);
+  }
+  private envs = new Map<VenueLike, { map: THREE.WebGLRenderTarget; gain: number }>();
+
   /** Which part of the scene each draw call is charged to in the performance overlay. */
   private tagParts() {
     const p = this.probe;
@@ -380,6 +401,8 @@ export class Game {
       this.garage?.exit();
       this.stage.applyLook(inMap ? this.world!.look : this.look);
     }
+    // the arena reflects its own photograph (see syncEnv); everywhere else starts from the studio
+    if (!inArena) this.stage.useEnv(null);
     if (p === 'home') {
       try {
         const h = this.homeStage();
@@ -1399,6 +1422,7 @@ export class Game {
     this.lastMode = this.director.mode;
     this.stage.govern(dt, cut, this.pacer.target);
     this.warmArena();
+    this.syncEnv();
     this.probe.begin();
     this.stage.render();
     this.probe.end();

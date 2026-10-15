@@ -25,6 +25,7 @@ import {
   type MatKey,
 } from './parts';
 import { RenderSettings } from './settings';
+import { patchSurfaceDetail } from './surfaceDetail';
 import { makerSurfaces, surf, vertexPBR, type GlowKey, type Surfaces } from './bake';
 import { CH_CORE, CH_GLOW, CH_RARITY, rigid, rigidDepth, SkinBuilder, type DetailLod } from './skin';
 import { contactAO } from './ao';
@@ -214,7 +215,9 @@ export function botGlows(paint: Paint, coreLook: number, rarity: number): Record
 
 /** Standard PBR material reading colour, metalness and roughness per vertex. */
 function makeOpaqueMaterial(dmg: DamageUniforms) {
-  const m = patchDamage(vertexPBR(new THREE.MeshStandardMaterial(), 'bot-opaque'), dmg);
+  let m = patchDamage(vertexPBR(new THREE.MeshStandardMaterial(), 'bot-opaque'), dmg);
+  // brushed grain, patchy sheen and a faint ripple in the plating, where the GPU can spare it
+  if (RenderSettings.quality === 'high') m = patchSurfaceDetail(m);
   // limbs, torsos and the opponent shade each other; legs and feet darken towards the canvas
   return rigid(contactAO.patch(m, { spheres: true, strength: 1.8, ground: { y: 0, height: 0.5, k: 0.5 }, direct: 0.6 }));
 }

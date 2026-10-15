@@ -5,6 +5,12 @@ import { RippleOverlay, Ripples } from './ripple';
 import { RenderSettings } from './settings';
 import { ResolutionGovernor } from './governor';
 import { contactAO } from './ao';
+import { loadRT, rtDefault, RT_MARK, saveRT, ScreenSpaceLighting, type ReflectLook } from './rt';
+import { installPCSS, updatePCSS } from './pcss';
+import { EnvProbe } from './envProbe';
+
+/** The key light's width for its soft shadows: a bank of stage lamps, in metres. */
+const KEY_SIZE = 1.6;
 
 export type Quality = 'low' | 'med' | 'high';
 
@@ -79,6 +85,18 @@ export class Stage {
   /** The arena's lighting, captured at start so a place that relights the scene can hand it back. */
   readonly arenaLook: LightLook;
   quality: Quality;
+  /**
+   * Ray-traced lighting (high quality only; on by default on desktops): screen-space GI, AO,
+   * contact shadows and reflections, and contact-hardening soft shadows. See rt.ts and pcss.ts.
+   */
+  readonly rt: boolean;
+  /** The studio reflections everything starts with (and places without a probe keep). */
+  private studioEnv: THREE.Texture;
+  private pmrem: THREE.PMREMGenerator;
+  private probe: EnvProbe | null = null;
+  /** The environment's brightness from the current look, and the gain the current map needs on top. */
+  private lookEnv = 0.55;
+  private envGain = 1;
   private maxPixelRatio = 2;
   private governor: ResolutionGovernor;
   /** A resolution picked in settings; while set it overrides the governor and the quality cap. */
@@ -99,6 +117,8 @@ export class Stage {
     RenderSettings.bloom = quality === 'high';
     RenderSettings.quality = quality;
     contactAO.setQuality(quality);
+    // (before any material compiles: the soft shadows change three's shadow code for all of them)
+    this.rt = quality === 'high' && (loadRT() ?? rtDefault(quality)) && installPCSS();
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: quality !== 'high',
@@ -117,10 +137,11 @@ export class Stage {
     const scene = this.scene;
     scene.background = new THREE.Color(0x070a12);
     scene.fog = new THREE.FogExp2(0x070a12, 0.016);
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    const pmrem = (this.pmrem = new THREE.PMREMGenerator(this.renderer));
+    const room = new RoomEnvironment();
+    scene.environment = this.studioEnv = pmrem.fromScene(room, 0.04).texture;
+    room.dispose();
     scene.environmentIntensity = 0.55;
-    pmrem.dispose();
 
     this.hemi = new THREE.HemisphereLight(0x9cc0ff, 0x241a14, 0.42);
     scene.add(this.hemi);
@@ -151,8 +172,15 @@ export class Stage {
 
     this.maxPixelRatio = quality === 'high' ? 2 : quality === 'med' ? 1.5 : 1;
     this.governor = new ResolutionGovernor(this.deviceRatio());
-    if (quality === 'high') this.post = new PostFX(this.renderer, this.ripples);
-    else this.rippleOverlay = new RippleOverlay(this.ripples);
+    if (quality === 'high') {
+      const mobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+      const ssl = this.rt ? new ScreenSpaceLighting(mobile) : null;
+      if (ssl) {
+        ssl.keyLight = this.key;
+        this.watchShaders();
+      }
+      this.post = new PostFX(this.renderer, this.ripples, ssl);
+    } else this.rippleOverlay = new RippleOverlay(this.ripples);
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -190,7 +218,8 @@ export class Stage {
     const fog = this.scene.fog as THREE.FogExp2;
     fog.color.setHex(l.fog);
     fog.density = l.fogDensity;
-    this.scene.environmentIntensity = l.envIntensity;
+    this.lookEnv = l.envIntensity;
+    this.scene.environmentIntensity = l.envIntensity * this.envGain;
     this.hemi.color.setHex(l.hemi.sky);
     this.hemi.groundColor.setHex(l.hemi.ground);
     this.hemi.intensity = l.hemi.intensity;
@@ -215,6 +244,49 @@ export class Stage {
       p.position.fromArray(r.pos);
     });
   }
+
+  /**
+   * Photograph the place around `at` (only `show`, direct children of the scene, visible) into a
+   * reflection map for `useEnv`. One cube render and a filter: do it at a quiet moment.
+   */
+  captureEnv(show: THREE.Object3D[], at: THREE.Vector3) {
+    // (the studio's size: a reflection map of another size would rebuild every lit shader on a switch)
+    this.probe ??= new EnvProbe(256);
+    return this.probe.capture(this.renderer, this.pmrem, this.scene, show, at);
+  }
+
+  /** Reflect `map` (from captureEnv) at `gain`, or the stock studio (null). */
+  useEnv(map: THREE.Texture | null, gain = 1) {
+    this.scene.environment = map ?? this.studioEnv;
+    this.envGain = map ? gain : 1;
+    this.scene.environmentIntensity = this.lookEnv * this.envGain;
+  }
+
+  /** What the ray-traced reflections may reflect in (the arena's canvas and floor), or null for nothing. */
+  setReflect(r: ReflectLook | null) {
+    const ssl = this.post?.rt;
+    if (ssl) ssl.reflect = r ?? NO_REFLECT;
+  }
+
+  /**
+   * If a driver can't compile the ray-traced shaders, switch the setting off and reload with the
+   * plain look rather than drawing black (three caches the broken programs, so it can't be undone
+   * in place). Only an automatic or chosen setting on this device is changed, and only once.
+   */
+  private watchShaders() {
+    const r = this.renderer;
+    r.debug.onShaderError = (gl, program, vs, fs) => {
+      const log = (sh: WebGLShader) => gl.getShaderInfoLog(sh)?.trim();
+      console.error('THREE.WebGLProgram: shader error', gl.getError(), gl.getProgramInfoLog(program)?.trim(), log(vs), log(fs));
+      const src = (gl.getShaderSource(vs) ?? '') + (gl.getShaderSource(fs) ?? '');
+      if (!src.includes(RT_MARK) || this.rtFailed) return;
+      this.rtFailed = true;
+      console.warn('ray-traced lighting off: this GPU could not compile it');
+      saveRT(false);
+      location.reload();
+    };
+  }
+  private rtFailed = false;
 
   get resScale(): ResScale {
     return this.fixedRatio;
@@ -329,6 +401,7 @@ export class Stage {
     const size = this.renderer.getDrawingBufferSize(_size);
     const box = this.ripples.prepare(this.camera, size.x / Math.max(1, size.y));
     contactAO.renderMap(this.renderer);
+    if (this.rt && !this.rtFailed) updatePCSS(this.key, KEY_SIZE);
     if (this.post) this.post.render(this.scene, this.camera);
     else {
       this.renderer.setRenderTarget(null);
@@ -339,3 +412,4 @@ export class Stage {
 }
 
 const _size = new THREE.Vector2();
+const NO_REFLECT: ReflectLook = { canvas: [0, 1], floor: [0, 1, 0] };

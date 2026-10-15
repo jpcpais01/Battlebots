@@ -68,7 +68,7 @@ export class FallsVenue extends OutdoorVenue {
       day: DAY,
       sky: { zenith: 0x2f6fd0, horizon: 0xa8cdf0, glow: 0xfff0d0, glowSize: 0.35, cloud: 0.4, cloudLit: 0xffffff, cloudShade: 0x9aa8bc, disc: 1 },
       look: sunLook(DAY, { fogDensity: 0.0035, env: 1.0, hemi: [0x9cc6ff, 0x8a8a70, 1.1], key: 3.8, keyCol: 0xfff0dc, rims: [0xffd0a0, 9, 0x80c8ff, 10] }),
-      floor: { map: paverTexture(), metres: 3.6, roughness: 0.9 },
+      floor: { map: paverTexture(), metres: 3.6, roughness: 0.9, gloss: 0.35 },
       stands: {
         tread: (ri, k) => conc[(ri * 3 + k) % conc.length].clone().multiplyScalar(0.92 + 0.12 * ((ri + k) % 3) * 0.5),
         riser: () => lin(0x7a7670),

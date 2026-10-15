@@ -68,7 +68,7 @@ export class HarborVenue extends OutdoorVenue {
       day: DAY,
       sky: { zenith: 0x34497f, horizon: 0xf2a070, glow: 0xff9050, glowSize: 0.8, cloud: 0.4, cloudLit: 0xffc49a, cloudShade: 0x6a5a7a, stars: 0.12, disc: 1 },
       look: sunLook(DAY, { fogDensity: 0.004, env: 0.7, hemi: [0x8f9ad8, 0x6a5040, 0.85], key: 3.0, keyCol: 0xffb47a, rims: [0xff8040, 10, 0x60b8ff, 9] }),
-      floor: { map: plateTexture(), metres: 3.2, roughness: 0.62 },
+      floor: { map: plateTexture(), metres: 3.2, roughness: 0.62, gloss: 0.5 },
       stands: {
         // each section painted like the container it was cut from, ribbed
         tread: (ri, k) => treadCols[Math.floor(k / 7) % treadCols.length].clone().multiplyScalar((k % 7 === 0 ? 0.72 : 1) * (0.94 + 0.12 * (ri % 2))),
