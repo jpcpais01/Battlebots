@@ -17,8 +17,17 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-15 01:00",
+    title: "A cosier lounge",
+    notes: [
+      "Lounge: a knitted pouf with headphones, a basket of blankets, records on the floor, an open book on the sofa, cookies by the candles and slippers on the rug.",
+    ],
+  },
+  {
+    hour: "2026-10-15 01:00",
     title: "Smoother grappling",
     notes: [
+      "Lounge: a little robot cat sleeps curled up at the end of the sofa, flicking its tail, and jolts awake when the news breaks.",
+      "Lounge: pothos trail from hanging planters in front of the rainy window, dust drifts in the lamplight and the wall clock shows your own time.",
       "Clinches look and feel weightier: bodies ease into the tie-up, arms swim inside for the underhooks, drives walk them onto the ropes and settle there, and plum knees pull the head down onto them.",
       "Takedowns are real moves now: trips step in behind the heel and reap the leg, body-lock lifts carry them up and round before the slam, and double legs drive in off a deep penetration step, scoop the legs and turn the corner.",
       "Push-offs, referee breaks, sprawls, two-handed shoves and the step back after a takedown all play out smoothly instead of snapping apart.",

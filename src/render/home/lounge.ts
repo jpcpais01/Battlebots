@@ -17,6 +17,13 @@ const WIN = { x: 3.6, y0: 0.35, y1: 2.75, z: -2.38 };
 const TV = { y: 1.42, w: 1.92, h: 1.08, z: 3.9 };
 const FAIRY = 46;
 const DROPS = 56;
+/** Hanging planters in front of the window: x, z, how far the pot hangs below the ceiling. */
+const PLANTERS: [number, number, number][] = [
+  [-2.3, -1.95, 1.0],
+  [0.95, -2.0, 0.85],
+];
+/** The clock on the left wall. */
+const CLOCK = { y: 1.88, z: -0.78, r: 0.17 };
 
 const LOOK: LightLook = {
   background: 0x07080d,
@@ -68,6 +75,12 @@ const S = {
   mug: surf(0xe2d6c0, 0, 0.32),
   roomba: surf(0x2b2d31, 0.2, 0.35),
   gold: surf(0xd8ad52, 1, 0.24),
+  cat: surf(0xe8e2d6, 0.2, 0.3),
+  catDark: surf(0x2a2c30, 0.4, 0.4),
+  vine: surf(0x2f5626, 0, 0.7),
+  basket: surf(0x9c7444, 0, 0.9),
+  cookie: surf(0xc08a4c, 0, 0.85),
+  slipper: surf(0x8a3a3a, 0, 0.95),
 };
 
 const BOOKS = [0x8c2f2a, 0x2c4a6e, 0xd8c39a, 0x3d5c3a, 0xc4762e, 0x6b3a5c, 0x1f2a3a, 0xe0d6c2, 0x9a8a5e, 0x4f7a8a].map((c) => surf(c, 0, 0.75));
@@ -292,6 +305,40 @@ function monsteraTexture() {
       g.stroke();
     }
   }
+  return texture(c);
+}
+
+/** A glossy heart-shaped pothos leaf, marbled with pale yellow, the stalk at the bottom. */
+function pothosTexture() {
+  const { c, g } = canvas(64, 64);
+  g.clearRect(0, 0, 64, 64);
+  const grd = g.createLinearGradient(0, 64, 0, 0);
+  grd.addColorStop(0, '#2f6a2a');
+  grd.addColorStop(1, '#4f9338');
+  g.fillStyle = grd;
+  g.beginPath();
+  g.moveTo(32, 4);
+  g.bezierCurveTo(54, 16, 62, 40, 46, 54);
+  g.bezierCurveTo(40, 59, 34, 56, 32, 50);
+  g.bezierCurveTo(30, 56, 24, 59, 18, 54);
+  g.bezierCurveTo(2, 40, 10, 16, 32, 4);
+  g.fill();
+  g.globalCompositeOperation = 'source-atop';
+  for (let k = 0; k < 7; k++) {
+    g.strokeStyle = `rgba(226,222,140,${0.18 + hash(k * 3.1) * 0.25})`;
+    g.lineWidth = 2 + hash(k) * 3;
+    g.beginPath();
+    g.moveTo(32, 50);
+    g.quadraticCurveTo(32 + (hash(k * 5.7) - 0.5) * 50, 30, 32 + (hash(k * 2.3) - 0.5) * 40, 8 + hash(k * 4.1) * 20);
+    g.stroke();
+  }
+  g.strokeStyle = 'rgba(200,230,150,0.6)';
+  g.lineWidth = 1.2;
+  g.beginPath();
+  g.moveTo(32, 52);
+  g.lineTo(32, 8);
+  g.stroke();
+  g.globalCompositeOperation = 'source-over';
   return texture(c);
 }
 
@@ -542,6 +589,36 @@ const STEAM_FRAG = /* glsl */ `
  * The city's cold light falling through the window onto the floor, crossed by the frames'
  * shadows and rippling with the rain running down the glass.
  */
+/** Dust turning slowly in the arc lamp's light (in the near frame, so it scales with the sofa). */
+const MOTE_VERT = /* glsl */ `
+  uniform float uTime;
+  uniform float uViewH;
+  attribute vec4 seed;
+  varying float vA;
+  void main() {
+    float t = uTime * seed.y + seed.x * 40.0;
+    vec3 p = position + vec3(sin(t) * 0.12 + sin(t * 0.37) * 0.08, sin(t * 0.61 + 1.3) * 0.1, cos(t * 0.83) * 0.1);
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    gl_Position = projectionMatrix * mv;
+    gl_PointSize = max(1.0, seed.w * projectionMatrix[1][1] * uViewH * 0.5 / max(-mv.z, 0.3));
+    // bright in the lamp's cone, barely there outside it
+    vec3 L = vec3(0.2, 1.93, 0.0);
+    vec3 D = normalize(vec3(-0.35, -1.43, 0.45));
+    float cone = smoothstep(0.55, 0.9, dot(normalize(p - L), D));
+    vA = (0.12 + 0.88 * cone) * (0.6 + 0.4 * sin(t * 2.3 + seed.z * 6.0));
+  }`;
+
+const MOTE_FRAG = /* glsl */ `
+  uniform vec3 uCol;
+  varying float vA;
+  void main() {
+    vec2 d = gl_PointCoord - 0.5;
+    float a = max(0.0, 1.0 - dot(d, d) * 4.0);
+    gl_FragColor = vec4(uCol, a * a * vA * 0.7);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  }`;
+
 const WINLIGHT_GLSL = /* glsl */ `
   uniform sampler2D uWinNoise;
   uniform float uWinTime, uWinK;
@@ -589,6 +666,16 @@ const MONSTERA: [number, number, number][] = Array.from({ length: 9 }, (_, k) =>
   return [-3.55 + Math.cos(a) * r, 0.75 + hash(k * 5.7) * 0.75, -1.72 + Math.sin(a) * r * 0.8];
 });
 
+/** A point along vine k of planter i, s from the pot (0) to the vine's end (1). */
+function vineAt(i: number, k: number, s: number, out: THREE.Vector3) {
+  const [x, z, drop] = PLANTERS[i];
+  const a = (k / 7) * Math.PI * 2 + i * 0.7 + hash(i * 7 + k) * 0.5;
+  const len = 0.45 + hash(i * 13 + k * 3) * 0.75;
+  const r = 0.12 + 0.2 * Math.sqrt(s);
+  const wob = Math.sin(s * 3.2 + k) * 0.05;
+  return out.set(x + Math.cos(a) * r - Math.sin(a) * wob, ROOM.h - drop - 0.02 - len * s, z + Math.sin(a) * r * 0.8 + Math.cos(a) * wob);
+}
+
 interface Drop {
   pos: THREE.Vector3;
   vel: THREE.Vector3;
@@ -634,6 +721,13 @@ export class Lounge implements HomeScene {
   private size = 1;
   private mugHeld = true;
   private beats = new Set<string>();
+  private cat = new THREE.Group();
+  private catBody = new THREE.Group();
+  private catHead = new THREE.Group();
+  private catTail = new THREE.Group();
+  private catEyes: THREE.Group;
+  private catEyeMat: THREE.MeshBasicMaterial;
+  private hands: THREE.Object3D[] = [];
 
   constructor(renderer: THREE.WebGLRenderer, quality: Quality) {
     const g = this.group;
@@ -740,6 +834,9 @@ export class Lounge implements HomeScene {
     this.tvWall(far);
     this.plants(far);
     this.skirting(far);
+    this.planters(far);
+    this.clock(far);
+    this.cosy(far);
     const { opaque, emissive } = far.build();
     if (opaque) {
       const m = new THREE.Mesh(opaque, contactAO.patch(vertexPBR(new THREE.MeshStandardMaterial(), 'lounge-room'), { spheres: true, ground: { y: 0, height: 0.3, k: 0.4 }, direct: 0.5 }));
@@ -750,6 +847,8 @@ export class Lounge implements HomeScene {
     if (emissive) g.add(new THREE.Mesh(emissive, bakedGlowMaterial()));
     this.curtains(g);
     this.monstera(g);
+    this.pothos(g);
+    this.clockHands(g);
 
     // prints on the walls
     const art = (seed: number, w: number, hh: number, x: number, y: number, z: number, ry: number) => {
@@ -786,6 +885,7 @@ export class Lounge implements HomeScene {
     this.coffeeTable(near);
     this.sideTable(near, lamp);
     this.arcLamp(lamp);
+    this.sofaBits(near);
     const vel = velvet.build().opaque!;
     const velMat = new THREE.MeshPhysicalMaterial({ sheen: 1, sheenRoughness: 0.35, sheenColor: new THREE.Color(0x7fd0c8) });
     const sofa = new THREE.Mesh(vel, contactAO.patch(vertexPBR(velMat, 'lounge-velvet'), { spheres: true, ground: { y: 0, height: 0.3, k: 0.4 }, direct: 0.5 }));
@@ -805,6 +905,12 @@ export class Lounge implements HomeScene {
     this.near.add(lm);
     if (lb.emissive) this.near.add(new THREE.Mesh(lb.emissive, bakedGlowMaterial()));
     g.add(this.near);
+
+    // the cat asleep at the far end of the sofa, and dust in the lamplight
+    const cat = this.buildCat();
+    this.catEyes = cat.eyes;
+    this.catEyeMat = cat.eyeMat;
+    this.motes(quality);
 
     // candles on the coffee table, flickering
     this.flameMat = new THREE.MeshBasicMaterial({ color: glow(0xffa040, 2.6), toneMapped: false });
@@ -1101,6 +1207,260 @@ export class Lounge implements HomeScene {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     g.add(mesh);
+  }
+
+  /** Macrame planters hanging in front of the window, their pothos trailing down. */
+  private planters(b: Baker) {
+    const V = THREE.Vector3;
+    PLANTERS.forEach(([x, z, drop], i) => {
+      const yp = ROOM.h - drop;
+      put(b, G.cyl(0.13, 0.1, 0.17, 18), x, yp - 0.085, z, i ? S.terracotta : S.ceramic);
+      put(b, G.cyl(0.12, 0.12, 0.01, 18), x, yp - 0.012, z, S.walnutDark);
+      put(b, G.cyl(0.02, 0.02, 0.02, 8), x, ROOM.h - 0.01, z, S.brass);
+      const hook = new V(x, ROOM.h - 0.03, z), under = new V(x, yp - 0.21, z);
+      for (let k = 0; k < 3; k++) {
+        const a = (k / 3) * Math.PI * 2 + 0.5;
+        const rim = new V(x + Math.cos(a) * 0.135, yp - 0.02, z + Math.sin(a) * 0.135);
+        const low = new V(x + Math.cos(a) * 0.11, yp - 0.16, z + Math.sin(a) * 0.11);
+        const knot = new V().lerpVectors(hook, rim, 0.72);
+        seg(b, hook, knot, 0.004, 0.004, S.knit, 4);
+        seg(b, knot, rim, 0.004, 0.004, S.knit, 4);
+        seg(b, rim, low, 0.004, 0.004, S.knit, 4);
+        seg(b, low, under, 0.004, 0.004, S.knit, 4);
+        put(b, G.sphere(0.012, 6, 4), knot.x, knot.y, knot.z, S.knit);
+      }
+      put(b, G.sphere(0.02, 8, 6), under.x, under.y, under.z, S.knit);
+      seg(b, under, new V(x, under.y - 0.12, z), 0.006, 0.002, S.knit, 4);
+      // the vines themselves
+      const p = new V(), q = new V();
+      for (let k = 0; k < 7; k++) {
+        vineAt(i, k, 0, p);
+        for (let j = 1; j <= 10; j++) {
+          vineAt(i, k, j / 10, q);
+          seg(b, p, q, 0.003, 0.003, S.vine, 3);
+          p.copy(q);
+        }
+      }
+    });
+  }
+
+  /** Pothos leaves: a crown over each pot, and down every vine. */
+  private pothos(g: THREE.Group) {
+    const V = THREE.Vector3;
+    const pos: number[] = [], nor: number[] = [], uv: number[] = [], idx: number[] = [];
+    const n = new V(), side = new V(), up = new V(0, 1, 0), out = new V(), r = new V();
+    const leaf = (base: THREE.Vector3, dir: THREE.Vector3, size: number, seed: number) => {
+      dir.normalize();
+      r.set(hash(seed * 1.3) - 0.5, hash(seed * 2.7) - 0.5, hash(seed * 4.1) - 0.5);
+      n.copy(out).add(r).addScaledVector(up, 0.2).normalize();
+      side.crossVectors(dir, n);
+      if (side.lengthSq() < 1e-4) side.set(1, 0, 0);
+      side.normalize();
+      n.crossVectors(side, dir);
+      const w = size * 0.9;
+      const o = pos.length / 3;
+      for (const [u, v] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
+        const k = u - 0.5;
+        pos.push(base.x + side.x * w * k + dir.x * size * v, base.y + side.y * w * k + dir.y * size * v, base.z + side.z * w * k + dir.z * size * v);
+        nor.push(n.x, n.y, n.z);
+        uv.push(u, v);
+      }
+      idx.push(o, o + 1, o + 2, o, o + 2, o + 3);
+    };
+    const b = new V(), d = new V(), q = new V();
+    PLANTERS.forEach(([x, z, drop], i) => {
+      const yp = ROOM.h - drop;
+      for (let k = 0; k < 18; k++) {
+        const a = (k / 18) * Math.PI * 2 + hash(k + i * 5);
+        out.set(Math.cos(a), 0, Math.sin(a));
+        b.set(x + out.x * 0.09, yp, z + out.z * 0.09);
+        d.copy(out).multiplyScalar(0.8).addScaledVector(up, 0.25 + hash(k * 3 + i) * 0.4);
+        leaf(b, d, 0.075 + hash(k * 7 + i) * 0.03, k + i * 50);
+      }
+      for (let k = 0; k < 7; k++) {
+        const steps = 13;
+        for (let j = 1; j <= steps; j++) {
+          const s = j / steps;
+          vineAt(i, k, s, b);
+          vineAt(i, k, Math.max(0, s - 0.05), q);
+          out.set(b.x - x, 0, b.z - z).normalize();
+          side.crossVectors(up, out);
+          d.copy(out).multiplyScalar(0.55).addScaledVector(up, -0.45).addScaledVector(side, j % 2 ? 0.6 : -0.6);
+          leaf(b, d, (0.075 - 0.03 * s) * (0.85 + 0.3 * hash(j + k * 17 + i * 91)), 200 + i * 100 + k * 14 + j);
+        }
+      }
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: pothosTexture(), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.42, metalness: 0 }));
+    m.receiveShadow = true;
+    g.add(m);
+  }
+
+  /** A brass wall clock on the left wall, face to the room. */
+  private clock(b: Baker) {
+    const x = ROOM.x0 + 0.02, { y, z, r } = CLOCK;
+    put(b, G.torus(r, 0.016, 8, 40), x + 0.012, y, z, S.brass, 0, Math.PI / 2, 0);
+    put(b, G.cyl(r, r, 0.012, 40), x + 0.008, y, z, S.paper, 0, 0, Math.PI / 2);
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      const big = k % 3 === 0;
+      box(b, 0.004, big ? 0.04 : 0.025, big ? 0.01 : 0.006, x + 0.016, y + Math.cos(a) * r * 0.8, z + Math.sin(a) * r * 0.8, S.black, a, 0, 0);
+    }
+  }
+
+  /** The clock's hands (they keep the player's own time). */
+  private clockHands(g: THREE.Group) {
+    const { y, z } = CLOCK;
+    const black = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.5, metalness: 0.3 });
+    const red = new THREE.MeshStandardMaterial({ color: 0xc8342a, roughness: 0.5 });
+    for (const [w, len, d, back, x, m] of [
+      [0.016, 0.085, 0.004, 0.015, 0.02, black],
+      [0.01, 0.125, 0.004, 0.018, 0.024, black],
+      [0.004, 0.14, 0.003, 0.035, 0.028, red],
+    ] as const) {
+      const geo = new THREE.BoxGeometry(d, len + back, w);
+      geo.translate(0, (len - back) / 2, 0);
+      const hand = new THREE.Mesh(geo, m);
+      hand.position.set(ROOM.x0 + x, y, z);
+      g.add(hand);
+      this.hands.push(hand);
+    }
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.01, 12), black);
+    cap.rotation.z = Math.PI / 2;
+    cap.position.set(ROOM.x0 + 0.032, y, z);
+    g.add(cap);
+  }
+
+  /** A knitted pouf with headphones on it, a basket of blankets, records on the floor. */
+  private cosy(b: Baker) {
+    const px = -2.75, pz = 0.55;
+    put(b, G.cyl(0.27, 0.25, 0.32, 28), px, 0.16, pz, S.knit);
+    for (const y of [0.05, 0.13, 0.21, 0.29]) put(b, G.torus(0.262, 0.02, 6, 32), px, y, pz, S.knit, Math.PI / 2, 0, 0);
+    putS(b, G.sphere(1, 24, 8), px, 0.32, pz, S.knit, 0.265, 0.045, 0.265);
+    put(b, G.torus(0.08, 0.008, 6, 16, Math.PI), px + 0.03, 0.372, pz - 0.03, S.black, -Math.PI / 2, 0, 0.4);
+    for (const s of [-1, 1]) put(b, G.cyl(0.042, 0.042, 0.03, 16), px + 0.03 + Math.cos(0.4) * s * 0.08, 0.38, pz - 0.03 - Math.sin(0.4) * s * 0.08, S.matte);
+    // the basket
+    const bx = -2.75, bz = -0.82;
+    put(b, G.cyl(0.2, 0.17, 0.38, 22), bx, 0.19, bz, S.basket);
+    for (const y of [0.09, 0.2, 0.31]) put(b, G.torus(0.172 + y * 0.079, 0.008, 4, 28), bx, y, bz, S.walnutDark, Math.PI / 2, 0, 0);
+    put(b, G.torus(0.2, 0.016, 6, 28), bx, 0.38, bz, S.basket, Math.PI / 2, 0, 0);
+    put(b, G.cyl(0.075, 0.075, 0.42, 16), bx - 0.05, 0.43, bz - 0.04, S.mustard, 0.3, 0, 0.2);
+    put(b, G.cyl(0.068, 0.068, 0.4, 16), bx + 0.07, 0.41, bz + 0.06, S.knit, -0.25, 0, -0.3);
+    // a couple of records slid out on the floor by the player
+    box(b, 0.31, 0.006, 0.31, -3.3, 0.003, 1.25, BOOKS[1], 0, 0.3, 0);
+    box(b, 0.31, 0.006, 0.31, -3.2, 0.009, 1.05, S.paper, 0, 0.75, 0);
+    put(b, G.cyl(0.15, 0.15, 0.004, 32), -3.22, 0.014, 1.02, S.vinyl);
+  }
+
+  /** On the sofa and round it (near frame): an open book, cookies by the candles, slippers. */
+  private sofaBits(n: Baker) {
+    const T = LP.TABLE;
+    const bx = -0.62, by = 0.465, bz = 0.06;
+    box(n, 0.08, 0.024, 0.17, bx, by + 0.012, bz, S.paper);
+    for (const sx of [-1, 1]) box(n, 0.125, 0.008, 0.185, bx + sx * 0.056, by + 0.024, bz, BOOKS[5], 0, 0, -sx * 0.35);
+    put(n, G.cyl(0.075, 0.06, 0.012, 22), 0.13, T.y + 0.006, 0.9, S.ceramic);
+    for (const [x, z, r] of [
+      [0.11, 0.88, 0],
+      [0.155, 0.925, 0.3],
+      [0.12, 0.935, -0.2],
+    ]) put(n, G.cyl(0.03, 0.03, 0.009, 14), x, T.y + 0.017 + (r < 0 ? 0.008 : 0), z, S.cookie, r, 0, 0);
+    for (const [x, z, ry] of [
+      [0.62, 0.74, 0.3],
+      [0.8, 0.66, -0.15],
+    ]) {
+      box(n, 0.1, 0.035, 0.25, x, 0.018, z, S.slipper, 0, ry, 0, 0.015);
+      putS(n, G.sphere(1, 12, 8), x + Math.sin(ry) * 0.05, 0.045, z + Math.cos(ry) * 0.05, S.knit, 0.055, 0.03, 0.075, 0, ry, 0);
+    }
+  }
+
+  /** A little robot cat, curled up asleep at the far end of the sofa (near frame). */
+  private buildCat() {
+    const V = THREE.Vector3;
+    const mk = (b: Baker, key: string) => {
+      const m = new THREE.Mesh(b.build().opaque!, vertexPBR(new THREE.MeshStandardMaterial(), key));
+      m.castShadow = true;
+      m.receiveShadow = true;
+      return m;
+    };
+    // body, curled, its paws tucked in front and its tail round them
+    const bb = new Baker();
+    putS(bb, G.sphere(1, 18, 12), 0, 0.075, 0, S.cat, 0.17, 0.08, 0.12);
+    putS(bb, G.sphere(1, 14, 10), -0.02, 0.112, 0, S.catDark, 0.11, 0.05, 0.08);
+    for (const sz of [-1, 1]) putS(bb, G.sphere(1, 10, 6), 0.15, 0.02, sz * 0.045, S.cat, 0.05, 0.022, 0.028);
+    const tail = [new V(-0.16, 0.05, -0.02), new V(-0.175, 0.035, 0.07), new V(-0.11, 0.025, 0.13), new V(-0.02, 0.022, 0.15)];
+    for (let i = 0; i < 3; i++) seg(bb, tail[i], tail[i + 1], 0.022 - i * 0.002, 0.02 - i * 0.002, S.cat, 8);
+    this.catBody.add(mk(bb, 'lounge-cat'));
+    const tb = new Baker();
+    seg(tb, new V(0, 0, 0), new V(0.07, 0, -0.005), 0.016, 0.014, S.cat, 8);
+    seg(tb, new V(0.07, 0, -0.005), new V(0.13, 0.005, -0.025), 0.014, 0.007, S.catDark, 8);
+    this.catTail.add(mk(tb, 'lounge-cat-tail'));
+    this.catTail.position.copy(tail[3]);
+    this.catBody.add(this.catTail);
+    // the head, resting on its paws
+    const hb = new Baker();
+    put(hb, G.sphere(0.068, 16, 12), 0.04, 0.02, 0, S.cat);
+    putS(hb, G.sphere(1, 12, 8), 0.095, 0.005, 0, S.cat, 0.035, 0.026, 0.034);
+    put(hb, G.sphere(0.008, 6, 4), 0.128, 0.01, 0, S.catDark);
+    for (const sz of [-1, 1]) {
+      put(hb, G.cone(0.026, 0.06, 4), 0.025, 0.085, sz * 0.035, S.cat, sz * 0.3, 0, -0.15);
+      put(hb, G.cone(0.014, 0.035, 4), 0.032, 0.082, sz * 0.037, S.catDark, sz * 0.3, 0, -0.15);
+    }
+    this.catHead.add(mk(hb, 'lounge-cat-head'));
+    // eyes: sleepy slits, lit
+    const eyeMat = new THREE.MeshBasicMaterial({ color: glow(0xffb040, 0.6), toneMapped: false });
+    const eyes = new THREE.Group();
+    const eyeGeo = new THREE.BoxGeometry(0.004, 0.012, 0.018);
+    for (const sz of [-1, 1]) {
+      const e = new THREE.Mesh(eyeGeo, eyeMat);
+      e.position.set(0, 0, sz * 0.024);
+      e.rotation.y = -sz * 0.35;
+      eyes.add(e);
+    }
+    eyes.position.set(0.102, 0.035, 0);
+    this.catHead.add(eyes);
+    this.catHead.position.set(0.12, 0.08, 0);
+    this.catHead.rotation.order = 'YZX';
+    this.cat.add(this.catBody, this.catHead);
+    this.cat.position.set(-1.22, 0.465, 0);
+    this.cat.rotation.y = -0.69;
+    this.near.add(this.cat);
+    return { eyes, eyeMat };
+  }
+
+  /** Dust motes drifting through the arc lamp's light. */
+  private motes(quality: Quality) {
+    const n = quality === 'low' ? 50 : 110;
+    const pos = new Float32Array(n * 3), seed = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      const h = (k: number) => hash(i * k + 0.71);
+      pos.set([-0.9 + h(1.3) * 1.9, 0.5 + h(2.1) * 1.5, -0.5 + h(3.9) * 1.8], i * 3);
+      seed.set([h(4.7), 0.08 + 0.12 * h(5.1), h(6.3), 0.006 + 0.006 * h(7.9)], i * 4);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('seed', new THREE.BufferAttribute(seed, 4));
+    const viewH = { value: 1080 };
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uTime: this.time, uViewH: viewH, uCol: { value: new THREE.Color(1.0, 0.8, 0.58).multiplyScalar(1.3) } },
+      vertexShader: MOTE_VERT,
+      fragmentShader: MOTE_FRAG,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const pts = new THREE.Points(geo, mat);
+    const size = new THREE.Vector2();
+    pts.onBeforeRender = (r: THREE.WebGLRenderer) => {
+      const t = r.getRenderTarget();
+      viewH.value = t ? t.height : r.getDrawingBufferSize(size).y;
+    };
+    pts.frustumCulled = false;
+    pts.renderOrder = 2;
+    this.near.add(pts);
   }
 
   /** The monstera's big split leaves. */
@@ -1507,6 +1867,23 @@ export class Lounge implements HomeScene {
     this.roomba.position.set(rx, 0, rz);
     this.roomba.rotation.y = Math.atan2(-Math.sin(s) * 0.75, Math.cos(s) * 0.4);
     this.roombaLed.color.setHex(0x3fe0ff).multiplyScalar(RenderSettings.glow(lap > 0.87 ? 1 + Math.abs(Math.sin(time * 6)) * 1.6 : 2));
+    // the cat breathes and flicks its tail in its sleep, until the news wakes it with a start
+    const wake = alert ? ramp(this.t, 0.15, 0.4) : 0;
+    this.catBody.scale.set(1, 1 + 0.035 * Math.sin(time * 2.1) * (1 - wake), 1);
+    this.catTail.rotation.y = 0.5 * Math.sin(time * 5) * Math.pow(Math.max(0, Math.sin(time * 0.45)), 6) + wake * 0.5 * Math.sin(this.t * 9);
+    this.catHead.rotation.z = -0.3 + 0.55 * wake;
+    this.catHead.rotation.y = 0.15 - 0.72 * wake;
+    this.catHead.position.y = 0.08 + 0.035 * wake;
+    this.catEyes.scale.y = 0.25 + 0.75 * wake;
+    this.catEyeMat.color.setHex(0xffb040).multiplyScalar(RenderSettings.glow(0.6 + 1.8 * wake));
+    // the clock, at the player's own time, the second hand ticking
+    const now = new Date();
+    const sec = now.getSeconds() + now.getMilliseconds() / 1000;
+    const tick = Math.floor(sec) + smooth(Math.min(1, (sec % 1) / 0.12));
+    const min = now.getMinutes() + sec / 60;
+    const hr = (now.getHours() % 12) + min / 60;
+    const turn = [hr / 12, min / 60, tick / 60];
+    this.hands.forEach((h, i) => (h.rotation.x = -turn[i] * Math.PI * 2));
     // lightning every so often, a double flicker
     if (!alert && time > this.nextFlash) {
       this.flash = 0.8 + hash(time) * 0.6;
