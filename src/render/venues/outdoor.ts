@@ -100,7 +100,7 @@ export class OutdoorVenue implements VenueLike {
   readonly crowd: Crowd;
   readonly floorMesh: THREE.Mesh;
   readonly look: LightLook;
-  readonly far = 900;
+  readonly far: number = 900;
   readonly beams = false;
   readonly outer: number;
   readonly u: VenueUniforms;

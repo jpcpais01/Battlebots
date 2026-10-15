@@ -54,6 +54,12 @@ export interface MapUniforms {
   uGlow: { value: number };
   /** The haze colour as the background reaches the screen (see MAP_OUT). */
   uFogOut: { value: THREE.Color };
+  /**
+   * Where the map is drawn, relative to where it is (zero on the map itself). A venue that sets the
+   * whole world map round it (the Skydeck) moves it with this: the shaders keep working in map
+   * coordinates, only the camera and the drawing are shifted.
+   */
+  uMapShift: { value: THREE.Vector3 };
 }
 
 export function mapUniforms(glow: number): MapUniforms {
@@ -70,6 +76,7 @@ export function mapUniforms(glow: number): MapUniforms {
     uNight: { value: 0 },
     uGlow: { value: glow },
     uFogOut: { value: new THREE.Color(MAP_COLORS.fog) },
+    uMapShift: { value: new THREE.Vector3() },
   };
 }
 
@@ -79,7 +86,7 @@ export const MAP_GLSL = /* glsl */ `
   uniform vec3 uSunDir, uSunCol, uSky, uGnd;
   uniform sampler2D uShadow, uNoise;
   uniform float uShadowHalf, uDusk, uGlow, uNight;
-  uniform vec3 uFogOut;
+  uniform vec3 uFogOut, uMapShift;
   float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
   // 1 in sunlight, 0 in a shadow (terrain, buildings), softened over a couple of metres
   float sunShadow(vec3 w) {
@@ -284,6 +291,7 @@ export function litMaterial(u: MapUniforms) {
       attribute vec3 color;
       varying vec3 vCol, vN, vWorld;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vCol = color;
         #ifdef USE_INSTANCING
@@ -296,7 +304,7 @@ export function litMaterial(u: MapUniforms) {
         #ifdef USE_INSTANCING_COLOR
           vCol *= instanceColor;
         #endif
-        vWorld = w.xyz;
+        vWorld = w.xyz - uMapShift;
         vec4 mvPosition = viewMatrix * w;
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
@@ -321,6 +329,7 @@ export function glowMaterial(u: MapUniforms, opts: { additive?: boolean; flicker
       varying vec3 vCol;
       varying vec3 vWorld;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vCol = color;
         #ifdef USE_INSTANCING
@@ -331,7 +340,7 @@ export function glowMaterial(u: MapUniforms, opts: { additive?: boolean; flicker
         #ifdef USE_INSTANCING_COLOR
           vCol *= instanceColor;
         #endif
-        vWorld = w.xyz;
+        vWorld = w.xyz - uMapShift;
         vec4 mvPosition = viewMatrix * w;
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>

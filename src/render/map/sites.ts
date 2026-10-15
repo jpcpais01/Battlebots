@@ -355,13 +355,14 @@ function pillarMesh(u: MapUniforms, list: { at: THREE.Vector3; col: number }[]) 
       varying vec3 vCol, vWorld, vN;
       varying float vY, vBoost;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vCol = color;
         vY = aY.x;
         vBoost = uBoost[int(aY.y + 0.5)];
         vN = normal;
         vec4 w = modelMatrix * vec4(position, 1.0);
-        vWorld = w.xyz;
+        vWorld = w.xyz - uMapShift;
         vec4 mvPosition = viewMatrix * w;
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
@@ -372,7 +373,7 @@ function pillarMesh(u: MapUniforms, list: { at: THREE.Vector3; col: number }[]) 
       varying float vY, vBoost;
       #include <fog_pars_fragment>
       void main() {
-        vec3 V = normalize(cameraPosition - vWorld);
+        vec3 V = normalize((cameraPosition - uMapShift) - vWorld);
         // brightest in the middle of the column (where the eye looks through most of it)
         float core = pow(max(abs(dot(V, normalize(vN))), 0.0), 1.5);
         float rise = fract(vY * 3.0 - uTime * 0.35);
@@ -406,13 +407,14 @@ function mistMesh(u: MapUniforms, list: number[]) {
       varying vec2 vUv;
       varying float vSeed;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vUv = position.xy;
         vSeed = aPuff.x * 0.37 + aPuff.z * 0.11;
         float t = fract(uTime * 0.12 + vSeed);
         vec3 c = aPuff.xyz + vec3(0.0, t * 14.0, 0.0);
         float s = aPuff.w * (0.7 + 0.6 * t);
-        vec4 mvPosition = viewMatrix * vec4(c, 1.0) + vec4(position.xy * s, 0.0, 0.0);
+        vec4 mvPosition = viewMatrix * vec4(c + uMapShift, 1.0) + vec4(position.xy * s, 0.0, 0.0);
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
       }`,
@@ -458,12 +460,13 @@ function ferryBoat(u: MapUniforms, plan: Plan) {
         varying vec2 vUv;
         varying vec3 vWorld;
         #include <fog_pars_vertex>
+        uniform vec3 uMapShift;
         void main() {
           vUv = uv;
           vec3 p = position;
           p.x *= mix(1.0, 0.3, uv.y);
           vec4 w = modelMatrix * vec4(p, 1.0);
-          vWorld = w.xyz;
+          vWorld = w.xyz - uMapShift;
           vec4 mvPosition = viewMatrix * w;
           gl_Position = projectionMatrix * mvPosition;
           #include <fog_vertex>

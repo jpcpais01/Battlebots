@@ -16,6 +16,14 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-15 03:00",
+    title: "Skydeck 88",
+    notes: [
+      "The Neon Heights Championship now has its own venue, Skydeck 88: a ring on the roof of the tower in the middle of downtown, at night, with the whole city from the world map spread out below, the Spire's neon glass rising right behind the north stand, and the holo whale gliding past over the streets.",
+      "Up on Skydeck 88: lit glass floors stepping out under the deck, holo banners beamed up from lattice masts at the corners, a ring of holo text circling over the roof, searchlights sweeping the sky and flying cars streaming round downtown at the height of the deck.",
+    ],
+  },
+  {
     hour: "2026-10-15 02:00",
     title: "Pier 9, the Lantern Grove and Cascade Falls",
     notes: [

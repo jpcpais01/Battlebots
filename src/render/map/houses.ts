@@ -187,11 +187,12 @@ export function windowMaterial(u: MapUniforms) {
       attribute vec3 color;
       varying vec3 vCol, vN, vWorld;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vCol = color;
         vN = normalize(mat3(modelMatrix) * normal);
         vec4 w = modelMatrix * vec4(position, 1.0);
-        vWorld = w.xyz;
+        vWorld = w.xyz - uMapShift;
         vec4 mvPosition = viewMatrix * w;
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
@@ -202,7 +203,7 @@ export function windowMaterial(u: MapUniforms) {
       #include <fog_pars_fragment>
       void main() {
         vec3 n = normalize(vN);
-        vec3 V = normalize(cameraPosition - vWorld);
+        vec3 V = normalize((cameraPosition - uMapShift) - vWorld);
         float fres = 0.1 + 0.9 * pow(1.0 - max(dot(V, n), 0.0), 4.0);
         vec3 glass = mix(vec3(0.05, 0.06, 0.08), skyCol(reflect(-V, n)), 0.35 * fres + 0.1) * (0.5 + 0.5 * cloudShade(vWorld.xz));
         float night = clamp((uDusk - 0.55) / 0.45, 0.0, 1.0);

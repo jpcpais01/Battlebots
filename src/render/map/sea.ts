@@ -34,9 +34,10 @@ export function buildSea(u: MapUniforms, depth: THREE.Texture) {
     vertexShader: /* glsl */ `
       varying vec3 vWorld;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vec4 w = modelMatrix * vec4(position, 1.0);
-        vWorld = w.xyz;
+        vWorld = w.xyz - uMapShift;
         vec4 mvPosition = viewMatrix * w;
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
@@ -55,7 +56,7 @@ export function buildSea(u: MapUniforms, depth: THREE.Texture) {
         vec4 dm = texture2D(uDepth, clamp(uv, 0.0, 1.0));
         // depth 0 (shore) .. 1 (24 m and more)
         float d = mix(1.0, dm.r, inside);
-        vec3 V = normalize(cameraPosition - w);
+        vec3 V = normalize((cameraPosition - uMapShift) - w);
         float px = length(fwidth(w.xz));
         // calmer, smoother water far off (and no shimmering ripples smaller than a pixel)
         vec3 n = waveN(w.xz, mix(0.5, 0.05, smoothstep(2.0, 18.0, px)));
@@ -169,10 +170,11 @@ function freshWater(u: MapUniforms) {
       attribute vec3 aFlow;
       varying vec3 vWorld, vFlow;
       #include <fog_pars_vertex>
+      uniform vec3 uMapShift;
       void main() {
         vFlow = aFlow;
         vec4 w = modelMatrix * vec4(position, 1.0);
-        vWorld = w.xyz;
+        vWorld = w.xyz - uMapShift;
         vec4 mvPosition = viewMatrix * w;
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
@@ -184,7 +186,7 @@ function freshWater(u: MapUniforms) {
       #include <fog_pars_fragment>
       void main() {
         vec3 w = vWorld;
-        vec3 V = normalize(cameraPosition - w);
+        vec3 V = normalize((cameraPosition - uMapShift) - w);
         float shade = cloudShade(w.xz);
         // the current: streaks carried downstream
         float run = vFlow.x - uTime * vFlow.y * 6.0;
