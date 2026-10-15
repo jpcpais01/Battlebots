@@ -12,6 +12,7 @@ import {
   TOP_Y,
   RC,
   TUNNEL_GATE,
+  TUNNEL_HALL,
   TUNNEL_OPEN_H,
   TUNNEL_OPEN_HW,
   TUNNEL_ROWS,
@@ -486,7 +487,7 @@ function bannerTexture(): THREE.CanvasTexture {
   return sign(c);
 }
 
-function tunnelTexture(colour: string, label: string, tunnelH: number): THREE.CanvasTexture {
+function tunnelTexture(colour: string, tunnelH: number): THREE.CanvasTexture {
   const [c, g] = canvas(256, 256);
   g.fillStyle = '#07090f';
   g.fillRect(0, 0, 256, 256);
@@ -494,21 +495,77 @@ function tunnelTexture(colour: string, label: string, tunnelH: number): THREE.Ca
   const x0 = Math.round(128 - (TUNNEL_OPEN_HW / TUNNEL_W) * 256);
   const x1 = 256 - x0;
   const top = Math.round(256 - (TUNNEL_OPEN_H / tunnelH) * 256);
+  // panel seams round it
+  g.strokeStyle = '#121620';
+  g.lineWidth = 2;
+  for (let y = 12; y < 256; y += 24) {
+    g.beginPath();
+    g.moveTo(0, y);
+    g.lineTo(256, y);
+    g.stroke();
+  }
   g.strokeStyle = colour;
-  g.lineWidth = 10;
-  g.beginPath();
-  g.moveTo(x0, 256);
-  g.lineTo(x0, top);
-  g.lineTo(x1, top);
-  g.lineTo(x1, 256);
-  g.stroke();
-  g.fillStyle = colour;
-  g.font = 'bold 22px "Russo One", Impact, sans-serif';
-  g.textAlign = 'center';
-  g.fillText(label, 128, Math.min(28, top - 8));
+  g.globalAlpha = 0.35;
+  g.lineWidth = 4;
+  g.strokeRect(x0 - 6, top - 6, x1 - x0 + 12, 270 - top);
+  g.globalAlpha = 1;
   // open: the hall is behind it
-  g.clearRect(x0 + 5, top + 5, x1 - x0 - 10, 256 - top - 5);
+  g.clearRect(x0, top, x1 - x0, 256 - top);
   return tex(c, false);
+}
+
+/** The LED marquee over a tunnel mouth: its corner's name in lit dots, with a border of bulbs. */
+function marqueeTexture(colour: string, label: string): THREE.CanvasTexture {
+  const W = 512, H = 72;
+  const [, s] = canvas(W, H);
+  s.fillStyle = '#000';
+  s.fillRect(0, 0, W, H);
+  s.fillStyle = '#fff';
+  s.font = 'bold 46px "Russo One", Impact, sans-serif';
+  s.textAlign = 'center';
+  s.textBaseline = 'middle';
+  s.fillText(label, W / 2, H / 2 + 2);
+  const px = s.getImageData(0, 0, W, H).data;
+  const [c, g] = canvas(W, H);
+  g.fillStyle = '#05060a';
+  g.fillRect(0, 0, W, H);
+  // dot-matrix: one LED every 4 px, lit where the text is
+  for (let y = 2; y < H; y += 4) {
+    for (let x = 2; x < W; x += 4) {
+      const on = px[(y * W + x) * 4] > 100;
+      const border = y < 6 || y > H - 6 || x < 6 || x > W - 6;
+      g.fillStyle = on ? colour : border && (x + y) % 16 < 8 ? '#ffffff' : '#141821';
+      g.fillRect(x - 1.5, y - 1.5, 3, 3);
+    }
+  }
+  return sign(c);
+}
+
+/**
+ * Every LED in the tunnels, in one draw: vertex colour is the light, `aChase` (metres along its
+ * run, or -1 for steady) sends pulses racing down the hall towards the gate.
+ */
+function tunnelLedMaterial(time: { value: number }) {
+  return new THREE.ShaderMaterial({
+    uniforms: { uTime: time },
+    vertexColors: true,
+    vertexShader: /* glsl */ `
+      uniform float uTime;
+      attribute float aChase;
+      varying vec3 vC;
+      void main(){
+        float k = 1.0;
+        if (aChase >= 0.0) {
+          float f = fract(aChase * 0.22 - uTime * 0.55);
+          k = 0.5 + 1.3 * smoothstep(0.82, 1.0, f) + 0.35 * (1.0 - smoothstep(0.0, 0.25, f));
+        }
+        vC = color * k;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: /* glsl */ `
+      varying vec3 vC;
+      void main(){ gl_FragColor = vec4(vC, 1.0); }`,
+  });
 }
 
 /**
@@ -827,63 +884,122 @@ export class Venue {
     g.add(new THREE.Mesh(win.geometry(), new THREE.MeshBasicMaterial({ map: winTex, side: THREE.DoubleSide })));
 
     // ---------------------------------------------------------------- entrance tunnels
-    // a hall into the stands on each end: dark walls lit by rings of team-coloured light,
-    // and an energy gate across it a little way in (whatever goes through is gone)
+    // a real tunnel on each end, running on under the stands: a lit portal with pylons and an LED
+    // marquee, then a long hall ribbed with rings of team-coloured light that race towards an
+    // energy gate (whatever goes through is gone), and the far wall beyond it
     const tunnelD = ROWS[TUNNEL_ROWS].d;
     const tunnelH = ROWS[TUNNEL_ROWS].y - FLOOR;
-    const HW = TUNNEL_OPEN_HW, OH = TUNNEL_OPEN_H;
+    const HW = TUNNEL_OPEN_HW, OH = TUNNEL_OPEN_H, HD = TUNNEL_HALL;
     const sideW = TUNNEL_W / 2 - HW;
     const blocks: THREE.BufferGeometry[] = [];
     const hall: THREE.BufferGeometry[] = [];
-    const lights: THREE.BufferGeometry[] = [];
-    // darker the deeper in
-    const shade = (geo: THREE.BufferGeometry, base: number) => {
-      const P = geo.attributes.position;
-      const col = new Float32Array(P.count * 3);
-      for (let k = 0; k < P.count; k++) {
-        const deep = Math.min(1, Math.abs(Math.abs(P.getX(k)) - AX) / tunnelD);
-        col.fill(base * (1 - 0.8 * deep), k * 3, k * 3 + 3);
-      }
-      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-      return geo;
-    };
-    const glowCol = (geo: THREE.BufferGeometry, c: THREE.Color, k: number) => {
+    const leds: THREE.BufferGeometry[] = [];
+    const glow = RenderSettings.glow(1.35);
+    // a box in a tunnel's own frame: u metres in from its mouth, y up from the floor, z across
+    const tbox = (sx: number, u0: number, u1: number, y0: number, y1: number, z0: number, z1: number) =>
+      new THREE.BoxGeometry(u1 - u0, y1 - y0, z1 - z0).translate(sx * (AX + (u0 + u1) / 2), FLOOR + (y0 + y1) / 2, (z0 + z1) / 2);
+    const paint = (geo: THREE.BufferGeometry, c: THREE.Color, k: number, chase = -1) => {
       const n = geo.attributes.position.count;
       const col = new Float32Array(n * 3);
       for (let v = 0; v < n; v++) col.set([c.r * k, c.g * k, c.b * k], v * 3);
       geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-      return geo.toNonIndexed();
+      geo.setAttribute('aChase', new THREE.BufferAttribute(new Float32Array(n).fill(chase), 1));
+      geo.deleteAttribute('normal');
+      geo.deleteAttribute('uv');
+      return geo;
     };
-    for (const sx of [-1, 1]) {
-      const cx = sx * (AX + tunnelD / 2);
-      const team = new THREE.Color(sx < 0 ? 0xff7a1f : 0x3fe0ff);
-      // the walls either side of the mouth and the lintel over it (they hide the cut stands)
-      for (const sz of [-1, 1]) blocks.push(new THREE.BoxGeometry(tunnelD, tunnelH, sideW).translate(cx, FLOOR + tunnelH / 2, sz * (HW + sideW / 2)));
-      blocks.push(new THREE.BoxGeometry(tunnelD, tunnelH - OH, 2 * HW).translate(cx, FLOOR + OH + (tunnelH - OH) / 2, 0));
-      // posts where the ad boards stop at the mouth
-      for (const sz of [-1, 1]) blocks.push(new THREE.BoxGeometry(0.25, 0.42 - FLOOR + 0.04, 0.1).translate(sx * (AX - 0.475), (0.42 + FLOOR) / 2 + 0.02, sz * (HW + 0.05)));
-      // the hall: floor (from the boards in), walls, ceiling, the far end
-      const len = tunnelD + 0.62;
-      const x0 = sx * (AX - 0.62 + len / 2);
-      hall.push(shade(new THREE.PlaneGeometry(len, 2 * HW).rotateX(-Math.PI / 2).translate(x0, FLOOR + 0.002, 0), 0.05));
-      hall.push(shade(new THREE.PlaneGeometry(tunnelD, 2 * HW).rotateX(Math.PI / 2).translate(cx, FLOOR + OH - 0.004, 0), 0.03));
-      for (const sz of [-1, 1]) hall.push(shade(new THREE.PlaneGeometry(tunnelD, OH).rotateY(sz > 0 ? Math.PI : 0).translate(cx, FLOOR + OH / 2, sz * (HW - 0.004)), 0.045));
-      hall.push(shade(new THREE.PlaneGeometry(2 * HW, OH).rotateY(-sx * (Math.PI / 2)).translate(sx * (AX + tunnelD - 0.01), FLOOR + OH / 2, 0), 0.01));
-      // rings of light round the hall, fading in (the carpet runs in to the gate)
-      for (let x = 0.5; x < TUNNEL_GATE; x += 0.6) {
-        const k = RenderSettings.glow(1.3) * (1 - (0.55 * x) / TUNNEL_GATE);
-        const px = sx * (AX + x);
-        lights.push(glowCol(new THREE.BoxGeometry(0.06, 0.03, 2 * HW - 0.02).translate(px, FLOOR + OH - 0.02, 0), team, k));
-        for (const sz of [-1, 1]) lights.push(glowCol(new THREE.BoxGeometry(0.06, OH - 0.02, 0.03).translate(px, FLOOR + OH / 2, sz * (HW - 0.02)), team, k * 0.8));
+    // hall surfaces: darker the deeper in, with a wash of the team colour near the mouth
+    const shade = (geo: THREE.BufferGeometry, base: number, team: THREE.Color) => {
+      const P = geo.attributes.position;
+      const col = new Float32Array(P.count * 3);
+      for (let k = 0; k < P.count; k++) {
+        const deep = Math.min(1, Math.max(0, Math.abs(P.getX(k)) - AX) / HD);
+        const b = base * (1 - 0.7 * deep), w = 0.05 * (1 - deep) * (1 - deep);
+        col.set([b + team.r * w, b + team.g * w, b * 1.15 + team.b * w], k * 3);
       }
-      // the front: the painted portal, open in the middle
-      const face = new THREE.Mesh(
-        new THREE.PlaneGeometry(TUNNEL_W, tunnelH),
-        new THREE.MeshBasicMaterial({ map: tunnelTexture(sx < 0 ? '#ff7a1f' : '#3fe0ff', sx < 0 ? 'ORANGE CORNER' : 'BLUE CORNER', tunnelH), toneMapped: false, alphaTest: 0.5 }),
-      );
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      geo.deleteAttribute('uv');
+      geo.deleteAttribute('normal');
+      return geo;
+    };
+    const white = new THREE.Color(1, 1, 1);
+    for (const sx of [-1, 1]) {
+      const team = new THREE.Color(sx < 0 ? 0xff7a1f : 0x3fe0ff);
+      const css = sx < 0 ? '#ff7a1f' : '#3fe0ff';
+      // the walls either side of the mouth and the lintel over it, as deep as the cut stands
+      for (const sz of [-1, 1]) blocks.push(tbox(sx, 0, tunnelD, 0, tunnelH, sz * HW, sz * (HW + sideW)));
+      blocks.push(tbox(sx, 0, tunnelD, OH, tunnelH, -HW, HW));
+      // posts where the ad boards stop at the mouth
+      for (const sz of [-1, 1]) blocks.push(tbox(sx, -0.6, -0.35, 0, 1.08, sz * HW, sz * (HW + 0.1)));
+      // the portal: two pylons, a header beam carrying the marquee, a crown bar on top
+      const P0 = -0.34, P1 = 0.02, PY = 3.35, PW = 0.5;
+      for (const sz of [-1, 1]) blocks.push(tbox(sx, P0, P1, 0, PY, sz * HW, sz * (HW + PW)));
+      blocks.push(tbox(sx, P0 + 0.04, P1, OH, OH + 0.62, -HW, HW));
+      blocks.push(tbox(sx, P0 - 0.04, P1, PY, PY + 0.14, -(HW + PW + 0.12), HW + PW + 0.12));
+
+      // ---- the hall
+      hall.push(shade(new THREE.PlaneGeometry(HD + 0.62, 2 * HW).rotateX(-Math.PI / 2).translate(sx * (AX - 0.62 + (HD + 0.62) / 2), FLOOR + 0.002, 0), 0.05, team));
+      hall.push(shade(new THREE.PlaneGeometry(HD, 2 * HW).rotateX(Math.PI / 2).translate(sx * (AX + HD / 2), FLOOR + OH - 0.004, 0), 0.03, team));
+      for (const sz of [-1, 1]) hall.push(shade(new THREE.PlaneGeometry(HD, OH).rotateY(sz > 0 ? Math.PI : 0).translate(sx * (AX + HD / 2), FLOOR + OH / 2, sz * (HW - 0.004)), 0.045, team));
+      hall.push(shade(new THREE.PlaneGeometry(2 * HW, OH).rotateY(-sx * (Math.PI / 2)).translate(sx * (AX + HD - 0.01), FLOOR + OH / 2, 0), 0.012, team));
+      // structural ribs down the hall, a ring every 1.2 m, and a low kerb along each wall
+      for (let u = 0.6; u < HD; u += 1.2) {
+        for (const sz of [-1, 1]) hall.push(shade(tbox(sx, u - 0.07, u + 0.07, 0, OH, sz * (HW - 0.1), sz * HW), 0.075, team));
+        hall.push(shade(tbox(sx, u - 0.07, u + 0.07, OH - 0.12, OH, -HW, HW), 0.06, team));
+      }
+      for (const sz of [-1, 1]) hall.push(shade(tbox(sx, 0, HD, 0, 0.12, sz * (HW - 0.06), sz * HW), 0.07, team));
+
+      // ---- LEDs
+      // the portal: chasing outlines round the mouth, light bars up the pylons, the marquee's frame
+      const arch = (inset: number, k: number) => {
+        const zz = HW + inset, yy = OH + inset;
+        const u = P0 - 0.006;
+        for (const sz of [-1, 1]) leds.push(paint(tbox(sx, u - 0.02, u, 0, yy, sz * zz - 0.025, sz * zz + 0.025), team, k, yy));
+        leds.push(paint(tbox(sx, u - 0.02, u, yy - 0.025, yy + 0.025, -zz, zz), team, k, yy + zz));
+      };
+      arch(0.03, glow * 1.4);
+      arch(0.4, glow * 0.9);
+      for (const sz of [-1, 1]) {
+        // equaliser bars up each pylon's front, rising pulses
+        for (const bz of [0.13, 0.25, 0.37]) {
+          const z = sz * (HW + 0.03 + bz + 0.1);
+          for (let y = 0.15; y < PY - 0.2; y += 0.14) leds.push(paint(tbox(sx, P0 - 0.03, P0 - 0.006, y, y + 0.09, z - 0.04, z + 0.04), team, glow * 0.95, y * 1.6 + bz * 3));
+        }
+        // a white light running up each pylon's outer edge
+        leds.push(paint(tbox(sx, P0 - 0.03, P0, 0, PY, sz * (HW + PW) - 0.02, sz * (HW + PW) + 0.02), white, glow * 0.8));
+      }
+      // crown bar: a strip of bulbs
+      for (let z = -(HW + PW); z <= HW + PW + 0.01; z += 0.18) leds.push(paint(tbox(sx, P0 - 0.09, P0 - 0.05, PY + 0.04, PY + 0.1, z - 0.04, z + 0.04), white, glow * 1.1, Math.abs(z) * 2));
+      // the hall: a ring of light on every rib (pulses racing in towards the gate), strips along
+      // the walls, runway lights either side of the carpet and a line down the ceiling
+      for (let u = 0.6; u < TUNNEL_GATE + 0.1; u += 1.2) {
+        const k = glow * (1.15 - (0.45 * u) / TUNNEL_GATE);
+        for (const sz of [-1, 1]) leds.push(paint(tbox(sx, u - 0.03, u + 0.03, 0.15, OH - 0.12, sz * (HW - 0.115), sz * (HW - 0.1)), team, k, u));
+        leds.push(paint(tbox(sx, u - 0.03, u + 0.03, OH - 0.135, OH - 0.12, -HW + 0.1, HW - 0.1), team, k, u));
+      }
+      for (const sz of [-1, 1]) {
+        for (const [y, k] of [
+          [0.42, 0.8],
+          [OH - 0.32, 0.6],
+        ] as const)
+          leds.push(paint(tbox(sx, 0, TUNNEL_GATE, y, y + 0.025, sz * (HW - 0.012), sz * (HW - 0.004)), team, glow * k));
+        for (let u = 0.3; u < TUNNEL_GATE; u += 0.6) leds.push(paint(tbox(sx, u - 0.07, u + 0.07, 0.003, 0.02, sz * 1.39 - 0.03, sz * 1.39 + 0.03), white, glow * 0.9, u));
+      }
+      leds.push(paint(tbox(sx, 0.2, TUNNEL_GATE, OH - 0.01, OH - 0.004, -0.04, 0.04), white, glow * 0.5));
+
+      // the painted wall round the portal, open in the middle
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(TUNNEL_W, tunnelH), new THREE.MeshBasicMaterial({ map: tunnelTexture(css, tunnelH), alphaTest: 0.5 }));
       face.position.set(sx * (AX - 0.01), FLOOR + tunnelH / 2, 0);
       face.rotation.y = -sx * (Math.PI / 2);
       g.add(face);
+      // the marquee on the header beam
+      const sign = new THREE.Mesh(
+        new THREE.PlaneGeometry(2 * HW - 0.06, 0.52),
+        new THREE.MeshBasicMaterial({ map: marqueeTexture(css, sx < 0 ? 'ORANGE CORNER' : 'BLUE CORNER'), color: new THREE.Color(1, 1, 1).multiplyScalar(RenderSettings.glow(1.25)), toneMapped: false }),
+      );
+      sign.position.set(sx * (AX + P0 + 0.035), FLOOR + OH + 0.31, 0);
+      sign.rotation.y = -sx * (Math.PI / 2);
+      g.add(sign);
       // the gate
       const gate = new THREE.Mesh(new THREE.PlaneGeometry(2 * HW, OH), gateMaterial(team, U.uTime, HW, OH));
       gate.position.set(sx * (AX + TUNNEL_GATE), FLOOR + OH / 2, 0);
@@ -893,7 +1009,7 @@ export class Venue {
     }
     g.add(new THREE.Mesh(mergeGeometries(blocks)!, new THREE.MeshBasicMaterial({ color: 0x0b0e15 })));
     g.add(new THREE.Mesh(mergeGeometries(hall)!, new THREE.MeshBasicMaterial({ vertexColors: true })));
-    g.add(new THREE.Mesh(mergeGeometries(lights)!, new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false })));
+    g.add(new THREE.Mesh(mergeGeometries(leds)!, tunnelLedMaterial(U.uTime)));
 
     // ---------------------------------------------------------------- roof rig
     const steel = new THREE.MeshBasicMaterial({ color: 0x2c3444 });

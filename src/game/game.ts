@@ -68,6 +68,9 @@ export interface Tape {
   marks: { frame: number; kind: 'kd' | 'tear' | 'ko' }[];
   /** What the commentators said, and when (older tapes have none: the booth calls it afresh). */
   talk?: BoothCue[];
+  /** An online fight, and the corner this player fought from (offline: always 0). */
+  online?: boolean;
+  me?: number;
 }
 
 /** Longest a replay seek may run the sim in one animation frame, in ms (the rest waits a frame). */
@@ -769,7 +772,8 @@ export class Game {
   // ---------------------------------------------------------------- replays
   /** Play a fight back from its tape: the same seed, intro cut and coach calls. */
   startReplay(t: Tape) {
-    const m = this.startMatch(t.a, t.b, t.seed);
+    // (filmed from the player's side, as it was live; the intro ends where it did, see replayCut)
+    const m = this.startMatch(t.a, t.b, t.seed, false, t.me ?? 0);
     m.replayCut = t.cut;
     // the corner's calls, on the steps they were made
     for (const c of t.coach) m.queueCoach(c.side, c.kind, c.frame);

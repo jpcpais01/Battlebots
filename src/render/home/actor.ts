@@ -8,12 +8,13 @@ import { Rng, wrapAngle } from '../../sim/math';
 import { computeBuild } from '../../game/items';
 import type { BotSpec } from '../../game/loadout';
 import type { Sfx } from '../../audio/sfx';
-import { Puppet } from './puppet';
+import { FORE, Puppet, UPPER, ik } from './puppet';
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _g = new THREE.Vector3();
-const ARMS = [J.ElL, J.HandL, J.ElR, J.HandR];
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
 
 /**
  * The player's robot in a home scene. It is drawn from one of two sources, or a blend of them:
@@ -144,12 +145,27 @@ export class Actor {
     }
     const aw = w > 0 ? Math.min(1, Math.max(0, this.armW)) : 0;
     if (aw > 0) {
+      // The puppet's fists, placed off the live chest, re-reached from the live shoulders at the
+      // real arm lengths. (Copying its elbows too would leave the arms stretched or crushed: the
+      // guard stance turns the shoulders a good 20 degrees off square.)
       const hc = h.body.pos[J.Chest], pc = p.joints[J.Chest];
-      for (const j of ARMS) {
-        const out = h.body.pos[j];
-        _v.subVectors(p.joints[j], pc).sub(_w.subVectors(out, hc));
-        out.addScaledVector(_v, aw);
-        h.body.last[j].copy(out);
+      const k = this.size;
+      for (let s = 0; s < 2; s++) {
+        const sh = h.body.pos[s === 0 ? J.ShL : J.ShR];
+        const el = h.body.pos[s === 0 ? J.ElL : J.ElR];
+        const hd = h.body.pos[s === 0 ? J.HandL : J.HandR];
+        const pe = p.joints[s === 0 ? J.ElL : J.ElR];
+        const ph = p.joints[s === 0 ? J.HandL : J.HandR];
+        _a.subVectors(ph, pc).add(hc);
+        // bend the way the puppet's elbow does, off its shoulder-to-fist line
+        _b.subVectors(pe, p.joints[s === 0 ? J.ShL : J.ShR]);
+        _g.subVectors(ph, pe).add(_b).normalize();
+        _b.addScaledVector(_g, -_b.dot(_g));
+        ik(sh, _a, _b, UPPER * k, FORE * k, _v, _w);
+        el.lerp(_v, aw);
+        hd.lerp(_w, aw);
+        h.body.last[s === 0 ? J.ElL : J.ElR].copy(el);
+        h.body.last[s === 0 ? J.HandL : J.HandR].copy(hd);
       }
     }
     for (let s = 0; s < 2; s++) {

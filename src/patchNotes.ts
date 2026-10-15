@@ -20,9 +20,47 @@ export const PATCH_NOTES: PatchNote[] = [
     title: "The World map",
     notes: [
       "New World map, from the home screen: a big neon-lit harbour city at golden hour, with hills, farms, forests, a waterfall and an island out at sea. Drag to look around, pinch or scroll to zoom.",
-      "Six cups and championships to win across the map, from the container docks to a skyscraper rooftop. Each is a ladder of named rivals that get tougher every round; lose once and the run starts over, but titles you win are yours to keep.",
-      "The Grand Championship opens once you hold three other titles.",
-      "Your progress in every event is saved with your win record, and follows you to any device when you're signed in.",
+    ],
+  },
+  {
+    hour: "2026-10-15 01:00",
+    title: "A cosier lounge",
+    notes: [
+      "Six cups and championships to win across the World map, from the container docks to a skyscraper rooftop. Each is a ladder of named rivals that get tougher every round; lose once and the run starts over, but titles you win are yours to keep.",
+      "The Grand Championship on the World map opens once you hold three other titles.",
+      "Your progress in every World map event is saved with your win record, and follows you to any device when you're signed in.",
+      "The beach home screen now watches your robot from its left side, with the sea and sunset off to one side.",
+      "Lounge: a knitted pouf with headphones, a basket of blankets, records on the floor, an open book on the sofa, cookies by the candles and slippers on the rug.",
+    ],
+  },
+  {
+    hour: "2026-10-15 01:00",
+    title: "Smoother grappling",
+    notes: [
+      "Lounge: a little robot cat sleeps curled up at the end of the sofa, flicking its tail, and jolts awake when the news breaks.",
+      "Lounge: pothos trail from hanging planters in front of the rainy window, dust drifts in the lamplight and the wall clock shows your own time.",
+      "Clinches look and feel weightier: bodies ease into the tie-up, arms swim inside for the underhooks, drives walk them onto the ropes and settle there, and plum knees pull the head down onto them.",
+      "Takedowns are real moves now: trips step in behind the heel and reap the leg, body-lock lifts carry them up and round before the slam, and double legs drive in off a deep penetration step, scoop the legs and turn the corner.",
+      "Push-offs, referee breaks, sprawls, two-handed shoves and the step back after a takedown all play out smoothly instead of snapping apart.",
+    ],
+  },
+  {
+    hour: "2026-10-15 00:00",
+    title: "A livelier beach",
+    notes: [
+      "Beach: a kite swoops over the shallows, a yacht crosses the bay trailing its wake, and a little robot paddleboards past the buoys.",
+      "Beach: more parasols, towels and a windbreak down the shore, bunting at the beach bar, shells in the sand, flags on the sandcastle, spray glittering off the surf and a cocktail on the side table.",
+    ],
+  },
+  {
+    hour: "2026-10-15 00:00",
+    title: "Online replays, light-up entrance tunnels",
+    notes: [
+      "Beach: dune grass and flowering shrubs sway in the breeze, and dry fronds lie fallen under the palms.",
+      "The hover stretcher is longer, so the loser lies on it with room to spare, and it's sized to match the bot riding it.",
+      "Gym: the bot no longer shakes and glitches as it pushes the doors open on its way to a fight.",
+      "Online fights have replays too: tap Replay or Save replay on the results. Your opponent waits in the room, and Rematch is right there on the replay's results.",
+      "The entrance tunnels are rebuilt as deep halls running under the stands. Each has a lit portal with LED pylons, a dot-matrix marquee and a crown of bulbs, and rings of team-coloured light race down it to the energy gate.",
     ],
   },
   {
