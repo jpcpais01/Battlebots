@@ -31,6 +31,11 @@ export function nextFrame() {
   });
 }
 
+/** Collect what renderer.compile built. */
+function compileInto(into: Set<THREE.Material>, got: Iterable<THREE.Material> | undefined) {
+  if (got) for (const m of got) into.add(m);
+}
+
 /** What three keeps per program (not in its typings): is the driver done with it, and its uniforms (reading them finishes the link). */
 interface ProgramState {
   isReady(): boolean;
@@ -438,16 +443,17 @@ export class Stage {
     const mats = new Set<THREE.Material>();
     // One pass over the scene with just these (and the lights) in it: compiling a part of the
     // scene on its own would count the lights inside it twice, and build shaders for the wrong set.
-    const all = scene.children;
-    const keep = new Set(roots);
-    scene.children = all.filter((o) => keep.has(o) || (o as THREE.Light).isLight);
+    const holder = scene as { children: THREE.Object3D[] };
+    const all = holder.children;
+    const keep = new Set<THREE.Object3D>(roots);
+    holder.children = all.filter((o) => keep.has(o) || (o as { isLight?: boolean }).isLight);
     try {
-      for (const m of r.compile(scene, this.camera)) mats.add(m);
+      compileInto(mats, r.compile(scene, this.camera));
     } finally {
-      scene.children = all;
+      holder.children = all;
     }
     // (things not in the scene yet, like a torn-off part, have no lights of their own)
-    for (const o of roots) if (!o.parent) for (const m of r.compile(o, this.camera, scene)) mats.add(m);
+    for (const o of roots) if (!o.parent) compileInto(mats, r.compile(o, this.camera, scene));
     await this.finishPrograms(mats, progress);
   }
 
@@ -455,7 +461,7 @@ export class Stage {
   async precompilePasses(progress: (k: number, done: number, of: number) => void = () => {}) {
     const passes = this.post?.passes() ?? [];
     const r = this.renderer;
-    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
+    const quad = new THREE.Mesh<THREE.BufferGeometry, THREE.Material>(new THREE.PlaneGeometry(2, 2));
     // (where a pass draws is part of its shader: the passes between draw into buffers)
     const off = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
     const was = r.getRenderTarget();
@@ -464,7 +470,7 @@ export class Stage {
       for (const p of passes) {
         quad.material = p.material;
         r.setRenderTarget(p.screen ? null : off);
-        for (const m of r.compile(quad, this.camera, this.scene)) mats.add(m);
+        compileInto(mats, r.compile(quad, this.camera, this.scene));
       }
     } finally {
       r.setRenderTarget(was);
@@ -485,7 +491,7 @@ export class Stage {
     while (left.length && !gl.isContextLost() && performance.now() < until) {
       const t0 = performance.now();
       for (let i = left.length - 1; i >= 0 && performance.now() - t0 < SLICE; i--) {
-        const prog = r.properties.get(left[i]).currentProgram as ProgramState | undefined;
+        const prog = (r.properties.get(left[i]) as { currentProgram?: ProgramState }).currentProgram;
         if (prog && !prog.isReady()) continue;
         prog?.getUniforms();
         left.splice(i, 1);
@@ -502,12 +508,12 @@ export class Stage {
   async uploadTextures(roots: THREE.Object3D[], progress: (k: number) => void = () => {}) {
     const found = new Set<THREE.Texture>();
     const add = (v: unknown) => {
-      const t = v as THREE.Texture | null;
-      if (t?.isTexture && !t.isRenderTargetTexture && !(t as { isDepthTexture?: boolean }).isDepthTexture && t.image && t.version > 0) found.add(t);
+      const t = v as { isTexture?: boolean; isRenderTargetTexture?: boolean; isDepthTexture?: boolean; image?: unknown; version?: number } | null;
+      if (t?.isTexture && !t.isRenderTargetTexture && !t.isDepthTexture && t.image && (t.version ?? 0) > 0) found.add(v as THREE.Texture);
     };
     const scan = (m: THREE.Material) => {
       for (const v of Object.values(m)) add(v);
-      const u = (m as THREE.ShaderMaterial).uniforms;
+      const u = (m as { uniforms?: Record<string, { value: unknown } | undefined> }).uniforms;
       if (u)
         for (const k in u) {
           const v = u[k]?.value;
@@ -517,7 +523,7 @@ export class Stage {
     };
     for (const root of roots) {
       root.traverse((o) => {
-        const m = (o as THREE.Mesh).material;
+        const m = (o as { material?: THREE.Material | THREE.Material[] }).material;
         if (Array.isArray(m)) m.forEach(scan);
         else if (m) scan(m);
       });
