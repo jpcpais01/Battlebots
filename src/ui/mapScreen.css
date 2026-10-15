@@ -1,0 +1,334 @@
+/* ------------------------------------------------------------ the world map */
+.screen.map {
+  padding: 0;
+}
+/* drags, pinches and the wheel move the map */
+.map-touch {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  cursor: grab;
+}
+.map-touch:active {
+  cursor: grabbing;
+}
+.screen.map .topbar {
+  pointer-events: none;
+}
+.screen.map .topbar > * {
+  pointer-events: auto;
+}
+.map-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1em;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
+}
+.map-title b {
+  font-size: 1.2em;
+  font-weight: 750;
+}
+.map-title .kicker {
+  color: var(--text-2);
+}
+.map-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.45em 0.9em;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  font-size: 0.9em;
+  color: var(--text-2);
+}
+.map-chip svg {
+  width: 1.2em;
+  height: 1.2em;
+  color: #ffd24a;
+}
+.map-chip b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.map-zoom {
+  position: absolute;
+  right: var(--padr);
+  bottom: var(--bottom);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45em;
+}
+
+/* pins: a glowing head on a stem, the event's name and how far the run has got */
+.map-pins {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.map-pin {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* (positioned by its stem's foot) */
+  margin: 0;
+  translate: -50% -100%;
+  will-change: transform;
+  --c: #fff;
+}
+.map-pin .pin-head {
+  display: grid;
+  place-items: center;
+  width: 2.5em;
+  height: 2.5em;
+  border-radius: 50%;
+  color: #0a0d14;
+  background: var(--c);
+  box-shadow: 0 0 0 3px rgba(10, 13, 20, 0.55), 0 0 22px color-mix(in srgb, var(--c) 70%, transparent);
+  transition: transform 0.25s var(--ease);
+}
+.map-pin .pin-head svg {
+  width: 1.3em;
+  height: 1.3em;
+}
+.map-pin .pin-label {
+  order: -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25em;
+  margin-bottom: 0.35em;
+  padding: 0.35em 0.75em 0.4em;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+  font-size: 0.82em;
+}
+.map-pin .pin-label b {
+  font-weight: 700;
+}
+.pin-dots {
+  display: flex;
+  gap: 0.3em;
+}
+.pin-dots i {
+  width: 0.45em;
+  height: 0.45em;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.22);
+}
+.pin-dots i.on {
+  background: var(--c);
+  box-shadow: 0 0 6px var(--c);
+}
+.map-pin .pin-stem {
+  width: 2px;
+  height: 1.4em;
+  background: linear-gradient(var(--c), transparent);
+}
+.map-pin.locked .pin-head {
+  background: #8a93a6;
+  box-shadow: 0 0 0 3px rgba(10, 13, 20, 0.55);
+}
+.map-pin.locked .pin-label {
+  color: var(--muted);
+}
+.map-pin.picked .pin-head,
+.map-pin:active .pin-head {
+  transform: scale(1.18);
+}
+.map-pin.picked .pin-label {
+  border-color: var(--c);
+}
+@media (hover: hover) {
+  .map-pin:hover .pin-head {
+    transform: scale(1.12);
+  }
+}
+
+/* the event card, on the right */
+.map-card {
+  position: absolute;
+  top: calc(var(--top) + 3.4em);
+  right: var(--padr);
+  bottom: var(--bottom);
+  width: min(23em, 40vw);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75em;
+  padding: 1.1em 1.2em;
+  border-radius: var(--rad-l);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--c);
+  box-shadow: var(--shadow);
+  overflow-y: auto;
+  opacity: 0;
+  transform: translateX(1.5em);
+  pointer-events: none !important;
+  transition: opacity 0.25s ease, transform 0.35s var(--ease);
+}
+.map-card:not(.on) * {
+  pointer-events: none !important;
+}
+.map-card.on {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto !important;
+}
+.mc-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6em;
+}
+.mc-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
+}
+.mc-title h2 {
+  margin: 0;
+  font-size: 1.45em;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.mc-venue {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  color: var(--text-2);
+  font-size: 0.9em;
+}
+.mc-venue svg {
+  width: 1.05em;
+  height: 1.05em;
+  color: var(--c);
+}
+.mc-blurb {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 0.9em;
+  line-height: 1.35;
+}
+.mc-ladder {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3em;
+}
+.mc-ladder li {
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  padding: 0.5em 0.7em;
+  border-radius: var(--rad-s);
+  background: var(--glass);
+  color: var(--text-2);
+}
+.mc-ladder li .n {
+  width: 1.6em;
+  height: 1.6em;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 0.8em;
+  font-weight: 750;
+  background: rgba(255, 255, 255, 0.1);
+}
+.mc-ladder li b {
+  flex: 1;
+  font-weight: 650;
+}
+.mc-ladder li em {
+  font-style: normal;
+  font-size: 0.72em;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.mc-ladder li svg {
+  width: 1.1em;
+  height: 1.1em;
+  color: var(--c);
+}
+.mc-ladder li.done {
+  color: var(--text);
+}
+.mc-ladder li.done .n {
+  background: var(--c);
+  color: #0a0d14;
+}
+.mc-ladder li.next {
+  color: var(--text);
+  background: var(--glass-hi);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 60%, transparent);
+}
+.mc-ladder li.next em {
+  color: var(--c);
+}
+.mc-foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8em;
+  flex-wrap: wrap;
+}
+.mc-won {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  font-size: 0.86em;
+}
+.mc-won svg {
+  width: 1.2em;
+  height: 1.2em;
+  color: #ffd24a;
+}
+
+/* building the map the first time */
+.map-loading {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8em;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.map-loading.on {
+  opacity: 1;
+}
+.map-bar {
+  width: min(16em, 50vw);
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+.map-bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: #fff;
+  transition: width 0.2s ease;
+}
+
+/* a title won: the verdict goes gold */
+.results .verdict.title {
+  background: linear-gradient(180deg, #fff1b8, #ffc23a 55%, #e08a12);
+  -webkit-background-clip: text;
+  background-clip: text;
+}

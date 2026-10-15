@@ -41,6 +41,8 @@ import { bytesOf, canVoiceToday, isVoiced, voicedNames, voiceName } from '../aud
 import { MAX_REPLAYS, ReplayShelf, isSaved, outdated, type SavedReplay } from './replays';
 import { Account, PASSWORD_MIN, USERNAME_MAX, type SyncState } from '../net/account';
 import { WALK_ONS, walkOnFor } from '../audio/walkOn';
+import { EVENT_BY_ID, progressOf, rival, type EventDef } from '../game/events';
+import { MapScreen } from './mapScreen';
 
 type PaintPage = 'schemes' | 'primary' | 'secondary' | 'accent' | 'finish';
 const PAINT_PAGES: [PaintPage, string][] = [
@@ -56,7 +58,7 @@ const PAINT_HINT: Record<'primary' | 'secondary' | 'accent', string> = {
   accent: 'Glow: visor, lights and trim, and the trail of your strikes.',
 };
 
-type ScreenId = 'home' | 'garage' | 'fight' | 'online';
+type ScreenId = 'home' | 'garage' | 'fight' | 'online' | 'map';
 
 /** Where the home screen happens: an animated place, or the arena as before. */
 type HomePlace = 'beach' | 'gym' | 'lounge' | 'arena';
@@ -158,6 +160,10 @@ export class App {
   private accountBtn: HTMLButtonElement | null = null;
   /** Redraws the account popup while it's open. */
   private accountView: (() => void) | null = null;
+  /** The world map screen. */
+  private map: MapScreen;
+  /** The fight on screen is a round of a map event: which event, and which round. */
+  private eventRun: { id: string; round: number } | null = null;
 
   constructor(private game: Game, private quality: Quality) {
     this.ui = document.getElementById('ui')!;
@@ -218,15 +224,24 @@ export class App {
       changed: () => this.netChanged(),
       ended: () => this.netChanged(),
     });
+    this.map = new MapScreen({
+      game,
+      events: () => this.record.events,
+      tap: (k) => this.tap(k),
+      back: () => this.go('home'),
+      fight: (e) => this.fightEvent(e),
+    });
     this.screens = {
       home: this.buildHome(),
       garage: this.buildGarage(),
       fight: this.hud.root,
       online: this.online.root,
+      map: this.map.root,
     };
     this.ui.appendChild(this.screens.home);
     this.ui.appendChild(this.screens.garage);
     this.ui.appendChild(this.screens.online);
+    this.ui.appendChild(this.screens.map);
     el('div', 'rotate', `<div>${ICON.rotate}<p>Turn your phone sideways<span class="muted">Battlebots plays in landscape</span></p></div>`, this.ui);
     this.fade = el('div', 'scene-fade');
     this.ui.prepend(this.fade);
@@ -237,6 +252,7 @@ export class App {
         if (this.resultsFor) this.awaitResults();
       }
       else if (this.current === 'garage') this.garageTick(dt);
+      else if (this.current === 'map') this.map.tick();
       else this.homeTick(dt);
     };
     game.cb.onMatchEvent = (type, data) => {
@@ -291,7 +307,7 @@ export class App {
     if (id === 'home') this.online.leave();
     if (id === 'online') this.online.show();
     else this.online.hide();
-    if (id === 'home' || id === 'online') {
+    if (id === 'home' || id === 'online' || id === 'map') {
       this.game.endMatch();
       this.hud.detach();
       this.game.showBot(this.player);
@@ -300,8 +316,10 @@ export class App {
       this.focus = null;
       this.refreshGarage();
     }
-    // the garage and the home scenes are their own places: switching to or from one dips through black
-    const place: Place = id === 'garage' ? 'garage' : id === 'home' && this.sceneHome() ? 'home' : 'arena';
+    if (id === 'map') this.map.show();
+    else this.map.hide();
+    // the garage, the map and the home scenes are their own places: switching to or from one dips through black
+    const place: Place = id === 'garage' ? 'garage' : id === 'map' ? 'map' : id === 'home' && this.sceneHome() ? 'home' : 'arena';
     clearTimeout(this.placeTimer);
     const apply = () => {
       const moved = this.game.place !== place;
@@ -336,6 +354,13 @@ export class App {
       this.spin.vel = 0;
       this.spin.idle = 0;
       this.game.sfx?.ambience(0.25);
+    } else if (id === 'map') {
+      // the map flies its own camera (see Game.frame)
+      d.mode = 'scene';
+      d.shiftX = 0;
+      d.menuTurn = 0;
+      d.menuLive = false;
+      this.game.sfx?.ambience(0.03);
     } else if (id === 'garage') {
       d.mode = 'garage';
       d.garageYaw = 0.45;
@@ -407,6 +432,10 @@ export class App {
     button('btn', `${ICON.globe}Online`, () => {
       this.tap('select');
       this.go('online');
+    }, sub);
+    button('btn wide map-btn', `${ICON.map}World map`, () => {
+      this.tap('select');
+      this.go('map');
     }, sub);
     button('btn small wide', `${ICON.replay}Replays`, () => this.replaysMenu(), sub);
     button('btn primary big', `${ICON.swords}Fight`, () => this.fight(), right);
@@ -1257,6 +1286,7 @@ export class App {
   }
 
   private fight(sameOpponent = false) {
+    if (!sameOpponent) this.eventRun = null;
     if (this.online.active) {
       // in a room: fights start from there
       this.tap('select');
@@ -1300,6 +1330,17 @@ export class App {
     this.hud.resetSpeed();
     this.hud.attach(m);
     this.go('fight');
+  }
+
+  /** The next round of a map event: its rival for that round, then into the arena. */
+  private fightEvent(e: EventDef) {
+    if (this.online.active) return;
+    const round = progressOf(this.record.events, e.id).run;
+    this.eventRun = { id: e.id, round };
+    this.opponent = rival(e, round, this.player);
+    this.tap('start');
+    void enterLandscape();
+    this.startFight(true);
   }
 
   /** Watch the last fight again, from the walkout to the celebration. */
@@ -1407,8 +1448,12 @@ export class App {
       this.soundRow(box);
       button('btn small danger', `${ICON.exit}Forfeit`, () => {
         this.closeModal();
-        if (this.game.match && this.game.match.phase !== 'end') this.tally(false, false);
-        this.go('home');
+        if (this.game.match && this.game.match.phase !== 'end') {
+          this.tally(false, false);
+          // walking out of an event's round ends the run
+          this.eventResult(false, false);
+        }
+        this.go(this.eventRun ? 'map' : 'home');
       }, box);
     }, () => {
       this.game.paused = false;
@@ -1487,7 +1532,7 @@ export class App {
           reset.textContent = 'Tap again to reset';
           return;
         }
-        this.record = { wins: 0, losses: 0, draws: 0, streak: 0, best: 0 };
+        this.record = { wins: 0, losses: 0, draws: 0, streak: 0, best: 0, events: this.record.events };
         saveRecord(this.record);
         this.refreshHome();
         reset.classList.remove('armed');
@@ -1785,6 +1830,8 @@ export class App {
     const out = net ? net.outcome(m) : { winner: m.winner ? m.winner.index : -1, kind: m.result };
     const draw = out.winner < 0;
     const won = out.winner === me;
+    // a round of a map event: how the run stands now
+    const ev = !net && !this.replaying && this.eventRun ? this.eventResult(won, draw) : null;
     // the win record is for fights against the AI (and a replay was already counted)
     if (!net && !this.replaying) {
       this.tally(won, draw);
@@ -1796,7 +1843,8 @@ export class App {
         this.lastFight.end = m.frame;
       }
     }
-    const verdict = draw ? 'DRAW' : won ? 'VICTORY' : 'DEFEAT';
+    const verdict = ev?.title ? (ev.e.kind === 'cup' ? 'CUP WINNER' : 'CHAMPION') : draw ? 'DRAW' : won ? 'VICTORY' : 'DEFEAT';
+    const kicker = ev ? `${esc(ev.e.name)} · ${ev.round === ev.e.rivals.length - 1 ? 'Final' : `Round ${ev.round + 1} of ${ev.e.rivals.length}`}` : `${Math.round(m.fightTime)} seconds`;
     const how = out.kind === 'Decision' ? 'on points' : out.kind === 'TKO' ? 'by TKO' : out.kind === 'KO' ? 'by knockout' : out.kind === 'Dismantled' ? 'by tearing it apart' : '';
     const who = draw ? 'Split down the middle' : `<b>${esc(m.fighters[out.winner].name)}</b> wins ${how}`;
     const acc = (f: Fighter) => (f.stats.thrown ? `${Math.round((f.stats.landed / f.stats.thrown) * 100)}%` : '–');
@@ -1819,7 +1867,7 @@ export class App {
     card.style.setProperty('--ca', ca);
     card.style.setProperty('--cb', cb);
     card.innerHTML = `
-      <div class="head"><span class="kicker">${Math.round(m.fightTime)} seconds</span><div class="verdict${won || draw ? '' : ' lose'}">${verdict}</div><div class="who">${who}</div></div>
+      <div class="head"><span class="kicker">${kicker}</span><div class="verdict${won || draw ? '' : ' lose'}${ev?.title ? ' title' : ''}">${verdict}</div><div class="who">${who}</div></div>
       <div class="stats-table">
         <span class="h a">${esc(a.name)}</span><span class="h l">vs</span><span class="h b">${esc(b.name)}</span>
         ${row('Damage', Math.round(a.stats.dealt), Math.round(b.stats.dealt))}
@@ -1838,8 +1886,20 @@ export class App {
       this.netResults(card, actions, net);
       return;
     }
-    button('btn primary', `${ICON.swords}Next fight`, () => this.fight(), actions);
-    button('btn', `${ICON.refresh}Rematch`, () => this.fight(true), actions);
+    if (ev) {
+      // the run goes on, starts over, or the title is won
+      const e = ev.e;
+      const next = progressOf(this.record.events, e.id).run;
+      if (ev.title) button('btn primary', `${ICON.map}Map`, () => this.toMap(), actions);
+      else {
+        const label = draw ? 'Fight again' : won ? `${next === e.rivals.length - 1 ? 'Final' : `Round ${next + 1}`}: ${esc(e.rivals[next])}` : 'Start over';
+        button('btn primary', `${ICON.swords}${label}`, () => this.fightEvent(e), actions);
+        button('btn', `${ICON.map}Map`, () => this.toMap(), actions);
+      }
+    } else {
+      button('btn primary', `${ICON.swords}Next fight`, () => this.fight(), actions);
+      button('btn', `${ICON.refresh}Rematch`, () => this.fight(true), actions);
+    }
     if (this.lastFight) button('btn', `${ICON.replay}Replay`, () => this.replay(), actions);
     const tape = this.lastFight;
     if (tape && tape.end > 0) {
@@ -1870,6 +1930,38 @@ export class App {
       this.closeResults();
       this.go('home');
     }, actions).title = 'Home';
+  }
+
+  /** Back to the map from an event's results. */
+  private toMap() {
+    this.tap('back');
+    this.closeResults();
+    this.go('map');
+  }
+
+  /**
+   * A round of the current map event is over: move the run on (a win), start it over (a loss) or
+   * leave it where it is (a draw), and count the title when the last round is won.
+   */
+  private eventResult(won: boolean, draw: boolean) {
+    const r = this.eventRun;
+    const e = r && EVENT_BY_ID.get(r.id);
+    if (!r || !e) return null;
+    const rec = this.record.events;
+    const p = { ...progressOf(rec, e.id) };
+    let title = false;
+    if (won) {
+      p.run = r.round + 1;
+      if (p.run >= e.rivals.length) {
+        p.run = 0;
+        p.titles++;
+        title = true;
+      }
+    } else if (!draw) p.run = 0;
+    rec[e.id] = p;
+    saveRecord(this.record);
+    this.map.refresh();
+    return { e, round: r.round, title };
   }
 
   private closeResults() {

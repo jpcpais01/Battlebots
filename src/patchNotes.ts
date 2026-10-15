@@ -16,6 +16,16 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-15 01:00",
+    title: "The World map",
+    notes: [
+      "New World map, from the home screen: a big neon-lit harbour city at golden hour, with hills, farms, forests, a waterfall and an island out at sea. Drag to look around, pinch or scroll to zoom.",
+      "Six cups and championships to win across the map, from the container docks to a skyscraper rooftop. Each is a ladder of named rivals that get tougher every round; lose once and the run starts over, but titles you win are yours to keep.",
+      "The Grand Championship opens once you hold three other titles.",
+      "Your progress in every event is saved with your win record, and follows you to any device when you're signed in.",
+    ],
+  },
+  {
     hour: "2026-10-14 23:00",
     title: "Fighting on one leg",
     notes: [
