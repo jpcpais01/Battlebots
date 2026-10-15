@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: "2026-10-15 00:00",
     title: "Online replays, light-up entrance tunnels",
     notes: [
+      "The hover stretcher is longer, so the loser lies on it with room to spare, and it's sized to match the bot riding it.",
       "Gym: the bot no longer shakes and glitches as it pushes the doors open on its way to a fight.",
       "Online fights have replays too: tap Replay or Save replay on the results. Your opponent waits in the room, and Rematch is right there on the replay's results.",
       "The entrance tunnels are rebuilt as deep halls running under the stands. Each has a lit portal with LED pylons, a dot-matrix marquee and a crown of bulbs, and rings of team-coloured light race down it to the energy gate.",
