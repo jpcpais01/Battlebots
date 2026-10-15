@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { LAKE, POND, RIVER, CITY_Y } from './layout';
+import { LAKE, MOUTH, POND, RIVER, CITY_Y } from './layout';
 import { MAP_GLSL, MAP_OUT, mapMaterial, type MapUniforms } from './kit';
 import { FINE, type HeightGrid } from './terrain';
 
@@ -25,13 +25,71 @@ const SKY_GLSL = /* glsl */ `
   }
 `;
 
+/**
+ * The sea's colour at a point on its surface (shared with the river, which turns into it at the
+ * mouth): the water over the depth map, the sky in it, the sun's path, the surf, and the river's
+ * plume fanning out past its mouth. Needs uDepth, uFine and uMouth.
+ */
+const SEA_GLSL = /* glsl */ `
+  uniform sampler2D uDepth;
+  uniform float uFine;
+  uniform vec4 uMouth;
+  vec3 seaColor(vec3 w, float minD) {
+    vec2 uv = w.xz / (2.0 * uFine) + 0.5;
+    float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
+    vec4 dm = texture2D(uDepth, clamp(uv, 0.0, 1.0));
+    // depth 0 (shore) .. 1 (24 m and more)
+    float d = max(mix(1.0, dm.r, inside), minD);
+    vec3 V = normalize((cameraPosition - uMapShift) - w);
+    float px = length(fwidth(w.xz));
+    // calmer, smoother water far off (and no shimmering ripples smaller than a pixel)
+    vec3 n = waveN(w.xz, mix(0.5, 0.05, smoothstep(2.0, 18.0, px)));
+    float shade = cloudShade(w.xz);
+    // the colour of the water itself: clear turquoise over the sand, deep blue further out
+    vec3 shallow = vec3(0.18, 0.72, 0.68);
+    vec3 mid = vec3(0.05, 0.38, 0.52);
+    vec3 deep = vec3(0.02, 0.14, 0.3);
+    vec3 body = mix(shallow, mid, smoothstep(0.0, 0.25, d));
+    body = mix(body, deep, smoothstep(0.25, 1.0, d));
+    // sand and reef showing through the shallows
+    float reef = texture2D(uNoise, w.xz / 90.0).a;
+    body = mix(body, vec3(0.55, 0.7, 0.5), (1.0 - smoothstep(0.0, 0.1, d)) * 0.45);
+    body *= mix(1.0, 0.82 + 0.3 * reef, (1.0 - smoothstep(0.02, 0.2, d)) * 0.6);
+    // the river's plume: its greener, cloudier water fanning out past the mouth and fading into
+    // the sea, ragged at the edges, carried out on the current
+    vec2 mp = w.xz - uMouth.xy;
+    float al = dot(mp, uMouth.zw), ac = dot(mp, vec2(-uMouth.w, uMouth.z));
+    vec4 pn = texture2D(uNoise, vec2(ac / 200.0, (al - uTime * 2.2) / 420.0));
+    float spread = 45.0 + max(al, 0.0) * 0.55;
+    float plume = smoothstep(spread, spread * 0.3, abs(ac) + (pn.g - 0.5) * 70.0) * smoothstep(-90.0, -30.0, al);
+    plume *= 1.0 - smoothstep(110.0, 320.0, al + (pn.b - 0.5) * 120.0);
+    vec4 pf = texture2D(uNoise, vec2(ac / 300.0, (al - uTime * 2.2) / 600.0));
+    body = mix(body, mix(vec3(0.09, 0.36, 0.33), vec3(0.2, 0.42, 0.34), smoothstep(0.2, 0.8, pf.b)), plume * mix(0.65, 0.3, smoothstep(0.0, 300.0, al)));
+    body *= ambient(vec3(0.0, 1.0, 0.0)) * 1.15 + uSunCol * 0.35 * uSunDir.y * shade;
+    // the sky reflected (more of it at grazing angles)
+    vec3 r = reflect(-V, n);
+    float fres = 0.04 + 0.96 * pow(1.0 - max(dot(V, n), 0.0), 5.0);
+    vec3 c = mix(body, skyRefl(r) * mix(0.75, 1.0, shade), clamp(fres, 0.0, 1.0) * 0.85);
+    // the sun's path: a broad sheen and the glitter in it
+    float sd = max(dot(r, uSunDir), 0.0);
+    c += uSunCol * (pow(sd, 90.0) * 0.6 + pow(sd, 900.0) * 6.0) * shade;
+    // surf: bands rolling in to every shore, breaking into foam at the water's edge (calmed where
+    // the river's current runs out against it)
+    float shore = 1.0 - smoothstep(0.0, 0.07, d);
+    float band = sin(d * 260.0 - uTime * 1.6 + reef * 6.0);
+    float foam = shore * smoothstep(0.55, 0.95, band) * (0.5 + 0.5 * texture2D(uNoise, w.xz / 9.0 + uTime * 0.02).r) * (1.0 - plume * 0.7);
+    foam = max(foam, 1.0 - smoothstep(0.0, 0.012, d - 0.002 * sin(uTime * 1.3 + w.x * 0.05)));
+    return mix(c, vec3(0.96, 0.97, 0.95) * (ambient(vec3(0.0, 1.0, 0.0)) + uSunCol * 0.45 * shade), clamp(foam, 0.0, 1.0) * inside * 0.9);
+  }
+`;
+
 export function buildSea(u: MapUniforms, ground: { depth: THREE.Texture; grid: HeightGrid }) {
-  const depth = ground.depth;
   const group = new THREE.Group();
+  const water = { uDepth: { value: ground.depth }, uFine: { value: FINE }, uMouth: { value: new THREE.Vector4(MOUTH.x, MOUTH.z, MOUTH.dx, MOUTH.dz) } };
   // (a grid rather than one quad: the fog and the depth map are smoother sampled per vertex at a distance)
   const g = new THREE.PlaneGeometry(2 * FAR, 2 * FAR, 48, 48).rotateX(-Math.PI / 2);
   const mat = mapMaterial(u, {
-    uniforms: { uDepth: { value: depth }, uFine: { value: FINE } },
+    uniforms: water,
     vertexShader: /* glsl */ `
       varying vec3 vWorld;
       #include <fog_pars_vertex>
@@ -46,47 +104,11 @@ export function buildSea(u: MapUniforms, ground: { depth: THREE.Texture; grid: H
     fragmentShader: /* glsl */ `
       ${MAP_GLSL}
       ${SKY_GLSL}
-      uniform sampler2D uDepth;
-      uniform float uFine;
+      ${SEA_GLSL}
       varying vec3 vWorld;
       #include <fog_pars_fragment>
       void main() {
-        vec3 w = vWorld;
-        vec2 uv = w.xz / (2.0 * uFine) + 0.5;
-        float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
-        vec4 dm = texture2D(uDepth, clamp(uv, 0.0, 1.0));
-        // depth 0 (shore) .. 1 (24 m and more)
-        float d = mix(1.0, dm.r, inside);
-        vec3 V = normalize((cameraPosition - uMapShift) - w);
-        float px = length(fwidth(w.xz));
-        // calmer, smoother water far off (and no shimmering ripples smaller than a pixel)
-        vec3 n = waveN(w.xz, mix(0.5, 0.05, smoothstep(2.0, 18.0, px)));
-        float shade = cloudShade(w.xz);
-        // the colour of the water itself: clear turquoise over the sand, deep blue further out
-        vec3 shallow = vec3(0.18, 0.72, 0.68);
-        vec3 mid = vec3(0.05, 0.38, 0.52);
-        vec3 deep = vec3(0.02, 0.14, 0.3);
-        vec3 body = mix(shallow, mid, smoothstep(0.0, 0.25, d));
-        body = mix(body, deep, smoothstep(0.25, 1.0, d));
-        // sand and reef showing through the shallows
-        float reef = texture2D(uNoise, w.xz / 90.0).a;
-        body = mix(body, vec3(0.55, 0.7, 0.5), (1.0 - smoothstep(0.0, 0.1, d)) * 0.45);
-        body *= mix(1.0, 0.82 + 0.3 * reef, (1.0 - smoothstep(0.02, 0.2, d)) * 0.6);
-        body *= ambient(vec3(0.0, 1.0, 0.0)) * 1.15 + uSunCol * 0.35 * uSunDir.y * shade;
-        // the sky reflected (more of it at grazing angles)
-        vec3 r = reflect(-V, n);
-        float fres = 0.04 + 0.96 * pow(1.0 - max(dot(V, n), 0.0), 5.0);
-        vec3 c = mix(body, skyRefl(r) * mix(0.75, 1.0, shade), clamp(fres, 0.0, 1.0) * 0.85);
-        // the sun's path: a broad sheen and the glitter in it
-        float sd = max(dot(r, uSunDir), 0.0);
-        c += uSunCol * (pow(sd, 90.0) * 0.6 + pow(sd, 900.0) * 6.0) * shade;
-        // surf: bands rolling in to every shore, breaking into foam at the water's edge
-        float shore = 1.0 - smoothstep(0.0, 0.07, d);
-        float band = sin(d * 260.0 - uTime * 1.6 + reef * 6.0);
-        float foam = shore * smoothstep(0.55, 0.95, band) * (0.5 + 0.5 * texture2D(uNoise, w.xz / 9.0 + uTime * 0.02).r);
-        foam = max(foam, 1.0 - smoothstep(0.0, 0.012, d - 0.002 * sin(uTime * 1.3 + w.x * 0.05)));
-        c = mix(c, vec3(0.96, 0.97, 0.95) * (ambient(vec3(0.0, 1.0, 0.0)) + uSunCol * 0.45 * shade), clamp(foam, 0.0, 1.0) * inside * 0.9);
-        gl_FragColor = vec4(c, 1.0);
+        gl_FragColor = vec4(seaColor(vWorld, 0.0), 1.0);
         ${MAP_OUT}
       }`,
   });
@@ -96,7 +118,7 @@ export function buildSea(u: MapUniforms, ground: { depth: THREE.Texture; grid: H
   // drawn after the land, so the hidden sea floor costs nothing
   sea.renderOrder = 1;
   group.add(sea);
-  group.add(freshWater(u, ground.grid));
+  group.add(freshWater(u, ground.grid, water));
   return group;
 }
 
@@ -108,7 +130,7 @@ export function buildSea(u: MapUniforms, ground: { depth: THREE.Texture; grid: H
  * it is there, and how much it is still churning from a fall upstream). The lake and the pond use
  * the same shader, as slow water drifting south.
  */
-function freshWater(u: MapUniforms, grid: HeightGrid) {
+function freshWater(u: MapUniforms, grid: HeightGrid, sea: Record<string, THREE.IUniform>) {
   const pos: number[] = [], flow: number[] = [], bed: number[] = [], idx: number[] = [];
   const vert = (x: number, y: number, z: number, s: number, across: number, speed: number, fall: number, dx: number, dz: number, depth: number, churn: number) => {
     pos.push(x, y, z);
@@ -191,6 +213,10 @@ function freshWater(u: MapUniforms, grid: HeightGrid) {
   });
   // white water keeps churning for a while below a fall
   for (let i = 0; i < rows.length; i++) rows[i].churn = Math.max(rows[i].fall, i ? rows[i - 1].churn * Math.exp(-(pts[i].s - pts[i - 1].s) / 40) : 0);
+  // where it comes down to the sea's level: from a little way upstream of there it turns into the
+  // sea, so the two meet with no seam
+  let sea0 = pts[pts.length - 1].s;
+  for (let i = rows.length - 1; i > 0 && rows[i - 1].y <= 0.02; i--) sea0 = pts[i - 1].s;
   // (the banks smoothed out along the river, so a trimmed side doesn't zigzag)
   const ext = rows.map((_, i) => [0, 1].map((side) => {
     let e = 0, n = 0;
@@ -251,6 +277,7 @@ function freshWater(u: MapUniforms, grid: HeightGrid) {
   g.setIndex(idx);
   g.computeBoundingSphere();
   const mat = mapMaterial(u, {
+    uniforms: { ...sea, uMouthS: { value: new THREE.Vector2(sea0 - 150, sea0) } },
     vertexShader: /* glsl */ `
       attribute vec4 aFlow, aBed;
       varying vec3 vWorld;
@@ -269,6 +296,8 @@ function freshWater(u: MapUniforms, grid: HeightGrid) {
     fragmentShader: /* glsl */ `
       ${MAP_GLSL}
       ${SKY_GLSL}
+      ${SEA_GLSL}
+      uniform vec2 uMouthS;
       varying vec3 vWorld;
       varying vec4 vFlow, vBed;
       #include <fog_pars_fragment>
@@ -351,6 +380,9 @@ function freshWater(u: MapUniforms, grid: HeightGrid) {
         float sheet = mix(0.55, 1.08, smoothstep(0.25, 0.7, rope.g * 0.7 + rope.r * 0.3)) * (0.85 + 0.15 * fine.a);
         float pour = smoothstep(0.3, 0.6, rope.g * 0.5 + fn * 0.5 + (wf - 0.9) * 2.0);
         c = mix(c, lit * sheet, wf * mix(smoothstep(0.35, 0.6, fn), 1.0, wf) * mix(0.5, 1.0, pour));
+        // the last stretch turns into the sea, so by where it meets it they're one and the same
+        float toSea = smoothstep(uMouthS.x, uMouthS.y, vFlow.x);
+        if (toSea > 0.0) c = mix(c, seaColor(w, 0.07), toSea);
         gl_FragColor = vec4(c, 1.0);
         ${MAP_OUT}
       }`,
