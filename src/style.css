@@ -3060,53 +3060,6 @@ button:focus-visible {
   }
 }
 
-/* boot screen: the wordmark and a thin bar sweeping under it */
-.loading {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 1.3em;
-  background: radial-gradient(ellipse at 50% 45%, #111724, var(--bg) 70%);
-  z-index: 20;
-  transition: opacity 0.5s ease;
-}
-.loading .logo {
-  font-size: 2.6em;
-  font-style: italic;
-  font-family: var(--broadcast);
-}
-.loading i {
-  width: 9em;
-  height: 3px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.12);
-  overflow: hidden;
-  position: relative;
-}
-.loading i::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  width: 40%;
-  border-radius: inherit;
-  background: #fff;
-  animation: loadSweep 1.1s var(--ease) infinite;
-}
-@keyframes loadSweep {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(250%);
-  }
-}
-.loading.done {
-  opacity: 0;
-  pointer-events: none;
-}
-
 @media (max-height: 420px) {
   .garage-panel {
     grid-template-columns: 3.9em 1fr;

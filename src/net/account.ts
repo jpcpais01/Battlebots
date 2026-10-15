@@ -131,14 +131,15 @@ export class Account {
     }
   }
 
-  /** On launch: bring a saved login up to date with the cloud. */
-  start() {
-    if (!this.session || !this.available) return;
+  /** On launch: bring a saved login up to date with the cloud (resolves when it's done or has failed). */
+  start(): Promise<void> {
+    if (!this.session || !this.available) return Promise.resolve();
     // changes made offline last time go up; otherwise another device may have newer ones
     if (this.dirty) {
       this.synced = true;
-      void this.push();
-    } else void this.pull();
+      return this.push().catch(() => {});
+    }
+    return this.pull();
   }
 
   async register(username: string, password: string): Promise<string | null> {

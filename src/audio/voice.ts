@@ -8,6 +8,18 @@ const DECODED = 48;
 /** The rate the clips are recorded at: decoding at it skips a resample and halves the memory. */
 const CLIP_RATE = 24000;
 
+/** The list of every line and name clip; null when the game ships without voices. */
+export async function fetchManifest(): Promise<VoiceManifest | null> {
+  try {
+    const r = await fetch(`${BASE}manifest.json`);
+    if (!r.ok) return null;
+    const m = (await r.json()) as VoiceManifest;
+    return Array.isArray(m.lines) ? m : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The commentary voices: downloads clips as the booth asks for them (the service
  * worker caches them for good), decodes them just before they play, and mixes
@@ -63,18 +75,6 @@ export class Voice implements BoothOut {
       this.decoder = new OfflineAudioContext(1, 1, CLIP_RATE);
     } catch {
       this.decoder = ctx;
-    }
-  }
-
-  /** The list of every line and name clip; null when the game ships without voices. */
-  async manifest(): Promise<VoiceManifest | null> {
-    try {
-      const r = await fetch(`${BASE}manifest.json`);
-      if (!r.ok) return null;
-      const m = (await r.json()) as VoiceManifest;
-      return Array.isArray(m.lines) ? m : null;
-    } catch {
-      return null;
     }
   }
 

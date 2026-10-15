@@ -170,6 +170,11 @@ export class App {
   /** The fight on screen is a round of a map event: which event, and which round. */
   private eventRun: { id: string; round: number } | null = null;
 
+  /** The constructor has run (until then a place is switched without the dip through black). */
+  private booted = false;
+  /** The saved login has caught up with the cloud at launch (or failed to). */
+  synced: Promise<void> = Promise.resolve();
+
   constructor(private game: Game, private quality: Quality) {
     this.ui = document.getElementById('ui')!;
     this.player = loadPlayer();
@@ -294,7 +299,30 @@ export class App {
     };
     if (this.homePlace !== 'arena') game.homeScene(this.homePlace);
     this.go('home');
-    this.account.start();
+    this.booted = true;
+    this.synced = this.account.start();
+  }
+
+  /**
+   * After the loading screen, in quiet moments: what the next few minutes will want and that
+   * isn't worth holding the start for. The pictures of every part for the garage's picker, the
+   * player's walk-on theme for their first entrance, and the code of the world map and venues.
+   */
+  warmLater() {
+    const idle = (fn: () => void) => ('requestIdleCallback' in window ? window.requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 60));
+    const jobs: (() => void)[] = [
+      () => this.game.sfx?.primeWalkOn(walkOnFor(this.player)),
+      () => this.game.prefetch(),
+    ];
+    // (drawn with the paint and parts on the bot now: a change later redraws only what it touches)
+    for (const slot of SLOTS) for (const item of itemsForSlot(slot)) jobs.push(() => void this.thumb(item, this.player.loadout[slot].rarity));
+    const next = () => {
+      const t0 = performance.now();
+      // one or two at a time: a part's picture is a render and a PNG
+      while (jobs.length && performance.now() - t0 < 6) jobs.shift()!();
+      if (jobs.length) idle(next);
+    };
+    idle(next);
   }
 
   // ------------------------------------------------------------ navigation
@@ -333,7 +361,8 @@ export class App {
       if (moved) this.game.director.snap();
       this.fade.classList.remove('on');
     };
-    if (place === this.game.place) apply();
+    // (at launch there is nothing on screen to dip from: the loading screen covers it)
+    if (place === this.game.place || !this.booted) apply();
     else {
       this.fade.classList.add('on');
       this.placeTimer = window.setTimeout(apply, 170);
