@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: "2026-10-15 12:00",
     title: "Big bots hit harder",
     notes: [
+      "Tapping an arena on the world map now flies it to the middle of the map you can see, beside the event card, on phones and PC at any zoom. Skydeck 88 up on its tower no longer ends up near the top of the screen.",
       "Frame size now really matters for strike power: a max-size bot hits about 20% harder than a standard one and roughly half again as hard as a tiny one, and knocks people down far more often. In exchange big bots are a little slower on their feet and with their hands, and gain less extra health than before, so small bots still win by landing far more shots.",
     ],
   },
