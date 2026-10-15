@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Stage, type Quality } from '../render/stage';
+import { nextFrame, Stage, type Quality } from '../render/stage';
 import { Arena } from '../render/arena';
 import { Fx, type Trail } from '../render/fx';
 import { Director } from '../render/director';
@@ -234,6 +234,8 @@ export class Game {
   fixedDt: number | null = null;
   /** Debug: frames are driven externally via frame(). */
   manual = false;
+  /** The loading screen is up: the loop draws nothing (prepare draws what it needs itself). */
+  hold = false;
   private lastCuts = 0;
   private lastMode = '';
   cb: GameCallbacks = {};
@@ -328,7 +330,80 @@ export class Game {
   private warmArena() {
     if (this.arenaWarm || this.place !== 'arena') return;
     this.arenaWarm = true;
-    this.stage.warmUp([this.arena.group, this.arena.venue.group, this.fx.group, this.debris.group, this.oil.group, this.steam.group, this.drones.group, this.stretcher.group]);
+    this.stage.warmUp(this.placeRoots('arena').roots);
+  }
+
+  /**
+   * What can be drawn in place `p`: its own scenery, the effects, the robot shown there, shown or
+   * hidden (and `extras`, things that only appear later, like a torn-off part).
+   */
+  private placeRoots(p: Place): { roots: THREE.Object3D[]; extras: THREE.Object3D[] } {
+    const bot = this.showcase?.model;
+    const shown = bot ? [bot.root] : [];
+    if (p === 'arena') {
+      const roots = [this.arena.group, this.arena.venue.group, this.fx.group, this.debris.group, this.oil.group, this.steam.group, this.drones.group, this.stretcher.group];
+      return { roots: roots.concat(shown), extras: bot?.pieceProxies() ?? [] };
+    }
+    if (p === 'garage' && this.garage) return { roots: [this.garage.group, this.fx.group, ...shown], extras: [] };
+    if (p === 'home' && this.home) return { roots: [this.home.group, this.fx.group], extras: [] };
+    return { roots: [], extras: [] };
+  }
+
+  /**
+   * Behind the loading screen: get the places the player is about to see ready, so nothing is
+   * built in the middle of the game. It visits the arena, the workshop and the home screen's place
+   * in turn, each lit as it will be seen (the lights and reflections are part of every shader),
+   * builds their shaders, uploads their textures, photographs the arena for its reflections and
+   * draws one hidden frame in each, then ends up back where it started. The screen passes (bloom,
+   * ray-traced lighting) are built first. `progress` gets the share done (0..1) and what it's on.
+   */
+  async prepare(progress: (k: number, what: string, detail?: string) => void) {
+    const back = this.place;
+    const order: Place[] = ['arena', 'garage'];
+    if (back === 'home') order.push('home');
+    // finish where it started, so that place is the last one set up
+    const visits = order.filter((p) => p !== back).concat(order.includes(back) ? [back] : []);
+    const WEIGHT: Partial<Record<Place, number>> = { arena: 4, garage: 2, home: 3 };
+    const NAME: Partial<Record<Place, string>> = { arena: 'Lighting the arena', garage: 'Opening the workshop', home: `Setting up the ${this.home?.id ?? 'scene'}` };
+    const plan = [{ w: 0.6, what: 'Polishing the picture' }, ...visits.map((p) => ({ w: WEIGHT[p] ?? 2, what: NAME[p] ?? 'Getting ready' }))];
+    const total = plan.reduce((a, s) => a + s.w, 0);
+    let before = 0;
+    const report = (i: number, k: number, detail?: string) => progress((before + plan[i].w * k) / total, plan[i].what, detail);
+    const shaders = (i: number, share: number) => (k: number, n: number, of: number) => report(i, k * share, of ? `${n} / ${of} shaders` : undefined);
+
+    await this.stage.precompilePasses(shaders(0, 1));
+    before += plan[0].w;
+    for (let i = 0; i < visits.length; i++) {
+      const p = visits[i];
+      const step = i + 1;
+      this.setPlace(p);
+      // (a home scene that can't be built leaves the game in the arena)
+      if (this.place !== p) {
+        before += plan[step].w;
+        continue;
+      }
+      const { roots, extras } = this.placeRoots(p);
+      const all = roots.concat(extras);
+      await this.stage.precompile(all, shaders(step, 0.75));
+      await this.stage.uploadTextures(all, (k) => report(step, 0.75 + 0.2 * k, 'textures'));
+      if (p === 'arena') {
+        // its reflections are a photograph of it, taken the first time it's on screen: now
+        this.syncEnv();
+        this.arenaWarm = true;
+      }
+      this.stage.warmNow(roots, extras);
+      report(step, 1);
+      before += plan[step].w;
+      await nextFrame();
+    }
+    if (this.place !== back && !(back === 'home' && this.homeBroken)) this.setPlace(back);
+    progress(1, plan[plan.length - 1].what);
+  }
+
+  /** Fetch the code of the world map and the event venues ahead of time (they're built when first opened). */
+  prefetch() {
+    void import('../render/venues').catch(() => {});
+    void import('../render/map/world').catch(() => {});
   }
 
   /**
@@ -1161,7 +1236,7 @@ export class Game {
     if (!this.pacer.tick(now)) return;
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
-    if (document.hidden || this.manual) return;
+    if (document.hidden || this.manual || this.hold) return;
     this.frame(this.fixedDt ?? dt);
   };
 
