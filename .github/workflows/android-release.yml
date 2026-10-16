@@ -1,0 +1,103 @@
+# Builds the Android app (godot/) and publishes it on the repo's Releases page whenever main
+# changes something in godot/. The newest build is always at
+#   https://github.com/<owner>/<repo>/releases/latest/download/Battlebots.apk
+#
+# Signing needs three repository secrets (Settings > Secrets and variables > Actions), all from
+# the project's release keystore, so every build installs over the one before:
+#   ANDROID_KEYSTORE_BASE64  the keystore file, base64-encoded
+#   ANDROID_KEY_ALIAS        its key alias
+#   ANDROID_KEY_PASSWORD     its password
+name: Android release
+
+on:
+  push:
+    branches: [main]
+    paths: ["godot/**", ".github/workflows/android-release.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      BB_TOOLS: ${{ github.workspace }}/../bb-tools
+      VERSION_NAME: 0.1.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the signing secrets
+        id: secrets
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KS" ] || [ -z "$ALIAS" ] || [ -z "$PASS" ]; then
+            echo "::warning::No release yet: add the ANDROID_KEYSTORE_BASE64, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD repository secrets (see the top of this workflow), then run it again."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-java@v4
+        if: steps.secrets.outputs.ok == 'true'
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache Godot and its export templates
+        if: steps.secrets.outputs.ok == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.BB_TOOLS }}/godot
+            ~/.local/share/godot/export_templates
+          key: godot-4.7.2-android
+
+      - name: Set up Godot
+        if: steps.secrets.outputs.ok == 'true'
+        run: |
+          python3 -m pip install --quiet cryptography
+          mkdir -p "$BB_TOOLS"
+          echo "$BB_TOOLS/bin" >> "$GITHUB_PATH"
+          PATH="$BB_TOOLS/bin:$PATH" sh godot/tools/setup-container.sh
+
+      - name: Build the APK
+        if: steps.secrets.outputs.ok == 'true'
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          GODOT_ANDROID_KEYSTORE_RELEASE_USER: ${{ secrets.ANDROID_KEY_ALIAS }}
+          GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="$RUNNER_TEMP/release.keystore"
+          printf '%s' "$KS" | base64 -d > "$GODOT_ANDROID_KEYSTORE_RELEASE_PATH"
+          # each build is a newer version, so phones update in place (1 was the hand-made phase 1 APK)
+          VERSION_CODE=$((GITHUB_RUN_NUMBER + 1))
+          sed -i -e "s/^version\/code=.*/version\/code=$VERSION_CODE/" \
+                 -e "s/^version\/name=.*/version\/name=\"$VERSION_NAME\"/" godot/export_presets.cfg
+          sh godot/tools/build-apk.sh "$RUNNER_TEMP/Battlebots.apk"
+          python3 godot/tools/apksigner.py verify "$RUNNER_TEMP/Battlebots.apk"
+          rm -f "$GODOT_ANDROID_KEYSTORE_RELEASE_PATH"
+
+      - name: Publish the release
+        if: steps.secrets.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "Battlebots for Android, build $VERSION_NAME."
+            echo
+            echo "On your phone: download **Battlebots.apk** below and open it. Android asks once to allow installs from your browser. It installs over the previous build."
+            echo
+            echo "Latest change: $(git log -1 --format=%s)"
+          } > "$RUNNER_TEMP/notes.md"
+          gh release create "android-v$VERSION_NAME" "$RUNNER_TEMP/Battlebots.apk" \
+            --title "Battlebots Android $VERSION_NAME" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --target "$GITHUB_SHA" --latest
