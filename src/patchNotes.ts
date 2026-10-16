@@ -16,6 +16,16 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-16 02:00",
+    title: "A quiet paradise beach",
+    notes: [
+      "The home beach has been rebuilt from scratch as a quiet tropical lagoon: soft white sand, clear turquoise water and nobody else around.",
+      "Little waves now wash up the sand and leave it wet and shiny as they drain away, with sunlight rippling over the lagoon floor.",
+      "New palms sway in the breeze over a thatched sunshade, a hammock, an outrigger canoe and a green jungle hillside, with islands out on the horizon.",
+      "The beach music is slower and softer, with lapping water and the odd dove instead of gulls.",
+    ],
+  },
+  {
     hour: "2026-10-15 21:00",
     title: "Rare and Epic gear is here",
     notes: [
