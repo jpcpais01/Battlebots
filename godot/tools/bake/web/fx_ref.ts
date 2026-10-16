@@ -94,5 +94,5 @@ export async function run() {
   }
   stage.render();
   stage.render();
-  return 'ok';
+  return 'ok drops ' + (oil as any).drops.count + ' pools ' + (oil as any).pools.count;
 }

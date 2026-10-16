@@ -14,17 +14,32 @@ const MAX_STEPS := 16
 var m
 var models: Array[BotModel] = []
 var arena: Arena
+## The crowd's excitement (game.ts crowdMood): the fans in the stands follow it.
+var crowd_mood := CrowdMood.new()
 var cam: Camera3D
 var hud: FightHud
-var sparks: Sparks
+## The hit and damage effects: sparks, smoke, bits, torn-off parts, oil and steam (game.ts fx,
+## debris, oil, steam and their wiring).
+var effects: FightFx
 var _acc := 0.0
 var _time := 0.0
 var _hype := 0.3
-var _cam_pos := Vector3(0, 2.6, 9)
-var _cam_look := Vector3(0, 1.1, 0)
-var _cam_yaw := 0.0
+## The broadcast camera director and its camera drones (game.ts director, drones).
+var director: Director
+var drones: Drones
+## Lens to the middle of the fighters (the house lights expose for it).
 var _cam_dist := 8.0
-var _shake := 0.0
+## After each sim step on the worker: how many events were queued so far, and the pace it ran at,
+## so the director replays cue-then-step on the main thread as game.ts simStep interleaves them.
+var _step_marks := PackedInt32Array()
+var _step_pace := PackedFloat64Array()
+## ...and what the director reads of the match after each of those steps (Director.View).
+var _step_views: Array[Director.View] = []
+## The alpha the robots were posed with this frame (the lens eases by the same).
+var _pose_alpha := 0.0
+## game.ts groundImpacts (pelvis grounded last frame) and the corner lifts' entry clocks.
+var _ground_prev := [false, false]
+var _entry_prev := [-INF, -INF]
 var _seed_rng := RandomNumberGenerator.new()
 var _end_time := -1.0
 var _task := -1
@@ -53,8 +68,16 @@ func _ready() -> void:
 	cam.near = 0.1
 	cam.far = 120
 	add_child(cam)
-	sparks = Sparks.new()
-	add_child(sparks)
+	director = Director.new(cam)
+	for i in MAX_STEPS:
+		_step_views.append(Director.View.new())
+	drones = Drones.new()
+	add_child(drones)
+	effects = FightFx.new()
+	effects.arena = arena
+	effects.crowd_mood = crowd_mood
+	effects.enabled = OS.get_environment("BB_NOSPARKS") == ""
+	add_child(effects)
 	hud = FightHud.new()
 	hud.visible = OS.get_environment("BB_NOHUD") == ""
 	add_child(hud)
@@ -81,6 +104,9 @@ func _run_steps(n: int) -> void:
 		if m.phase == "end":
 			break
 		m.step(SIM_DT)
+		_step_views[_step_marks.size()].capture(m)
+		_step_marks.append(_events.size())
+		_step_pace.append(m.pace)
 
 
 func _queue_event(type: String, data) -> void:
@@ -98,40 +124,91 @@ func new_fight() -> void:
 	var b = TLoadout.randomBot(rng, 0.35, a.paint)
 	m = TMatch.Match.new(a, b, rng.int_(0.0, 1e9))
 	m.on(_queue_event)
-	m.skipIntro()
+	# (BB_INTRO=1: keep the walkout and presentations, for the director's intro checks)
+	if OS.get_environment("BB_INTRO") == "":
+		m.skipIntro()
 	for i in 2:
 		var bm := BotModel.new(m.specs[i])
 		bm.visible = OS.get_environment("BB_NOBOTS") == ""
 		add_child(bm)
 		models.append(bm)
 	hud.start(m)
+	effects.start(m, models)
 	_acc = 0.0
 	_end_time = -1.0
 	_hype = 0.3
-	# start on the wide shot, the player's robot on the left
-	_frame_camera(1.0, true)
+	# the director films the new fight from its first step, the player's robot on the left
+	_step_marks.clear()
+	_step_pace.clear()
+	_ground_prev = [false, false]
+	_entry_prev = [-INF, -INF]
+	director.mode = "match"
+	director.player = 0
+	director.begin(m)
+	director.snap()
 
 
 func _on_event(type: String, data) -> void:
-	if OS.get_environment("BB_NOSPARKS") != "":
-		return
+	_arena_event(type, data)
+	# (the torn-off piece flies before the socket's wrench, as in game.ts tearOff)
+	effects.on_event(type, data)
+	_bot_event(type, data)
+
+
+## The robots' own metal (game.ts: the hit's dent and oil, a torn socket's wrench and gush).
+func _bot_event(type: String, data) -> void:
 	match type:
 		"hit":
-			if data.blocked:
-				sparks.burst(_v(data.point), _v(data.dir), 6, Color(0.5, 0.8, 1.0) * 3.0)
-			else:
-				var heavy: bool = data.heavy
-				sparks.burst(_v(data.point), _v(data.dir), 26 if heavy else 12, Color(1.0, 0.55, 0.15) * 4.0)
-				_shake = maxf(_shake, 0.22 if heavy else 0.08)
-				_hype = minf(1.0, _hype + (0.12 if heavy else 0.04))
+			BotWear.on_hit(models, data)
 		"detach":
-			models[int(data.f.index)].tear_off(int(data.part))
-			sparks.burst(_v(data.point), _v(data.dir), 40, Color(1.0, 0.5, 0.1) * 5.0)
-			_shake = 0.35
-			_hype = 1.0
-		"knockdown", "ko":
-			_hype = 1.0
-			_shake = maxf(_shake, 0.25)
+			BotWear.on_detach(models, data)
+
+
+## The building's side of a sim event (game.ts onMatchEvent): the crowd's mood, the fans, the
+## photographers and the show, and how much each moment excites the house.
+func _arena_event(type: String, data) -> void:
+	crowd_mood.event(type, data)
+	arena.event(type, data)
+	match type:
+		"hit":
+			if not data.shielded and not data.blocked:
+				arena.excite(float(data.damage) / 120.0)
+			if data.knockdown:
+				arena.excite(1.0)
+		"stagger":
+			arena.excite(0.4)
+		"detach":
+			# (game.ts tearOff)
+			arena.excite(1.4)
+			arena.strobe(0.6)
+		"dodge":
+			arena.excite(0.15)
+		"clinch":
+			arena.excite(0.2)
+		"sprawl":
+			arena.excite(0.35)
+		"takedown":
+			arena.excite(0.8)
+		"ropes":
+			arena.flash_ropes(0.8)
+			arena.rope_hit(float(data.x), float(data.z), float(data.strength))
+		"ko":
+			arena.excite(1.5)
+		"finisher":
+			arena.strobe(0.8)
+			arena.excite(1.3)
+		"finisherBlow":
+			arena.strobe(1.0)
+			arena.flash_ropes(1.0)
+			arena.excite(2.0)
+		"fistBump":
+			arena.excite(0.5)
+		"emote":
+			arena.excite(float(data.k) * 0.6)
+		"decision":
+			arena.excite(1.0)
+		"getUp":
+			arena.excite(0.5)
 
 
 static func _v(p) -> Vector3:
@@ -147,11 +224,19 @@ func _process(dt: float) -> void:
 	_events = []
 	for e in events:
 		_on_event(e[0], e[1])
+	_direct_steps(events)
+	_pose_alpha = _alpha
+	# both bodies first: each robot's limbs then slide out of either robot's armour (game.ts)
 	for i in 2:
 		var f = m.fighters[i]
 		var em = f.emote
 		var look = _v(em.gaze) if em != null and em.gazeOn else _v(m.fighters[1 - i].body.pos[3])
-		models[i].pose(f, _alpha, _time, look)
+		models[i].begin(f, _alpha, look)
+	for i in 2:
+		models[i].end(m.fighters[i], _time, models[1 - i])
+	BotWear.update(models, m, dt)
+	# sparks, smoke, vapour and oil off the wrecked parts, the debris, the trails (the sim is idle)
+	effects.update(dt, dt * m.pace, cam)
 	if m.phase == "end" and _end_time < 0:
 		_end_time = _time
 	_view = FightHud.snapshot(m)
@@ -166,8 +251,14 @@ func _process(dt: float) -> void:
 	_alpha = _acc / SIM_DT
 	if steps > 0:
 		_task = WorkerThreadPool.add_task(_run_steps.bind(steps), true, "sim")
-	_hype = lerpf(_hype, 0.3, dt * 0.15)
-	arena.update(dt, _time, _hype)
+	# the building (game.ts frame: pressRopes, crowdMood.tick, crowd.update, venue.score, arena.update)
+	arena.press_ropes([models[0].joints, models[1].joints], [models[0].size, models[1].size])
+	var hp: Array = _view.hp
+	crowd_mood.tick(dt, m.phase, m.clock, hp[0], hp[1])
+	arena.crowd.update(dt, crowd_mood.excite, m.phase == "fight" or m.phase == "greet")
+	arena.score(dt, {"names": [m.fighters[0].name_, m.fighters[1].name_], "hp": hp, "clock": m.clock, "phase": m.phase, "presenting": int(m.presenting)})
+	arena.update(dt, _time)
+	_hype = arena.hype
 	arena.expose(dt, _cam_dist)
 	_frame_camera(dt, false)
 	hud.update_hud(_view, _end_time >= 0 and _time - _end_time > 1.5)
@@ -179,39 +270,108 @@ func _unhandled_input(e: InputEvent) -> void:
 		new_fight()
 
 
-## A broadcast camera: square on to the line between the robots, the player's robot on the left,
-## pulled back as they part, easing after them.
-func _frame_camera(dt: float, snap: bool) -> void:
-	var a := models[0].joints[1]
-	var b := models[1].joints[1]
-	if snap:
-		a = _v(m.fighters[0].body.pos[1])
-		b = _v(m.fighters[1].body.pos[1])
-	var mid := (a + b) * 0.5
-	var across := b - a
-	across.y = 0
-	var sep := across.length()
-	var dir := across / sep if sep > 0.01 else Vector3.RIGHT
-	# looking along this keeps fighter 0 on the left (screen right = toward fighter 1)
-	var side := Vector3.UP.cross(dir)
-	var want_yaw := atan2(side.x, side.z)
-	var want_dist := clampf(4.6 + sep * 1.15, 5.2, 10.5)
-	var want_look := Vector3(mid.x * 0.85, 1.05 + sep * 0.04, mid.z * 0.85)
-	# swing round the robots rather than through them
-	var k := 1.0 if snap else 1.0 - exp(-dt * 1.8)
-	_cam_yaw = lerp_angle(_cam_yaw, want_yaw, k)
-	_cam_dist = lerpf(_cam_dist, want_dist, k)
-	_cam_look = _cam_look.lerp(want_look, 1.0 if snap else 1.0 - exp(-dt * 4.0))
-	_cam_pos = _cam_look - Vector3(sin(_cam_yaw), 0, cos(_cam_yaw)) * _cam_dist + Vector3(0, 1.0 + _cam_dist * 0.12, 0)
-	var shake := Vector3.ZERO
-	if _shake > 0.001:
-		shake = Vector3(sin(_time * 61.0), sin(_time * 53.0 + 1.3), 0) * _shake * 0.06
-		_shake *= exp(-dt * 7.0)
+## The broadcast camera (game.ts frame, camera part): the director eases the lens from its last
+## step's setup, the bot it looks out of in a bot's-eye shot hides its head, and the drones fly
+## the shots. BB_CAM pins a fixed camera instead (look checks against the web game's renders).
+func _frame_camera(dt: float, _snap: bool) -> void:
+	# stage.ts resize: a narrow (portrait) screen gets a wider base lens
+	var vp := get_viewport().get_visible_rect().size
+	var narrow := vp.x / maxf(1.0, vp.y) < 1.2
+	director.set_base_fov(55.0 if narrow else 38.0, narrow)
+	director.update(dt, m, _pose_alpha)
+	var focus := (models[0].joints[1] + models[1].joints[1]) * 0.5
 	if _fixed_cam.size() == 2:
 		cam.look_at_from_position(_fixed_cam[0], _fixed_cam[1])
-		_cam_dist = _fixed_cam[0].distance_to(_fixed_cam[1])
-		return
-	cam.look_at_from_position(_cam_pos + shake, _cam_look)
+		cam.fov = 38.0
+		cam.near = 0.1
+		cam.far = 120.0
+	_cam_dist = cam.global_position.distance_to(focus)
+	drones.update(dt, cam, director.cuts, director.mode, focus, director.pov >= 0)
+
+
+## The director's side of this frame's sim steps, replayed on the main thread in step order:
+## each step's events are cued (with game.ts onEvent's shakes, jolts and punches), then the
+## step is directed. Runs while the worker is idle, so it reads the sim freely.
+func _direct_steps(events: Array) -> void:
+	var marks := _step_marks
+	var paces := _step_pace
+	_step_marks = PackedInt32Array()
+	_step_pace = PackedFloat64Array()
+	var e := 0
+	for k in marks.size():
+		while e < marks[k] and e < events.size():
+			_camera_event(events[e][0], events[e][1])
+			e += 1
+		director.step(_step_views[k], SIM_DT / maxf(1e-6, paces[k]))
+	while e < events.size():
+		_camera_event(events[e][0], events[e][1])
+		e += 1
+	# a body slamming into the canvas (game.ts groundImpacts)
+	for i in 2:
+		var f = m.fighters[i]
+		if not f.isDown:
+			continue
+		var g := JS.truthy(f.body.grounded[0])
+		if g and not _ground_prev[i]:
+			var sp: float = f.body.velocity(0, SIM_DT, V3.new()).length()
+			if sp > 1.2:
+				director.shake(minf(0.4, sp * 0.08))
+		_ground_prev[i] = g
+	# a corner lift arriving at the top (game.ts corners.onCue 'arrive')
+	for i in 2:
+		var t := TEntrance.entryTime(m.phase, m.phaseTime, float(i))
+		var arrive: float = TEntrance.ENTRY.arrive
+		if _entry_prev[i] < arrive and t >= arrive and t - arrive < 0.25:
+			director.shake(0.25)
+		_entry_prev[i] = t
+	# a bot's-eye shot: the lens is inside that bot's head
+	var pov := director.pov
+	for i in 2:
+		if models[i].has_method("set_head_hidden"):
+			models[i].set_head_hidden(i == pov)
+
+
+## game.ts onEvent, the camera's part: director.cue, then the shakes, jolts and punches.
+func _camera_event(type: String, data) -> void:
+	director.cue(type, data)
+	match type:
+		"hit":
+			if data.shielded:
+				return
+			var dmg: float = data.damage
+			if data.blocked:
+				var gb: bool = JS.truthy(data.guardBreak)
+				director.shake(0.12 + (0.3 if gb else 0.0))
+				director.jolt(_v(data.dir), 0.25 + dmg / 200.0 + (0.4 if gb else 0.0))
+			else:
+				var crit := JS.truthy(data.crit)
+				director.shake(minf(0.75, 0.18 + dmg / 160.0))
+				# the picture rocks the way the blow went
+				director.jolt(_v(data.dir), 0.5 + dmg / 70.0 + (0.6 if crit else 0.0))
+				if dmg >= 55.0 or crit:
+					director.punch(2.5)
+			if JS.truthy(data.knockdown):
+				director.shake(0.6)
+				director.punch(4.0)
+		"detach":
+			# (game.ts tearOff)
+			director.shake(0.85)
+			director.punch(5.0)
+		"takedown":
+			director.shake(0.2)
+		"ko":
+			director.focus_ko(int(data.loser.index))
+			director.shake(0.9)
+			director.punch(5.0)
+		"finisher":
+			director.punch(3.0)
+			director.shake(0.25)
+		"finisherBlow":
+			director.shake(1.0)
+			director.punch(6.0)
+		"emote":
+			if JS.truthy(data.get("shake")):
+				director.shake(float(data.shake))
 
 
 func _build_world() -> void:
@@ -241,7 +401,11 @@ func _build_world() -> void:
 	env.glow_intensity = 0.7
 	env.glow_strength = 1.0
 	env.glow_bloom = 0.0
-	env.glow_hdr_threshold = 1.0
+	# post.ts blooms only past luminance 2.4 (smoothstep 2.25..2.55); Godot thresholds the
+	# brightest channel instead, so saturated glows (the orange post beacons, max 2.7, luminance
+	# 1.4) need a higher, sharp threshold to stay unbloomed as on the web
+	env.glow_hdr_threshold = 3.0
+	env.glow_hdr_scale = 0.5
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
 	env.set_glow_level(0, 0.0)
 	env.set_glow_level(1, 1.0)
@@ -254,7 +418,8 @@ func _build_world() -> void:
 	# the overhead rig: one warm spot pools on the ring (stage.ts key)
 	var key := SpotLight3D.new()
 	key.light_color = Color.hex(0xfff1e0ff)
-	key.light_energy = 1.3
+	# three's lights are in candela over pi (physical units): 3.4 / pi
+	key.light_energy = 3.4 / PI
 	key.spot_range = 18.0
 	key.spot_attenuation = 0.0
 	key.spot_angle = rad_to_deg(0.62)
@@ -268,7 +433,8 @@ func _build_world() -> void:
 	for r in [[Color.hex(0xff7a2aff), Vector3(-5.5, 3.5, -2)], [Color.hex(0x2ad8ffff), Vector3(5.5, 3.5, 2)]]:
 		var o := OmniLight3D.new()
 		o.light_color = r[0]
-		o.light_energy = 2.5
+		# 22 / pi; Godot's omni falloff is three's (cutoff window times distance^-decay)
+		o.light_energy = 22.0 / PI
 		o.omni_range = 14.0
 		o.omni_attenuation = 1.6
 		o.position = r[1]
