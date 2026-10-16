@@ -47,19 +47,22 @@ static func scaledStat(value: float, rarity: float) -> float:
 static func formatStatLine(key: String, v: float) -> String:
 	var sign_: String = ("+" if (v >= 0.0) else "−")
 	var a: float = absf(v)
+	var _hSTAT_LABEL = TItems.STAT_LABEL
 	if ((key == "hp") or (key == "stamina")):
-		return ((sign_) + JS.s(JS.round(a)) + " " + (TItems.STAT_LABEL[key]))
+		return ((sign_) + JS.s(JS.round(a)) + " " + (_hSTAT_LABEL[key]))
 	if (key == "reach"):
-		return ((sign_) + JS.s(JS.round((a * 100.0))) + "cm " + (TItems.STAT_LABEL[key]))
-	return ((sign_) + JS.s(JS.round((a * 100.0))) + "% " + (TItems.STAT_LABEL[key]))
+		return ((sign_) + JS.s(JS.round((a * 100.0))) + "cm " + (_hSTAT_LABEL[key]))
+	return ((sign_) + JS.s(JS.round((a * 100.0))) + "% " + (_hSTAT_LABEL[key]))
 
 static func partTint(item) -> String:
 	return (TItems.RARITIES[item.tier].color if (TItems.MAX_RARITY != 0.0) else TItems.COMPANY_BY_ID.get(item.maker).color)
 
 static func setsOf(loadout) -> Array:
 	var n: Dictionary = {}
-	for slot: String in TItems.SLOTS:
-		var item = TItems.ITEM_BY_ID.get(loadout[slot].id)
+	var _hSLOTS: Array = TItems.SLOTS
+	var _hITEM_BY_ID: Dictionary = TItems.ITEM_BY_ID
+	for slot: String in _hSLOTS:
+		var item = _hITEM_BY_ID.get(loadout[slot].id)
 		if (item != null):
 			var __t1 = n.get(item.maker)
 			n[item.maker] = (((__t1 if __t1 != null else 0.0)) + 1.0)
@@ -94,17 +97,21 @@ static func computeBuild(loadout, size_: float = 1.0):
 	var addPassive = __f2
 	var sets: Array = JS.sort(TItems.setsOf(loadout), func(a, b): return (b.count - a.count))
 	var stalled: Array = []
-	for slot: String in TItems.SLOTS:
+	var _hSLOTS: Array = TItems.SLOTS
+	var _hITEM_BY_ID: Dictionary = TItems.ITEM_BY_ID
+	var _hCOMPANY_BY_ID: Dictionary = TItems.COMPANY_BY_ID
+	var _hRARITIES: Array = TItems.RARITIES
+	for slot: String in _hSLOTS:
 		var eq = loadout[slot]
-		var item = TItems.ITEM_BY_ID.get(eq.id)
+		var item = _hITEM_BY_ID.get(eq.id)
 		tough[slot] = 0.0
-		var co = TItems.COMPANY_BY_ID.get(item.maker)
-		if ((co.get("needsFull") == true) and (JS.find(sets, func(st, _a1 = null, _a2 = null): return (is_same(st.company, co))).count < float(TItems.SLOTS.size()))):
+		var co = _hCOMPANY_BY_ID.get(item.maker)
+		if ((co.get("needsFull") == true) and (JS.find(sets, func(st, _a1 = null, _a2 = null): return (is_same(st.company, co))).count < float(_hSLOTS.size()))):
 			stalled.append(slot)
 			rating += 30.0
 			continue
 		var r: float = item.tier
-		rating += (100.0 * TItems.RARITIES[r].mult)
+		rating += (100.0 * _hRARITIES[r].mult)
 		for __it3 in JS.entries(item.stats):
 			var k: String = __it3[0]
 			var v_2: float = __it3[1]
@@ -125,7 +132,7 @@ static func computeBuild(loadout, size_: float = 1.0):
 				var k_2: String = __it4[0]
 				var v_3: float = __it4[1]
 				if (k_2 == "toughness"):
-					for slot_2: String in TItems.SLOTS:
+					for slot_2: String in _hSLOTS:
 						tough[slot_2] += v_3
 				else:
 					pct[k_2] = (((pct.get(k_2) if pct.get(k_2) != null else 0.0)) + v_3)
@@ -163,7 +170,7 @@ static func computeBuild(loadout, size_: float = 1.0):
 		s.reaction /= (1.0 + (E.reaction * d))
 		s.accuracy = minf(0.97, (s.accuracy + (E.accuracy * d)))
 		s.staminaRegen *= (1.0 + (E.staminaRegen * d))
-		for slot_3: String in TItems.SLOTS:
+		for slot_3: String in _hSLOTS:
 			tough[slot_3] += (E.tough * d)
 	return {
 	"stats": s,

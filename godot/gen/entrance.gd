@@ -11,17 +11,19 @@ static var CORNER_OF: Array
 
 static func hatchXZ(i: float) -> Array:
 	var a: float = (((((TEntrance.CORNER_OF[i] + 0.5)) * PI)) / 4.0)
-	return [(DM.cos(a) * TEntrance.HATCH_AT), (DM.sin(a) * TEntrance.HATCH_AT)]
+	var _hHATCH_AT: float = TEntrance.HATCH_AT
+	return [(DM.cos(a) * _hHATCH_AT), (DM.sin(a) * _hHATCH_AT)]
 
 static func entryTime(phase: String, phaseTime: float, i: float) -> float:
 	return ((phaseTime - (i * TEntrance.PRESENT)) if (phase == "intro") else INF)
 
 static func liftUp(t: float) -> float:
-	if (t <= TEntrance.ENTRY.rise):
+	var _hENTRY = TEntrance.ENTRY
+	if (t <= _hENTRY.rise):
 		return 0.0
-	if (t >= TEntrance.ENTRY.arrive):
+	if (t >= _hENTRY.arrive):
 		return 1.0
-	var u: float = (((t - TEntrance.ENTRY.rise)) / ((TEntrance.ENTRY.arrive - TEntrance.ENTRY.rise)))
+	var u: float = (((t - _hENTRY.rise)) / ((_hENTRY.arrive - _hENTRY.rise)))
 	return (((u * u) * u) * (((u * (((u * 6.0) - 15.0))) + 10.0)))
 
 static func liftDrop(t: float) -> float:

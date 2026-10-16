@@ -647,9 +647,24 @@ class ModuleEmitter {
       for (const l of OVERRIDES[key]) lines.push('\t' + l);
       return lines;
     }
-    const body = [...this.paramPrologue(fn, ctx)];
+    const hoist = this.hoistable(fn, scope);
+    ctx.hoist = hoist;
+    const body = [];
+    const hoistAt = (i) => {
+      for (const h of hoist.values()) if (h.at === i) body.push(`var ${h.name}${h.ann} = ${h.ref}`);
+    };
+    hoistAt(-1);
+    body.push(...this.paramPrologue(fn, ctx));
     if (ts.isBlock(fn.body)) {
-      for (const l of this.block(fn.body.statements, ctx, { fnBody: true })) body.push(l);
+      // (as block(), with each hoisted read just before the first statement that needs it, so an
+      // early return doesn't pay for reads it never makes)
+      const stmts = fn.body.statements;
+      for (const st of stmts) if (ts.isFunctionDeclaration(st)) body.push(...this.localFunction(st, ctx));
+      stmts.forEach((st, i) => {
+        if (ts.isFunctionDeclaration(st)) return;
+        hoistAt(i);
+        body.push(...this.stmt(st, ctx));
+      });
     } else if (ret === ' -> void') {
       body.push(...this.withPre(ctx, () => this.exprStmt(fn.body, ctx)));
     } else {
@@ -660,6 +675,62 @@ class ModuleEmitter {
     if (!body.length) body.push('pass');
     for (const l of body) lines.push('\t' + l);
     return lines;
+  }
+
+  /**
+   * Module-level `const` bindings a function reads more than once (or inside a loop), read once
+   * into a local at its top. A static var read through its class name (`TBody._a`) costs GDScript
+   * a global lookup and a named member lookup every time, several times a local read, and the
+   * sim's scratch vectors and tables are read in its hottest loops. A `const` binding is never
+   * reassigned after the module's init, so the local always holds the same object or value.
+   */
+  hoistable(fn, scope) {
+    const weight = new Map();
+    // the top-level statement each is first read in (-1: the parameters, a nested function
+    // declaration, which is hoisted to the top, or an expression body)
+    const first = new Map();
+    let at = -1;
+    const loopKinds = new Set([ts.SyntaxKind.ForStatement, ts.SyntaxKind.ForOfStatement, ts.SyntaxKind.ForInStatement, ts.SyntaxKind.WhileStatement, ts.SyntaxKind.DoStatement]);
+    const visit = (n, inLoop) => {
+      if (ts.isIdentifier(n) && !(ts.isPropertyAccessExpression(n.parent) && n.parent.name === n)) {
+        let sym = checker.getSymbolAtLocation(n);
+        if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+        const decl = sym && this.declOf(sym);
+        if (decl && decl !== n.parent && this.isHoistable(decl)) {
+          weight.set(sym, (weight.get(sym) ?? 0) + (inLoop ? 2 : 1));
+          if (!first.has(sym)) first.set(sym, at);
+        }
+      }
+      const loop = inLoop || loopKinds.has(n.kind);
+      ts.forEachChild(n, (c) => visit(c, loop));
+    };
+    for (const p of fn.parameters) visit(p, false);
+    if (fn.body && ts.isBlock(fn.body)) {
+      fn.body.statements.forEach((st, i) => {
+        at = ts.isFunctionDeclaration(st) ? -1 : i;
+        visit(st, false);
+      });
+    } else if (fn.body) visit(fn.body, false);
+    const out = new Map();
+    for (const [sym, w] of weight) {
+      if (w < 2) continue;
+      const decl = this.declOf(sym);
+      let base = `_h${gd(sym.getName())}`, name = base, i = 2;
+      while (scope.used.has(name)) name = `${base}_${i++}`;
+      scope.used.add(name);
+      const t = gdType(typeOf(decl.name));
+      out.set(sym, { name, ann: t ? `: ${t}` : '', ref: this.topRef(decl, sym.getName()), at: first.get(sym) });
+    }
+    return out;
+  }
+
+  isHoistable(decl) {
+    if (!ts.isVariableDeclaration(decl) || !ts.isIdentifier(decl.name) || !isTopLevel(decl) || isConstFn(decl)) return false;
+    if (!(decl.parent.flags & ts.NodeFlags.Const) || !decl.initializer) return false;
+    // compile-time constants are GDScript consts already, free to read
+    if (this.isConstExpr(decl.initializer)) return false;
+    const r = rel(decl.getSourceFile());
+    return !EXTERNAL.has(r) && !r.endsWith('three.d.ts') && !!moduleOf(decl.getSourceFile());
   }
 
   params(fn, ctx, padTo = 0) {
@@ -1091,9 +1162,49 @@ class ModuleEmitter {
       const lines = this.optChain(e, ctx, true);
       return [...ctx.pre.splice(0), ...lines];
     }
+    const inl = this.inlineV3(e, ctx);
+    if (inl) return inl;
     const v = this.expr(e, ctx);
     if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(v) || /^-?[0-9.]+$/.test(v)) return [];
     return [v];
+  }
+
+  /**
+   * A statement of Vector3 calls that each set the vector component by component and return it
+   * (`v.copy(a).multiplyScalar(s).addScaledVector(b, k)`), written out as the field maths
+   * V3's methods do (runtime/v3.gd), in the same order and with each argument evaluated once,
+   * where its turn comes. A GDScript method call costs several times the three lines of maths,
+   * and the sim makes nearly two thousand of them a step.
+   */
+  inlineV3(e, ctx) {
+    if (!ts.isCallExpression(e)) return null;
+    const links = [];
+    let cur = e;
+    while (ts.isCallExpression(cur) && !(cur.flags & ts.NodeFlags.OptionalChain) && ts.isPropertyAccessExpression(cur.expression) && !cur.expression.questionDotToken) {
+      const recv = skipOuter(cur.expression.expression);
+      const name = cur.expression.name.text;
+      if (!isV3(typeOf(recv)) || !(name in V3_INLINE) || cur.arguments.length !== V3_INLINE[name].n) break;
+      links.unshift({ name, args: cur.arguments });
+      cur = recv;
+    }
+    if (!links.length || links.length !== chainLength(e)) return null;
+    const out = [];
+    const simple = (v) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(v) || /^-?[0-9]+(\.[0-9]+)?(e-?[0-9]+)?$/.test(v);
+    const val = (node, type) => {
+      const v = this.expr(node, ctx);
+      out.push(...ctx.pre.splice(0));
+      if (simple(v)) return v;
+      const t = this.newTmp(ctx.scope, 'v');
+      out.push(`var ${t}: ${type} = ${v}`);
+      return t;
+    };
+    const r = val(cur, 'V3');
+    for (const { name, args } of links) {
+      const spec = V3_INLINE[name];
+      const a = args.map((arg, i) => val(arg, spec.types[i]));
+      out.push(...spec.emit(r, a, () => this.newTmp(ctx.scope, 'v')));
+    }
+    return out;
   }
 
   assign(e, ctx) {
@@ -1303,6 +1414,8 @@ class ModuleEmitter {
     if (!sym) fail(node, `unknown name ${t}`);
     const local = ctx.scope.lookup(sym);
     if (local) return ctx.scope.boxed.has(sym) ? `${local}[0]` : local;
+    const h = ctx.hoist?.get(sym);
+    if (h) return h.name;
     const decl = this.declOf(sym);
     if (!decl) {
       if (t === 'Math' || t === 'Number' || t === 'Object' || t === 'Array' || t === 'JSON' || t === 'console') return t;
@@ -1701,12 +1814,100 @@ class ModuleEmitter {
       let sym = this.symOf(callee);
       const decl = this.declOf(sym);
       const args = this.args(node, ctx).join(', ');
-      if (decl && (ts.isFunctionDeclaration(decl) || isConstFn(decl)) && isTopLevel(decl)) return `${this.topRef(decl, sym.getName())}(${args})`;
+      if (decl && (ts.isFunctionDeclaration(decl) || isConstFn(decl)) && isTopLevel(decl)) {
+        const inl = this.inlineCall(decl, node, ctx);
+        if (inl !== null) return inl;
+        return `${this.topRef(decl, sym.getName())}(${args})`;
+      }
       const f = this.ident(callee, ctx);
       return `${f}.call(${args})`;
     }
     const f = this.expr(callee, ctx);
     return `(${f}).call(${this.args(node, ctx).join(', ')})`;
+  }
+
+  /**
+   * A call to a one-line maths helper (`lerp(a, b, t)`, `clamp01(v)`, `ropeSide(x, z)`) written
+   * in place, when its body is a single returned expression of its number parameters and every
+   * argument is a plain number variable or literal (so reading it more than once is the same as
+   * reading it once). A GDScript call costs more than such a body, and the sim makes hundreds a
+   * step. The expression is the callee's own, translated with its parameters bound to the
+   * arguments, so the maths is operation for operation the same.
+   */
+  inlineCall(decl, node, ctx) {
+    const fn = ts.isFunctionDeclaration(decl) ? decl : decl.initializer;
+    if (!fn.body || EXTERNAL.has(rel(decl.getSourceFile()))) return null;
+    let ret = fn.body;
+    if (ts.isBlock(fn.body)) {
+      const st = fn.body.statements;
+      if (st.length !== 1 || !ts.isReturnStatement(st[0]) || !st[0].expression) return null;
+      ret = st[0].expression;
+    }
+    const ps = fn.parameters;
+    if (ps.length !== node.arguments.length) return null;
+    const isNum = (t) => !!(t.flags & ts.TypeFlags.NumberLike) && !(t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown));
+    if (ps.some((p) => !ts.isIdentifier(p.name) || p.initializer || p.dotDotDotToken || p.questionToken || !isNum(typeOf(p.name)))) return null;
+    if (!isNum(checker.getReturnTypeOfSignature(checker.getSignatureFromDeclaration(fn)))) return null;
+    let ok = true;
+    const K = ts.SyntaxKind;
+    const check = (n) => {
+      if (!ok) return;
+      if (ts.isFunctionLike(n) || n.kind === K.ThisKeyword || ts.isObjectLiteralExpression(n) || ts.isArrayLiteralExpression(n)) ok = false;
+      else if (ts.isBinaryExpression(n) && n.operatorToken.kind >= K.FirstAssignment && n.operatorToken.kind <= K.LastAssignment) ok = false;
+      else if ((ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) && (n.operator === K.PlusPlusToken || n.operator === K.MinusMinusToken)) ok = false;
+      else if (ts.isIdentifier(n) && this.declOf(this.symOf(n)) === decl) ok = false; // recursion
+      else ts.forEachChild(n, check);
+    };
+    check(ret);
+    if (!ok) return null;
+    // how often the body reads each parameter
+    const uses = ps.map(() => 0);
+    const psyms = ps.map((p) => checker.getSymbolAtLocation(p.name));
+    const count = (n) => {
+      if (ts.isIdentifier(n)) {
+        const i = psyms.indexOf(this.symOf(n));
+        if (i >= 0) uses[i]++;
+      }
+      ts.forEachChild(n, count);
+    };
+    count(ret);
+    // an argument with no side effects (reads and arithmetic, no calls) can be read in another
+    // order, or not at all; one read more than once has to be small too
+    const pure = (n) => {
+      n = skipOuter(n);
+      if (ts.isIdentifier(n) || ts.isNumericLiteral(n)) return 1;
+      if (ts.isPropertyAccessExpression(n) && !n.questionDotToken) return 1 + pure(n.expression);
+      if (ts.isElementAccessExpression(n) && !n.questionDotToken) return 1 + pure(n.expression) + pure(n.argumentExpression);
+      if (ts.isPrefixUnaryExpression(n) && (n.operator === K.MinusToken || n.operator === K.PlusToken)) return 1 + pure(n.operand);
+      if (ts.isBinaryExpression(n) && [K.PlusToken, K.MinusToken, K.AsteriskToken, K.SlashToken].includes(n.operatorToken.kind)) return 1 + pure(n.left) + pure(n.right);
+      return Infinity;
+    };
+    const simple = (v) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(v) || /^-?[0-9]+(\.[0-9]+)?(e-?[0-9]+)?$/.test(v);
+    const saved = ctx.pre.length;
+    const args = [];
+    for (let i = 0; i < ps.length; i++) {
+      const a = node.arguments[i];
+      if (!isNum(typeOf(a))) return null;
+      const size = pure(a);
+      if (size === Infinity || (uses[i] > 1 && size > 4)) return null;
+      const v = this.expr(a, ctx);
+      if (ctx.pre.length !== saved) {
+        ctx.pre.length = saved;
+        return null;
+      }
+      args.push(simple(v) ? v : `(${v})`);
+    }
+    const scope = new Scope();
+    ps.forEach((p, i) => scope.names.set(checker.getSymbolAtLocation(p.name), args[i]));
+    const c2 = this.ctx(scope, { isStatic: true });
+    let v;
+    try {
+      v = this.expr(ret, c2);
+    } catch {
+      return null;
+    }
+    if (c2.pre.length) return null;
+    return `(${v})`;
   }
 
   /** Interfaces whose methods are only ever implemented by classes can be called directly. */
@@ -1859,6 +2060,13 @@ class ModuleEmitter {
       const x = A();
       const r = R();
       const m = name === 'set' ? 'set3' : name;
+      // (the dot product and lengths as v3.gd computes them, where nothing needs evaluating once)
+      const id = (v) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(v);
+      if (id(r) && x.every(id)) {
+        if (m === 'dot' && x.length === 1) return `(${r}.x * ${x[0]}.x + ${r}.y * ${x[0]}.y + ${r}.z * ${x[0]}.z)`;
+        if (m === 'lengthSq' && !x.length) return `(${r}.x * ${r}.x + ${r}.y * ${r}.y + ${r}.z * ${r}.z)`;
+        if (m === 'length' && !x.length) return `sqrt(${r}.x * ${r}.x + ${r}.y * ${r}.y + ${r}.z * ${r}.z)`;
+      }
       return `${r}.${m}(${x.join(', ')})`;
     }
     if (isList(rt)) {
@@ -2079,6 +2287,50 @@ function isChainTop(n) {
 function isVoidish(t) {
   if (t.flags & F.Void) return true;
   return t.isUnion() && t.types.every((u) => u.flags & (F.Void | F.Undefined));
+}
+
+/**
+ * Vector3 methods inlineV3 writes out: argument count and types, and the lines (receiver `r`,
+ * evaluated arguments `a`). Each must match runtime/v3.gd operation for operation, and set the
+ * components one by one from values read before or independently of them (so `v.sub(v)` and
+ * friends alias the same way). `set` reads all its arguments first, as a call would.
+ */
+const V3_INLINE = {
+  set: { n: 3, types: ['float', 'float', 'float'], emit: (r, a) => [`${r}.x = ${a[0]}`, `${r}.y = ${a[1]}`, `${r}.z = ${a[2]}`] },
+  setX: { n: 1, types: ['float'], emit: (r, a) => [`${r}.x = ${a[0]}`] },
+  setY: { n: 1, types: ['float'], emit: (r, a) => [`${r}.y = ${a[0]}`] },
+  setZ: { n: 1, types: ['float'], emit: (r, a) => [`${r}.z = ${a[0]}`] },
+  copy: { n: 1, types: ['V3'], emit: (r, [v]) => [`${r}.x = ${v}.x`, `${r}.y = ${v}.y`, `${r}.z = ${v}.z`] },
+  add: { n: 1, types: ['V3'], emit: (r, [v]) => [`${r}.x += ${v}.x`, `${r}.y += ${v}.y`, `${r}.z += ${v}.z`] },
+  sub: { n: 1, types: ['V3'], emit: (r, [v]) => [`${r}.x -= ${v}.x`, `${r}.y -= ${v}.y`, `${r}.z -= ${v}.z`] },
+  addVectors: { n: 2, types: ['V3', 'V3'], emit: (r, [p, q]) => [`${r}.x = ${p}.x + ${q}.x`, `${r}.y = ${p}.y + ${q}.y`, `${r}.z = ${p}.z + ${q}.z`] },
+  subVectors: { n: 2, types: ['V3', 'V3'], emit: (r, [p, q]) => [`${r}.x = ${p}.x - ${q}.x`, `${r}.y = ${p}.y - ${q}.y`, `${r}.z = ${p}.z - ${q}.z`] },
+  addScaledVector: { n: 2, types: ['V3', 'float'], emit: (r, [v, k]) => [`${r}.x += ${v}.x * ${k}`, `${r}.y += ${v}.y * ${k}`, `${r}.z += ${v}.z * ${k}`] },
+  multiplyScalar: { n: 1, types: ['float'], emit: (r, [k]) => [`${r}.x *= ${k}`, `${r}.y *= ${k}`, `${r}.z *= ${k}`] },
+  lerpVectors: {
+    n: 3,
+    types: ['V3', 'V3', 'float'],
+    emit: (r, [p, q, k]) => [`${r}.x = ${p}.x + (${q}.x - ${p}.x) * ${k}`, `${r}.y = ${p}.y + (${q}.y - ${p}.y) * ${k}`, `${r}.z = ${p}.z + (${q}.z - ${p}.z) * ${k}`],
+  },
+  normalize: {
+    n: 0,
+    types: [],
+    emit: (r, a, tmp) => {
+      const l = tmp();
+      const k = tmp();
+      return [`var ${l}: float = sqrt(${r}.x * ${r}.x + ${r}.y * ${r}.y + ${r}.z * ${r}.z)`, `var ${k}: float = 1.0 / (${l} if ${l} != 0.0 else 1.0)`, `${r}.x *= ${k}`, `${r}.y *= ${k}`, `${r}.z *= ${k}`];
+    },
+  },
+};
+
+/** How many calls deep `a.f().g().h()` is (3), counting only plain property-call links. */
+function chainLength(e) {
+  let n = 0;
+  while (ts.isCallExpression(e) && ts.isPropertyAccessExpression(e.expression)) {
+    n++;
+    e = skipOuter(e.expression.expression);
+  }
+  return n;
 }
 
 function isExprStatement(node) {

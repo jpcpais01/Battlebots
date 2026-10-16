@@ -24,10 +24,12 @@ static func rollRarity(rng: TMath.Rng, tier: float = 0.35) -> float:
 static func randomLoadout(rng: TMath.Rng, tier: float = 0.35):
 	var out = {}
 	var fan = (rng.pick(TItems.COMPANIES) if rng.chance(0.45) else null)
-	for slot: String in TItems.SLOTS:
+	var _hSLOTS: Array = TItems.SLOTS
+	var _hCOMPANY_BY_ID: Dictionary = TItems.COMPANY_BY_ID
+	for slot: String in _hSLOTS:
 		var r: float = TLoadout.rollRarity(rng, tier)
 		var made: Array = JS.filter(TItems.itemsForSlot(slot), func(it, _a1 = null, _a2 = null): return (it.tier == r))
-		var all: Array = JS.filter(made, func(it_2, _a1 = null, _a2 = null): return (not (TItems.COMPANY_BY_ID.get(it_2.maker).get("needsFull") == true)))
+		var all: Array = JS.filter(made, func(it_2, _a1 = null, _a2 = null): return (not (_hCOMPANY_BY_ID.get(it_2.maker).get("needsFull") == true)))
 		var theirs: Array = (JS.filter(made, func(it_3, _a1 = null, _a2 = null): return (it_3.maker == fan.id)) if ((fan != null) and ((fan.get("needsFull") == true) or rng.chance(0.75))) else [])
 		out[slot] = TItems.equip(rng.pick((theirs if (float(theirs.size()) != 0.0) else all)))
 	return out
@@ -37,13 +39,14 @@ static func randomSize(rng: TMath.Rng) -> float:
 	return TItems.sanitizeSize((TItems.SIZE_MIN + (((TItems.SIZE_MAX - TItems.SIZE_MIN)) * r)))
 
 static func randomBot(rng: TMath.Rng, tier: float = 0.35, avoid = null):
-	var i: float = rng.int_(0.0, (float(TPaint.SCHEMES.size()) - 1.0))
-	if ((avoid != null) and TPaint.samePaint(TPaint.SCHEMES[i].paint, avoid)):
-		i = fmod((((i + 1.0) + rng.int_(0.0, (float(TPaint.SCHEMES.size()) - 2.0)))), float(TPaint.SCHEMES.size()))
+	var _hSCHEMES: Array = TPaint.SCHEMES
+	var i: float = rng.int_(0.0, (float(_hSCHEMES.size()) - 1.0))
+	if ((avoid != null) and TPaint.samePaint(_hSCHEMES[i].paint, avoid)):
+		i = fmod((((i + 1.0) + rng.int_(0.0, (float(_hSCHEMES.size()) - 2.0)))), float(_hSCHEMES.size()))
 	return {
 	"name_": TLoadout.randomName(rng),
 	"loadout": TLoadout.randomLoadout(rng, tier),
-	"paint": JS.merge([TPaint.SCHEMES[i].paint]),
+	"paint": JS.merge([_hSCHEMES[i].paint]),
 	"size_": TLoadout.randomSize(rng)
 }
 static var DEFAULT_PLAYER

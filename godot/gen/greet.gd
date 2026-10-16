@@ -59,8 +59,18 @@ class Greeting extends RefCounted:
 				drop = 0.0
 			if (((s > (TEmote.BUMP_CONTACT + 1.0)) and (d > (TGreet.BACK_D - 0.25))) or (s > 3.0)):
 				self.done = true
-		a.intentVel.set3((ux * speed), 0.0, (uz * speed))
-		b.intentVel.set3(((-ux) * speed), 0.0, ((-uz) * speed))
+		var __v2: V3 = a.intentVel
+		var __v3: float = (ux * speed)
+		var __v4: float = (uz * speed)
+		__v2.x = __v3
+		__v2.y = 0.0
+		__v2.z = __v4
+		var __v5: V3 = b.intentVel
+		var __v6: float = ((-ux) * speed)
+		var __v7: float = ((-uz) * speed)
+		__v5.x = __v6
+		__v5.y = 0.0
+		__v5.z = __v7
 		var k: float = (1.0 - DM.exp((-6.0 * dt)))
 		a.guardDrop += (((drop - a.guardDrop)) * k)
 		b.guardDrop += (((drop - b.guardDrop)) * k)

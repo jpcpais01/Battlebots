@@ -331,7 +331,14 @@ class Brain extends RefCounted:
 		var idx: float = fmod(((((head - 1.0) - delaySteps) + (TBrain.PERCEPTION_BUFFER * 2.0))), TBrain.PERCEPTION_BUFFER)
 		TBrain.copyObs(buf[idx], perceived)
 		var lead: float = (reactionNow * ((0.4 + (traits.skill * 0.5))))
-		predPos.copy(perceived.pos).addScaledVector(perceived.vel, lead)
+		var __v1: V3 = perceived.pos
+		predPos.x = __v1.x
+		predPos.y = __v1.y
+		predPos.z = __v1.z
+		var __v2: V3 = perceived.vel
+		predPos.x += __v2.x * lead
+		predPos.y += __v2.y * lead
+		predPos.z += __v2.z * lead
 	
 	func latestActual():
 		return buf[fmod((((head - 1.0) + TBrain.PERCEPTION_BUFFER)), TBrain.PERCEPTION_BUFFER)]
@@ -360,14 +367,28 @@ class Brain extends RefCounted:
 			if (tr_ > 3.0):
 				tx *= (3.0 / tr_)
 				tz *= (3.0 / tr_)
-			me.intentVel.set3((tx - me.root.x), 0.0, (tz - me.root.z)).multiplyScalar(1.2)
+			var __v2: V3 = me.intentVel
+			var __v3: float = (tx - me.root.x)
+			var __v4: float = (tz - me.root.z)
+			__v2.x = __v3
+			__v2.y = 0.0
+			__v2.z = __v4
+			__v2.x *= 1.2
+			__v2.y *= 1.2
+			__v2.z *= 1.2
 			if (me.intentVel.length() > 1.2):
 				me.intentVel.setLength(1.2)
 			if (d > 2.2):
-				me.intentVel.multiplyScalar(0.2)
+				var __v5: V3 = me.intentVel
+				__v5.x *= 0.2
+				__v5.y *= 0.2
+				__v5.z *= 0.2
 			return
 		if ((((me.state == "down") or (me.state == "getup")) or (me.state == "ko")) or (me.state == "ready")):
-			me.intentVel.set3(0.0, 0.0, 0.0)
+			var __v6: V3 = me.intentVel
+			__v6.x = 0.0
+			__v6.y = 0.0
+			__v6.z = 0.0
 			self.pending = null
 			if inBurst:
 				endBurst()
@@ -395,7 +416,10 @@ class Brain extends RefCounted:
 			executeResponse()
 		if (me.state != "fight"):
 			me.guardMode = "high"
-			me.intentVel.multiplyScalar(0.9)
+			var __v7: V3 = me.intentVel
+			__v7.x *= 0.9
+			__v7.y *= 0.9
+			__v7.z *= 0.9
 			return
 		updateFlow(dt)
 		updateGuard()
@@ -578,7 +602,7 @@ class Brain extends RefCounted:
 		var dImpact: float = (d - (closing * ((m.windup / speed))))
 		var lo: float = m.range_[0.0]
 		var hi: float = (1.85 if shot else (m.range_[1.0] + (m.lunge * 0.5)))
-		var pReach: float = (TMath.sigmoid((((hi - dImpact)) / 0.06)) * TMath.sigmoid((((dImpact - lo)) / 0.06)))
+		var pReach: float = (((1.0 / ((1.0 + DM.exp((-((((hi - dImpact)) / 0.06)))))))) * ((1.0 / ((1.0 + DM.exp((-((((dImpact - lo)) / 0.06)))))))))
 		if (pReach < 0.08):
 			return -100.0
 		var sMe: float = TGrapple.grappleStrength(me)
@@ -832,7 +856,7 @@ class Brain extends RefCounted:
 		var target: float = (myReach * 0.9)
 		var lateral: float = 0.0
 		var speed: float = (st.moveSpeed * 0.8)
-		var bounce: float = TMath.lerp_(0.35, 1.0, t.footwork)
+		var bounce: float = ((0.35 + (((1.0 - 0.35)) * (t.footwork))))
 		var busy: float = t.footwork
 		var urgent: bool = false
 		if plan == "pressure":
@@ -848,7 +872,7 @@ class Brain extends RefCounted:
 			lateral = (circleDir * 0.3)
 			busy *= 0.6
 		elif plan == "circle":
-			target = TMath.clamp_(d, (pocket + 0.2), (outside + 0.3))
+			target = (((((pocket + 0.2)) if (d < ((pocket + 0.2))) else (((outside + 0.3)) if (d > ((outside + 0.3))) else d))))
 			lateral = (circleDir * 0.75)
 		elif plan == "retreat":
 			target = 2.4
@@ -900,8 +924,8 @@ class Brain extends RefCounted:
 			target = 2.6
 			urgent = false
 		var err: float = (d - target)
-		var radial: float = TMath.clamp_((err * 2.4), -1.0, 1.0)
-		if (absf(err) < TMath.lerp_(0.16, 0.07, busy)):
+		var radial: float = (((-1.0 if (((err * 2.4)) < -1.0) else (1.0 if (((err * 2.4)) > 1.0) else ((err * 2.4))))))
+		if (absf(err) < ((0.16 + (((0.07 - 0.16)) * busy)))):
 			radial = 0.0
 		var __t1 = DM.hypot(me.root.x, me.root.z)
 		var r: float = (__t1 if (__t1 != 0.0) else 1.0)
@@ -932,7 +956,7 @@ class Brain extends RefCounted:
 			if (gaitT <= 0.0):
 				if gaitMoving:
 					self.gaitMoving = false
-					var settle: float = (0.05 if rng.chance((0.15 + (busy * 0.1))) else (TMath.lerp_(0.7, 0.25, busy) * rng.range_(0.5, 1.6)))
+					var settle: float = (0.05 if rng.chance((0.15 + (busy * 0.1))) else (((0.7 + (((0.25 - 0.7)) * busy))) * rng.range_(0.5, 1.6)))
 					self.gaitT = (settle * ((1.0 - (need * 0.5))))
 				else:
 					var sx: float = vx
@@ -952,14 +976,22 @@ class Brain extends RefCounted:
 						var __t2 = DM.hypot(sx, sz)
 						var l: float = (__t2 if (__t2 != 0.0) else 1.0)
 						self.gaitMoving = true
-						self.gaitT = (rng.range_(0.28, 0.48) * TMath.lerp_(1.15, 0.85, busy))
+						self.gaitT = (rng.range_(0.28, 0.48) * ((1.15 + (((0.85 - 1.15)) * busy))))
 						self.stepX = (sx / l)
 						self.stepZ = (sz / l)
 						self.stepSpeed = (speed * TMath.lerp_(0.36, 0.62, maxf(sn, (busy * 0.6))))
 		if gaitMoving:
-			me.intentVel.set3((stepX * stepSpeed), 0.0, (stepZ * stepSpeed))
+			var __v3: V3 = me.intentVel
+			var __v4: float = (stepX * stepSpeed)
+			var __v5: float = (stepZ * stepSpeed)
+			__v3.x = __v4
+			__v3.y = 0.0
+			__v3.z = __v5
 		else:
-			me.intentVel.set3(0.0, 0.0, 0.0)
+			var __v6: V3 = me.intentVel
+			__v6.x = 0.0
+			__v6.y = 0.0
+			__v6.z = 0.0
 		me.bounce = TMath.lerp_(me.bounce, ((bounce * ((1.0 - (tired * 0.6)))) * ((0.3 if (me.legLost >= 0.0) else 1.0))), 0.05)
 	
 	func cutOff(tx: float, tz: float) -> float:
@@ -967,7 +999,7 @@ class Brain extends RefCounted:
 		var px: float = (-tz)
 		var pz: float = tx
 		var lat: float = ((v.x * px) + (v.z * pz))
-		return TMath.clamp_((lat * 0.8), -1.0, 1.0)
+		return (((-1.0 if (((lat * 0.8)) < -1.0) else (1.0 if (((lat * 0.8)) > 1.0) else ((lat * 0.8))))))
 	
 	func myPunchRange() -> float:
 		return ((TMoves.MOVES.cross.range_[1.0] + me.build.stats.reach) - 0.05)
@@ -1010,22 +1042,35 @@ class Brain extends RefCounted:
 			drop = 0.6
 		if (((confidence > 0.75) and (traits.showboat > 0.7)) and (d > 1.6)):
 			drop = maxf(drop, 0.45)
-		me.guardDrop = TMath.lerp_(me.guardDrop, drop, 0.05)
+		me.guardDrop = (((me.guardDrop) + (((drop - (me.guardDrop))) * 0.05)))
 		me.taunt = maxf(0.0, (me.taunt - ((1.0 / 120.0) / 1.5)))
 	
 	func zoneAim(zone: String, obs, out: V3, move = null) -> V3:
 		var lead: float = (reactionNow * ((0.3 + (traits.skill * 0.5))))
 		var os: float = opp.size_
 		if (zone == "head"):
-			out.copy(obs.head)
+			var __v1: V3 = obs.head
+			out.x = __v1.x
+			out.y = __v1.y
+			out.z = __v1.z
 		elif (zone == "body"):
-			out.copy(obs.chest).setY((obs.chest.y - (0.16 * os)))
+			var __v2: V3 = obs.chest
+			out.x = __v2.x
+			out.y = __v2.y
+			out.z = __v2.z
+			var __v3: float = (obs.chest.y - (0.16 * os))
+			out.y = __v3
 		else:
-			out.set3(obs.pos.x, (((0.6 if ((move.path if move != null else null) == "roundKick") else 0.26)) * os), obs.pos.z)
+			var __v4: float = obs.pos.x
+			var __v5: float = (((0.6 if ((move.path if move != null else null) == "roundKick") else 0.26)) * os)
+			var __v6: float = obs.pos.z
+			out.x = __v4
+			out.y = __v5
+			out.z = __v6
 			var dx: float = (me.root.x - obs.pos.x)
 			var dz: float = (me.root.z - obs.pos.z)
-			var __t1 = DM.hypot(dx, dz)
-			var l: float = (__t1 if (__t1 != 0.0) else 1.0)
+			var __t7 = DM.hypot(dx, dz)
+			var l: float = (__t7 if (__t7 != 0.0) else 1.0)
 			out.x += ((((dx / l)) * 0.15) * os)
 			out.z += ((((dz / l)) * 0.15) * os)
 		out.x += (obs.vel.x * lead)
@@ -1036,9 +1081,17 @@ class Brain extends RefCounted:
 		if (aimUid != s.uid):
 			self.aimUid = s.uid
 			var err: float = ((((1.0 - me.build.stats.accuracy)) * 0.16) * ((1.0 + (tired * 0.8))))
-			aimNoise.set3((rng.gauss() * err), ((rng.gauss() * err) * 0.7), ((rng.gauss() * err) * 0.5))
+			var __v1: float = (rng.gauss() * err)
+			var __v2: float = ((rng.gauss() * err) * 0.7)
+			var __v3: float = ((rng.gauss() * err) * 0.5)
+			aimNoise.x = __v1
+			aimNoise.y = __v2
+			aimNoise.z = __v3
 		zoneAim(s.zone, perceived, s.aim, s.move)
-		s.aim.add(aimNoise)
+		var __v4: V3 = s.aim
+		__v4.x += aimNoise.x
+		__v4.y += aimNoise.y
+		__v4.z += aimNoise.z
 	
 	func considerAttack(chain: bool) -> bool:
 		var me: TFighter.Fighter = self.me
@@ -1057,8 +1110,9 @@ class Brain extends RefCounted:
 		var punish: bool = (time < punishUntil)
 		var opts: Array = []
 		var candidates: Array = (TMoves.BASIC_PUNCHES.duplicate() + ["lowKick", "shove", "tieUp", "shoot", me.build.fistAbility, me.build.kickAbility])
+		var _hMOVES = TMoves.MOVES
 		for id: String in candidates:
-			var m = TMoves.MOVES[id]
+			var m = _hMOVES[id]
 			if (me.cooldownLeft(id) > 0.0):
 				continue
 			if (me.stamina < (m.stamina * 0.8)):
@@ -1078,10 +1132,10 @@ class Brain extends RefCounted:
 				var u_2: float = attackUtility(m, zone, d, closing, oppCommitted, oppRocked, agg, cau, last, punish, st.reach)
 				if (u_2 > -50.0):
 					opts.append({"id": id, "zone": zone, "u": u_2, "feint": false})
-		if (((((((not chain) and (d > 1.2)) and (d < 2.0)) and (p.state == "fight")) and (me.cooldownLeft("shoot") <= 0.0)) and (traits.grappling > 0.3)) and me.canThrow(TMoves.MOVES.shoot)):
+		if (((((((not chain) and (d > 1.2)) and (d < 2.0)) and (p.state == "fight")) and (me.cooldownLeft("shoot") <= 0.0)) and (traits.grappling > 0.3)) and me.canThrow(_hMOVES.shoot)):
 			var u_3: float = (((((traits.feintiness * traits.grappling) * feintReact.v) * 30.0) - 6.0) + (rng.gauss() * 4.0))
 			opts.append({"id": "shoot", "zone": "legs", "u": u_3, "feint": true})
-		if (((((not chain) and (traits.feintiness > 0.05)) and (d < (TMoves.MOVES.jab.range_[1.0] + 0.25))) and (d > 0.7)) and (p.state == "fight")):
+		if (((((not chain) and (traits.feintiness > 0.05)) and (d < (_hMOVES.jab.range_[1.0] + 0.25))) and (d > 0.7)) and (p.state == "fight")):
 			var u_4: float = ((((traits.feintiness * feintReact.v) * 30.0) - 4.0) + (rng.gauss() * 4.0))
 			opts.append({"id": ("jab" if rng.chance(0.6) else "cross"), "zone": "head", "u": u_4, "feint": true})
 		if (float(opts.size()) == 0.0):
@@ -1144,7 +1198,7 @@ class Brain extends RefCounted:
 		var temp: float = ((3.0 + (traits.creativity * 18.0)) + (tired * 4.0))
 		var viable: Array = JS.filter(opts, func(o_4, _a1 = null, _a2 = null): return (o_4.u > (best - (temp * 2.5))))
 		var pick = viable[TMath.softmaxPick(JS.map(viable, func(o_5, _a1 = null, _a2 = null): return o_5.u), temp, rng)]
-		var aim: V3 = zoneAim(pick.zone, p, V3.new(), TMoves.MOVES[pick.id])
+		var aim: V3 = zoneAim(pick.zone, p, V3.new(), _hMOVES[pick.id])
 		if (not me.tryStrike(pick.id, pick.zone, aim, pick.feint)):
 			return false
 		if pick.feint:
@@ -1177,7 +1231,7 @@ class Brain extends RefCounted:
 		var extra: float = (reach if (m.kind == "punch") else 0.0)
 		var lo: float = m.range_[0.0]
 		var hi: float = (m.range_[1.0] + extra)
-		var pReach: float = (TMath.sigmoid((((hi - dImpact)) / 0.06)) * TMath.sigmoid((((dImpact - lo)) / 0.06)))
+		var pReach: float = (((1.0 / ((1.0 + DM.exp((-((((hi - dImpact)) / 0.06)))))))) * ((1.0 / ((1.0 + DM.exp((-((((dImpact - lo)) / 0.06)))))))))
 		if (pReach < 0.08):
 			return -100.0
 		var def: float = defRate[zone].v
@@ -1200,7 +1254,7 @@ class Brain extends RefCounted:
 		def *= (1.0 - (((1.0 - p.stamina)) * 0.25))
 		if (((lastFeint != null) and ((time - lastFeint.t) < 0.6)) and (p.actKind == "dodge")):
 			def *= 0.5
-		def = TMath.clamp_(def, 0.03, 0.95)
+		def = (((0.03 if (def < 0.03) else (0.95 if (def > 0.95) else def))))
 		var acc: float = (0.7 + (0.3 * me.build.stats.accuracy))
 		var pHit: float = ((pReach * ((1.0 - def))) * acc)
 		var mp: TDamage.Parts = me.parts
@@ -1326,6 +1380,7 @@ class Brain extends RefCounted:
 		var agility: float = me.build.stats.agility
 		var busy = me.strike
 		var motor: float = rng.range_(0.02, 0.05)
+		var _hMOVES = TMoves.MOVES
 		var need = {
 	"block": 0.05,
 	"slip": (0.07 / agility),
@@ -1333,7 +1388,7 @@ class Brain extends RefCounted:
 	"sway": (0.08 / agility),
 	"backstep": (0.09 / agility),
 	"sidestep": (0.1 / agility),
-	"counter": (((TMoves.MOVES.jab.windup + (TMoves.MOVES.jab.active * 0.5))) / me.speedMult()),
+	"counter": (((_hMOVES.jab.windup + (_hMOVES.jab.active * 0.5))) / me.speedMult()),
 	"absorb": 0.0,
 	"sprawl": (0.12 / agility)
 }
@@ -1344,7 +1399,8 @@ class Brain extends RefCounted:
 			var mine: float = ((busy.windup - busy.t) + (busy.active * 0.5))
 			var lead: float = (timeLeft - mine)
 			trade = TMath.clamp_(((((0.7 + (lead * 3.0)) + (agg * 0.3)) + (anger * 0.2)) + (maxf(0.0, (1.0 - me.speedMult())) * 1.5)), 0.15, 1.2)
-		for r: String in TBrain.RESPONSES:
+		var _hRESPONSES: Array = TBrain.RESPONSES
+		for r: String in _hRESPONSES:
 			if ((r == "sprawl") and ((cls != "shoot") or (me.legLost >= 0.0))):
 				utils.append(-99.0)
 				continue
@@ -1363,7 +1419,7 @@ class Brain extends RefCounted:
 					v *= (1.15 - (trade * 0.75))
 			if (r == "counter"):
 				v *= ((0.5 + agg) + (anger * 0.4))
-			if ((r == "counter") and (d > (TMoves.MOVES.jab.range_[1.0] + me.build.stats.reach))):
+			if ((r == "counter") and (d > (_hMOVES.jab.range_[1.0] + me.build.stats.reach))):
 				v *= 0.2
 			if ((r == "block") and (move.get("guardBreak") == true)):
 				v *= 0.4
@@ -1400,7 +1456,7 @@ class Brain extends RefCounted:
 			utils.append((v * 10.0))
 		var temp: float = TMath.lerp_(3.5, 1.2, traits.skill)
 		var ri: float = TMath.softmaxPick(utils, temp, rng)
-		var resp: String = TBrain.RESPONSES[ri]
+		var resp: String = _hRESPONSES[ri]
 		var dir: float = slipDir(move)
 		self.pending = {
 	"at": (time + motor),
@@ -1639,10 +1695,26 @@ static func classify(m, zone: String) -> String:
 
 static func copyObs(a, b) -> void:
 	b.t = a.t
-	b.pos.copy(a.pos)
-	b.vel.copy(a.vel)
-	b.head.copy(a.head)
-	b.chest.copy(a.chest)
+	var __v1: V3 = b.pos
+	var __v2: V3 = a.pos
+	__v1.x = __v2.x
+	__v1.y = __v2.y
+	__v1.z = __v2.z
+	var __v3: V3 = b.vel
+	var __v4: V3 = a.vel
+	__v3.x = __v4.x
+	__v3.y = __v4.y
+	__v3.z = __v4.z
+	var __v5: V3 = b.head
+	var __v6: V3 = a.head
+	__v5.x = __v6.x
+	__v5.y = __v6.y
+	__v5.z = __v6.z
+	var __v7: V3 = b.chest
+	var __v8: V3 = a.chest
+	__v7.x = __v8.x
+	__v7.y = __v8.y
+	__v7.z = __v8.z
 	b.yaw = a.yaw
 	b.state = a.state
 	b.actKind = a.actKind

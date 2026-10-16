@@ -50,7 +50,8 @@ class Parts extends RefCounted:
 		return cond[p]
 	
 	func detach(p: float) -> float:
-		for q in TDamage.CARRIES[p]:
+		var _hCARRIES: Array = TDamage.CARRIES
+		for q in _hCARRIES[p]:
 			off[q] = 1.0
 			cond[q] = 0.0
 		lost.append(p)

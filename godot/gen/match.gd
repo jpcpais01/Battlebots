@@ -192,12 +192,13 @@ class Match extends RefCounted:
 				f.hooks.time = time
 		ropeCooldown[0.0] -= dt
 		ropeCooldown[1.0] -= dt
+		var _hENTRY = TEntrance.ENTRY
 		if phase == "intro":
 			var i: float = 0.0
 			while (i < 2.0):
-				var t0: float = ((i * TEntrance.PRESENT) + TEntrance.ENTRY.start)
+				var t0: float = ((i * TEntrance.PRESENT) + _hENTRY.start)
 				if (((phaseTime - dt) < t0) and (phaseTime >= t0)):
-					var id: String = shows[i].enter(self, ((TEntrance.PRESENT - TEntrance.ENTRY.start) - 0.12))
+					var id: String = shows[i].enter(self, ((TEntrance.PRESENT - _hENTRY.start) - 0.12))
 					emit("entrance", {"f": fighters[i], "id": id})
 				i += 1.0
 			if ((replayCut < 0.0) and (phaseTime >= introLength)):
@@ -279,13 +280,16 @@ class Match extends RefCounted:
 		var a: TFighter.Fighter = __t1[0]
 		var b: TFighter.Fighter = __t1[1]
 		var pair: float = (((a.size_ + b.size_)) * 0.5)
+		var _hSIDE_NX: Array = TBody.SIDE_NX
+		var _hSIDE_NZ: Array = TBody.SIDE_NZ
+		var _hROPE_LINE: float = TBody.ROPE_LINE
 		for f: TFighter.Fighter in fighters:
 			if f.isDown:
 				continue
-			var side: float = TBody.ropeSide(f.root.x, f.root.z)
-			var nx: float = TBody.SIDE_NX[side]
-			var nz: float = TBody.SIDE_NZ[side]
-			var pen: float = (((f.root.x * nx) + (f.root.z * nz)) - ((TBody.ROPE_LINE - (TMatch.ROPE_REACH * f.size_))))
+			var side: float = (fmod((((fmod(JS.round((DM.atan2((f.root.z), (f.root.x)) / ((PI / 4.0)))), 8.0)) + 8.0)), 8.0))
+			var nx: float = _hSIDE_NX[side]
+			var nz: float = _hSIDE_NZ[side]
+			var pen: float = (((f.root.x * nx) + (f.root.z * nz)) - ((_hROPE_LINE - (TMatch.ROPE_REACH * f.size_))))
 			if (pen > 0.0):
 				var out: float = ((f.rootVel.x * nx) + (f.rootVel.z * nz))
 				if ((out > 1.2) and (ropeCooldown[f.index] <= 0.0)):
@@ -341,9 +345,19 @@ class Match extends RefCounted:
 			var va: float = ((a.rootVel.x * nx_2) + (a.rootVel.z * nz_2))
 			var vb: float = ((b.rootVel.x * nx_2) + (b.rootVel.z * nz_2))
 			if (va > 0.0):
-				a.rootVel.set3((a.rootVel.x - (nx_2 * va)), 0.0, (a.rootVel.z - (nz_2 * va)))
+				var __v2: V3 = a.rootVel
+				var __v3: float = (a.rootVel.x - (nx_2 * va))
+				var __v4: float = (a.rootVel.z - (nz_2 * va))
+				__v2.x = __v3
+				__v2.y = 0.0
+				__v2.z = __v4
 			if (vb < 0.0):
-				b.rootVel.set3((b.rootVel.x - (nx_2 * vb)), 0.0, (b.rootVel.z - (nz_2 * vb)))
+				var __v5: V3 = b.rootVel
+				var __v6: float = (b.rootVel.x - (nx_2 * vb))
+				var __v7: float = (b.rootVel.z - (nz_2 * vb))
+				__v5.x = __v6
+				__v5.y = 0.0
+				__v5.z = __v7
 		if ((g != null) and (g.phase != "clinch")):
 			return
 		separateParts(a, b, 1.0, (((0.4 if (g != null) else 0.5)) * pair))
@@ -394,9 +408,14 @@ class Match extends RefCounted:
 		var legsMove: bool = (s.zone == "legs")
 		var canGuard: bool = (((def.state == "fight") or (def.state == "stun")) and (not legsMove))
 		var dp: TDamage.Parts = def.parts
+		var _h_p: V3 = TMatch._p
+		var _h_c: V3 = TMatch._c
 		var k: float = 1.0
 		while (k <= 3.0):
-			TMatch._p.lerpVectors(from, to, (k / 3.0))
+			var __v1: float = (k / 3.0)
+			_h_p.x = from.x + (to.x - from.x) * __v1
+			_h_p.y = from.y + (to.y - from.y) * __v1
+			_h_p.z = from.z + (to.z - from.z) * __v1
 			var hit = null
 			var blockHand: float = -1.0
 			var part: float = 1.0
@@ -414,32 +433,32 @@ class Match extends RefCounted:
 					var el: V3 = db[(5.0 if (side == 0.0) else 8.0)]
 					var hd: V3 = db[(6.0 if (side == 0.0) else 9.0)]
 					var sh: V3 = db[(4.0 if (side == 0.0) else 7.0)]
-					TMath.closestOnSegment(TMatch._p, el, hd, TMatch._c)
-					if (TMatch._c.distanceTo(TMatch._p) < ((r * 0.85) + (0.048 * z))):
+					TMath.closestOnSegment(_h_p, el, hd, _h_c)
+					if (_h_c.distanceTo(_h_p) < ((r * 0.85) + (0.048 * z))):
 						hit = "block"
 						blockHand = side
 						part = TDamage.armPart(side, 1.0)
 						break
 					if (s.zone == "body"):
-						TMath.closestOnSegment(TMatch._p, sh, el, TMatch._c)
-						if (TMatch._c.distanceTo(TMatch._p) < ((r * 0.85) + (0.048 * z))):
+						TMath.closestOnSegment(_h_p, sh, el, _h_c)
+						if (_h_c.distanceTo(_h_p) < ((r * 0.85) + (0.048 * z))):
 							hit = "block"
 							blockHand = side
 							part = TDamage.armPart(side, 0.0)
 							break
 					side += 1.0
-			if ((not JS.truthy(hit)) and (TMatch._p.distanceTo(db[3.0]) < (r + (0.17 * z)))):
+			if ((not JS.truthy(hit)) and (_h_p.distanceTo(db[3.0]) < (r + (0.17 * z)))):
 				hit = "head"
 				part = 0.0
 			if (not JS.truthy(hit)):
 				var pv: V3 = db[0.0]
 				var ch: V3 = db[1.0]
-				TMath.closestOnSegment(TMatch._p, pv, ch, TMatch._c)
-				if (TMatch._c.distanceTo(TMatch._p) < (r + (0.25 * z))):
+				TMath.closestOnSegment(_h_p, pv, ch, _h_c)
+				if (_h_c.distanceTo(_h_p) < (r + (0.25 * z))):
 					hit = "body"
 					var len_: float = pv.distanceTo(ch)
-					part = (1.0 if ((len_ > 0.0001) and ((TMatch._c.distanceTo(pv) / len_) > 0.6)) else 2.0)
-				elif (TMatch._p.distanceTo(db[2.0]) < (r + (0.1 * z))):
+					part = (1.0 if ((len_ > 0.0001) and ((_h_c.distanceTo(pv) / len_) > 0.6)) else 2.0)
+				elif (_h_p.distanceTo(db[2.0]) < (r + (0.1 * z))):
 					hit = "head"
 					part = 0.0
 			if ((not JS.truthy(hit)) and legsMove):
@@ -451,11 +470,11 @@ class Match extends RefCounted:
 					var h: float = (13.0 if (side_2 != 0.0) else 10.0)
 					var kn: float = (14.0 if (side_2 != 0.0) else 11.0)
 					var ft: float = (15.0 if (side_2 != 0.0) else 12.0)
-					TMath.closestOnSegment(TMatch._p, db[kn], db[ft], TMatch._c)
-					var d1: float = (INF if (dp.off[TDamage.legPart(side_2, 1.0)] != 0.0) else TMatch._c.distanceTo(TMatch._p))
-					var shinT: float = (TMatch._c.distanceTo(db[kn]) / maxf(0.0001, db[kn].distanceTo(db[ft])))
-					TMath.closestOnSegment(TMatch._p, db[h], db[kn], TMatch._c)
-					var d2: float = TMatch._c.distanceTo(TMatch._p)
+					TMath.closestOnSegment(_h_p, db[kn], db[ft], _h_c)
+					var d1: float = (INF if (dp.off[TDamage.legPart(side_2, 1.0)] != 0.0) else _h_c.distanceTo(_h_p))
+					var shinT: float = (_h_c.distanceTo(db[kn]) / maxf(0.0001, db[kn].distanceTo(db[ft])))
+					TMath.closestOnSegment(_h_p, db[h], db[kn], _h_c)
+					var d2: float = _h_c.distanceTo(_h_p)
 					if (minf(d1, d2) < (r + (0.09 * z))):
 						hit = "legs"
 						part = (TDamage.legPart(side_2, 0.0) if (d2 < d1) else (TDamage.legPart(side_2, 2.0) if (shinT > 0.78) else TDamage.legPart(side_2, 1.0)))
@@ -470,9 +489,9 @@ class Match extends RefCounted:
 					part = TDamage.armPart(blockHand, 1.0)
 			if JS.truthy(hit):
 				if canFinish(att):
-					beginFinisher(att, s, (s.zone if (hit == "block") else hit), TMatch._p.clone())
+					beginFinisher(att, s, (s.zone if (hit == "block") else hit), _h_p.clone())
 				else:
-					resolveHit(att, def, s, (s.zone if (hit == "block") else hit), (hit == "block"), TMatch._p.clone(), blockHand, part)
+					resolveHit(att, def, s, (s.zone if (hit == "block") else hit), (hit == "block"), _h_p.clone(), blockHand, part)
 				return
 			k += 1.0
 	
@@ -519,7 +538,7 @@ class Match extends RefCounted:
 				p += 0.12
 			if (dd != null):
 				p += 0.1
-			var got: bool = rng.chance(TMath.clamp_(p, 0.15, 0.92))
+			var got: bool = rng.chance((((0.15 if (p < 0.15) else (0.92 if (p > 0.92) else p)))))
 			att.finishStrike(s, true, ("hit" if got else "blocked"))
 			if got:
 				self.grapple = TGrapple.Grapple.shot(grappleHost, att, def, tie, frame)
@@ -556,9 +575,17 @@ class Match extends RefCounted:
 			att.stats.biggest = dmg
 			att.stats.biggestMove = "Takedown"
 		var body: TBody.Body = def.body
-		TMatch._b.copy(b.dir).multiplyScalar(b.jolt)
+		var _h_b: V3 = TMatch._b
+		var __v1: V3 = b.dir
+		_h_b.x = __v1.x
+		_h_b.y = __v1.y
+		_h_b.z = __v1.z
+		var __v2: float = b.jolt
+		_h_b.x *= __v2
+		_h_b.y *= __v2
+		_h_b.z *= __v2
 		for j in [1.0, 0.0, 3.0]:
-			body.addVelocity(j, TMatch._b, TMatch.SIM_DT)
+			body.addVelocity(j, _h_b, TMatch.SIM_DT)
 		impact(0.1)
 		var info = {
 	"part": b.part,
@@ -710,56 +737,108 @@ class Match extends RefCounted:
 		else:
 			def.stats.blocked += 1.0
 			att.stats.dealt += dmg
-		att.body.velocity(att.strikerJoint(s), TMatch.SIM_DT, TMatch._d)
-		var speed: float = TMatch._d.length()
-		TMatch._a.set3((def.root.x - att.root.x), 0.0, (def.root.z - att.root.z)).normalize()
-		var dir: V3 = TMatch._d.clone().normalize().multiplyScalar(0.6).addScaledVector(TMatch._a, 0.8).normalize()
+		var _h_d: V3 = TMatch._d
+		att.body.velocity(att.strikerJoint(s), TMatch.SIM_DT, _h_d)
+		var speed: float = sqrt(_h_d.x * _h_d.x + _h_d.y * _h_d.y + _h_d.z * _h_d.z)
+		var _h_a: V3 = TMatch._a
+		var __v1: float = (def.root.x - att.root.x)
+		var __v2: float = (def.root.z - att.root.z)
+		_h_a.x = __v1
+		_h_a.y = 0.0
+		_h_a.z = __v2
+		var __v3: float = sqrt(_h_a.x * _h_a.x + _h_a.y * _h_a.y + _h_a.z * _h_a.z)
+		var __v4: float = 1.0 / (__v3 if __v3 != 0.0 else 1.0)
+		_h_a.x *= __v4
+		_h_a.y *= __v4
+		_h_a.z *= __v4
+		var dir: V3 = _h_d.clone().normalize().multiplyScalar(0.6).addScaledVector(_h_a, 0.8).normalize()
 		if (m.path == "upper"):
 			dir.y = maxf(dir.y, 0.6)
-		dir.normalize()
+		var __v5: float = sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z)
+		var __v6: float = 1.0 / (__v5 if __v5 != 0.0 else 1.0)
+		dir.x *= __v6
+		dir.y *= __v6
+		dir.z *= __v6
 		var kb: float = ((m.knockback * ((0.55 if (blocked and (m.path != "push")) else 1.0))) * ((1.0 - def.passive("rooted"))))
 		if (m.id == "pushKick"):
 			kb *= (1.0 + att.passive("trip"))
 		kb *= sqrt((att.size_ / def.size_))
 		if shielded:
 			kb *= 0.4
-		def.rootVel.addScaledVector(TMatch._a, kb)
+		var __v7: V3 = def.rootVel
+		__v7.x += _h_a.x * kb
+		__v7.y += _h_a.y * kb
+		__v7.z += _h_a.z * kb
 		if blocked:
-			att.rootVel.addScaledVector(TMatch._a, -0.5)
+			var __v8: V3 = att.rootVel
+			__v8.x += _h_a.x * -0.5
+			__v8.y += _h_a.y * -0.5
+			__v8.z += _h_a.z * -0.5
 		var force: float = ((((2.0 + (dmg * 0.05)) + (speed * 0.12))) * ((0.3 if shielded else 1.0)))
 		var body: TBody.Body = def.body
+		var _h_b: V3 = TMatch._b
 		if blocked:
 			for h in [6.0, 9.0, 5.0, 8.0]:
-				TMatch._b.copy(dir).multiplyScalar((2.0 + (kb * 0.8)))
-				body.addVelocity(h, TMatch._b, TMatch.SIM_DT)
+				_h_b.x = dir.x
+				_h_b.y = dir.y
+				_h_b.z = dir.z
+				var __v9: float = (2.0 + (kb * 0.8))
+				_h_b.x *= __v9
+				_h_b.y *= __v9
+				_h_b.z *= __v9
+				body.addVelocity(h, _h_b, TMatch.SIM_DT)
 				body.loose[h] = 0.45
-			TMatch._b.copy(dir).multiplyScalar((0.8 + (kb * 0.3)))
-			body.addVelocity(3.0, TMatch._b, TMatch.SIM_DT)
+			_h_b.x = dir.x
+			_h_b.y = dir.y
+			_h_b.z = dir.z
+			var __v10: float = (0.8 + (kb * 0.3))
+			_h_b.x *= __v10
+			_h_b.y *= __v10
+			_h_b.z *= __v10
+			body.addVelocity(3.0, _h_b, TMatch.SIM_DT)
 			if (blockHand >= 0.0):
-				att.body.addVelocity(att.strikerJoint(s), TMatch._b.copy(dir).multiplyScalar(-2.5), TMatch.SIM_DT)
+				att.body.addVelocity(att.strikerJoint(s), _h_b.copy(dir).multiplyScalar(-2.5), TMatch.SIM_DT)
 		elif (zone == "head"):
-			TMatch._b.copy(dir).multiplyScalar(force)
-			body.addVelocity(3.0, TMatch._b, TMatch.SIM_DT)
-			body.addVelocity(2.0, TMatch._b.multiplyScalar(0.5), TMatch.SIM_DT)
-			body.addVelocity(1.0, TMatch._b.multiplyScalar(0.4), TMatch.SIM_DT)
+			_h_b.x = dir.x
+			_h_b.y = dir.y
+			_h_b.z = dir.z
+			_h_b.x *= force
+			_h_b.y *= force
+			_h_b.z *= force
+			body.addVelocity(3.0, _h_b, TMatch.SIM_DT)
+			body.addVelocity(2.0, _h_b.multiplyScalar(0.5), TMatch.SIM_DT)
+			body.addVelocity(1.0, _h_b.multiplyScalar(0.4), TMatch.SIM_DT)
 			body.loose[3.0] = 0.18
 			body.loose[2.0] = 0.35
 			body.loose[1.0] = 0.7
 		elif (zone == "body"):
-			TMatch._b.copy(dir).multiplyScalar((force * 0.7))
-			body.addVelocity(1.0, TMatch._b, TMatch.SIM_DT)
-			body.addVelocity(0.0, TMatch._b.multiplyScalar(0.5), TMatch.SIM_DT)
+			_h_b.x = dir.x
+			_h_b.y = dir.y
+			_h_b.z = dir.z
+			var __v11: float = (force * 0.7)
+			_h_b.x *= __v11
+			_h_b.y *= __v11
+			_h_b.z *= __v11
+			body.addVelocity(1.0, _h_b, TMatch.SIM_DT)
+			body.addVelocity(0.0, _h_b.multiplyScalar(0.5), TMatch.SIM_DT)
 			body.loose[1.0] = 0.35
 			body.loose[3.0] = 0.6
 		else:
-			TMatch._b.copy(dir).multiplyScalar((force * 0.8))
+			_h_b.x = dir.x
+			_h_b.y = dir.y
+			_h_b.z = dir.z
+			var __v12: float = (force * 0.8)
+			_h_b.x *= __v12
+			_h_b.y *= __v12
+			_h_b.z *= __v12
 			for k in [11.0, 14.0, 12.0, 15.0]:
-				body.addVelocity(k, TMatch._b, TMatch.SIM_DT)
+				body.addVelocity(k, _h_b, TMatch.SIM_DT)
+		var _h_c: V3 = TMatch._c
 		if (not shielded):
-			def.toLocal(TMatch._c.copy(def.root).add(dir), TMatch._b)
+			def.toLocal(_h_c.copy(def.root).add(dir), _h_b)
 			var fk: float = (((0.35 if blocked else 1.0)) * ((0.8 + (dmg / 45.0))))
 			var zk: float = (1.0 if (zone == "head") else 0.6)
-			def.recoil(((TMatch._b.x * fk) * zk), (((-0.6 if (zone == "body") else 0.2)) * fk), ((TMatch._b.z * fk) * zk), zone, fk)
+			def.recoil(((_h_b.x * fk) * zk), (((-0.6 if (zone == "body") else 0.2)) * fk), ((_h_b.z * fk) * zk), zone, fk)
 		if (((((ds != null) and (ds.move.kind == "grab")) and (ds.phase != "recovery")) and (not blocked)) and (not shielded)):
 			def.finishStrike(ds, true, "interrupted")
 		var knockdown: bool = false
@@ -767,15 +846,22 @@ class Match extends RefCounted:
 		var heavy: bool = ((((dmg >= 55.0) or crit) or (not (not JS.truthy(m.get("ability"))))) or (tore >= 0.0))
 		var fatal = null
 		var legGone: bool = false
+		var _hCUT_JOINTS: Array = TDamage.CUT_JOINTS
 		if (tore >= 0.0):
 			var socket: float = def.parts.detach(tore)
 			if (socket >= 0.0):
 				wearCheck(def, socket)
-			def.body.sever(TDamage.CUT_JOINTS[tore])
-			for j in TDamage.CUT_JOINTS[tore]:
-				TMatch._b.copy(dir).multiplyScalar((3.0 + (strength * 0.03)))
-				TMatch._b.y += 1.5
-				def.body.addVelocity(j, TMatch._b, TMatch.SIM_DT)
+			def.body.sever(_hCUT_JOINTS[tore])
+			for j in _hCUT_JOINTS[tore]:
+				_h_b.x = dir.x
+				_h_b.y = dir.y
+				_h_b.z = dir.z
+				var __v13: float = (3.0 + (strength * 0.03))
+				_h_b.x *= __v13
+				_h_b.y *= __v13
+				_h_b.z *= __v13
+				_h_b.y += 1.5
+				def.body.addVelocity(j, _h_b, TMatch.SIM_DT)
 			fatal = def.parts.lossReason()
 			if ((not JS.truthy(fatal)) and ((((tore == 9.0) or (tore == 10.0)) or (tore == 12.0)) or (tore == 13.0))):
 				legGone = true
@@ -801,11 +887,11 @@ class Match extends RefCounted:
 			def.poise = (def.maxPoise * 0.6)
 		elif ((((not blocked) and (zone == "legs")) and JS.truthy(m.get("trip"))) and rng.chance(TMath.clamp_((((m.get("trip") + (att.passive("trip") * 0.5)) + ((0.25 if (def.poise < 0.0) else 0.0))) + ((0.3 if (def.legLost >= 0.0) else 0.0))), 0.0, 0.9))):
 			knockdown = true
-			def.knockDown(TMatch._c.copy(dir).negate(), 1.2, false)
+			def.knockDown(_h_c.copy(dir).negate(), 1.2, false)
 			def.poise = (def.maxPoise * 0.6)
 		elif (((m.path == "push") and (not shielded)) and (((def.poise <= 0.0) or ((((not (not (ds != null))) and (ds.move.kind == "kick")) and (ds.phase != "recovery")) and rng.chance(0.7))) or ((def.legLost >= 0.0) and rng.chance(0.45)))):
 			knockdown = true
-			def.knockDown(TGrapple.fallAway(def.root.x, def.root.z, TMatch._c.copy(dir), def.size_), (1.6 + (kb * 0.3)), false)
+			def.knockDown(TGrapple.fallAway(def.root.x, def.root.z, _h_c.copy(dir), def.size_), (1.6 + (kb * 0.3)), false)
 			def.poise = (def.maxPoise * 0.6)
 		elif (def.poise <= 0.0):
 			var recentlyRocked: bool = ((time - def.lastStagger) < 7.0)

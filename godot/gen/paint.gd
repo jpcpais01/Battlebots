@@ -28,9 +28,10 @@ static func isColor(c) -> bool:
 	return ((JS.is_integer(c) and ((c) >= 0.0)) and ((c) <= 16777215.0))
 
 static func sanitizePaint(paint, legacyPalette = null):
+	var _hDEFAULT_PAINT = TPaint.DEFAULT_PAINT
 	if (JS.truthy(paint) and (JS.typeof_(paint) == "object")):
 		var p = paint
-		var base = JS.merge([TPaint.DEFAULT_PAINT])
+		var base = JS.merge([_hDEFAULT_PAINT])
 		if TPaint.isColor(p.get("primary")):
 			base.primary = p.get("primary")
 		if TPaint.isColor(p.get("secondary")):
@@ -44,7 +45,7 @@ static func sanitizePaint(paint, legacyPalette = null):
 		return base
 	if ((JS.is_integer(legacyPalette) and ((legacyPalette) >= 0.0)) and ((legacyPalette) < 10.0)):
 		return JS.merge([TPaint.SCHEMES[legacyPalette].paint])
-	return JS.merge([TPaint.DEFAULT_PAINT])
+	return JS.merge([_hDEFAULT_PAINT])
 
 static func rgb(c: float) -> Array:
 	return [JS.band((JS.shr(c, 16.0)), 255.0), JS.band((JS.shr(c, 8.0)), 255.0), JS.band(c, 255.0)]
@@ -58,8 +59,9 @@ static func paintsContrast(a, b) -> bool:
 	return (minf(minf(TPaint.dist(a.primary, b.primary), (TPaint.dist(a.secondary, b.primary) * 1.4)), (TPaint.dist(a.primary, b.secondary) * 1.4)) > 150.0)
 
 static func contrastingPaint(mine, rng = null):
-	var ok: Array = JS.filter(TPaint.SCHEMES, func(s, _a1 = null, _a2 = null): return ((not TPaint.samePaint(s.paint, mine)) and TPaint.paintsContrast(s.paint, mine)))
-	var pick = (((rng.pick(ok) if (rng != null) else ok[0.0])) if (float(ok.size()) != 0.0) else TPaint.SCHEMES[fmod(((JS.index_of(TPaint.SCHEMES, JS.nullish(TPaint.schemeOf(mine), TPaint.SCHEMES[0.0])) + 5.0)), float(TPaint.SCHEMES.size()))])
+	var _hSCHEMES: Array = TPaint.SCHEMES
+	var ok: Array = JS.filter(_hSCHEMES, func(s, _a1 = null, _a2 = null): return ((not TPaint.samePaint(s.paint, mine)) and TPaint.paintsContrast(s.paint, mine)))
+	var pick = (((rng.pick(ok) if (rng != null) else ok[0.0])) if (float(ok.size()) != 0.0) else _hSCHEMES[fmod(((JS.index_of(_hSCHEMES, JS.nullish(TPaint.schemeOf(mine), _hSCHEMES[0.0])) + 5.0)), float(_hSCHEMES.size()))])
 	return JS.merge([pick.paint])
 
 static func __init_module() -> void:

@@ -10,6 +10,8 @@ extends Node3D
 const SIM_DT := 1.0 / 120.0
 ## Most sim steps one frame may run before it lets time slip (game.ts does the same).
 const MAX_STEPS := 16
+## Share of the last frame's time the worker's steps may take (see _step_budget).
+const STEP_BUDGET := 0.9
 ## stage.ts rims: colour (0xff7a2a, 0x2ad8ff in linear) and position.
 const RIMS := [[Color(1.0, 0.1946, 0.0232), Vector3(-5.5, 3.5, -2)], [Color(0.0232, 0.6867, 1.0), Vector3(5.5, 3.5, 2)]]
 ## Longest the intro waits for the booth's opening, in seconds (game.ts INTRO_MAX).
@@ -68,6 +70,13 @@ var _entry_prev := [-INF, -INF]
 var _seed_rng := RandomNumberGenerator.new()
 var _end_time := -1.0
 var _task := -1
+## How long the worker's last batch of sim steps took (us) and how many it ran.
+var _step_us := 0
+var _step_n := 0
+## What one sim step costs on this phone (us), a running estimate that shrugs off one-off spikes.
+var _step_cost := 0.0
+## BB_SIM_SLOW=<us>: each sim step takes that much longer (a slow phone, for tests/perf_hitches.gd).
+var _sim_slow := 0
 ## Sim events from the worker, handled on the main thread at the next sync.
 var _events := []
 var _alpha := 0.0
@@ -87,6 +96,7 @@ func _ready() -> void:
 	Display.boost_refresh()
 	TInit.run()
 	_seed_rng.randomize()
+	_sim_slow = int(OS.get_environment("BB_SIM_SLOW"))
 	if OS.get_environment("BB_SEED") != "":
 		_seed_rng.seed = int(OS.get_environment("BB_SEED"))
 	_build_world()
@@ -143,6 +153,8 @@ func _ready() -> void:
 	hud = FightHud.new()
 	hud.visible = OS.get_environment("BB_NOHUD") == ""
 	add_child(hud)
+	# (the overlay's GPU Measure redraws this scene part by part)
+	hud.perf.scene = self
 	# the saved settings, in force before the first fight (the booth's welcome checks commentary)
 	settings = Settings.new()
 	settings.sfx = sfx
@@ -214,13 +226,37 @@ func _sync() -> void:
 
 
 func _run_steps(n: int) -> void:
+	var t0 := Time.get_ticks_usec()
+	var done := 0
 	for i in n:
 		if m.phase == "end":
 			break
 		m.step(SIM_DT)
+		if _sim_slow > 0:
+			var until := Time.get_ticks_usec() + _sim_slow
+			while Time.get_ticks_usec() < until:
+				pass
 		_step_views[_step_marks.size()].capture(m)
 		_step_marks.append(_events.size())
 		_step_pace.append(m.pace)
+		done += 1
+	# (read on the main thread after _sync, so no lock)
+	_step_us = Time.get_ticks_usec() - t0
+	_step_n = done
+
+
+## How many sim steps this frame may start, after a frame that took `dt`. The worker runs them
+## while the frame draws, so they only hold the game up when they take longer than the frame.
+## Left alone, that happens for good on a phone whose steps cost more than the 1/120 s each one
+## covers (a busy moment, a hot phone): a slow frame owes more steps, which make the next frame
+## slower still, until every frame runs the maximum and the fight crawls at a few frames a
+## second, whatever the graphics settings. So the steps get most of the last frame's time and no
+## more: past it the fight slips into slight slow motion instead, and the frame rate holds. A
+## phone that keeps up never meets the limit (a frame's steps cost less than the frame).
+func _step_budget(dt: float) -> int:
+	if _step_cost <= 0.0:
+		return MAX_STEPS
+	return clampi(int(dt * 1e6 * STEP_BUDGET / _step_cost), 1, MAX_STEPS)
 
 
 func _queue_event(type: String, data) -> void:
@@ -471,15 +507,27 @@ static func _v(p) -> Vector3:
 
 
 func _process(dt: float) -> void:
+	# (each Perf.lap charges the time since the last one to the overlay's part named: game/perf.gd)
+	Perf.frame()
 	dt = minf(dt, 0.1)
 	_time += dt
 	# the fight holds still from here until the next steps start
 	_sync()
+	Perf.lap(Perf.SIM_WAIT)
+	Perf.worker(_step_us)
+	if _step_n > 0:
+		# (a sample is let rise to twice the estimate at most: one step the OS paused is no trend)
+		var c := float(_step_us) / _step_n
+		_step_cost = c if _step_cost <= 0.0 else lerpf(_step_cost, minf(c, _step_cost * 2.0), 0.1)
+	_step_us = 0
+	_step_n = 0
 	var events := _events
 	_events = []
 	for e in events:
 		_on_event(e[0], e[1])
+	Perf.lap(Perf.SIM)
 	_direct_steps(events)
+	Perf.lap(Perf.CAMERA)
 	_pose_alpha = _alpha
 	# both bodies first: each robot's limbs then slide out of either robot's armour (game.ts)
 	for i in 2:
@@ -494,13 +542,16 @@ func _process(dt: float) -> void:
 	var drops := [arena.corners.drop(m, 0), arena.corners.drop(m, 1)]
 	for i in 2:
 		models[i].position.y += drops[i]
+	Perf.lap(Perf.BOTS)
 	# (a robot still down in its lift shaft casts nothing on the canvas)
 	for i in 2:
 		contact_ao.set_robot(i, models[i].joints if drops[i] >= -0.3 else ([] as Array[Vector3]), models[i].size)
 	contact_ao.commit()
 	# sparks, smoke, vapour and oil off the wrecked parts, the debris, the trails (the sim is idle)
 	effects.update(dt, dt * m.pace, cam)
+	Perf.lap(Perf.FX)
 	_sound_frame()
+	Perf.lap(Perf.AUDIO)
 	if m.phase == "end" and _end_time < 0:
 		_end_time = _time
 	_view = FightHud.snapshot(m)
@@ -509,6 +560,7 @@ func _process(dt: float) -> void:
 	var hp: Array = _view.hp
 	crowd_mood.tick(dt, m.phase, m.clock, hp[0], hp[1])
 	arena.crowd.update(dt, crowd_mood.excite, m.phase == "fight" or m.phase == "greet")
+	Perf.lap(Perf.ARENA)
 	# the house shouts 3, 2, 1 with the screen (hud.ts update: sfx.countdown(n) -> crowd "count")
 	if m.phase == "countdown":
 		var n := int(TMatch.COUNTDOWN) - floori(m.phaseTime)
@@ -526,6 +578,7 @@ func _process(dt: float) -> void:
 	booth.tick(dt, crowd_mood.excite, true)
 	if m.phase == "intro" and booth.busy and m.phaseTime >= m.introLength - 0.1 and m.phaseTime < INTRO_MAX:
 		m.introLength = m.phaseTime + 0.2
+	Perf.lap(Perf.AUDIO)
 	arena.score(dt, {"names": [m.fighters[0].name_, m.fighters[1].name_], "hp": hp, "clock": m.clock, "phase": m.phase, "presenting": int(m.presenting)})
 	arena.update(dt, _time)
 	arena.corners.update(dt, _time, m, effects.fx, false)
@@ -541,25 +594,29 @@ func _process(dt: float) -> void:
 		var rc: Color = RIMS[j][0].lerp(_lin(int(m.specs[i].paint.accent)), 0.7 * minf(1.0, k * 1.5)) if k > 0.0 else RIMS[j][0]
 		_rims[j].light_color = rc.linear_to_srgb()
 	_hype = arena.hype
+	Perf.lap(Perf.ARENA)
 	_frame_camera(dt, false)
 	# ropes, posts and rigging between the lens and the robots dissolve; the house exposes for the ring
 	var chests: Array[Vector3] = [_v(m.fighters[0].body.pos[1]), _v(m.fighters[1].body.pos[1])]
 	var pov: int = director.pov
 	ClearView.update(cam, [chests[1 - pov]] as Array[Vector3] if pov >= 0 else chests)
 	arena.expose(dt, cam.global_position.distance_to((chests[0] + chests[1]) * 0.5) if _fixed_cam.is_empty() else _cam_dist)
+	Perf.lap(Perf.CAMERA)
 	hud.update_hud(_view, _end_time >= 0 and _time - _end_time > 1.5)
+	Perf.lap(Perf.HUD)
 	# this frame's steps (Match.pace slows time round big hits), started last: everything above
 	# reads the match, and the worker runs while the frame draws
 	var steps := 0
 	if m.phase != "end":
 		_acc += dt * m.pace
-		steps = mini(MAX_STEPS, int(_acc / SIM_DT))
+		steps = mini(_step_budget(dt), int(_acc / SIM_DT))
 		_acc -= steps * SIM_DT
 		if _acc >= SIM_DT:
 			_acc = 0.0
 	_alpha = _acc / SIM_DT
 	if steps > 0:
 		_task = WorkerThreadPool.add_task(_run_steps.bind(steps), true, "sim")
+	Perf.lap(Perf.SIM)
 
 
 func _unhandled_input(e: InputEvent) -> void:

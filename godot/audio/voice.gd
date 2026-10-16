@@ -361,6 +361,13 @@ func _duck(gain: float) -> void:
 
 
 func _process(dt: float) -> void:
+	# (timed for the performance overlay's Audio row: game/perf.gd)
+	var t0 := Perf.now()
+	_tick(dt)
+	Perf.add(Perf.AUDIO, t0)
+
+
+func _tick(dt: float) -> void:
 	_now += dt
 	if not _wanted.is_empty():
 		_pump()

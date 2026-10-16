@@ -19,7 +19,7 @@ static func ropeSide(x: float, z: float) -> float:
 	return fmod((((fmod(JS.round((DM.atan2(z, x) / ((PI / 4.0)))), 8.0)) + 8.0)), 8.0)
 
 static func ropeGap(x: float, z: float) -> float:
-	var s: float = TBody.ropeSide(x, z)
+	var s: float = (fmod((((fmod(JS.round((DM.atan2(z, x) / ((PI / 4.0)))), 8.0)) + 8.0)), 8.0))
 	return (TBody.ROPE_LINE - (((x * TBody.SIDE_NX[s]) + (z * TBody.SIDE_NZ[s]))))
 const ROPE_TOP: float = 1.35
 const POST_R: float = 0.16
@@ -31,7 +31,7 @@ const ARENA_FLOOR: float = -0.62
 const BARRIER: float = 9.2
 
 static func groundAt(x: float, z: float) -> float:
-	var s: float = TBody.ropeSide(x, z)
+	var s: float = (fmod((((fmod(JS.round((DM.atan2(z, x) / ((PI / 4.0)))), 8.0)) + 8.0)), 8.0))
 	var oct: float = ((x * TBody.SIDE_NX[s]) + (z * TBody.SIDE_NZ[s]))
 	return (0.0 if (oct < TBody.CANVAS_EDGE) else (TBody.BASE_Y if (oct < TBody.BASE_EDGE) else TBody.ARENA_FLOOR))
 static var _a: V3
@@ -95,31 +95,62 @@ class Body extends RefCounted:
 	func teleport(pose: Array) -> void:
 		var i: float = 0.0
 		while (i < TBody.JOINT_COUNT):
-			pos[i].copy(pose[i])
-			prev[i].copy(pose[i])
-			last[i].copy(pose[i])
-			target[i].copy(pose[i])
+			var __v1: V3 = pos[i]
+			var __v2: V3 = pose[i]
+			__v1.x = __v2.x
+			__v1.y = __v2.y
+			__v1.z = __v2.z
+			var __v3: V3 = prev[i]
+			var __v4: V3 = pose[i]
+			__v3.x = __v4.x
+			__v3.y = __v4.y
+			__v3.z = __v4.z
+			var __v5: V3 = last[i]
+			var __v6: V3 = pose[i]
+			__v5.x = __v6.x
+			__v5.y = __v6.y
+			__v5.z = __v6.z
+			var __v7: V3 = target[i]
+			var __v8: V3 = pose[i]
+			__v7.x = __v8.x
+			__v7.y = __v8.y
+			__v7.z = __v8.z
 			i += 1.0
 	
 	func addVelocity(i: float, v: V3, dt: float) -> void:
-		prev[i].addScaledVector(v, (-dt))
+		var __v1: V3 = prev[i]
+		var __v2: float = (-dt)
+		__v1.x += v.x * __v2
+		__v1.y += v.y * __v2
+		__v1.z += v.z * __v2
 	
 	func addVelocityAll(v: V3, dt: float, scale: float = 1.0) -> void:
 		var i: float = 0.0
 		while (i < TBody.JOINT_COUNT):
-			prev[i].addScaledVector(v, ((-dt) * scale))
+			var __v1: V3 = prev[i]
+			var __v2: float = ((-dt) * scale)
+			__v1.x += v.x * __v2
+			__v1.y += v.y * __v2
+			__v1.z += v.z * __v2
 			i += 1.0
 	
 	func velocity(i: float, dt: float, out: V3) -> V3:
 		return out.subVectors(pos[i], prev[i]).multiplyScalar((1.0 / dt))
 	
 	func centerOfMass(out: V3) -> V3:
-		out.set3(0.0, 0.0, 0.0)
+		out.x = 0.0
+		out.y = 0.0
+		out.z = 0.0
 		var m: float = 0.0
+		var _hMASS: Array = TBody.MASS
 		var i: float = 0.0
 		while (i < TBody.JOINT_COUNT):
-			out.addScaledVector(pos[i], TBody.MASS[i])
-			m += TBody.MASS[i]
+			var __v1: V3 = pos[i]
+			var __v2: float = _hMASS[i]
+			out.x += __v1.x * __v2
+			out.y += __v1.y * __v2
+			out.z += __v1.z * __v2
+			m += _hMASS[i]
 			i += 1.0
 		return out.multiplyScalar((1.0 / m))
 	
@@ -128,20 +159,26 @@ class Body extends RefCounted:
 		var ragdoll: bool = (tone < 0.5)
 		var damping: float = (0.992 if ragdoll else (0.94 + (0.04 * ((1.0 - tone)))))
 		var g: float = ((-9.81 * dt) * dt)
+		var _hFOLLOW: Array = TBody.FOLLOW
 		var i: float = 0.0
 		while (i < TBody.JOINT_COUNT):
 			var p: V3 = pos[i]
 			var q: V3 = prev[i]
-			last[i].copy(p)
+			var __v1: V3 = last[i]
+			__v1.x = p.x
+			__v1.y = p.y
+			__v1.z = p.z
 			var vx: float = (((p.x - q.x)) * damping)
 			var vy: float = (((p.y - q.y)) * damping)
 			var vz: float = (((p.z - q.z)) * damping)
-			q.copy(p)
+			q.x = p.x
+			q.y = p.y
+			q.z = p.z
 			p.x += vx
 			p.y += (vy + g)
 			p.z += vz
 			if ((tone > 0.0) and (not (cut[i] != 0.0))):
-				var k: float = minf(0.95, ((TBody.FOLLOW[i] * tone) * loose[i]))
+				var k: float = minf(0.95, ((_hFOLLOW[i] * tone) * loose[i]))
 				var t: V3 = target[i]
 				p.x += (((t.x - p.x)) * k)
 				p.y += (((t.y - p.y)) * k)
@@ -165,20 +202,39 @@ class Body extends RefCounted:
 	func solve(c) -> void:
 		var pa: V3 = pos[c.a]
 		var pb: V3 = pos[c.b]
-		TBody._a.subVectors(pb, pa)
-		var d: float = TBody._a.length()
+		var _h_a: V3 = TBody._a
+		_h_a.x = pb.x - pa.x
+		_h_a.y = pb.y - pa.y
+		_h_a.z = pb.z - pa.z
+		var d: float = sqrt(_h_a.x * _h_a.x + _h_a.y * _h_a.y + _h_a.z * _h_a.z)
 		if (d < 0.000001):
 			return
 		var wa: float = invMass[c.a]
 		var wb: float = invMass[c.b]
 		var diff: float = (((((d - c.rest)) / ((d * ((wa + wb)))))) * c.stiffness)
-		pa.addScaledVector(TBody._a, (diff * wa))
-		pb.addScaledVector(TBody._a, ((-diff) * wb))
+		var __v1: float = (diff * wa)
+		pa.x += _h_a.x * __v1
+		pa.y += _h_a.y * __v1
+		pa.z += _h_a.z * __v1
+		var __v2: float = ((-diff) * wb)
+		pb.x += _h_a.x * __v2
+		pb.y += _h_a.y * __v2
+		pb.z += _h_a.z * __v2
 	
 	func hinges() -> void:
-		TBody._a.subVectors(pos[10.0], pos[13.0])
-		TBody._b.subVectors(pos[1.0], pos[0.0])
-		TBody._fwd.crossVectors(TBody._a, TBody._b).normalize()
+		var _h_a: V3 = TBody._a
+		var __v1: V3 = pos[10.0]
+		var __v2: V3 = pos[13.0]
+		_h_a.x = __v1.x - __v2.x
+		_h_a.y = __v1.y - __v2.y
+		_h_a.z = __v1.z - __v2.z
+		var _h_b: V3 = TBody._b
+		var __v3: V3 = pos[1.0]
+		var __v4: V3 = pos[0.0]
+		_h_b.x = __v3.x - __v4.x
+		_h_b.y = __v3.y - __v4.y
+		_h_b.z = __v3.z - __v4.z
+		TBody._fwd.crossVectors(_h_a, _h_b).normalize()
 		hinge(10.0, 11.0, 12.0, 1.0)
 		hinge(13.0, 14.0, 15.0, 1.0)
 	
@@ -188,30 +244,54 @@ class Body extends RefCounted:
 		var pa: V3 = pos[a]
 		var pm: V3 = pos[m]
 		var pb: V3 = pos[b]
-		TBody._c.addVectors(pa, pb).multiplyScalar(0.5)
-		TBody._a.subVectors(pm, TBody._c)
-		var along: float = (TBody._a.dot(TBody._fwd) * sign_)
+		var _h_c: V3 = TBody._c
+		_h_c.x = pa.x + pb.x
+		_h_c.y = pa.y + pb.y
+		_h_c.z = pa.z + pb.z
+		_h_c.x *= 0.5
+		_h_c.y *= 0.5
+		_h_c.z *= 0.5
+		var _h_a: V3 = TBody._a
+		_h_a.x = pm.x - _h_c.x
+		_h_a.y = pm.y - _h_c.y
+		_h_a.z = pm.z - _h_c.z
+		var _h_fwd: V3 = TBody._fwd
+		var along: float = ((_h_a.x * _h_fwd.x + _h_a.y * _h_fwd.y + _h_a.z * _h_fwd.z) * sign_)
 		var min_: float = (0.04 * size_)
 		if (along < min_):
 			var push: float = (((min_ - along)) * 0.5)
-			pm.addScaledVector(TBody._fwd, (push * sign_))
-			pa.addScaledVector(TBody._fwd, (((-push) * 0.25) * sign_))
-			pb.addScaledVector(TBody._fwd, (((-push) * 0.25) * sign_))
+			var __v1: float = (push * sign_)
+			pm.x += _h_fwd.x * __v1
+			pm.y += _h_fwd.y * __v1
+			pm.z += _h_fwd.z * __v1
+			var __v2: float = (((-push) * 0.25) * sign_)
+			pa.x += _h_fwd.x * __v2
+			pa.y += _h_fwd.y * __v2
+			pa.z += _h_fwd.z * __v2
+			var __v3: float = (((-push) * 0.25) * sign_)
+			pb.x += _h_fwd.x * __v3
+			pb.y += _h_fwd.y * __v3
+			pb.z += _h_fwd.z * __v3
 	
 	func collideWorld() -> void:
+		var _hSIDE_NX: Array = TBody.SIDE_NX
+		var _hSIDE_NZ: Array = TBody.SIDE_NZ
+		var _hCANVAS_EDGE: float = TBody.CANVAS_EDGE
+		var _hBASE_EDGE: float = TBody.BASE_EDGE
+		var _hROPE_LINE: float = TBody.ROPE_LINE
 		var i: float = 0.0
 		while (i < TBody.JOINT_COUNT):
 			var p: V3 = pos[i]
 			var q: V3 = prev[i]
 			var r: float = radii[i]
-			var side: float = TBody.ropeSide(p.x, p.z)
-			var nx: float = TBody.SIDE_NX[side]
-			var nz: float = TBody.SIDE_NZ[side]
+			var side: float = (fmod((((fmod(JS.round((DM.atan2((p.z), (p.x)) / ((PI / 4.0)))), 8.0)) + 8.0)), 8.0))
+			var nx: float = _hSIDE_NX[side]
+			var nz: float = _hSIDE_NZ[side]
 			var oct: float = ((p.x * nx) + (p.z * nz))
 			var g: float = TBody.groundAt(p.x, p.z)
 			if (p.y < (g + r)):
 				if ((q.y < ((g + r) - 0.04)) and (TBody.groundAt(q.x, q.z) < g)):
-					var edge: float = (TBody.CANVAS_EDGE if (g == 0.0) else TBody.BASE_EDGE)
+					var edge: float = (_hCANVAS_EDGE if (g == 0.0) else _hBASE_EDGE)
 					p.x += (nx * (((edge + r) - oct)))
 					p.z += (nz * (((edge + r) - oct)))
 					q.x = p.x
@@ -225,7 +305,7 @@ class Body extends RefCounted:
 					q.z += (((p.z - q.z)) * f)
 			else:
 				grounded[i] = 0.0
-			var past: float = (oct - TBody.ROPE_LINE)
+			var past: float = (oct - _hROPE_LINE)
 			var below: bool = (p.y < (TBody.ROPE_TOP + r))
 			if (not (outside[i] != 0.0)):
 				if below:

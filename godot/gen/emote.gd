@@ -88,35 +88,37 @@ static func writeArm(o: PackedFloat32Array, k: float, d, w: float) -> void:
 	o[(i + 7.0)] = w
 
 static func S(d, parent = null) -> PackedFloat32Array:
+	var _hBASE = TEmote.BASE
 	if parent == null:
-		parent = TEmote.BASE
+		parent = _hBASE
 	var m = JS.merge([parent, d])
-	var o: PackedFloat32Array = JS.f32(TEmote.EC.N)
+	var _hEC = TEmote.EC
+	var o: PackedFloat32Array = JS.f32(_hEC.N)
 	JS.xprop_set(o, "def", m)
-	o[TEmote.EC.CROUCH] = m.get("crouch")
-	o[TEmote.EC.PITCH] = m.get("pitch")
-	o[TEmote.EC.ROLL] = m.get("roll")
-	o[TEmote.EC.TWIST] = m.get("twist")
-	o[TEmote.EC.HIP] = m.get("hip")
-	JS.typed_set(o, m.get("head"), TEmote.EC.HEAD)
-	o[TEmote.EC.PELVIS] = m.get("pelvis")[0.0]
-	o[(TEmote.EC.PELVIS + 1.0)] = m.get("pelvis")[1.0]
+	o[_hEC.CROUCH] = m.get("crouch")
+	o[_hEC.PITCH] = m.get("pitch")
+	o[_hEC.ROLL] = m.get("roll")
+	o[_hEC.TWIST] = m.get("twist")
+	o[_hEC.HIP] = m.get("hip")
+	JS.typed_set(o, m.get("head"), _hEC.HEAD)
+	o[_hEC.PELVIS] = m.get("pelvis")[0.0]
+	o[(_hEC.PELVIS + 1.0)] = m.get("pelvis")[1.0]
 	TEmote.writeArm(o, 0.0, m.get("a"), m.get("aw"))
 	TEmote.writeArm(o, 1.0, m.get("b"), m.get("bw"))
 	var st: Array = (m.get("stance") if m.get("stance") != null else TEmote.FIGHT)
 	var k: float = 0.0
 	while (k < 2.0):
-		var f = JS.merge([TEmote.BASE.get("fa"), ((m.get("fa") if (k == 0.0) else m.get("fb")))])
-		var i: float = (TEmote.EC.FOOT + (k * TEmote.FOOT_N))
+		var f = JS.merge([_hBASE.get("fa"), ((m.get("fa") if (k == 0.0) else m.get("fb")))])
+		var i: float = (_hEC.FOOT + (k * TEmote.FOOT_N))
 		o[i] = st[(k * 2.0)]
 		o[(i + 1.0)] = st[((k * 2.0) + 1.0)]
 		JS.typed_set(o, f.get("off"), (i + 2.0))
 		o[(i + 5.0)] = f.get("knee")
 		o[(i + 6.0)] = f.get("w")
 		k += 1.0
-	o[TEmote.EC.LIFT] = 0.0
-	o[TEmote.EC.HEEL] = m.get("heel")
-	o[TEmote.EC.STANCE] = (1.0 if (m.get("stance") != null) else 0.0)
+	o[_hEC.LIFT] = 0.0
+	o[_hEC.HEEL] = m.get("heel")
+	o[_hEC.STANCE] = (1.0 if (m.get("stance") != null) else 0.0)
 	return o
 
 static func snap(u: float) -> float:
@@ -127,8 +129,9 @@ static func punchy(u: float) -> float:
 	return ((1.0 + (((c + 1.0)) * DM.pow((u - 1.0), 3.0))) + (c * DM.pow((u - 1.0), 2.0)))
 
 static func mix(o: PackedFloat32Array, a: PackedFloat32Array, b: PackedFloat32Array, u: float) -> void:
+	var _hEC = TEmote.EC
 	var i: float = 0.0
-	while (i < TEmote.EC.N):
+	while (i < _hEC.N):
 		o[i] = (a[i] + (((b[i] - a[i])) * u))
 		i += 1.0
 
@@ -136,6 +139,7 @@ static func keys_(o: PackedFloat32Array, t: float, K: Array) -> void:
 	if (t <= K[0.0][0.0]):
 		JS.typed_set(o, K[0.0][1.0])
 		return
+	var _hEC = TEmote.EC
 	var i: float = 0.0
 	while (i < (float(K.size()) - 1.0)):
 		var b: Array = K[(i + 1.0)]
@@ -151,7 +155,7 @@ static func keys_(o: PackedFloat32Array, t: float, K: Array) -> void:
 			var A: PackedFloat32Array = a[1.0]
 			var B: PackedFloat32Array = b[1.0]
 			var c: float = 0.0
-			while (c < TEmote.EC.N):
+			while (c < _hEC.N):
 				var m0: float = (TMath.keySlope(p[1.0][c], A[c], B[c], (a[0.0] - p[0.0]), h) if (p != null) else 0.0)
 				var m1: float = (TMath.keySlope(A[c], B[c], n[1.0][c], h, (n[0.0] - b[0.0])) if (n != null) else 0.0)
 				o[c] = ((A[c] + (((B[c] - A[c])) * TMath.minJerk(u))) if ((m0 == 0.0) and (m1 == 0.0)) else TMath.hermite(A[c], B[c], m0, m1, h, u))
@@ -182,7 +186,7 @@ static func pulse(t: float, t0: float, out: float = 0.09, back: float = 0.16) ->
 	var d: float = (t - t0)
 	if ((d < 0.0) or (d > (out + back))):
 		return 0.0
-	return (TEmote.snap((d / out)) if (d < out) else (1.0 - TMath.minJerk((((d - out)) / back))))
+	return (((1.0 - DM.pow((1.0 - ((d / out))), 3.0))) if (d < out) else (1.0 - TMath.minJerk((((d - out)) / back))))
 
 static func win(t: float, a: float, b: float, e: float = 0.2) -> float:
 	if ((t <= a) or (t >= b)):
@@ -196,17 +200,18 @@ static func pump(t: float, t0: float, f: float) -> float:
 
 static func resolveSides(a: PackedFloat32Array, o: PackedFloat32Array, mirror: bool) -> void:
 	JS.typed_set(o, a)
+	var _hEC = TEmote.EC
 	if mirror:
-		o[TEmote.EC.ROLL] = (-a[TEmote.EC.ROLL])
-		o[TEmote.EC.TWIST] = (-a[TEmote.EC.TWIST])
-		o[TEmote.EC.HIP] = (-a[TEmote.EC.HIP])
-		o[TEmote.EC.HEAD] = (-a[TEmote.EC.HEAD])
-		o[TEmote.EC.PELVIS] = (-a[TEmote.EC.PELVIS])
+		o[_hEC.ROLL] = (-a[_hEC.ROLL])
+		o[_hEC.TWIST] = (-a[_hEC.TWIST])
+		o[_hEC.HIP] = (-a[_hEC.HIP])
+		o[_hEC.HEAD] = (-a[_hEC.HEAD])
+		o[_hEC.PELVIS] = (-a[_hEC.PELVIS])
 	var left: float = (0.0 if mirror else 1.0)
-	JS.typed_set(o, a.slice(TEmote.armI(left), (TEmote.armI(left) + TEmote.ARM_N)), TEmote.armI(0.0))
-	JS.typed_set(o, a.slice(TEmote.armI((1.0 - left)), (TEmote.armI((1.0 - left)) + TEmote.ARM_N)), TEmote.armI(1.0))
-	JS.typed_set(o, a.slice(TEmote.footI(left), (TEmote.footI(left) + TEmote.FOOT_N)), TEmote.footI(0.0))
-	JS.typed_set(o, a.slice(TEmote.footI((1.0 - left)), (TEmote.footI((1.0 - left)) + TEmote.FOOT_N)), TEmote.footI(1.0))
+	JS.typed_set(o, a.slice(TEmote.armI(left), (TEmote.armI(left) + TEmote.ARM_N)), ((TEmote.EC.ARM + (0.0 * TEmote.ARM_N))))
+	JS.typed_set(o, a.slice(((TEmote.EC.ARM + (((1.0 - left)) * TEmote.ARM_N))), (((TEmote.EC.ARM + (((1.0 - left)) * TEmote.ARM_N))) + TEmote.ARM_N)), ((TEmote.EC.ARM + (1.0 * TEmote.ARM_N))))
+	JS.typed_set(o, a.slice(TEmote.footI(left), (TEmote.footI(left) + TEmote.FOOT_N)), ((TEmote.EC.FOOT + (0.0 * TEmote.FOOT_N))))
+	JS.typed_set(o, a.slice(((TEmote.EC.FOOT + (((1.0 - left)) * TEmote.FOOT_N))), (((TEmote.EC.FOOT + (((1.0 - left)) * TEmote.FOOT_N))) + TEmote.FOOT_N)), ((TEmote.EC.FOOT + (1.0 * TEmote.FOOT_N))))
 
 class Ctx extends RefCounted:
 	var t: float
@@ -498,8 +503,9 @@ class Showman extends RefCounted:
 		if (not (spec != null)):
 			return
 		self.ringR = 0.9
-		var entrance: bool = (TEmote.EMOTE_KIND[id] == "entrance")
-		play(spec, ("taunt" if (TEmote.EMOTE_KIND[id] == "taunt") else ("greet" if entrance else "celebrate")), (0.3 if (fmod(plays, 2.0) != 0.0) else 0.7))
+		var _hEMOTE_KIND = TEmote.EMOTE_KIND
+		var entrance: bool = (_hEMOTE_KIND[id] == "entrance")
+		play(spec, ("taunt" if (_hEMOTE_KIND[id] == "taunt") else ("greet" if entrance else "celebrate")), (0.3 if (fmod(plays, 2.0) != 0.0) else 0.7))
 		if entrance:
 			self.skip = (TEmote.ARRIVE - 0.5)
 			c.T = (spec.len_ - skip)
@@ -540,12 +546,15 @@ class Showman extends RefCounted:
 	
 	func encores(r, last) -> Array:
 		var w: Array
+		var _hfistPumps = TEmote.fistPumps
+		var _hwave = TEmote.wave
+		var _hlap = TEmote.lap
 		if (not (wins != null)):
 			w = TEmote.encoreWeights(r, last)
 		else:
 			w = JS.map(Array(wins), func(s, _a1 = null, _a2 = null): return [s, (0.0 if ((is_same(s, TEmote.standOver)) and r.decision) else 1.5)])
 			if (float(w.size()) < 2.0):
-				for s_2 in [TEmote.fistPumps, TEmote.wave, TEmote.lap]:
+				for s_2 in [_hfistPumps, _hwave, _hlap]:
 					if (not wins.has(s_2)):
 						w.append([s_2, 0.5])
 			for e: Array in w:
@@ -601,7 +610,11 @@ class Showman extends RefCounted:
 		var away: float = DM.atan2((me.root.x - opp.root.x), (me.root.z - opp.root.z))
 		self.crowdYaw = (DM.atan2(me.root.x, me.root.z) if (r > 1.0) else (away + (((v - 0.5)) * 1.2)))
 		if (not chain):
-			pose.gaze.copy(opp.body.pos[3.0])
+			var __v1: V3 = pose.gaze
+			var __v2: V3 = opp.body.pos[3.0]
+			__v1.x = __v2.x
+			__v1.y = __v2.y
+			__v1.z = __v2.z
 	
 	func cancel(len_: float) -> void:
 		if (not (spec != null)):
@@ -647,9 +660,10 @@ class Showman extends RefCounted:
 		spec.sample.call(a, c)
 		c.t -= skip
 		c.prevT -= skip
-		a[TEmote.EC.CROUCH] += (DM.sin((c.t * 2.6)) * 0.008)
-		a[TEmote.EC.TWIST] += (DM.sin(((c.t * 0.9) + (c.v * 6.0))) * 0.035)
-		a[TEmote.EC.ROLL] += (DM.sin(((c.t * 0.7) + (c.v * 3.0))) * 0.015)
+		var _hEC = TEmote.EC
+		a[_hEC.CROUCH] += (DM.sin((c.t * 2.6)) * 0.008)
+		a[_hEC.TWIST] += (DM.sin(((c.t * 0.9) + (c.v * 6.0))) * 0.035)
+		a[_hEC.ROLL] += (DM.sin(((c.t * 0.7) + (c.v * 3.0))) * 0.015)
 		var o: PackedFloat32Array = raw
 		TEmote.resolveSides(a, o, mirror)
 		if (fade < 1.0):
@@ -669,7 +683,13 @@ class Showman extends RefCounted:
 			var dz: float = (cb.z - ca.z)
 			var d: float = maxf(0.3, DM.hypot(dx, dz))
 			var k: float = (0.5 - (0.075 / d))
-			P.reach.set3((ca.x + (dx * k)), ((((ca.y + cb.y)) * 0.5) + 0.06), (ca.z + (dz * k)))
+			var __v1: V3 = P.reach
+			var __v2: float = (ca.x + (dx * k))
+			var __v3: float = ((((ca.y + cb.y)) * 0.5) + 0.06)
+			var __v4: float = (ca.z + (dz * k))
+			__v1.x = __v2
+			__v1.y = __v3
+			__v1.z = __v4
 			P.reachSide = (0.0 if mirror else 1.0)
 		var yaw = null
 		var opp: TFighter.Fighter = self.opp
@@ -686,18 +706,29 @@ class Showman extends RefCounted:
 		var head: V3 = me.body.pos[3.0]
 		var g: String = ("opp" if ending else c.gaze)
 		var fy: float = (P.face if P.faceOn else me.faceYaw)
-		TEmote._f.set3(DM.sin(fy), 0.0, DM.cos(fy))
+		var _h_f: V3 = TEmote._f
+		var __v5: float = DM.sin(fy)
+		var __v6: float = DM.cos(fy)
+		_h_f.x = __v5
+		_h_f.y = 0.0
+		_h_f.z = __v6
 		var tgt: V3 = _gt
 		if (g == "sky"):
-			tgt.copy(head).addScaledVector(TEmote._f, 0.7).y += 1.7
+			tgt.copy(head).addScaledVector(_h_f, 0.7).y += 1.7
 		elif (g == "down"):
-			tgt.copy(opp.body.pos[0.0])
+			var __v7: V3 = opp.body.pos[0.0]
+			tgt.x = __v7.x
+			tgt.y = __v7.y
+			tgt.z = __v7.z
 		elif (g == "crowd"):
-			tgt.copy(head).addScaledVector(TEmote._f, 4.0).y += 1.4
+			tgt.copy(head).addScaledVector(_h_f, 4.0).y += 1.4
 		elif (g == "ahead"):
-			tgt.copy(head).addScaledVector(TEmote._f, 3.0).y -= 0.2
+			tgt.copy(head).addScaledVector(_h_f, 3.0).y -= 0.2
 		else:
-			tgt.copy(opp.body.pos[3.0])
+			var __v8: V3 = opp.body.pos[3.0]
+			tgt.x = __v8.x
+			tgt.y = __v8.y
+			tgt.z = __v8.z
 		P.gaze.lerp(tgt, (1.0 - DM.exp((-6.0 * dt))))
 		P.gazeOn = true
 		var d_2: float = me.distTo(opp)
@@ -706,15 +737,24 @@ class Showman extends RefCounted:
 			plant *= 0.3
 		if ((kind == "taunt") and (d_2 < 1.5)):
 			plant = 0.0
-		me.intentVel.multiplyScalar((1.0 - plant))
+		var __v9: V3 = me.intentVel
+		var __v10: float = (1.0 - plant)
+		__v9.x *= __v10
+		__v9.y *= __v10
+		__v9.z *= __v10
 		if (c.walk != 0.0):
 			var d0: float = DM.hypot(me.root.x, me.root.z)
 			var r: float = maxf(0.5, d0)
 			var ux: float = ((me.root.x / d0) if (d0 > 0.05) else DM.sin(me.faceYaw))
 			var uz: float = ((me.root.z / d0) if (d0 > 0.05) else DM.cos(me.faceYaw))
 			var want: float = ringR
-			me.intentVel.set3((((-uz) * c.walk) + ((ux * ((want - r))) * 0.8)), 0.0, ((ux * c.walk) + ((uz * ((want - r))) * 0.8)))
-		me.lift = (a[TEmote.EC.LIFT] * P.w)
+			var __v11: V3 = me.intentVel
+			var __v12: float = (((-uz) * c.walk) + ((ux * ((want - r))) * 0.8))
+			var __v13: float = ((ux * c.walk) + ((uz * ((want - r))) * 0.8))
+			__v11.x = __v12
+			__v11.y = 0.0
+			__v11.z = __v13
+		me.lift = (a[_hEC.LIFT] * P.w)
 		me.bounce *= (1.0 - (0.08 * P.w))
 static var EMOTES
 const MAX_PICKS: float = 3.0
@@ -817,8 +857,8 @@ static func __init_module() -> void:
 			var t_2: float = c_2.t
 			TEmote.keys_(o_2, t_2, K_2)
 			var up: float = TEmote.win(t_2, 0.62, 2.2, 0.3)
-			o_2[(TEmote.armI(0.0) + 1.0)] += (((DM.sin((t_2 * 31.0)) * 0.012) * up) - (0.14 * TEmote.pulse(t_2, 1.5, 0.12, 0.25)))
-			o_2[(TEmote.armI(1.0) + 1.0)] += (((DM.sin(((t_2 * 29.0) + 1.0)) * 0.012) * up) - (0.14 * TEmote.pulse(t_2, 1.62, 0.12, 0.25)))
+			o_2[(((TEmote.EC.ARM + (0.0 * TEmote.ARM_N))) + 1.0)] += (((DM.sin((t_2 * 31.0)) * 0.012) * up) - (0.14 * TEmote.pulse(t_2, 1.5, 0.12, 0.25)))
+			o_2[(((TEmote.EC.ARM + (1.0 * TEmote.ARM_N))) + 1.0)] += (((DM.sin(((t_2 * 29.0) + 1.0)) * 0.012) * up) - (0.14 * TEmote.pulse(t_2, 1.62, 0.12, 0.25)))
 			c_2.gaze = ("sky" if (t_2 < 2.1) else "crowd")
 			c_2.beat(0.62, 1.0)
 		return {"id": "champion", "len_": 3.2, "sample": __f3}
@@ -856,8 +896,8 @@ static func __init_module() -> void:
 			var t_3: float = c_3.t
 			TEmote.keys_(o_3, t_3, K_3)
 			var shake: float = TEmote.win(t_3, 1.6, 2.45, 0.1)
-			o_3[TEmote.armI(0.0)] += ((DM.sin((t_3 * 53.0)) * 0.009) * shake)
-			o_3[TEmote.armI(1.0)] += ((DM.sin(((t_3 * 49.0) + 2.0)) * 0.009) * shake)
+			o_3[((TEmote.EC.ARM + (0.0 * TEmote.ARM_N)))] += ((DM.sin((t_3 * 53.0)) * 0.009) * shake)
+			o_3[((TEmote.EC.ARM + (1.0 * TEmote.ARM_N)))] += ((DM.sin(((t_3 * 49.0) + 2.0)) * 0.009) * shake)
 			o_3[TEmote.EC.HEAD] += ((DM.sin((t_3 * 41.0)) * 0.006) * shake)
 			c_3.gaze = ("ahead" if ((t_3 > 1.5) and (t_3 < 2.5)) else "sky")
 			c_3.beat(0.7, 0.6)
@@ -1000,8 +1040,8 @@ static func __init_module() -> void:
 			TEmote.keys_(o_10, t_10, K_10)
 			for p0_2 in [0.75, 1.1]:
 				var p_6: float = TEmote.pulse(t_10, p0_2, 0.08, 0.18)
-				o_10[(TEmote.armI(0.0) + 2.0)] += (0.07 * p_6)
-				o_10[(TEmote.armI(0.0) + 1.0)] -= (0.04 * p_6)
+				o_10[(((TEmote.EC.ARM + (0.0 * TEmote.ARM_N))) + 2.0)] += (0.07 * p_6)
+				o_10[(((TEmote.EC.ARM + (0.0 * TEmote.ARM_N))) + 1.0)] -= (0.04 * p_6)
 				o_10[TEmote.EC.PITCH] += (0.05 * p_6)
 			c_10.gaze = ("down" if (t_10 < 1.8) else "sky")
 			c_10.beat(1.95, 0.9)
@@ -1047,7 +1087,7 @@ static func __init_module() -> void:
 			var t_13: float = c_13.t
 			TEmote.keys_(o_13, t_13, K_13)
 			o_13[TEmote.EC.TWIST] += (DM.sin((t_13 * 4.6)) * 0.08)
-			o_13[(TEmote.armI(1.0) + 2.0)] += (DM.sin((t_13 * 4.6)) * 0.06)
+			o_13[(((TEmote.EC.ARM + (1.0 * TEmote.ARM_N))) + 2.0)] += (DM.sin((t_13 * 4.6)) * 0.06)
 			c_13.walk = ((((-1.0 if (c_13.v < 0.5) else 1.0)) * 0.85) * TEmote.win(t_13, 0.3, (c_13.T - 0.2), 0.4))
 			c_13.face = "travel"
 			c_13.turn = 3.0
@@ -1110,10 +1150,10 @@ static func __init_module() -> void:
 			TEmote.keys_(o_16, t_16, K_16)
 			for p0_3 in [0.7, 1.0]:
 				var p_8: float = TEmote.pulse(t_16, p0_3, 0.08, 0.18)
-				o_16[(TEmote.armI(0.0) + 2.0)] += (0.07 * p_8)
+				o_16[(((TEmote.EC.ARM + (0.0 * TEmote.ARM_N))) + 2.0)] += (0.07 * p_8)
 				o_16[TEmote.EC.PITCH] += (0.05 * p_8)
 			var wag: float = TEmote.win(t_16, 1.5, 2.7, 0.2)
-			o_16[TEmote.armI(0.0)] += ((DM.sin((((t_16 - 1.5)) * 12.0)) * 0.16) * wag)
+			o_16[((TEmote.EC.ARM + (0.0 * TEmote.ARM_N)))] += ((DM.sin((((t_16 - 1.5)) * 12.0)) * 0.16) * wag)
 			o_16[TEmote.EC.TWIST] += ((DM.sin((((t_16 - 1.5)) * 12.0)) * 0.08) * wag)
 			c_16.gaze = "down"
 			c_16.beat(0.7, 0.3)
@@ -1137,15 +1177,15 @@ static func __init_module() -> void:
 			var s: float = DM.sin(ph)
 			var k_4: float = 0.0
 			while (k_4 < 2.0):
-				var i_2: float = TEmote.footI(k_4)
+				var i_2: float = ((TEmote.EC.FOOT + (k_4 * TEmote.FOOT_N)))
 				o_17[(i_2 + 3.0)] = ((0.03 * absf(DM.sin((ph + ((k_4 * PI) * 0.5))))) * go)
 				o_17[(i_2 + 4.0)] = ((((s if (k_4 == 0.0) else (-s))) * 0.1) * go)
 				o_17[(i_2 + 6.0)] = go
 				k_4 += 1.0
 			o_17[TEmote.EC.TWIST] += ((s * 0.12) * go)
 			o_17[TEmote.EC.HEAD] += ((s * 0.02) * go)
-			o_17[(TEmote.armI(0.0) + 2.0)] += ((s * 0.08) * go)
-			o_17[(TEmote.armI(1.0) + 2.0)] -= ((s * 0.08) * go)
+			o_17[(((TEmote.EC.ARM + (0.0 * TEmote.ARM_N))) + 2.0)] += ((s * 0.08) * go)
+			o_17[(((TEmote.EC.ARM + (1.0 * TEmote.ARM_N))) + 2.0)] -= ((s * 0.08) * go)
 			c_17.gaze = ("crowd" if (t_17 < 1.6) else "down")
 			c_17.beat(1.7, 0.6)
 		return {
@@ -1223,8 +1263,8 @@ static func __init_module() -> void:
 			var t_19: float = c_19.t
 			TEmote.keys_(o_19, t_19, K_19)
 			var shake_3: float = TEmote.win(t_19, 0.8, 1.65, 0.1)
-			o_19[TEmote.armI(0.0)] += ((DM.sin((t_19 * 53.0)) * 0.009) * shake_3)
-			o_19[TEmote.armI(1.0)] += ((DM.sin(((t_19 * 47.0) + 1.0)) * 0.009) * shake_3)
+			o_19[((TEmote.EC.ARM + (0.0 * TEmote.ARM_N)))] += ((DM.sin((t_19 * 53.0)) * 0.009) * shake_3)
+			o_19[((TEmote.EC.ARM + (1.0 * TEmote.ARM_N)))] += ((DM.sin(((t_19 * 47.0) + 1.0)) * 0.009) * shake_3)
 			c_19.gaze = ("ahead" if ((t_19 > 0.7) and (t_19 < 1.7)) else "down")
 			c_19.beat(0.78, 0.7, 0.16)
 		return {
@@ -1274,8 +1314,8 @@ static func __init_module() -> void:
 			TEmote.keys_(o_21, t_21, K_21)
 			var s_2: float = DM.sin((t_21 * 4.4))
 			o_21[TEmote.EC.TWIST] += (s_2 * 0.12)
-			o_21[(TEmote.armI(0.0) + 2.0)] += (s_2 * 0.1)
-			o_21[(TEmote.armI(1.0) + 2.0)] -= (s_2 * 0.1)
+			o_21[(((TEmote.EC.ARM + (0.0 * TEmote.ARM_N))) + 2.0)] += (s_2 * 0.1)
+			o_21[(((TEmote.EC.ARM + (1.0 * TEmote.ARM_N))) + 2.0)] -= (s_2 * 0.1)
 			o_21[TEmote.EC.HEAD] += (s_2 * 0.015)
 			var going: bool = (t_21 < (c_21.T - 0.7))
 			c_21.walk = ((((-1.0 if (c_21.v < 0.5) else 1.0)) * 0.7) * TEmote.win(t_21, 0.2, (c_21.T - 0.6), 0.35))
@@ -1315,9 +1355,9 @@ static func __init_module() -> void:
 		var __f44 = func(o_22: PackedFloat32Array, c_22: TEmote.Ctx):
 			var t_22: float = c_22.t
 			TEmote.keys_(o_22, t_22, K_22)
-			var ch: float = (TMath.clamp01((t_22 / A)) * TEmote.win(t_22, 0.1, (A + 0.62), 0.15))
-			o_22[TEmote.armI(0.0)] += ((DM.sin((t_22 * 57.0)) * 0.012) * ch)
-			o_22[TEmote.armI(1.0)] += ((DM.sin(((t_22 * 51.0) + 1.0)) * 0.012) * ch)
+			var ch: float = ((((0.0 if (((t_22 / A)) < 0.0) else (1.0 if (((t_22 / A)) > 1.0) else ((t_22 / A)))))) * TEmote.win(t_22, 0.1, (A + 0.62), 0.15))
+			o_22[((TEmote.EC.ARM + (0.0 * TEmote.ARM_N)))] += ((DM.sin((t_22 * 57.0)) * 0.012) * ch)
+			o_22[((TEmote.EC.ARM + (1.0 * TEmote.ARM_N)))] += ((DM.sin(((t_22 * 51.0) + 1.0)) * 0.012) * ch)
 			o_22[TEmote.EC.HEAD] += ((DM.sin((t_22 * 43.0)) * 0.006) * ch)
 			c_22.gaze = ("down" if (t_22 < (A + 0.2)) else ("ahead" if (t_22 < (A + 1.5)) else "opp"))
 			c_22.beat((A + 0.62), 1.0, 0.12)
@@ -1343,7 +1383,7 @@ static func __init_module() -> void:
 		var __f46 = func(o_23: PackedFloat32Array, c_23: TEmote.Ctx):
 			var t_23: float = c_23.t
 			TEmote.keys_(o_23, t_23, K_23)
-			o_23[(TEmote.armI(0.0) + 1.0)] += ((DM.sin((t_23 * 61.0)) * 0.006) * TEmote.win(t_23, 0.2, A_2, 0.2))
+			o_23[(((TEmote.EC.ARM + (0.0 * TEmote.ARM_N))) + 1.0)] += ((DM.sin((t_23 * 61.0)) * 0.006) * TEmote.win(t_23, 0.2, A_2, 0.2))
 			c_23.gaze = ("down" if (t_23 < (A_2 + 0.5)) else ("sky" if ((t_23 > (A_2 + 1.4)) and (t_23 < (A_2 + 2.0))) else "opp"))
 			c_23.beat((A_2 + 0.02), 0.6, 0.08)
 			c_23.beat((A_2 + 1.45), 1.0)
@@ -1461,8 +1501,8 @@ static func __init_module() -> void:
 			var t_26: float = c_27.t
 			TEmote.keys_(o_27, t_26, K_26)
 			var shake_4: float = (TEmote.win(t_26, (A_6 + 0.7), (A_6 + 1.35), 0.1) + TEmote.win(t_26, (A_6 + 1.65), (A_6 + 2.15), 0.1))
-			o_27[TEmote.armI(0.0)] += ((DM.sin((t_26 * 53.0)) * 0.009) * shake_4)
-			o_27[TEmote.armI(1.0)] += ((DM.sin(((t_26 * 47.0) + 1.0)) * 0.009) * shake_4)
+			o_27[((TEmote.EC.ARM + (0.0 * TEmote.ARM_N)))] += ((DM.sin((t_26 * 53.0)) * 0.009) * shake_4)
+			o_27[((TEmote.EC.ARM + (1.0 * TEmote.ARM_N)))] += ((DM.sin(((t_26 * 47.0) + 1.0)) * 0.009) * shake_4)
 			c_27.gaze = ("down" if (t_26 < (A_6 + 0.4)) else "opp")
 			c_27.beat((A_6 + 0.68), 1.0, 0.3)
 		return {"id": "earthquake", "len_": 4.3, "sample": __f55}

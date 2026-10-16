@@ -75,10 +75,11 @@ static var LEAD_GUARD
 static var A_SET: PackedFloat32Array
 
 static func sway(o: PackedFloat32Array, t: float, k: float) -> void:
-	o[TEmote.EC.ROLL] += ((DM.sin((t * 2.3)) * 0.07) * k)
-	o[TEmote.EC.PITCH] += ((DM.sin(((t * 1.7) + 1.0)) * 0.05) * k)
-	o[TEmote.EC.HEAD] += ((DM.sin(((t * 2.9) + 2.0)) * 0.025) * k)
-	o[TEmote.EC.TWIST] += ((DM.sin((t * 1.3)) * 0.08) * k)
+	var _hEC = TEmote.EC
+	o[_hEC.ROLL] += ((DM.sin((t * 2.3)) * 0.07) * k)
+	o[_hEC.PITCH] += ((DM.sin(((t * 1.7) + 1.0)) * 0.05) * k)
+	o[_hEC.HEAD] += ((DM.sin(((t * 2.9) + 2.0)) * 0.025) * k)
+	o[_hEC.TWIST] += ((DM.sin((t * 1.3)) * 0.08) * k)
 static var skyfall
 static var meteor
 static var cyclone
@@ -94,7 +95,8 @@ static func pickFinisher(rng: TMath.Rng, picks, style: String) -> String:
 	var ok: Array = JS.filter(((picks if picks != null else [])), func(id: String, _a1 = null, _a2 = null): return TFinisher.FINISHERS[id])
 	if (float(ok.size()) != 0.0):
 		return ok[floorf((rng.next() * float(ok.size())))]
-	var w: Array = (TFinisher.STYLE_PICK.get(style) if TFinisher.STYLE_PICK.get(style) != null else TFinisher.STYLE_PICK.Boxer)
+	var _hSTYLE_PICK = TFinisher.STYLE_PICK
+	var w: Array = (_hSTYLE_PICK.get(style) if _hSTYLE_PICK.get(style) != null else _hSTYLE_PICK.Boxer)
 	var sum: float = 0.0
 	for __it1 in w:
 		var x: float = __it1[1]
@@ -198,11 +200,25 @@ class FinisherRun extends RefCounted:
 		def.action = null
 		def.setState("held")
 		def.stunTime = 0.0
-		def.intentVel.set3(0.0, 0.0, 0.0)
+		var __v2: V3 = def.intentVel
+		__v2.x = 0.0
+		__v2.y = 0.0
+		__v2.z = 0.0
 		def.lift = 0.0
-		att.intentVel.set3(0.0, 0.0, 0.0)
-		vicPose.gaze.copy(att.body.pos[3.0])
-		attPose.gaze.copy(def.body.pos[3.0])
+		var __v3: V3 = att.intentVel
+		__v3.x = 0.0
+		__v3.y = 0.0
+		__v3.z = 0.0
+		var __v4: V3 = vicPose.gaze
+		var __v5: V3 = att.body.pos[3.0]
+		__v4.x = __v5.x
+		__v4.y = __v5.y
+		__v4.z = __v5.z
+		var __v6: V3 = attPose.gaze
+		var __v7: V3 = def.body.pos[3.0]
+		__v6.x = __v7.x
+		__v6.y = __v7.y
+		__v6.z = __v7.z
 	
 	func opener(point: V3, zone: String, move: String) -> void:
 		var part: float = (0.0 if (zone == "head") else (TDamage.legPart((0.0 if (def.leadSide == "L") else 1.0), 1.0) if (zone == "legs") else 1.0))
@@ -221,6 +237,8 @@ class FinisherRun extends RefCounted:
 			self.stall += dt
 		else:
 			c.t += dt
+		var _hMOVES = TMoves.MOVES
+		var _h_a: V3 = TFinisher._a
 		while ((next < float(steps.size())) and (not struck)):
 			var st = steps[next]
 			if JS.has_key(st, "strike"):
@@ -236,7 +254,7 @@ class FinisherRun extends RefCounted:
 				var k: float = __t1
 				if (pending != null):
 					landPending()
-				var s = att.forceStrike(st.strike, st.zone, aim(st.zone, TMoves.MOVES[st.strike], TFinisher._a), st.speed)
+				var s = att.forceStrike(st.strike, st.zone, aim(st.zone, _hMOVES[st.strike], _h_a), st.speed)
 				self.pending = {"s": s, "blow": st.blow, "k": k}
 				self.stall = 0.0
 			else:
@@ -246,6 +264,7 @@ class FinisherRun extends RefCounted:
 				self.next += 1.0
 				self.posing = {"blow": st.blow, "k": __t2, "until": (st.at + TFinisher.POSE_LATE)}
 		var p = pending
+		var _h_b: V3 = TFinisher._b
 		if (p != null):
 			var s_2 = p.s
 			if ((not is_same(att.action, s_2)) or s_2.hasHit):
@@ -255,31 +274,31 @@ class FinisherRun extends RefCounted:
 				if (s_2.phase != "windup"):
 					var j: float = att.strikerJoint(s_2)
 					var trunk: bool = (((p.blow.zone != "head") or (s_2.move.path != "upper")) or (s_2.activeProgress > 0.75))
-					if (touch(p.blow.zone, j, TFinisher._b, trunk) or (s_2.phase == "recovery")):
+					if (touch(p.blow.zone, j, _h_b, trunk) or (s_2.phase == "recovery")):
 						if (s_2.phase == "recovery"):
-							surface(p.blow.zone, att.body.pos[j], TFinisher._b)
+							surface(p.blow.zone, att.body.pos[j], _h_b)
 						else:
 							stopAt(j)
 						s_2.hasHit = true
 						s_2.result = "hit"
 						self.pending = null
 						att.finishStrike(s_2)
-						land(p.k, p.blow, TFinisher._b, j)
+						land(p.k, p.blow, _h_b, j)
 		var ps = posing
 		if (ps != null):
 			var hit: float = -1.0
 			for j_2 in [6.0, 9.0]:
-				if ((att.body.pos[j_2].y < att.body.last[j_2].y) and touch(ps.blow.zone, j_2, TFinisher._b)):
+				if ((att.body.pos[j_2].y < att.body.last[j_2].y) and touch(ps.blow.zone, j_2, _h_b)):
 					hit = j_2
 					stopAt(j_2)
 					break
 			if ((hit < 0.0) and (c.t >= ps.until)):
 				hit = glowJoint
-				TFinisher._b.copy(att.body.pos[6.0]).lerp(att.body.pos[9.0], 0.5)
-				surface(ps.blow.zone, TFinisher._b, TFinisher._b)
+				_h_b.copy(att.body.pos[6.0]).lerp(att.body.pos[9.0], 0.5)
+				surface(ps.blow.zone, _h_b, _h_b)
 			if (hit >= 0.0):
 				self.posing = null
-				land(ps.k, ps.blow, TFinisher._b, hit)
+				land(ps.k, ps.blow, _h_b, hit)
 		c.reset()
 		var a: PackedFloat32Array = auth
 		spec.att.call(a, c)
@@ -304,7 +323,10 @@ class FinisherRun extends RefCounted:
 			var V: TEmote.EmotePose = vicPose
 			V.w += (((1.0 - V.w)) * ((1.0 - DM.exp((-14.0 * dt)))))
 			def.body.tone = c.vtone
-			def.intentVel.set3(0.0, 0.0, 0.0)
+			var __v3: V3 = def.intentVel
+			__v3.x = 0.0
+			__v3.y = 0.0
+			__v3.z = 0.0
 			gaze(V, def, att, c.vgaze, dt)
 		footwork(dt)
 		self.slowmo += (((c.slow - slowmo)) * ((1.0 - DM.exp((-12.0 * dt)))))
@@ -318,41 +340,67 @@ class FinisherRun extends RefCounted:
 		var b: TBody.Body = def.body
 		var zs: float = def.size_
 		var held: bool = (def.state == "held")
-		TFinisher._g.set3(0.0, 0.0, 0.0)
-		for j in TFinisher.LIMBS:
+		var _h_g: V3 = TFinisher._g
+		_h_g.x = 0.0
+		_h_g.y = 0.0
+		_h_g.z = 0.0
+		var _hLIMBS: Array = TFinisher.LIMBS
+		var _h_a: V3 = TFinisher._a
+		var _h_c: V3 = TFinisher._c
+		for j in _hLIMBS:
 			var p: V3 = att.body.pos[j]
 			var r: float = ((TFinisher.limbR(j) * att.size_) * 0.92)
-			for __it1 in [[3.0, TFinisher.R_HEAD], [2.0, TFinisher.R_NECK]]:
-				var h: float = __it1[0]
-				var R: float = __it1[1]
+			for __it3 in [[3.0, TFinisher.R_HEAD], [2.0, TFinisher.R_NECK]]:
+				var h: float = __it3[0]
+				var R: float = __it3[1]
 				if (b.cut[h] != 0.0):
 					continue
-				TFinisher._a.subVectors(b.pos[h], p)
-				var d: float = TFinisher._a.length()
+				var __v1: V3 = b.pos[h]
+				_h_a.x = __v1.x - p.x
+				_h_a.y = __v1.y - p.y
+				_h_a.z = __v1.z - p.z
+				var d: float = sqrt(_h_a.x * _h_a.x + _h_a.y * _h_a.y + _h_a.z * _h_a.z)
 				var lim: float = (r + (R * zs))
 				if ((d < lim) and (d > 0.00001)):
-					TFinisher._a.multiplyScalar((minf((lim - d), (0.08 * zs)) / d))
+					var __v2: float = (minf((lim - d), (0.08 * zs)) / d)
+					_h_a.x *= __v2
+					_h_a.y *= __v2
+					_h_a.z *= __v2
 					if held:
-						deeper(TFinisher._g, TFinisher._a)
+						deeper(_h_g, _h_a)
 					else:
-						shove(h, -1.0, 0.0, TFinisher._a)
-			var t: float = TMath.closestOnSegment(p, b.pos[0.0], b.pos[1.0], TFinisher._c)
-			TFinisher._a.subVectors(TFinisher._c, p)
-			var d_2: float = TFinisher._a.length()
+						shove(h, -1.0, 0.0, _h_a)
+			var t: float = TMath.closestOnSegment(p, b.pos[0.0], b.pos[1.0], _h_c)
+			_h_a.x = _h_c.x - p.x
+			_h_a.y = _h_c.y - p.y
+			_h_a.z = _h_c.z - p.z
+			var d_2: float = sqrt(_h_a.x * _h_a.x + _h_a.y * _h_a.y + _h_a.z * _h_a.z)
 			var lim_2: float = (r + (TFinisher.R_TRUNK * zs))
 			if ((d_2 < lim_2) and (d_2 > 0.00001)):
-				TFinisher._a.multiplyScalar((minf((lim_2 - d_2), (0.08 * zs)) / d_2))
+				var __v4: float = (minf((lim_2 - d_2), (0.08 * zs)) / d_2)
+				_h_a.x *= __v4
+				_h_a.y *= __v4
+				_h_a.z *= __v4
 				if held:
-					deeper(TFinisher._g, TFinisher._a)
+					deeper(_h_g, _h_a)
 				else:
-					shove(0.0, 1.0, t, TFinisher._a)
-		if (held and (TFinisher._g.lengthSq() > ((float(7737125245533627) / 4611686018427387904) / 16777216))):
-			TFinisher._g.y = 0.0
-			def.root.add(TFinisher._g)
+					shove(0.0, 1.0, t, _h_a)
+		if (held and ((_h_g.x * _h_g.x + _h_g.y * _h_g.y + _h_g.z * _h_g.z) > ((float(7737125245533627) / 4611686018427387904) / 16777216))):
+			_h_g.y = 0.0
+			var __v5: V3 = def.root
+			__v5.x += _h_g.x
+			__v5.y += _h_g.y
+			__v5.z += _h_g.z
 			var i: float = 0.0
 			while (i < float(b.pos.size())):
-				b.pos[i].add(TFinisher._g)
-				b.prev[i].add(TFinisher._g)
+				var __v6: V3 = b.pos[i]
+				__v6.x += _h_g.x
+				__v6.y += _h_g.y
+				__v6.z += _h_g.z
+				var __v7: V3 = b.prev[i]
+				__v7.x += _h_g.x
+				__v7.y += _h_g.y
+				__v7.z += _h_g.z
 				i += 1.0
 	
 	func deeper(acc: V3, d: V3) -> void:
@@ -363,12 +411,19 @@ class FinisherRun extends RefCounted:
 	
 	func shove(a: float, b: float, t: float, d: V3) -> void:
 		var body: TBody.Body = def.body
-		var __f1 = func(i: float, w: float):
+		var __f4 = func(i: float, w: float):
 			if (w <= 0.0):
 				return
-			body.pos[i].addScaledVector(d, w)
-			body.prev[i].addScaledVector(d, (w * 0.6))
-		var one = __f1
+			var __v1: V3 = body.pos[i]
+			__v1.x += d.x * w
+			__v1.y += d.y * w
+			__v1.z += d.z * w
+			var __v2: V3 = body.prev[i]
+			var __v3: float = (w * 0.6)
+			__v2.x += d.x * __v3
+			__v2.y += d.y * __v3
+			__v2.z += d.z * __v3
+		var one = __f4
 		if (b < 0.0):
 			one.call(a, 1.0)
 			if ((a == 3.0) and (not (body.cut[2.0] != 0.0))):
@@ -384,7 +439,10 @@ class FinisherRun extends RefCounted:
 		attPose.reachW = 0.0
 		att.lift = 0.0
 		att.bounce = 1.0
-		att.intentVel.set3(0.0, 0.0, 0.0)
+		var __v1: V3 = att.intentVel
+		__v1.x = 0.0
+		__v1.y = 0.0
+		__v1.z = 0.0
 	
 	func landPending() -> void:
 		var p = pending
@@ -392,22 +450,45 @@ class FinisherRun extends RefCounted:
 		if (p.s.hasHit and c.landed(p.k)):
 			return
 		var j: float = att.strikerJoint(p.s)
-		surface(p.blow.zone, att.body.pos[j], TFinisher._b)
-		land(p.k, p.blow, TFinisher._b, j)
+		var _h_b: V3 = TFinisher._b
+		surface(p.blow.zone, att.body.pos[j], _h_b)
+		land(p.k, p.blow, _h_b, j)
 	
 	func track(s, zone: String) -> void:
 		var att: TFighter.Fighter = self.att
-		aim(zone, s.move, TFinisher._a)
+		var _h_a: V3 = TFinisher._a
+		aim(zone, s.move, _h_a)
+		var _h_d: V3 = TFinisher._d
 		if (s.phase == "windup"):
-			s.aim.copy(TFinisher._a)
+			var __v1: V3 = s.aim
+			__v1.x = _h_a.x
+			__v1.y = _h_a.y
+			__v1.z = _h_a.z
 		elif (s.phase == "active"):
 			var m = s.move
 			var L: bool = (s.side == "L")
 			var o: V3 = att.body.pos[(((4.0 if L else 7.0)) if (m.kind == "punch") else (10.0 if L else 13.0))]
 			var through: float = (0.14 if (m.path == "straight") else (0.18 if ((m.path == "frontKick") or (m.path == "backKick")) else 0.1))
-			TFinisher._d.subVectors(TFinisher._a, o).normalize()
-			s.aim.copy(TFinisher._a)
-			s.endWorld.copy(TFinisher._a).addScaledVector(TFinisher._d, (through * att.size_))
+			_h_d.x = _h_a.x - o.x
+			_h_d.y = _h_a.y - o.y
+			_h_d.z = _h_a.z - o.z
+			var __v2: float = sqrt(_h_d.x * _h_d.x + _h_d.y * _h_d.y + _h_d.z * _h_d.z)
+			var __v3: float = 1.0 / (__v2 if __v2 != 0.0 else 1.0)
+			_h_d.x *= __v3
+			_h_d.y *= __v3
+			_h_d.z *= __v3
+			var __v4: V3 = s.aim
+			__v4.x = _h_a.x
+			__v4.y = _h_a.y
+			__v4.z = _h_a.z
+			var __v5: V3 = s.endWorld
+			__v5.x = _h_a.x
+			__v5.y = _h_a.y
+			__v5.z = _h_a.z
+			var __v6: float = (through * att.size_)
+			__v5.x += _h_d.x * __v6
+			__v5.y += _h_d.y * __v6
+			__v5.z += _h_d.z * __v6
 	
 	func aim(zone: String, m, out: V3) -> V3:
 		var att: TFighter.Fighter = self.att
@@ -426,11 +507,12 @@ class FinisherRun extends RefCounted:
 		if (out.y <= top):
 			return out
 		var b: Array = def.body.pos
+		var _h_g: V3 = TFinisher._g
 		var i: float = 1.0
 		while (i <= 8.0):
-			TFinisher._g.copy(b[3.0]).lerp(b[1.0], (i / 8.0))
-			if (TFinisher._g.y <= top):
-				return out.copy(TFinisher._g)
+			_h_g.copy(b[3.0]).lerp(b[1.0], (i / 8.0))
+			if (_h_g.y <= top):
+				return out.copy(_h_g)
 			i += 1.0
 		return out.copy(b[1.0])
 	
@@ -442,72 +524,129 @@ class FinisherRun extends RefCounted:
 		var z: float = def.size_
 		var from: V3 = att.body.last[j]
 		var to: V3 = att.body.pos[j]
+		var _h_f: V3 = TFinisher._f
+		var _h_c: V3 = TFinisher._c
 		var k: float = 1.0
 		while (k <= 4.0):
-			TFinisher._f.lerpVectors(from, to, (k / 4.0))
-			touchAt.copy(TFinisher._f)
+			var __v1: float = (k / 4.0)
+			_h_f.x = from.x + (to.x - from.x) * __v1
+			_h_f.y = from.y + (to.y - from.y) * __v1
+			_h_f.z = from.z + (to.z - from.z) * __v1
+			touchAt.x = _h_f.x
+			touchAt.y = _h_f.y
+			touchAt.z = _h_f.z
 			if (zone == "legs"):
-				for __it2 in [[10.0, 11.0, 12.0], [13.0, 14.0, 15.0]]:
-					var h: float = __it2[0]
-					var kn: float = __it2[1]
-					var ft: float = __it2[2]
-					for __it1 in [[h, kn], [kn, ft]]:
-						var u: float = __it1[0]
-						var v: float = __it1[1]
-						TMath.closestOnSegment(TFinisher._f, b[u], b[v], TFinisher._c)
-						if (TFinisher._c.distanceTo(TFinisher._f) < (r + (TFinisher.R_LEG * z))):
-							return onSurface(TFinisher._c, TFinisher._f, (TFinisher.R_LEG * z), out)
+				for __it3 in [[10.0, 11.0, 12.0], [13.0, 14.0, 15.0]]:
+					var h: float = __it3[0]
+					var kn: float = __it3[1]
+					var ft: float = __it3[2]
+					for __it2 in [[h, kn], [kn, ft]]:
+						var u: float = __it2[0]
+						var v: float = __it2[1]
+						TMath.closestOnSegment(_h_f, b[u], b[v], _h_c)
+						if (_h_c.distanceTo(_h_f) < (r + (TFinisher.R_LEG * z))):
+							return onSurface(_h_c, _h_f, (TFinisher.R_LEG * z), out)
 				k += 1.0
 				continue
-			if ((not (def.body.cut[3.0] != 0.0)) and (TFinisher._f.distanceTo(b[3.0]) < (r + (TFinisher.R_HEAD * z)))):
-				return onSurface(b[3.0], TFinisher._f, (TFinisher.R_HEAD * z), out)
-			if (TFinisher._f.distanceTo(b[2.0]) < (r + (TFinisher.R_NECK * z))):
-				return onSurface(b[2.0], TFinisher._f, (TFinisher.R_NECK * z), out)
+			if ((not (def.body.cut[3.0] != 0.0)) and (_h_f.distanceTo(b[3.0]) < (r + (TFinisher.R_HEAD * z)))):
+				return onSurface(b[3.0], _h_f, (TFinisher.R_HEAD * z), out)
+			if (_h_f.distanceTo(b[2.0]) < (r + (TFinisher.R_NECK * z))):
+				return onSurface(b[2.0], _h_f, (TFinisher.R_NECK * z), out)
 			if (not trunk):
 				k += 1.0
 				continue
-			TMath.closestOnSegment(TFinisher._f, b[0.0], b[1.0], TFinisher._c)
-			if (TFinisher._c.distanceTo(TFinisher._f) < (r + (TFinisher.R_TRUNK * z))):
-				return onSurface(TFinisher._c, TFinisher._f, (TFinisher.R_TRUNK * z), out)
+			TMath.closestOnSegment(_h_f, b[0.0], b[1.0], _h_c)
+			if (_h_c.distanceTo(_h_f) < (r + (TFinisher.R_TRUNK * z))):
+				return onSurface(_h_c, _h_f, (TFinisher.R_TRUNK * z), out)
 			k += 1.0
 		return false
 	
 	func stopAt(j: float) -> void:
 		var b: TBody.Body = att.body
-		b.pos[j].copy(touchAt)
-		b.prev[j].copy(touchAt)
+		var __v1: V3 = b.pos[j]
+		__v1.x = touchAt.x
+		__v1.y = touchAt.y
+		__v1.z = touchAt.z
+		var __v2: V3 = b.prev[j]
+		__v2.x = touchAt.x
+		__v2.y = touchAt.y
+		__v2.z = touchAt.z
 	
 	func onSurface(c: V3, p: V3, R: float, out: V3) -> bool:
-		TFinisher._d.subVectors(p, c)
-		var d: float = TFinisher._d.length()
+		var _h_d: V3 = TFinisher._d
+		_h_d.x = p.x - c.x
+		_h_d.y = p.y - c.y
+		_h_d.z = p.z - c.z
+		var d: float = sqrt(_h_d.x * _h_d.x + _h_d.y * _h_d.y + _h_d.z * _h_d.z)
 		if (d > 0.00001):
-			out.copy(c).addScaledVector(TFinisher._d, (R / d))
+			out.x = c.x
+			out.y = c.y
+			out.z = c.z
+			var __v1: float = (R / d)
+			out.x += _h_d.x * __v1
+			out.y += _h_d.y * __v1
+			out.z += _h_d.z * __v1
 		else:
-			out.copy(c)
+			out.x = c.x
+			out.y = c.y
+			out.z = c.z
 		return true
 	
 	func surface(zone: String, p: V3, out: V3) -> V3:
 		var b: Array = def.body.pos
 		var z: float = def.size_
+		var _h_g: V3 = TFinisher._g
 		if (zone == "head"):
-			onSurface(b[3.0], TFinisher._g.copy(p), (TFinisher.R_HEAD * z), out)
+			onSurface(b[3.0], _h_g.copy(p), (TFinisher.R_HEAD * z), out)
 			return out
+		var _h_c: V3 = TFinisher._c
 		if (zone == "body"):
-			TMath.closestOnSegment(p, b[0.0], b[1.0], TFinisher._c)
-			onSurface(TFinisher._c, TFinisher._g.copy(p), (TFinisher.R_TRUNK * z), out)
+			TMath.closestOnSegment(p, b[0.0], b[1.0], _h_c)
+			onSurface(_h_c, _h_g.copy(p), (TFinisher.R_TRUNK * z), out)
 			return out
-		target("legs", TFinisher._c)
-		onSurface(TFinisher._c, TFinisher._g.copy(p), (TFinisher.R_LEG * z), out)
+		target("legs", _h_c)
+		onSurface(_h_c, _h_g.copy(p), (TFinisher.R_LEG * z), out)
 		return out
 	
 	func backPoint(out: V3) -> V3:
 		var b: Array = def.body.pos
-		TFinisher._d.subVectors(b[2.0], b[0.0]).normalize()
+		var _h_d: V3 = TFinisher._d
+		var __v1: V3 = b[2.0]
+		var __v2: V3 = b[0.0]
+		_h_d.x = __v1.x - __v2.x
+		_h_d.y = __v1.y - __v2.y
+		_h_d.z = __v1.z - __v2.z
+		var __v3: float = sqrt(_h_d.x * _h_d.x + _h_d.y * _h_d.y + _h_d.z * _h_d.z)
+		var __v4: float = 1.0 / (__v3 if __v3 != 0.0 else 1.0)
+		_h_d.x *= __v4
+		_h_d.y *= __v4
+		_h_d.z *= __v4
 		out.copy(b[1.0]).lerp(b[2.0], 0.6)
-		TFinisher._g.set3((b[1.0].x - att.root.x), 0.0, (b[1.0].z - att.root.z)).normalize().multiplyScalar(0.6)
-		TFinisher._g.y += 1.0
-		TFinisher._g.addScaledVector(TFinisher._d, (-TFinisher._g.dot(TFinisher._d))).normalize()
-		return out.addScaledVector(TFinisher._g, (((TFinisher.R_TRUNK - 0.03)) * def.size_))
+		var _h_g: V3 = TFinisher._g
+		var __v5: float = (b[1.0].x - att.root.x)
+		var __v6: float = (b[1.0].z - att.root.z)
+		_h_g.x = __v5
+		_h_g.y = 0.0
+		_h_g.z = __v6
+		var __v7: float = sqrt(_h_g.x * _h_g.x + _h_g.y * _h_g.y + _h_g.z * _h_g.z)
+		var __v8: float = 1.0 / (__v7 if __v7 != 0.0 else 1.0)
+		_h_g.x *= __v8
+		_h_g.y *= __v8
+		_h_g.z *= __v8
+		_h_g.x *= 0.6
+		_h_g.y *= 0.6
+		_h_g.z *= 0.6
+		_h_g.y += 1.0
+		var __v9: float = (-(_h_g.x * _h_d.x + _h_g.y * _h_d.y + _h_g.z * _h_d.z))
+		_h_g.x += _h_d.x * __v9
+		_h_g.y += _h_d.y * __v9
+		_h_g.z += _h_d.z * __v9
+		var __v10: float = sqrt(_h_g.x * _h_g.x + _h_g.y * _h_g.y + _h_g.z * _h_g.z)
+		var __v11: float = 1.0 / (__v10 if __v10 != 0.0 else 1.0)
+		_h_g.x *= __v11
+		_h_g.y *= __v11
+		_h_g.z *= __v11
+		return out.addScaledVector(_h_g, (((TFinisher.R_TRUNK - 0.03)) * def.size_))
 	
 	func footwork(dt: float) -> void:
 		var c: TFinisher.FinCtx = self.c
@@ -518,55 +657,91 @@ class FinisherRun extends RefCounted:
 		var st = (null if (pending != null) else (spec.steps[next] if (next < float(spec.steps.size())) else null))
 		var upcoming = ((st) if (((st != null) and JS.has_key(st, "strike")) and ((st.at - c.t) < 0.55)) else null)
 		var zone = null
+		var _hREACH = TFinisher.REACH
 		if (pending != null):
 			var m = pending.s.move
 			var step = spec.steps[pending.k]
-			var __t1 = (step.get("reach") if step.get("reach") != null else TFinisher.REACH.get(m.id))
+			var __t1 = (step.get("reach") if step.get("reach") != null else _hREACH.get(m.id))
 			range_ = (((__t1 if __t1 != null else 0.8)) + (pending.s.lungeLeft / att.size_))
 			zone = pending.blow.zone
 		elif (upcoming != null):
-			var __t2 = (upcoming.get("reach") if upcoming.get("reach") != null else TFinisher.REACH.get(upcoming.strike))
+			var __t2 = (upcoming.get("reach") if upcoming.get("reach") != null else _hREACH.get(upcoming.strike))
 			range_ = (((__t2 if __t2 != null else 0.8)) + TMoves.MOVES[upcoming.strike].lunge)
 			zone = upcoming.zone
 		if (struck or ((range_ <= 0.0) and (not JS.truthy(zone)))):
 			self.rangeErr = 0.0
-			att.intentVel.set3(0.0, 0.0, 0.0)
+			var __v3: V3 = att.intentVel
+			__v3.x = 0.0
+			__v3.y = 0.0
+			__v3.z = 0.0
 			self.standOn = false
 			return
 		var scale: float = TFighter.rangeScale(att, def)
+		var _h_f: V3 = TFinisher._f
 		if JS.truthy(zone):
-			target(zone, TFinisher._f)
+			target(zone, _h_f)
 			scale = att.size_
 		elif (foot == "head"):
-			TFinisher._f.copy(def.body.pos[3.0])
+			var __v4: V3 = def.body.pos[3.0]
+			_h_f.x = __v4.x
+			_h_f.y = __v4.y
+			_h_f.z = __v4.z
 			scale = att.size_
 		elif (foot == "back"):
-			backPoint(TFinisher._f)
+			backPoint(_h_f)
 			scale = att.size_
 		else:
-			TFinisher._f.copy(def.root)
+			var __v5: V3 = def.root
+			_h_f.x = __v5.x
+			_h_f.y = __v5.y
+			_h_f.z = __v5.z
 		if (not standOn):
-			stand.copy(TFinisher._f)
+			stand.x = _h_f.x
+			stand.y = _h_f.y
+			stand.z = _h_f.z
 		self.standOn = true
-		stand.lerp(TFinisher._f, (1.0 - DM.exp((-14.0 * dt))))
-		TFinisher._d.set3((stand.x - att.root.x), 0.0, (stand.z - att.root.z))
-		var d: float = TFinisher._d.length()
+		stand.lerp(_h_f, (1.0 - DM.exp((-14.0 * dt))))
+		var _h_d: V3 = TFinisher._d
+		var __v6: float = (stand.x - att.root.x)
+		var __v7: float = (stand.z - att.root.z)
+		_h_d.x = __v6
+		_h_d.y = 0.0
+		_h_d.z = __v7
+		var d: float = sqrt(_h_d.x * _h_d.x + _h_d.y * _h_d.y + _h_d.z * _h_d.z)
 		if (d > 0.0001):
-			TFinisher._d.multiplyScalar((1.0 / d))
+			var __v8: float = (1.0 / d)
+			_h_d.x *= __v8
+			_h_d.y *= __v8
+			_h_d.z *= __v8
 		self.rangeErr = ((d - (range_ * scale)) if JS.truthy(zone) else 0.0)
-		att.intentVel.copy(TFinisher._d).multiplyScalar(TMath.clamp_((((d - (range_ * scale))) * 5.0), -2.4, 3.0))
+		var __v9: V3 = att.intentVel
+		__v9.x = _h_d.x
+		__v9.y = _h_d.y
+		__v9.z = _h_d.z
+		var __v10: float = TMath.clamp_((((d - (range_ * scale))) * 5.0), -2.4, 3.0)
+		__v9.x *= __v10
+		__v9.y *= __v10
+		__v9.z *= __v10
 	
 	func gaze(P: TEmote.EmotePose, me: TFighter.Fighter, opp: TFighter.Fighter, mode: String, dt: float) -> void:
 		var head: V3 = me.body.pos[3.0]
+		var _h_f: V3 = TFinisher._f
 		if (mode == "sky"):
-			TFinisher._f.copy(head).y += 1.8
+			_h_f.copy(head).y += 1.8
 		elif (mode == "down"):
-			TFinisher._f.copy(opp.body.pos[0.0]).lerp(opp.body.pos[3.0], 0.3)
+			_h_f.copy(opp.body.pos[0.0]).lerp(opp.body.pos[3.0], 0.3)
 		else:
-			TFinisher._f.copy(opp.body.pos[3.0])
+			var __v1: V3 = opp.body.pos[3.0]
+			_h_f.x = __v1.x
+			_h_f.y = __v1.y
+			_h_f.z = __v1.z
 		if ((mode == "down") and (me == def)):
-			TFinisher._f.set3((head.x + (((opp.root.x - me.root.x)) * 0.5)), 0.0, (head.z + (((opp.root.z - me.root.z)) * 0.5)))
-		P.gaze.lerp(TFinisher._f, (1.0 - DM.exp((-8.0 * dt))))
+			var __v2: float = (head.x + (((opp.root.x - me.root.x)) * 0.5))
+			var __v3: float = (head.z + (((opp.root.z - me.root.z)) * 0.5))
+			_h_f.x = __v2
+			_h_f.y = 0.0
+			_h_f.z = __v3
+		P.gaze.lerp(_h_f, (1.0 - DM.exp((-8.0 * dt))))
 		P.gazeOn = true
 	
 	func target(zone: String, out: V3) -> V3:
@@ -587,13 +762,23 @@ class FinisherRun extends RefCounted:
 		var att: TFighter.Fighter = self.att
 		var def: TFighter.Fighter = self.def
 		var last: bool = (not (not JS.truthy(blow.get("final"))))
-		TFinisher._a.set3((def.root.x - att.root.x), 0.0, (def.root.z - att.root.z))
-		if (TFinisher._a.lengthSq() < 0.000001):
-			att.forward(TFinisher._a)
-		TFinisher._a.normalize()
-		att.body.velocity(joint, (1.0 / 120.0), TFinisher._d)
-		var speed: float = TFinisher._d.length()
-		var dir: V3 = V3.new().copy(TFinisher._d).normalize().multiplyScalar(0.6).addScaledVector(TFinisher._a, 0.8).normalize()
+		var _h_a: V3 = TFinisher._a
+		var __v1: float = (def.root.x - att.root.x)
+		var __v2: float = (def.root.z - att.root.z)
+		_h_a.x = __v1
+		_h_a.y = 0.0
+		_h_a.z = __v2
+		if ((_h_a.x * _h_a.x + _h_a.y * _h_a.y + _h_a.z * _h_a.z) < 0.000001):
+			att.forward(_h_a)
+		var __v3: float = sqrt(_h_a.x * _h_a.x + _h_a.y * _h_a.y + _h_a.z * _h_a.z)
+		var __v4: float = 1.0 / (__v3 if __v3 != 0.0 else 1.0)
+		_h_a.x *= __v4
+		_h_a.y *= __v4
+		_h_a.z *= __v4
+		var _h_d: V3 = TFinisher._d
+		att.body.velocity(joint, (1.0 / 120.0), _h_d)
+		var speed: float = sqrt(_h_d.x * _h_d.x + _h_d.y * _h_d.y + _h_d.z * _h_d.z)
+		var dir: V3 = V3.new().copy(_h_d).normalize().multiplyScalar(0.6).addScaledVector(_h_a, 0.8).normalize()
 		var dmg: float = 0.0
 		if last:
 			dmg = def.hp
@@ -605,38 +790,61 @@ class FinisherRun extends RefCounted:
 		def.lastHitTime = ((att.hooks.time if att.hooks != null else null) if (att.hooks.time if att.hooks != null else null) != null else 0.0)
 		att.stats.dealt += dmg
 		att.stats.landed += 1.0
+		var _hMOVES = TMoves.MOVES
 		if (blow.shown > att.stats.biggest):
 			att.stats.biggest = blow.shown
-			att.stats.biggestMove = TMoves.MOVES[blow.move].name_
+			att.stats.biggestMove = _hMOVES[blow.move].name_
 		var partCond: float = 1.0
 		var part: float = (blow.part if (blow.part >= 0.0) else TDamage.legPart((0.0 if (def.leadSide == "L") else 1.0), 1.0))
 		if ((not preview) and (not (last and (blow.get("final") == "decap")))):
 			partCond = def.parts.damage(part, (blow.shown * 0.35))
 			host.wear.call(def, part)
-		def.rootVel.addScaledVector(TFinisher._a, blow.kb)
+		var __v5: V3 = def.rootVel
+		var __v6: float = blow.kb
+		__v5.x += _h_a.x * __v6
+		__v5.y += _h_a.y * __v6
+		__v5.z += _h_a.z * __v6
 		var body: TBody.Body = def.body
 		var force: float = (blow.jolt + (speed * 0.1))
+		var _h_b: V3 = TFinisher._b
 		if (blow.zone == "head"):
-			TFinisher._b.copy(dir).multiplyScalar(force)
-			body.addVelocity(3.0, TFinisher._b, (1.0 / 120.0))
-			body.addVelocity(2.0, TFinisher._b.multiplyScalar(0.5), (1.0 / 120.0))
-			body.addVelocity(1.0, TFinisher._b.multiplyScalar(0.4), (1.0 / 120.0))
+			_h_b.x = dir.x
+			_h_b.y = dir.y
+			_h_b.z = dir.z
+			_h_b.x *= force
+			_h_b.y *= force
+			_h_b.z *= force
+			body.addVelocity(3.0, _h_b, (1.0 / 120.0))
+			body.addVelocity(2.0, _h_b.multiplyScalar(0.5), (1.0 / 120.0))
+			body.addVelocity(1.0, _h_b.multiplyScalar(0.4), (1.0 / 120.0))
 			body.loose[3.0] = 0.18
 			body.loose[2.0] = 0.35
 			body.loose[1.0] = 0.7
 		elif (blow.zone == "body"):
-			TFinisher._b.copy(dir).multiplyScalar((force * 0.7))
-			body.addVelocity(1.0, TFinisher._b, (1.0 / 120.0))
-			body.addVelocity(0.0, TFinisher._b.multiplyScalar(0.5), (1.0 / 120.0))
+			_h_b.x = dir.x
+			_h_b.y = dir.y
+			_h_b.z = dir.z
+			var __v7: float = (force * 0.7)
+			_h_b.x *= __v7
+			_h_b.y *= __v7
+			_h_b.z *= __v7
+			body.addVelocity(1.0, _h_b, (1.0 / 120.0))
+			body.addVelocity(0.0, _h_b.multiplyScalar(0.5), (1.0 / 120.0))
 			body.loose[1.0] = 0.35
 			body.loose[3.0] = 0.6
 		else:
-			TFinisher._b.copy(dir).multiplyScalar((force * 0.8))
+			_h_b.x = dir.x
+			_h_b.y = dir.y
+			_h_b.z = dir.z
+			var __v8: float = (force * 0.8)
+			_h_b.x *= __v8
+			_h_b.y *= __v8
+			_h_b.z *= __v8
 			for j in [11.0, 14.0, 12.0, 15.0]:
-				body.addVelocity(j, TFinisher._b, (1.0 / 120.0))
-		def.toLocal(TFinisher._c.copy(def.root).add(dir), TFinisher._b)
+				body.addVelocity(j, _h_b, (1.0 / 120.0))
+		def.toLocal(TFinisher._c.copy(def.root).add(dir), _h_b)
 		var fk: float = (0.8 + (blow.shown / 45.0))
-		def.recoil(((TFinisher._b.x * fk) * ((1.0 if (blow.zone == "head") else 0.6))), (((-0.6 if (blow.zone == "body") else 0.2)) * fk), (TFinisher._b.z * fk), blow.zone, fk)
+		def.recoil(((_h_b.x * fk) * ((1.0 if (blow.zone == "head") else 0.6))), (((-0.6 if (blow.zone == "body") else 0.2)) * fk), (_h_b.z * fk), blow.zone, fk)
 		if last:
 			self.struck = true
 			finalBlow(blow.get("final"), dir, point)
@@ -647,7 +855,7 @@ class FinisherRun extends RefCounted:
 	"tore": (0.0 if (last and (blow.get("final") == "decap")) else -1.0),
 	"attacker": att,
 	"defender": def,
-	"move": TMoves.MOVES[blow.move],
+	"move": _hMOVES[blow.move],
 	"zone": blow.zone,
 	"blocked": false,
 	"damage": blow.shown,
@@ -676,49 +884,103 @@ class FinisherRun extends RefCounted:
 		def.knockDown(dir, (1.0 if ((kind == "slam") or (kind == "decap")) else 2.5), (not preview), false)
 		if preview:
 			def.downTime = 2.2
-		TFinisher._b.set3(0.0, 0.0, 0.0)
+		var _h_b: V3 = TFinisher._b
+		_h_b.x = 0.0
+		_h_b.y = 0.0
+		_h_b.z = 0.0
+		var _h_c: V3 = TFinisher._c
+		var _h_d: V3 = TFinisher._d
+		var _hCUT_JOINTS: Array = TDamage.CUT_JOINTS
 		if kind == "launch":
-			TFinisher._b.copy(dir).setY(0.0).normalize().multiplyScalar((2.0 * k))
-			TFinisher._b.y = (7.2 * k)
-			body.addVelocityAll(TFinisher._b, dt)
-			body.addVelocity(3.0, TFinisher._c.set3(0.0, (2.5 * k), 0.0).addScaledVector(dir, (1.2 * k)), dt)
+			_h_b.x = dir.x
+			_h_b.y = dir.y
+			_h_b.z = dir.z
+			_h_b.y = 0.0
+			var __v1: float = sqrt(_h_b.x * _h_b.x + _h_b.y * _h_b.y + _h_b.z * _h_b.z)
+			var __v2: float = 1.0 / (__v1 if __v1 != 0.0 else 1.0)
+			_h_b.x *= __v2
+			_h_b.y *= __v2
+			_h_b.z *= __v2
+			var __v3: float = (2.0 * k)
+			_h_b.x *= __v3
+			_h_b.y *= __v3
+			_h_b.z *= __v3
+			_h_b.y = (7.2 * k)
+			body.addVelocityAll(_h_b, dt)
+			body.addVelocity(3.0, _h_c.set3(0.0, (2.5 * k), 0.0).addScaledVector(dir, (1.2 * k)), dt)
 			for j in [12.0, 15.0, 11.0, 14.0]:
-				body.addVelocity(j, TFinisher._c.copy(dir).multiplyScalar((-1.4 * k)), dt)
+				body.addVelocity(j, _h_c.copy(dir).multiplyScalar((-1.4 * k)), dt)
 		elif kind == "slam":
 			for j_2 in [3.0, 2.0, 1.0, 4.0, 7.0, 5.0, 8.0, 6.0, 9.0]:
-				body.addVelocity(j_2, TFinisher._c.set3(0.0, (-7.5 * k), 0.0).addScaledVector(dir, (0.8 * k)), dt)
-			body.addVelocity(0.0, TFinisher._c.set3(0.0, (-3.0 * k), 0.0), dt)
+				body.addVelocity(j_2, _h_c.set3(0.0, (-7.5 * k), 0.0).addScaledVector(dir, (0.8 * k)), dt)
+			body.addVelocity(0.0, _h_c.set3(0.0, (-3.0 * k), 0.0), dt)
 			for j_3 in [12.0, 15.0]:
-				body.addVelocity(j_3, TFinisher._c.copy(dir).multiplyScalar((-1.5 * k)).setY((1.2 * k)), dt)
+				body.addVelocity(j_3, _h_c.copy(dir).multiplyScalar((-1.5 * k)).setY((1.2 * k)), dt)
 		elif kind == "fly":
-			TFinisher._b.copy(dir).setY(0.0).normalize()
-			TFinisher._c.set3((-TFinisher._b.z), 0.0, TFinisher._b.x)
+			_h_b.x = dir.x
+			_h_b.y = dir.y
+			_h_b.z = dir.z
+			_h_b.y = 0.0
+			var __v4: float = sqrt(_h_b.x * _h_b.x + _h_b.y * _h_b.y + _h_b.z * _h_b.z)
+			var __v5: float = 1.0 / (__v4 if __v4 != 0.0 else 1.0)
+			_h_b.x *= __v5
+			_h_b.y *= __v5
+			_h_b.z *= __v5
+			var __v6: float = (-_h_b.z)
+			var __v7: float = _h_b.x
+			_h_c.x = __v6
+			_h_c.y = 0.0
+			_h_c.z = __v7
 			var j_4: float = 0.0
 			while (j_4 < 16.0):
 				var upper: bool = (j_4 <= 9.0)
-				TFinisher._d.copy(TFinisher._b).multiplyScalar((((6.2 if upper else 4.0)) * k)).addScaledVector(TFinisher._c, (((1.6 if upper else -1.6)) * k))
-				TFinisher._d.y = (((3.4 if upper else 2.4)) * k)
-				body.addVelocity(j_4, TFinisher._d, dt)
+				_h_d.x = _h_b.x
+				_h_d.y = _h_b.y
+				_h_d.z = _h_b.z
+				var __v8: float = (((6.2 if upper else 4.0)) * k)
+				_h_d.x *= __v8
+				_h_d.y *= __v8
+				_h_d.z *= __v8
+				var __v9: float = (((1.6 if upper else -1.6)) * k)
+				_h_d.x += _h_c.x * __v9
+				_h_d.y += _h_c.y * __v9
+				_h_d.z += _h_c.z * __v9
+				_h_d.y = (((3.4 if upper else 2.4)) * k)
+				body.addVelocity(j_4, _h_d, dt)
 				j_4 += 1.0
 		elif kind == "blast":
-			TFinisher._b.copy(dir).setY(0.0).normalize()
+			_h_b.x = dir.x
+			_h_b.y = dir.y
+			_h_b.z = dir.z
+			_h_b.y = 0.0
+			var __v10: float = sqrt(_h_b.x * _h_b.x + _h_b.y * _h_b.y + _h_b.z * _h_b.z)
+			var __v11: float = 1.0 / (__v10 if __v10 != 0.0 else 1.0)
+			_h_b.x *= __v11
+			_h_b.y *= __v11
+			_h_b.z *= __v11
 			var j_5: float = 0.0
 			while (j_5 < 16.0):
 				var upper_2: bool = (j_5 <= 9.0)
-				TFinisher._d.copy(TFinisher._b).multiplyScalar((((8.4 if upper_2 else 5.6)) * k))
-				TFinisher._d.y = (((2.8 if upper_2 else 3.4)) * k)
-				body.addVelocity(j_5, TFinisher._d, dt)
+				_h_d.x = _h_b.x
+				_h_d.y = _h_b.y
+				_h_d.z = _h_b.z
+				var __v12: float = (((8.4 if upper_2 else 5.6)) * k)
+				_h_d.x *= __v12
+				_h_d.y *= __v12
+				_h_d.z *= __v12
+				_h_d.y = (((2.8 if upper_2 else 3.4)) * k)
+				body.addVelocity(j_5, _h_d, dt)
 				j_5 += 1.0
 		elif kind == "decap":
 			var socket: float = def.parts.detach(0.0)
 			host.wear.call(def, socket)
-			body.sever(TDamage.CUT_JOINTS[0.0])
+			body.sever(_hCUT_JOINTS[0.0])
 			host.emit.call("detach", {"f": def, "by": att, "part": 0.0, "point": point.clone(), "dir": dir.clone(), "strength": 220.0, "fatal": "head"})
 			if preview:
 				def.downTime = 99.0
-			for j_6 in TDamage.CUT_JOINTS[0.0]:
-				body.addVelocity(j_6, TFinisher._c.copy(dir).multiplyScalar((9.0 * k)).setY((4.5 * k)), dt)
-			body.addVelocity(1.0, TFinisher._c.copy(dir).multiplyScalar((1.6 * k)), dt)
+			for j_6 in _hCUT_JOINTS[0.0]:
+				body.addVelocity(j_6, _h_c.copy(dir).multiplyScalar((9.0 * k)).setY((4.5 * k)), dt)
+			body.addVelocity(1.0, _h_c.copy(dir).multiplyScalar((1.6 * k)), dt)
 
 static func __init_module() -> void:
 	TFinisher.V_DAZED = TFinisher.A({
@@ -799,8 +1061,8 @@ static func __init_module() -> void:
 			var t: float = c.t
 			TEmote.keys_(o, t, K)
 			var ch: float = TFinisher.hold(t, 0.35, 1.15, 0.2)
-			o[TEmote.armI(0.0)] += ((DM.sin((c.rt * 61.0)) * 0.012) * ch)
-			o[(TEmote.armI(0.0) + 1.0)] += ((DM.sin(((c.rt * 47.0) + 1.0)) * 0.01) * ch)
+			o[((TEmote.EC.ARM + (0.0 * TEmote.ARM_N)))] += ((DM.sin((c.rt * 61.0)) * 0.012) * ch)
+			o[(((TEmote.EC.ARM + (0.0 * TEmote.ARM_N))) + 1.0)] += ((DM.sin(((c.rt * 47.0) + 1.0)) * 0.01) * ch)
 			o[(TEmote.EC.HEAD + 1.0)] -= (0.01 * ch)
 			c.aw = (1.0 if (t < 1.15) else 0.0)
 			c.glow = (TMath.smoothstep_(0.25, 1.1, t) * ((1.0 if (t < 1.32) else 0.0)))
@@ -811,17 +1073,17 @@ static func __init_module() -> void:
 			if c.landed(0.0):
 				var s: float = c.since(0.0)
 				TEmote.keys_(o, s, [[0.0, deeper], [0.3, reach, TEmote.snap], [99.0, reach]])
-				c.aw = TFinisher.rise(s, 0.12, 0.25)
+				c.aw = (TMath.minJerk(TMath.clamp01((((s - 0.12)) / 0.25))))
 				c.lift = (0.1 * TEmote.win(s, 0.05, 0.6, 0.2))
 				c.gaze = "sky"
 				c.range_ = 0.0
-				c.slow = (0.2 if (s < 0.55) else TMath.lerp_(0.2, 0.3, TFinisher.rise(s, 0.55, 0.3)))
+				c.slow = (0.2 if (s < 0.55) else TMath.lerp_(0.2, 0.3, (TMath.minJerk(TMath.clamp01((((s - 0.55)) / 0.3))))))
 		var __f2 = func(o_2: PackedFloat32Array, c_2: TFinisher.FinCtx):
 			var t_2: float = c_2.t
 			TEmote.keys_(o_2, t_2, [[0.0, TFinisher.V_REEL], [0.45, TFinisher.V_DAZED], [99.0, TFinisher.V_DAZED]])
 			TFinisher.sway(o_2, c_2.rt, 1.0)
-			o_2[TEmote.EC.CROUCH] += (0.05 * TFinisher.rise(t_2, 0.4, 0.8))
-			o_2[TEmote.EC.PITCH] += (0.06 * TFinisher.rise(t_2, 0.4, 0.8))
+			o_2[TEmote.EC.CROUCH] += (0.05 * (TMath.minJerk(TMath.clamp01((((t_2 - 0.4)) / 0.8)))))
+			o_2[TEmote.EC.PITCH] += (0.06 * (TMath.minJerk(TMath.clamp01((((t_2 - 0.4)) / 0.8)))))
 			c_2.vgaze = "down"
 			c_2.vtone = 0.7
 		return {
@@ -899,7 +1161,7 @@ static func __init_module() -> void:
 			c_3.range_ = (0.82 if (t_3 < (L0 + 0.3)) else 0.7)
 			if (t_3 >= (L0 + 0.3)):
 				c_3.foot = "back"
-			c_3.smash = (TFinisher.rise(t_3, (L0 + 1.0), (SLAM - ((L0 + 1.0)))) * (((1.0 - TFinisher.rise(c_3.since(1.0), 0.12, 0.3)) if c_3.landed(1.0) else 1.0)))
+			c_3.smash = ((TMath.minJerk(TMath.clamp01((((t_3 - ((L0 + 1.0)))) / ((SLAM - ((L0 + 1.0)))))))) * (((1.0 - TFinisher.rise(c_3.since(1.0), 0.12, 0.3)) if c_3.landed(1.0) else 1.0)))
 			c_3.slow = TMath.lerp_(1.0, 0.45, TFinisher.hold(t_3, (L0 + 0.85), (L0 + 1.05), 0.12))
 			if (t_3 > SLAM):
 				c_3.slow = (0.22 if (t_3 < (SLAM + 0.5)) else 0.3)
@@ -909,7 +1171,7 @@ static func __init_module() -> void:
 			var s_2: float = c_4.since(0.0)
 			TEmote.keys_(o_4, t_4, [[0.0, TFinisher.V_REEL], [0.3, TFinisher.V_DAZED], [99.0, TFinisher.V_DAZED]])
 			if (s_2 >= 0.0):
-				var k: float = TFinisher.rise(s_2, 0.0, 0.22)
+				var k: float = (TMath.minJerk(TMath.clamp01((((s_2 - 0.0)) / 0.22))))
 				var i: float = 0.0
 				while (i < TEmote.EC.N):
 					o_4[i] += (((TFinisher.V_FOLD[i] - o_4[i])) * k)
@@ -966,7 +1228,7 @@ static func __init_module() -> void:
 			if c_5.landed(1.0):
 				var s_3: float = c_5.since(1.0)
 				TEmote.keys_(o_5, s_3, [[0.0, skip], [0.35, after], [99.0, after]])
-				c_5.aw = TFinisher.rise(s_3, 0.25, 0.3)
+				c_5.aw = (TMath.minJerk(TMath.clamp01((((s_3 - 0.25)) / 0.3))))
 				c_5.range_ = 0.0
 				c_5.slow = (0.22 if (s_3 < 0.5) else 0.3)
 		var __f8 = func(o_6: PackedFloat32Array, c_6: TFinisher.FinCtx):
@@ -974,7 +1236,7 @@ static func __init_module() -> void:
 			var s_4: float = c_6.since(0.0)
 			TEmote.keys_(o_6, t_6, [[0.0, TFinisher.V_REEL], [0.3, TFinisher.V_DAZED], [99.0, TFinisher.V_DAZED]])
 			if (s_4 >= 0.0):
-				var k_2: float = (TFinisher.rise(s_4, 0.0, 0.2) * ((1.0 - (0.35 * TFinisher.rise(s_4, 0.6, 0.6)))))
+				var k_2: float = ((TMath.minJerk(TMath.clamp01((((s_4 - 0.0)) / 0.2)))) * ((1.0 - (0.35 * (TMath.minJerk(TMath.clamp01((((s_4 - 0.6)) / 0.6))))))))
 				var i_2: float = 0.0
 				while (i_2 < TEmote.EC.N):
 					o_6[i_2] += (((TFinisher.V_BENT[i_2] - o_6[i_2])) * k_2)
@@ -1048,15 +1310,15 @@ static func __init_module() -> void:
 		var __f11 = func(o_7: PackedFloat32Array, c_7: TFinisher.FinCtx):
 			var t_7: float = c_7.t
 			TEmote.keys_(o_7, t_7, [[0.0, TFinisher.A_SET], [(BARRAGE + 0.05), TFinisher.A_SET], [(BARRAGE + 0.36), cock, TEmote.punchy], [99.0, cock]])
-			o_7[TEmote.armI(0.0)] += ((DM.sin((c_7.rt * 57.0)) * 0.01) * TFinisher.hold(t_7, (BARRAGE + 0.3), FIRE, 0.1))
+			o_7[((TEmote.EC.ARM + (0.0 * TEmote.ARM_N)))] += ((DM.sin((c_7.rt * 57.0)) * 0.01) * TFinisher.hold(t_7, (BARRAGE + 0.3), FIRE, 0.1))
 			c_7.aw = (1.0 if ((t_7 > BARRAGE) and (t_7 < (FIRE - 0.03))) else 0.0)
-			c_7.glow = (TFinisher.rise(t_7, (BARRAGE + 0.1), 0.5) * ((1.0 if (t_7 < (FIRE + 0.25)) else 0.0)))
+			c_7.glow = ((TMath.minJerk(TMath.clamp01((((t_7 - ((BARRAGE + 0.1)))) / 0.5)))) * ((1.0 if (t_7 < (FIRE + 0.25)) else 0.0)))
 			c_7.range_ = (0.9 if (t_7 < (BARRAGE + 0.1)) else 1.1)
 			c_7.slow = TMath.lerp_(1.0, 0.45, TFinisher.hold(t_7, (BARRAGE + 0.28), (FIRE - 0.05), 0.15))
 			if c_7.landed(float(shots.size())):
 				var s_5: float = c_7.since(float(shots.size()))
 				TEmote.keys_(o_7, s_5, [[0.0, out], [99.0, out]])
-				c_7.aw = TFinisher.rise(s_5, 0.3, 0.3)
+				c_7.aw = (TMath.minJerk(TMath.clamp01((((s_5 - 0.3)) / 0.3))))
 				c_7.range_ = 0.0
 				c_7.slow = (0.2 if (s_5 < 0.5) else 0.3)
 		var __f12 = func(o_8: PackedFloat32Array, c_8: TFinisher.FinCtx):
@@ -1074,9 +1336,9 @@ static func __init_module() -> void:
 				o_8[TEmote.EC.PITCH] -= (((0.22 if (shots[last][1.0] == "head") else -0.2)) * p)
 				o_8[TEmote.EC.ROLL] += (((0.12 if (JS.band(last, 1.0) != 0.0) else -0.12)) * p)
 				o_8[TEmote.EC.TWIST] += (((0.18 if (JS.band(last, 1.0) != 0.0) else -0.18)) * p)
-				TEmote.armTo(o_8, 0.0, TEmote.arm([0.45, -0.2, 0.0], [0.5, -0.3, -1.0], 0.3), (0.6 * TFinisher.rise(t_8, 0.2, 0.5)))
-				TEmote.armTo(o_8, 1.0, TEmote.arm([0.45, -0.18, 0.04], [0.5, -0.3, -1.0], 0.3), (0.6 * TFinisher.rise(t_8, 0.2, 0.5)))
-				o_8[TEmote.EC.PITCH] -= (0.12 * TFinisher.rise(t_8, (BARRAGE - 0.2), 0.4))
+				TEmote.armTo(o_8, 0.0, TEmote.arm([0.45, -0.2, 0.0], [0.5, -0.3, -1.0], 0.3), (0.6 * (TMath.minJerk(TMath.clamp01((((t_8 - 0.2)) / 0.5))))))
+				TEmote.armTo(o_8, 1.0, TEmote.arm([0.45, -0.18, 0.04], [0.5, -0.3, -1.0], 0.3), (0.6 * (TMath.minJerk(TMath.clamp01((((t_8 - 0.2)) / 0.5))))))
+				o_8[TEmote.EC.PITCH] -= (0.12 * (TMath.minJerk(TMath.clamp01((((t_8 - ((BARRAGE - 0.2)))) / 0.4)))))
 			TFinisher.sway(o_8, c_8.rt, 0.9)
 			c_8.vtone = 0.65
 		return {"id": "overdrive", "tail": 0.85, "steps": steps, "att": __f11, "vic": __f12}
@@ -1103,7 +1365,7 @@ static func __init_module() -> void:
 			var t_9: float = c_9.t
 			TEmote.keys_(o_9, t_9, [[0.0, TFinisher.A_SET], [(L0_3 + 0.35), TFinisher.A_SET], [(L0_3 + 0.6), point, TEmote.punchy], [(L0_3 + 1.05), point], [(L0_3 + 1.3), set_], [99.0, set_]])
 			var wag: float = TFinisher.hold(t_9, (L0_3 + 0.7), (L0_3 + 1.0), 0.08)
-			o_9[TEmote.armI(0.0)] += ((DM.sin((((t_9 - L0_3)) * 14.0)) * 0.08) * wag)
+			o_9[((TEmote.EC.ARM + (0.0 * TEmote.ARM_N)))] += ((DM.sin((((t_9 - L0_3)) * 14.0)) * 0.08) * wag)
 			c_9.aw = (1.0 if ((t_9 > (L0_3 + 0.25)) and (t_9 < (KICK - 0.02))) else 0.0)
 			c_9.range_ = (0.95 if (t_9 < (L0_3 + 0.3)) else 0.98)
 			if (t_9 >= (L0_3 + 0.3)):
@@ -1113,7 +1375,7 @@ static func __init_module() -> void:
 			if c_9.landed(1.0):
 				var s_7: float = c_9.since(1.0)
 				TEmote.keys_(o_9, s_7, [[0.0, set_], [0.4, after_2], [99.0, after_2]])
-				c_9.aw = TFinisher.rise(s_7, 0.3, 0.3)
+				c_9.aw = (TMath.minJerk(TMath.clamp01((((s_7 - 0.3)) / 0.3))))
 				c_9.range_ = 0.0
 				c_9.slow = (0.2 if (s_7 < 0.6) else 0.3)
 				c_9.gaze = "down"
@@ -1122,7 +1384,7 @@ static func __init_module() -> void:
 			var s_8: float = c_10.since(0.0)
 			TEmote.keys_(o_10, t_10, [[0.0, TFinisher.V_REEL], [0.3, TFinisher.V_DAZED], [99.0, TFinisher.V_DAZED]])
 			if (s_8 >= 0.0):
-				var k_4: float = TFinisher.rise(s_8, 0.05, 0.38)
+				var k_4: float = (TMath.minJerk(TMath.clamp01((((s_8 - 0.05)) / 0.38))))
 				TEmote.keys_(TFinisher._s, s_8, [[0.0, TFinisher.V_KNEES], [0.6, TFinisher.V_KNEES], [1.2, TFinisher.V_KNEES_SLUMP], [99.0, TFinisher.V_KNEES_SLUMP]])
 				var i_4: float = 0.0
 				while (i_4 < TEmote.EC.N):
