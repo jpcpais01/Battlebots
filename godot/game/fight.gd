@@ -13,7 +13,7 @@ const MAX_STEPS := 16
 
 var m
 var models: Array[BotModel] = []
-var ring: Ring
+var arena: Arena
 var cam: Camera3D
 var hud: FightHud
 var sparks: Sparks
@@ -32,6 +32,8 @@ var _task := -1
 var _events := []
 var _alpha := 0.0
 var _view := {}
+## BB_CAM="x,y,z;x,y,z": a fixed camera and target (look checks against the web game's renders).
+var _fixed_cam := []
 
 
 func _ready() -> void:
@@ -40,8 +42,12 @@ func _ready() -> void:
 	if OS.get_environment("BB_SEED") != "":
 		_seed_rng.seed = int(OS.get_environment("BB_SEED"))
 	_build_world()
-	ring = Ring.new()
-	add_child(ring)
+	if OS.get_environment("BB_CAM") != "":
+		for part in OS.get_environment("BB_CAM").split(";"):
+			var c := part.split_floats(",")
+			_fixed_cam.append(Vector3(c[0], c[1], c[2]))
+	arena = Arena.new()
+	add_child(arena)
 	cam = Camera3D.new()
 	cam.fov = 38
 	cam.near = 0.1
@@ -95,6 +101,7 @@ func new_fight() -> void:
 	m.skipIntro()
 	for i in 2:
 		var bm := BotModel.new(m.specs[i])
+		bm.visible = OS.get_environment("BB_NOBOTS") == ""
 		add_child(bm)
 		models.append(bm)
 	hud.start(m)
@@ -160,7 +167,8 @@ func _process(dt: float) -> void:
 	if steps > 0:
 		_task = WorkerThreadPool.add_task(_run_steps.bind(steps), true, "sim")
 	_hype = lerpf(_hype, 0.3, dt * 0.15)
-	ring.animate(_time, _hype)
+	arena.update(dt, _time, _hype)
+	arena.expose(dt, _cam_dist)
 	_frame_camera(dt, false)
 	hud.update_hud(_view, _end_time >= 0 and _time - _end_time > 1.5)
 
@@ -199,6 +207,10 @@ func _frame_camera(dt: float, snap: bool) -> void:
 	if _shake > 0.001:
 		shake = Vector3(sin(_time * 61.0), sin(_time * 53.0 + 1.3), 0) * _shake * 0.06
 		_shake *= exp(-dt * 7.0)
+	if _fixed_cam.size() == 2:
+		cam.look_at_from_position(_fixed_cam[0], _fixed_cam[1])
+		_cam_dist = _fixed_cam[0].distance_to(_fixed_cam[1])
+		return
 	cam.look_at_from_position(_cam_pos + shake, _cam_look)
 
 
@@ -215,12 +227,15 @@ func _build_world() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_energy = 0.55
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+	# three's ACESFilmic at exposure 1.05 (stage.ts): the same curve as Godot's ACES once its 1.8 input
+	# bias replaces three's 1/0.6, with a white high enough that Godot's white rescale drops out
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 1.05
+	env.tonemap_exposure = 1.05 / 0.6 / 1.8
+	env.tonemap_white = 16.0
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
 	env.fog_light_color = Color.hex(0x070a12ff)
-	env.fog_density = 0.016
+	env.fog_density = 0.006
 	env.fog_sky_affect = 0.0
 	env.glow_enabled = OS.get_environment("BB_NOGLOW") == ""
 	env.glow_intensity = 0.7
