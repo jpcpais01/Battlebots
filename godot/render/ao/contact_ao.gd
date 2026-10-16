@@ -46,6 +46,14 @@ func _init() -> void:
 	commit()
 
 
+## The floor map's size in pixels, per quality tier (ao.ts MAP_SIZE: 256 low, 384 med, 512 high).
+func set_map_size(n: int) -> void:
+	if _map.size.x == n:
+		return
+	_map.size = Vector2i(n, n)
+	(_map.get_child(0) as Control).size = Vector2(n, n)
+
+
 ## Place robot `i`'s spheres from its world-space joints, or take it away with an empty array.
 func set_robot(i: int, joints: Array[Vector3], size := 1.0) -> void:
 	if joints.is_empty():

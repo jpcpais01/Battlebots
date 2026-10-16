@@ -4,6 +4,9 @@
 class_name FightHud
 extends CanvasLayer
 
+## The pause button was pressed (hud.ts onPause).
+signal pause_pressed
+
 var _view := HudView.new()
 var _intro := IntroView.new()
 ## 1 while the robots are being presented (the bars wait off screen), easing to 0 for the countdown.
@@ -14,6 +17,10 @@ var _last_ms := 0
 var _fps := Label.new()
 var _fps_frames := 0
 var _fps_from := 0
+## The pause button, bottom left like the web's (hud.ts .hud-bl), and how far the intro has it
+## hidden (style.css .hud.intro .hud-bl: faded, 1.5em down, not tappable).
+var _pause := UiTheme.icon_button("pause")
+var _pause_k := -1.0
 
 
 func _init() -> void:
@@ -28,6 +35,10 @@ func _init() -> void:
 	_fps.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
 	_fps.add_theme_constant_override("outline_size", 3)
 	add_child(_fps)
+	_pause.theme = UiTheme.theme()
+	_pause.pressed.connect(func() -> void: pause_pressed.emit())
+	add_child(_pause)
+	_view.resized.connect(_place_pause)
 
 
 ## The strip down each side the HUD never draws in: 3% of the width (curved screen edges), or
@@ -42,6 +53,30 @@ static func side_margin(c: Control) -> float:
 		var k := w / float(screen.x)
 		m = maxf(m, maxf(safe.position.x, screen.x - safe.end.x) * k)
 	return m
+
+
+## The strip along the bottom the HUD's buttons stay above (style.css --bottom: at least 12, or the
+## phone's gesture bar).
+static func bottom_margin(c: Control) -> float:
+	var h := c.size.y
+	var m := 12.0
+	var screen := DisplayServer.screen_get_size()
+	var safe := DisplayServer.get_display_safe_area()
+	if screen.y > 0 and safe.size.y > 0:
+		m = maxf(m, (screen.y - safe.end.y) * h / float(screen.y))
+	return m
+
+
+## Show or hide the FPS counter (the web's Performance stats setting).
+func show_fps(on: bool) -> void:
+	_fps.visible = on
+	_fps_from = 0
+	set_process(on)
+
+
+func _place_pause() -> void:
+	var at := Vector2(side_margin(_view), _view.size.y - bottom_margin(_view) - _pause.size.y)
+	_pause.position = at + Vector2(0, 24.0 * maxf(_pause_k, 0.0))
 
 
 func _process(_dt: float) -> void:
@@ -87,6 +122,13 @@ func update_hud(view: Dictionary, can_restart: bool) -> void:
 	_view.modulate.a = 1.0 - k
 	_view.position.y = -30.0 * clampf(_view.size.y / 720.0, 0.6, 2.0) * k
 	_view.visible = k < 0.999
+	if k != _pause_k:
+		_pause_k = k
+		_pause.modulate.a = 1.0 - k
+		_pause.visible = k < 0.999
+		_place_pause()
+	# (only tappable once the intro is over, as the web's pointer-events: none)
+	_pause.mouse_filter = Control.MOUSE_FILTER_IGNORE if target > 0.0 else Control.MOUSE_FILTER_STOP
 	_view.v = view
 	_view.can_restart = can_restart
 	_view.queue_redraw()
