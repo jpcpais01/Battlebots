@@ -46,6 +46,15 @@ func _init() -> void:
 	commit()
 
 
+func _enter_tree() -> void:
+	# (the overlay's GPU rows time this viewport as a stage of its own)
+	Perf.watch_ao(_map.get_viewport_rid())
+
+
+func _exit_tree() -> void:
+	Perf.watch_ao(RID())
+
+
 ## The floor map's size in pixels, per quality tier (ao.ts MAP_SIZE: 256 low, 384 med, 512 high).
 func set_map_size(n: int) -> void:
 	if _map.size.x == n:

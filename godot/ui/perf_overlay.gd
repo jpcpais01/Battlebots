@@ -5,10 +5,12 @@
 ## graph of the last few seconds' frames, then two columns. CPU splits the main thread's frame by
 ## game system (game/perf.gd laps around the fight loop), with the sim's own step time beside it
 ## (it runs on a worker, in parallel). GPU shows the whole frame's GPU time, live, and what each
-## part of the scene costs, read by Measure: Godot gives scripts GPU time per viewport only, so,
-## as the web does where it has no timer queries, the frame is drawn again without each part and
-## the cost read from the difference (GpuProbe, below). Tap the FPS line to fold the panel down to
-## it. The text changes twice a second and nothing else runs between; hidden, it costs nothing.
+## render stage costs, live (shadows, the scene pass, glow, the post chain, the HUD, the AO map:
+## the renderer's own stage stamps, game/perf.gd), and what each part of the scene costs, read
+## by Measure: the GPU draws a stage's objects in one go, so to split a stage by part, as the web
+## does where it has no timer queries, the frame is drawn again without each part and the cost
+## read from the difference (GpuProbe, below). Tap the FPS line to fold the panel down to it. The
+## text changes twice a second and nothing else runs between; hidden, it costs nothing.
 class_name PerfOverlay
 extends Control
 
@@ -45,6 +47,17 @@ const CPU_ROWS := [
 	[Perf.HUD, "HUD", false],
 	[Perf.OTHER, "Other", false],
 	[Perf.RENDER, "Render CPU", false],
+]
+
+## The GPU rows read live: render stage (game/perf.gd G_*), label.
+const GPU_STAGES := [
+	[Perf.G_SHADOWS, "Shadows"],
+	[Perf.G_SCENE, "Scene"],
+	[Perf.G_GLOW, "Glow"],
+	[Perf.G_POST, "Tonemap/post"],
+	[Perf.G_HUD, "HUD (2D)"],
+	[Perf.G_AO, "AO map"],
+	[Perf.G_OTHER, "Other"],
 ]
 
 ## The fight scene, for Measure (game/fight.gd sets it).
@@ -270,7 +283,7 @@ func _cols_top() -> float:
 ## The Measure button's face, under the GPU column's rows.
 func _measure_rect() -> Rect2:
 	var gx := _panel.position.x + PAD + COL + GAP
-	var y := _cols_top() + ROW * (GpuProbe.ROWS.size() + 3) + 6.0
+	var y := _cols_top() + ROW * (GpuProbe.ROWS.size() + GPU_STAGES.size() + 4) + 6.0
 	return Rect2(gx, y, COL, 26.0)
 
 
@@ -348,6 +361,15 @@ func _gpu_column(at: Vector2, r: Perf.Report, budget: float) -> void:
 	var total := -1.0 if r == null else (r.gpu if r.gpu >= 0.0 else -2.0)
 	_row(at.x, y, "Frame", total, false, budget, true)
 	y += ROW
+	# the frame by render stage, live
+	draw_string(_font, Vector2(at.x, y + 11.0), "by stage, live", HORIZONTAL_ALIGNMENT_LEFT, COL, FS - 1, UiTheme.MUTED)
+	y += ROW
+	for st in GPU_STAGES:
+		var ms := -1.0
+		if r != null:
+			ms = r.stages[st[0]] if r.stages.size() > 0 else -2.0
+		_row(at.x, y, st[1], ms, false, budget)
+		y += ROW
 	# what Measure found, part by part (or dashes until it has run)
 	var res := _result
 	var label := "by part" if res == null else ("by part, %ds ago" % roundi((Time.get_ticks_msec() - res.at) / 1000.0))

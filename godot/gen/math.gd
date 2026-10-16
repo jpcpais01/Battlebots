@@ -65,11 +65,24 @@ class Rng extends RefCounted:
 		self.s = JS.ushr(seed_, 0.0)
 	
 	func next() -> float:
+		# (mulberry32 in 64-bit ints rather than through JS.imul/bxor/ushr: the same 32-bit maths, no calls)
 		self.s += float(1831565813)
-		var t: float = (self.s)
-		t = JS.imul(JS.bxor(t, (JS.ushr(t, 15.0))), JS.bor(t, 1.0))
-		t = JS.bxor(t, (t + JS.imul(JS.bxor(t, (JS.ushr(t, 7.0))), JS.bor(t, 61.0))))
-		return ((JS.ushr((JS.bxor(t, (JS.ushr(t, 14.0)))), 0.0)) / float(4294967296))
+		var t: int = int(s) & 0xFFFFFFFF
+		var a: int = t ^ (t >> 15)
+		var b: int = t | 1
+		if a >= 0x80000000:
+			a -= 0x100000000
+		if b >= 0x80000000:
+			b -= 0x100000000
+		t = (a * b) & 0xFFFFFFFF
+		a = t ^ (t >> 7)
+		b = t | 61
+		if a >= 0x80000000:
+			a -= 0x100000000
+		if b >= 0x80000000:
+			b -= 0x100000000
+		t = t ^ ((t + ((a * b) & 0xFFFFFFFF)) & 0xFFFFFFFF)
+		return float(t ^ (t >> 14)) / float(4294967296)
 	
 	func range_(a: float, b: float) -> float:
 		return (a + (((b - a)) * next()))
@@ -184,10 +197,24 @@ class SpringVec extends RefCounted:
 class Spring1 extends RefCounted:
 	var v: float
 	var vel: float
+	var cx: float
+	var ce: float
+	var ux: float
+	var uw: float
+	var ue: float
+	var uc: float
+	var us: float
 	
 	func _init() -> void:
 		self.v = 0.0
 		self.vel = 0.0
+		self.cx = NAN
+		self.ce = 0.0
+		self.ux = NAN
+		self.uw = NAN
+		self.ue = 0.0
+		self.uc = 0.0
+		self.us = 0.0
 	
 	func to(target: float, omega: float, zeta: float, dt: float) -> float:
 		if (dt <= 0.0):
@@ -197,15 +224,27 @@ class Spring1 extends RefCounted:
 		var y: float = (v - target)
 		if (zeta >= 0.999):
 			var j: float = (vel + (omega * y))
-			var e: float = DM.exp(((-omega) * dt))
+			var x: float = ((-omega) * dt)
+			if ((x != cx) or (x == 0.0)):
+				self.cx = x
+				self.ce = DM.exp(x)
+			var e: float = ce
 			self.v = (target + (((y + (j * dt))) * e))
 			self.vel = (((vel - ((omega * j) * dt))) * e)
 		else:
 			var a: float = (zeta * omega)
 			var wd: float = (omega * sqrt((1.0 - (zeta * zeta))))
-			var e_2: float = DM.exp(((-a) * dt))
-			var c: float = DM.cos((wd * dt))
-			var s: float = DM.sin((wd * dt))
+			var x_2: float = ((-a) * dt)
+			var w: float = (wd * dt)
+			if ((((x_2 != ux) or (w != uw)) or (x_2 == 0.0)) or (w == 0.0)):
+				self.ux = x_2
+				self.uw = w
+				self.ue = DM.exp(x_2)
+				self.uc = DM.cos(w)
+				self.us = DM.sin(w)
+			var e_2: float = ue
+			var c: float = uc
+			var s: float = us
 			var b: float = (((vel + (a * y))) / wd)
 			self.v = (target + (e_2 * (((y * c) + (b * s)))))
 			self.vel = (e_2 * (((vel * c) - ((((y * wd) + (a * b))) * s))))

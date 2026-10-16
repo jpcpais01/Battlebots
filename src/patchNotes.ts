@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-16 16:00",
+    title: "Lighter fights",
+    notes: [
+      "Fights take noticeably less work for your device to run, so busy exchanges stay smoother. Every fight still plays out exactly the same.",
+    ],
+  },
+  {
     hour: "2026-10-16 02:00",
     title: "A quiet paradise beach",
     notes: [

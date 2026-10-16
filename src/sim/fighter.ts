@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { Body, J, JOINT_COUNT, ropeGap, ropeSide, SIDE_NX, SIDE_NZ } from './body';
+import { Body, FOREARM_L, FOREARM_R, J, JOINT_COUNT, ropeGap, ropeSide, SIDE_NX, SIDE_NZ } from './body';
 import { MOVES, type MoveDef, type MoveId, type Zone } from './moves';
 import { Parts } from './damage';
 import { ITEM_BY_ID, type FighterBuild, type PassiveId } from '../game/items';
@@ -260,6 +260,14 @@ const TRUNK_W = [0.14, 0.2, 0.16, 0.17, 0.2, 0.25, 0.27, 0.22, 0.1];
 const TRUNK_F = [0.1, 0.13, 0.12, 0.14, 0.16, 0.21, 0.21, 0.1, 0.06];
 const TRUNK_B = [0.1, 0.13, 0.11, 0.12, 0.13, 0.25, 0.25, 0.1, 0.06];
 const TRUNK_BULK = [0, 0, 0, 0.02, 0.03, 0.05, 0.05, 0.04, 0];
+/** Where along the upper arm and the forearm fitArm tests against the trunk. */
+const ARM_UPPER_T = [0.75, 1];
+const ARM_FORE_T = [0.4, 0.75];
+/** The widest each is anywhere up the trunk (trunkPush's quick test). */
+const TRUNK_W_MAX = TRUNK_W.reduce((a, b) => Math.max(a, b), 0);
+const TRUNK_F_MAX = TRUNK_F.reduce((a, b) => Math.max(a, b), 0);
+const TRUNK_B_MAX = TRUNK_B.reduce((a, b) => Math.max(a, b), 0);
+const TRUNK_BULK_MAX = TRUNK_BULK.reduce((a, b) => Math.max(a, b), 0);
 
 /** Analytic two-bone IK. Writes mid joint and (possibly clamped) end. */
 function ik2(root: Vector3, target: Vector3, la: number, lb: number, pole: Vector3, outMid: Vector3, outEnd: Vector3) {
@@ -464,6 +472,11 @@ export class Fighter {
   private armState: (FState | null)[] = [null, null];
   private rollSp = [new Spring1(), new Spring1()];
   private calmW = [1, 1];
+  /** toWorld/toLocal's last two yaws, their sines and cosines, and which slot goes next. */
+  private trigYaw = new Float64Array([NaN, NaN]);
+  private trigSin = new Float64Array(2);
+  private trigCos = new Float64Array(2);
+  private trigNext = 0;
   private breathPhase = 0;
   /** Knockout buckle: time left, its length, where the feet stood and which way it faced. */
   private buckle = 0;
@@ -635,13 +648,44 @@ export class Fighter {
     return out.set(-DM.cos(yaw), 0, DM.sin(yaw));
   }
   toWorld(local: Vector3, out: Vector3, yaw = this.faceYaw) {
-    const s = DM.sin(yaw), c = DM.cos(yaw);
+    // (the sines of the last two yaws asked for: a step asks for the same few many times over)
+    let s: number, c: number;
+    if (yaw === this.trigYaw[0] && yaw !== 0) {
+      s = this.trigSin[0];
+      c = this.trigCos[0];
+    } else if (yaw === this.trigYaw[1] && yaw !== 0) {
+      s = this.trigSin[1];
+      c = this.trigCos[1];
+    } else {
+      s = DM.sin(yaw);
+      c = DM.cos(yaw);
+      const o = this.trigNext;
+      this.trigYaw[o] = yaw;
+      this.trigSin[o] = s;
+      this.trigCos[o] = c;
+      this.trigNext = 1 - o;
+    }
     const k = this.size;
     const x = local.x * k, y = local.y * k, z = local.z * k;
     return out.set(this.root.x - c * x + s * z, this.root.y + y, this.root.z + s * x + c * z);
   }
   toLocal(world: Vector3, out: Vector3, yaw = this.faceYaw) {
-    const s = DM.sin(yaw), c = DM.cos(yaw);
+    let s: number, c: number;
+    if (yaw === this.trigYaw[0] && yaw !== 0) {
+      s = this.trigSin[0];
+      c = this.trigCos[0];
+    } else if (yaw === this.trigYaw[1] && yaw !== 0) {
+      s = this.trigSin[1];
+      c = this.trigCos[1];
+    } else {
+      s = DM.sin(yaw);
+      c = DM.cos(yaw);
+      const o = this.trigNext;
+      this.trigYaw[o] = yaw;
+      this.trigSin[o] = s;
+      this.trigCos[o] = c;
+      this.trigNext = 1 - o;
+    }
     const k = 1 / this.size;
     const dx = (world.x - this.root.x) * k, dy = (world.y - this.root.y) * k, dz = (world.z - this.root.z) * k;
     return out.set(-c * dx + s * dz, dy, s * dx + c * dz);
@@ -2316,20 +2360,22 @@ export class Fighter {
   /** Settle an arm (elbow and fist, in the shoulder frame) by calmW, keeping its bone lengths. */
   private calmArm(side: number, sh: Vector3, el: Vector3, hd: Vector3, fore: number, dt: number) {
     const sp = this.csp, o = side * 6, w = this.calmW[side];
-    const ax = (p: Vector3, i: number) => {
-      _bs.subVectors(p, sh);
-      const x = sp[o + i].to(_bs.dot(_tX), CALM, 1, dt);
-      const y = sp[o + i + 1].to(_bs.dot(_tU), CALM, 1, dt);
-      const z = sp[o + i + 2].to(_bs.dot(_tZ), CALM, 1, dt);
-      return _bm.copy(sh).addScaledVector(_tX, x).addScaledVector(_tU, y).addScaledVector(_tZ, z);
-    };
     // always track, so the arm is in step the moment it is calmed again
     this.trunkFrame();
-    const e = ax(el, 0);
-    if (w > 0.001) el.lerp(e, w);
-    const h = ax(hd, 3);
+    // each joint in the shoulder frame, through its springs
+    _bs.subVectors(el, sh);
+    let x = sp[o].to(_bs.dot(_tX), CALM, 1, dt);
+    let y = sp[o + 1].to(_bs.dot(_tU), CALM, 1, dt);
+    let z = sp[o + 2].to(_bs.dot(_tZ), CALM, 1, dt);
+    _bm.copy(sh).addScaledVector(_tX, x).addScaledVector(_tU, y).addScaledVector(_tZ, z);
+    if (w > 0.001) el.lerp(_bm, w);
+    _bs.subVectors(hd, sh);
+    x = sp[o + 3].to(_bs.dot(_tX), CALM, 1, dt);
+    y = sp[o + 4].to(_bs.dot(_tU), CALM, 1, dt);
+    z = sp[o + 5].to(_bs.dot(_tZ), CALM, 1, dt);
+    _bm.copy(sh).addScaledVector(_tX, x).addScaledVector(_tU, y).addScaledVector(_tZ, z);
     if (w > 0.001) {
-      hd.lerp(h, w);
+      hd.lerp(_bm, w);
       _bp.subVectors(el, sh);
       ik2(sh, hd, UPPER, fore, _bp, el, hd);
     }
@@ -2503,14 +2549,18 @@ export class Fighter {
 
   /** Push (local) that moves p, a limb part of radius r, out of the armoured trunk; 0 if clear. */
   private trunkPush(p: Vector3, r: number, out: Vector3) {
-    _bd.subVectors(p, this.L[J.Chest]);
-    const y = _bd.dot(_tU);
+    const c = this.L[J.Chest];
+    const dx = p.x - c.x, dy = p.y - c.y, dz = p.z - c.z;
+    const y = dx * _tU.x + dy * _tU.y + dz * _tU.z;
     if (y < TRUNK_Y[0] || y > TRUNK_Y[TRUNK_Y.length - 1] + r * 0.5) return 0;
+    const x = dx * _tX.x + dy * _tX.y + dz * _tX.z, z = dx * _tZ.x + dy * _tZ.y + dz * _tZ.z;
+    // clear of the widest section at any height: the superellipse below can only say so too
+    if (Math.abs(x) > TRUNK_W_MAX + this.bulk * TRUNK_BULK_MAX + r + 1e-9) return 0;
+    if (z >= 0 ? z > TRUNK_F_MAX + this.bulk * TRUNK_BULK_MAX * 0.8 + r + 1e-9 : -z > TRUNK_B_MAX + r + 1e-9) return 0;
     let i = 0;
     while (i < TRUNK_Y.length - 2 && y > TRUNK_Y[i + 1]) i++;
     const k = clamp01((y - TRUNK_Y[i]) / (TRUNK_Y[i + 1] - TRUNK_Y[i]));
     const bulk = this.bulk * lerp(TRUNK_BULK[i], TRUNK_BULK[i + 1], k);
-    const x = _bd.dot(_tX), z = _bd.dot(_tZ);
     const ax = lerp(TRUNK_W[i], TRUNK_W[i + 1], k) + bulk + r;
     const az = (z >= 0 ? lerp(TRUNK_F[i], TRUNK_F[i + 1], k) + bulk * 0.8 : lerp(TRUNK_B[i], TRUNK_B[i + 1], k)) + r;
     // squarish section (superellipse, n = 6): plates have corners
@@ -2540,7 +2590,7 @@ export class Fighter {
       _be.set(0, 0, 0);
       let hit = false;
       // upper arm (its root half sits under the pauldron) and the elbow
-      for (const t of [0.75, 1]) {
+      for (const t of ARM_UPPER_T) {
         _bs.lerpVectors(sh, el, t);
         if (this.trunkPush(_bs, t < 1 ? 0.07 : 0.078, _bp) > 0) {
           hit = true;
@@ -2548,7 +2598,7 @@ export class Fighter {
           if (_bp.lengthSq() > _bm.lengthSq()) _bm.copy(_bp);
         }
       }
-      for (const t of [0.4, 0.75]) {
+      for (const t of ARM_FORE_T) {
         _bs.lerpVectors(el, hd, t);
         if (this.trunkPush(_bs, 0.072, _bp) > 0) {
           hit = true;
@@ -3200,11 +3250,8 @@ export class Fighter {
     }
     for (let i = 0; i < JOINT_COUNT; i++) this.toWorld(this.L[i], this.body.target[i]);
     // forearm telescoping changes the bone rest length
-    const cs = this.body.constraints;
-    for (const c of cs) {
-      if (c.a === J.ElL && c.b === J.HandL) c.rest = (FORE + this.extend[0]) * this.size;
-      if (c.a === J.ElR && c.b === J.HandR) c.rest = (FORE + this.extend[1]) * this.size;
-    }
+    this.body.rest[FOREARM_L] = (FORE + this.extend[0]) * this.size;
+    this.body.rest[FOREARM_R] = (FORE + this.extend[1]) * this.size;
     // render-facing extras (no effect on the simulation)
     const k = dt > 0 ? 1 - DM.exp(-30 * dt) : 1;
     for (let i = 0; i < 2; i++) {

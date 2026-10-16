@@ -83,6 +83,12 @@ static var TRUNK_W: Array
 static var TRUNK_F: Array
 static var TRUNK_B: Array
 static var TRUNK_BULK: Array
+static var ARM_UPPER_T: Array
+static var ARM_FORE_T: Array
+static var TRUNK_W_MAX: float
+static var TRUNK_F_MAX: float
+static var TRUNK_B_MAX: float
+static var TRUNK_BULK_MAX: float
 
 static func ik2(root: V3, target: V3, la: float, lb: float, pole: V3, outMid: V3, outEnd: V3) -> void:
 	var _h_dir: V3 = TFighter._dir
@@ -271,6 +277,10 @@ class Fighter extends RefCounted:
 	var armState: Array
 	var rollSp: Array
 	var calmW: Array
+	var trigYaw: PackedFloat64Array
+	var trigSin: PackedFloat64Array
+	var trigCos: PackedFloat64Array
+	var trigNext: float
 	var breathPhase: float
 	var buckle: float
 	var buckleDur: float
@@ -453,6 +463,10 @@ class Fighter extends RefCounted:
 		self.armState = [null, null]
 		self.rollSp = [TMath.Spring1.new(), TMath.Spring1.new()]
 		self.calmW = [1.0, 1.0]
+		self.trigYaw = JS.f64_of([NAN, NAN])
+		self.trigSin = JS.f64(2.0)
+		self.trigCos = JS.f64(2.0)
+		self.trigNext = 0.0
 		self.breathPhase = 0.0
 		self.buckle = 0.0
 		self.buckleDur = TFighter.BUCKLE
@@ -556,8 +570,22 @@ class Fighter extends RefCounted:
 	func toWorld(local: V3, out: V3, yaw = null) -> V3:
 		if yaw == null:
 			yaw = faceYaw
-		var s: float = DM.sin(yaw)
-		var c: float = DM.cos(yaw)
+		var s: float
+		var c: float
+		if ((yaw == trigYaw[0.0]) and (yaw != 0.0)):
+			s = trigSin[0.0]
+			c = trigCos[0.0]
+		elif ((yaw == trigYaw[1.0]) and (yaw != 0.0)):
+			s = trigSin[1.0]
+			c = trigCos[1.0]
+		else:
+			s = DM.sin(yaw)
+			c = DM.cos(yaw)
+			var o: float = trigNext
+			trigYaw[o] = yaw
+			trigSin[o] = s
+			trigCos[o] = c
+			self.trigNext = (1.0 - o)
 		var k: float = size_
 		var x: float = (local.x * k)
 		var y: float = (local.y * k)
@@ -567,8 +595,22 @@ class Fighter extends RefCounted:
 	func toLocal(world: V3, out: V3, yaw = null) -> V3:
 		if yaw == null:
 			yaw = faceYaw
-		var s: float = DM.sin(yaw)
-		var c: float = DM.cos(yaw)
+		var s: float
+		var c: float
+		if ((yaw == trigYaw[0.0]) and (yaw != 0.0)):
+			s = trigSin[0.0]
+			c = trigCos[0.0]
+		elif ((yaw == trigYaw[1.0]) and (yaw != 0.0)):
+			s = trigSin[1.0]
+			c = trigCos[1.0]
+		else:
+			s = DM.sin(yaw)
+			c = DM.cos(yaw)
+			var o: float = trigNext
+			trigYaw[o] = yaw
+			trigSin[o] = s
+			trigCos[o] = c
+			self.trigNext = (1.0 - o)
 		var k: float = (1.0 / size_)
 		var dx: float = (((world.x - root.x)) * k)
 		var dy: float = (((world.y - root.y)) * k)
@@ -2460,27 +2502,53 @@ class Fighter extends RefCounted:
 		var sp: Array = csp
 		var o: float = (side * 6.0)
 		var w: float = calmW[side]
-		var _h_bs: V3 = TFighter._bs
-		var _h_tX: V3 = TFighter._tX
-		var _h_tU: V3 = TFighter._tU
-		var _h_tZ: V3 = TFighter._tZ
-		var __f1 = func(p: V3, i: float):
-			_h_bs.x = p.x - sh.x
-			_h_bs.y = p.y - sh.y
-			_h_bs.z = p.z - sh.z
-			var x: float = sp[(o + i)].to((_h_bs.x * _h_tX.x + _h_bs.y * _h_tX.y + _h_bs.z * _h_tX.z), TFighter.CALM, 1.0, dt)
-			var y: float = sp[((o + i) + 1.0)].to((_h_bs.x * _h_tU.x + _h_bs.y * _h_tU.y + _h_bs.z * _h_tU.z), TFighter.CALM, 1.0, dt)
-			var z: float = sp[((o + i) + 2.0)].to((_h_bs.x * _h_tZ.x + _h_bs.y * _h_tZ.y + _h_bs.z * _h_tZ.z), TFighter.CALM, 1.0, dt)
-			return TFighter._bm.copy(sh).addScaledVector(_h_tX, x).addScaledVector(_h_tU, y).addScaledVector(_h_tZ, z)
-		var ax = __f1
 		trunkFrame()
-		var e: V3 = ax.call(el, 0.0)
+		var _h_bs: V3 = TFighter._bs
+		_h_bs.x = el.x - sh.x
+		_h_bs.y = el.y - sh.y
+		_h_bs.z = el.z - sh.z
+		var _h_tX: V3 = TFighter._tX
+		var x: float = sp[o].to((_h_bs.x * _h_tX.x + _h_bs.y * _h_tX.y + _h_bs.z * _h_tX.z), TFighter.CALM, 1.0, dt)
+		var _h_tU: V3 = TFighter._tU
+		var y: float = sp[(o + 1.0)].to((_h_bs.x * _h_tU.x + _h_bs.y * _h_tU.y + _h_bs.z * _h_tU.z), TFighter.CALM, 1.0, dt)
+		var _h_tZ: V3 = TFighter._tZ
+		var z: float = sp[(o + 2.0)].to((_h_bs.x * _h_tZ.x + _h_bs.y * _h_tZ.y + _h_bs.z * _h_tZ.z), TFighter.CALM, 1.0, dt)
+		var _h_bm: V3 = TFighter._bm
+		_h_bm.x = sh.x
+		_h_bm.y = sh.y
+		_h_bm.z = sh.z
+		_h_bm.x += _h_tX.x * x
+		_h_bm.y += _h_tX.y * x
+		_h_bm.z += _h_tX.z * x
+		_h_bm.x += _h_tU.x * y
+		_h_bm.y += _h_tU.y * y
+		_h_bm.z += _h_tU.z * y
+		_h_bm.x += _h_tZ.x * z
+		_h_bm.y += _h_tZ.y * z
+		_h_bm.z += _h_tZ.z * z
 		if (w > 0.001):
-			el.lerp(e, w)
-		var h: V3 = ax.call(hd, 3.0)
+			el.lerp(_h_bm, w)
+		_h_bs.x = hd.x - sh.x
+		_h_bs.y = hd.y - sh.y
+		_h_bs.z = hd.z - sh.z
+		x = sp[(o + 3.0)].to((_h_bs.x * _h_tX.x + _h_bs.y * _h_tX.y + _h_bs.z * _h_tX.z), TFighter.CALM, 1.0, dt)
+		y = sp[(o + 4.0)].to((_h_bs.x * _h_tU.x + _h_bs.y * _h_tU.y + _h_bs.z * _h_tU.z), TFighter.CALM, 1.0, dt)
+		z = sp[(o + 5.0)].to((_h_bs.x * _h_tZ.x + _h_bs.y * _h_tZ.y + _h_bs.z * _h_tZ.z), TFighter.CALM, 1.0, dt)
+		_h_bm.x = sh.x
+		_h_bm.y = sh.y
+		_h_bm.z = sh.z
+		_h_bm.x += _h_tX.x * x
+		_h_bm.y += _h_tX.y * x
+		_h_bm.z += _h_tX.z * x
+		_h_bm.x += _h_tU.x * y
+		_h_bm.y += _h_tU.y * y
+		_h_bm.z += _h_tU.z * y
+		_h_bm.x += _h_tZ.x * z
+		_h_bm.y += _h_tZ.y * z
+		_h_bm.z += _h_tZ.z * z
 		var _h_bp: V3 = TFighter._bp
 		if (w > 0.001):
-			hd.lerp(h, w)
+			hd.lerp(_h_bm, w)
 			_h_bp.x = el.x - sh.x
 			_h_bp.y = el.y - sh.y
 			_h_bp.z = el.z - sh.z
@@ -2822,14 +2890,23 @@ class Fighter extends RefCounted:
 		TFighter._tZ.crossVectors(_h_tX, _h_tU)
 	
 	func trunkPush(p: V3, r: float, out: V3) -> float:
-		var _h_bd: V3 = TFighter._bd
-		var __v1: V3 = L[1.0]
-		_h_bd.x = p.x - __v1.x
-		_h_bd.y = p.y - __v1.y
-		_h_bd.z = p.z - __v1.z
-		var y: float = _h_bd.dot(TFighter._tU)
+		var c: V3 = L[1.0]
+		var dx: float = (p.x - c.x)
+		var dy: float = (p.y - c.y)
+		var dz: float = (p.z - c.z)
+		var _h_tU: V3 = TFighter._tU
+		var y: float = (((dx * _h_tU.x) + (dy * _h_tU.y)) + (dz * _h_tU.z))
 		var _hTRUNK_Y: Array = TFighter.TRUNK_Y
 		if ((y < _hTRUNK_Y[0.0]) or (y > (_hTRUNK_Y[(float(_hTRUNK_Y.size()) - 1.0)] + (r * 0.5)))):
+			return 0.0
+		var _h_tX: V3 = TFighter._tX
+		var _h_tZ: V3 = TFighter._tZ
+		var x: float = (((dx * _h_tX.x) + (dy * _h_tX.y)) + (dz * _h_tX.z))
+		var z: float = (((dx * _h_tZ.x) + (dy * _h_tZ.y)) + (dz * _h_tZ.z))
+		var _hTRUNK_BULK_MAX: float = TFighter.TRUNK_BULK_MAX
+		if (absf(x) > (((TFighter.TRUNK_W_MAX + (self.bulk * _hTRUNK_BULK_MAX)) + r) + ((float(4835703278458517) / 4611686018427387904) / 1048576))):
+			return 0.0
+		if ((z > (((TFighter.TRUNK_F_MAX + ((self.bulk * _hTRUNK_BULK_MAX) * 0.8)) + r) + ((float(4835703278458517) / 4611686018427387904) / 1048576))) if (z >= 0.0) else ((-z) > ((TFighter.TRUNK_B_MAX + r) + ((float(4835703278458517) / 4611686018427387904) / 1048576)))):
 			return 0.0
 		var i: float = 0.0
 		while ((i < (float(_hTRUNK_Y.size()) - 2.0)) and (y > _hTRUNK_Y[(i + 1.0)])):
@@ -2837,10 +2914,6 @@ class Fighter extends RefCounted:
 		var k: float = TMath.clamp01((((y - _hTRUNK_Y[i])) / ((_hTRUNK_Y[(i + 1.0)] - _hTRUNK_Y[i]))))
 		var _hTRUNK_BULK: Array = TFighter.TRUNK_BULK
 		var bulk: float = (self.bulk * (((_hTRUNK_BULK[i]) + ((((_hTRUNK_BULK[(i + 1.0)]) - (_hTRUNK_BULK[i]))) * k))))
-		var _h_tX: V3 = TFighter._tX
-		var _h_tZ: V3 = TFighter._tZ
-		var x: float = (_h_bd.x * _h_tX.x + _h_bd.y * _h_tX.y + _h_bd.z * _h_tX.z)
-		var z: float = (_h_bd.x * _h_tZ.x + _h_bd.y * _h_tZ.y + _h_bd.z * _h_tZ.z)
 		var _hTRUNK_W: Array = TFighter.TRUNK_W
 		var ax: float = (((((_hTRUNK_W[i]) + ((((_hTRUNK_W[(i + 1.0)]) - (_hTRUNK_W[i]))) * k))) + bulk) + r)
 		var _hTRUNK_F: Array = TFighter.TRUNK_F
@@ -2855,23 +2928,23 @@ class Fighter extends RefCounted:
 			out.x = _h_tZ.x
 			out.y = _h_tZ.y
 			out.z = _h_tZ.z
-			var __v2: float = (az - z)
-			out.x *= __v2
-			out.y *= __v2
-			out.z *= __v2
+			var __v1: float = (az - z)
+			out.x *= __v1
+			out.y *= __v1
+			out.z *= __v1
 			return (az - z)
 		var g: float = (DM.pow(e, (-1.0 / 6.0)) - 1.0)
 		out.x = _h_tX.x
 		out.y = _h_tX.y
 		out.z = _h_tX.z
-		var __v3: float = (x * g)
-		out.x *= __v3
-		out.y *= __v3
-		out.z *= __v3
-		var __v4: float = (z * g)
-		out.x += _h_tZ.x * __v4
-		out.y += _h_tZ.y * __v4
-		out.z += _h_tZ.z * __v4
+		var __v2: float = (x * g)
+		out.x *= __v2
+		out.y *= __v2
+		out.z *= __v2
+		var __v3: float = (z * g)
+		out.x += _h_tZ.x * __v3
+		out.y += _h_tZ.y * __v3
+		out.z += _h_tZ.z * __v3
 		return sqrt(out.x * out.x + out.y * out.y + out.z * out.z)
 	
 	func fitArm(shI: float, elI: float, hdI: float, fore: float) -> void:
@@ -2882,8 +2955,10 @@ class Fighter extends RefCounted:
 		trunkFrame()
 		var _h_bm: V3 = TFighter._bm
 		var _h_be: V3 = TFighter._be
+		var _hARM_UPPER_T: Array = TFighter.ARM_UPPER_T
 		var _h_bs: V3 = TFighter._bs
 		var _h_bp: V3 = TFighter._bp
+		var _hARM_FORE_T: Array = TFighter.ARM_FORE_T
 		var _h_bd: V3 = TFighter._bd
 		var _h_tZ: V3 = TFighter._tZ
 		var it: float = 0.0
@@ -2895,7 +2970,7 @@ class Fighter extends RefCounted:
 			_h_be.y = 0.0
 			_h_be.z = 0.0
 			var hit: bool = false
-			for t in [0.75, 1.0]:
+			for t in _hARM_UPPER_T:
 				_h_bs.x = sh.x + (el.x - sh.x) * t
 				_h_bs.y = sh.y + (el.y - sh.y) * t
 				_h_bs.z = sh.z + (el.z - sh.z) * t
@@ -2909,7 +2984,7 @@ class Fighter extends RefCounted:
 						_h_bm.x = _h_bp.x
 						_h_bm.y = _h_bp.y
 						_h_bm.z = _h_bp.z
-			for t_2 in [0.4, 0.75]:
+			for t_2 in _hARM_FORE_T:
 				_h_bs.x = el.x + (hd.x - el.x) * t_2
 				_h_bs.y = el.y + (hd.y - el.y) * t_2
 				_h_bs.z = el.z + (hd.z - el.z) * t_2
@@ -3705,12 +3780,8 @@ class Fighter extends RefCounted:
 		while (i_2 < TBody.JOINT_COUNT):
 			toWorld(L[i_2], body.target[i_2])
 			i_2 += 1.0
-		var cs: Array = body.constraints
-		for c in cs:
-			if ((c.a == 5.0) and (c.b == 6.0)):
-				c.rest = (((TFighter.FORE + extend[0.0])) * size_)
-			if ((c.a == 8.0) and (c.b == 9.0)):
-				c.rest = (((TFighter.FORE + extend[1.0])) * size_)
+		body.rest[TBody.FOREARM_L] = (((TFighter.FORE + extend[0.0])) * size_)
+		body.rest[TBody.FOREARM_R] = (((TFighter.FORE + extend[1.0])) * size_)
 		var k: float = ((1.0 - DM.exp((-30.0 * dt))) if (dt > 0.0) else 1.0)
 		var i_3: float = 0.0
 		while (i_3 < 2.0):
@@ -3910,3 +3981,9 @@ static func __init_module() -> void:
 	TFighter.TRUNK_F = [0.1, 0.13, 0.12, 0.14, 0.16, 0.21, 0.21, 0.1, 0.06]
 	TFighter.TRUNK_B = [0.1, 0.13, 0.11, 0.12, 0.13, 0.25, 0.25, 0.1, 0.06]
 	TFighter.TRUNK_BULK = [0.0, 0.0, 0.0, 0.02, 0.03, 0.05, 0.05, 0.04, 0.0]
+	TFighter.ARM_UPPER_T = [0.75, 1.0]
+	TFighter.ARM_FORE_T = [0.4, 0.75]
+	TFighter.TRUNK_W_MAX = JS.reduce(TFighter.TRUNK_W, func(a: float, b: float, _a2 = null, _a3 = null): return maxf(a, b), 0.0)
+	TFighter.TRUNK_F_MAX = JS.reduce(TFighter.TRUNK_F, func(a_2: float, b_2: float, _a2 = null, _a3 = null): return maxf(a_2, b_2), 0.0)
+	TFighter.TRUNK_B_MAX = JS.reduce(TFighter.TRUNK_B, func(a_3: float, b_3: float, _a2 = null, _a3 = null): return maxf(a_3, b_3), 0.0)
+	TFighter.TRUNK_BULK_MAX = JS.reduce(TFighter.TRUNK_BULK, func(a_4: float, b_4: float, _a2 = null, _a3 = null): return maxf(a_4, b_4), 0.0)
