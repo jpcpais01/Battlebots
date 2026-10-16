@@ -246,16 +246,17 @@ func _once(id: String, at: float) -> bool:
 	return true
 
 
-## From the robot's left, swung about 10 degrees round towards its back, the lagoon off to the
-## left, drifting slowly.
+## From behind the robot, 20 degrees round to its left (João): over its shoulder and the
+## backrest to the lagoon and the horizon, drifting slowly.
 func _idle_cam(k, time: float, snap := false) -> void:
 	var z := _size
-	# the robot's left is the world's -x, its back (the backrest end) the world's +z
-	var a := 0.17 + 0.06 * sin(time * 0.06)
-	var r := (3.3 + 0.1 * sin(time * 0.045)) * z
+	# the robot's left is the world's -x, its back (the backrest end) the world's +z: `a` is the
+	# angle round from its left, so straight behind is 90 degrees and 20 to the left is 70
+	var a := deg_to_rad(70.0) + 0.06 * sin(time * 0.06)
+	var r := (3.4 + 0.1 * sin(time * 0.045)) * z
 	var c: HomeStage.SceneCam = k.cam
-	c.look = Vector3(0, 0.8 * z, -0.12 * z)
-	c.pos = Vector3(-cos(a) * r, (1.5 + 0.06 * sin(time * 0.09)) * z, c.look.z + sin(a) * r)
+	c.look = Vector3(0, 0.95 * z, -0.2 * z)
+	c.pos = Vector3(-cos(a) * r, (1.75 + 0.06 * sin(time * 0.09)) * z, c.look.z + sin(a) * r)
 	c.fov = 1.0
 	c.roll = 0.0
 	c.lambda = 1.5

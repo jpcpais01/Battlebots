@@ -23,6 +23,10 @@ const INTRO_MAX := 16.0
 var m
 var models: Array[BotModel] = []
 var arena: Arena
+## Pieces of the world built ahead, off the main thread, while the loading screen shows
+## (app/boot/boot.gd): "arena" (an Arena), "effects" (a FightFx) and "home:<scene>" (a home
+## place's scene, for HomeStage). Each is taken on first use instead of built then.
+var made := {}
 ## The crowd's excitement (game.ts crowdMood): the fans in the stands follow it.
 var crowd_mood := CrowdMood.new()
 ## The crowd you hear (game.ts sfx.crowdEvent / crowdTick), with its own mood as in the web.
@@ -149,7 +153,8 @@ func _ready() -> void:
 		for part in OS.get_environment("BB_CAM").split(";"):
 			var c := part.split_floats(",")
 			_fixed_cam.append(Vector3(c[0], c[1], c[2]))
-	arena = Arena.new()
+	arena = made.get("arena") if made.has("arena") else Arena.new()
+	made.erase("arena")
 	add_child(arena)
 	# the loser's ride out after the fight (game.ts stretcher)
 	stretcher = Stretcher.new()
@@ -186,7 +191,8 @@ func _ready() -> void:
 		booth.set_manifest(man)
 		# (its first stock of lines, read now, as the web has it downloaded before any fight)
 		voice.flush()
-	effects = FightFx.new()
+	effects = made.get("effects") if made.has("effects") else FightFx.new()
+	made.erase("effects")
 	effects.arena = arena
 	# (a part landing in the seats reaches both moods, as game.ts sends debrisCrowd to both)
 	effects.crowd_mood = CrowdAudio.Tee.new(crowd_mood, crowd_audio)

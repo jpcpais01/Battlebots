@@ -44,7 +44,11 @@ var event_run = null
 var last_fight = null
 ## Where the home screen happens (app.ts homePlace): "beach", "gym", "lounge" (animated scenes, the
 ## world's "home" place) or "arena".
-var home_place: String = Store.pref("homeScene", "beach")
+## The app always opens on the beach (João); the scene pill switches it for the session.
+var home_place := "beach"
+## The loading screen starting the app (app/boot/boot.gd), or null: everything is set up at once
+## in _ready (the tests).
+var boot = null
 ## The results card on screen, if any.
 var results: Control = null
 ## Results wait for the fight's end to settle (app.ts queueResults): when they come up, in the
@@ -62,6 +66,12 @@ var _fade_tween: Tween
 
 
 func _ready() -> void:
+	_setup()
+
+
+## Load the saves, build the world and the screens, open on home. Started by the loading screen,
+## it hands back between steps (so the screen keeps moving) and warms each place up behind it.
+func _setup() -> void:
 	TInit.run()
 	_rng = TMath.Rng.new(float(randi()))
 	player = Store.load_player()
@@ -76,9 +86,13 @@ func _ready() -> void:
 		Store.save_player(player)
 	game = (load("res://game/fight.tscn") as PackedScene).instantiate()
 	game.auto = false
+	if boot != null:
+		game.made = boot.made
 	add_child(game)
 	game.match_event.connect(_on_match_event)
 	game.forfeited.connect(_on_forfeit)
+	if boot != null:
+		await boot.step("screens")
 	ui = CanvasLayer.new()
 	ui.layer = 10
 	add_child(ui)
@@ -97,9 +111,17 @@ func _ready() -> void:
 	_fade.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui.add_child(_fade)
+	if boot != null:
+		# the arena drawn a moment behind the loading screen, so its looks are ready for the
+		# first fight
+		game.show_bot(player)
+		await boot.step("arena")
+	if game.has_place("home"):
+		game.home_scene(home_place)
 	var first := OS.get_environment("BB_SCREEN")
 	go(first if first != "" else "home")
-
+	if boot != null:
+		await boot.step("home")
 
 func _process(dt: float) -> void:
 	_clock += dt

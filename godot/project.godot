@@ -12,7 +12,11 @@ config_version=5
 
 config/name="Battlebots"
 config/description="Auto 1v1 robot fighting."
-run/main_scene="res://app/main.tscn"
+run/main_scene="res://app/boot/boot.tscn"
+# the engine's own splash (while it starts) in the loading screen's darkest blue, no picture: the
+# loading screen (app/boot/) comes up over it with no flash
+boot_splash/bg_color=Color(0.0118, 0.0196, 0.051, 1)
+boot_splash/show_image=false
 config/features=PackedStringArray("4.7", "Mobile")
 # Android's back button pauses the fight (ui/pause_menu.gd) instead of quitting
 config/quit_on_go_back=false
