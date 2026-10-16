@@ -30,12 +30,27 @@ func _init() -> void:
 	add_child(_fps)
 
 
+## The strip down each side the HUD never draws in: 3% of the width (curved screen edges), or
+## more where the phone's notch or cutout eats into the screen.
+static func side_margin(c: Control) -> float:
+	var w := c.size.x
+	var m := w * 0.03
+	var screen := DisplayServer.screen_get_size()
+	var safe := DisplayServer.get_display_safe_area()
+	if screen.x > 0 and safe.size.x > 0:
+		# the safe area is in screen pixels; the HUD is in its own canvas units
+		var k := w / float(screen.x)
+		m = maxf(m, maxf(safe.position.x, screen.x - safe.end.x) * k)
+	return m
+
+
 func _process(_dt: float) -> void:
 	_fps_frames += 1
 	var now := Time.get_ticks_usec()
 	if now - _fps_from >= 500000:
 		if _fps_from > 0:
 			_fps.text = "%d FPS" % roundi(_fps_frames * 1e6 / (now - _fps_from))
+			_fps.position.x = side_margin(_view)
 		_fps_frames = 0
 		_fps_from = now
 
@@ -172,7 +187,7 @@ class IntroView extends Control:
 		_wide.spacing_glyph = int(0.2 * 0.8 * em)
 		var side := CYAN if i == 0 else ORANGE
 		var right := i == 0  # the blue robot stands screen-left, so its name lands on the right
-		var pad := 28.0 * u
+		var pad := maxf(28.0 * u, FightHud.side_margin(self))
 		var edge := size.x - pad if right else pad
 		var y := size.y - 18.0 * u + drop
 		# bottom up: style, the name with its bar, the tune, the corner
@@ -278,9 +293,10 @@ class HudView extends Control:
 		var w := size.x
 		var u := clampf(size.y / 720.0, 0.6, 2.0)
 		var top := 18.0 * u
-		var bar_w := minf(w * 0.36, 520.0 * u)
 		var bar_h := 26.0 * u
 		var gap := 64.0 * u
+		# the bars stop short of the side margins
+		var bar_w := minf(minf(w * 0.36, 520.0 * u), w * 0.5 - gap - FightHud.side_margin(self))
 		for i in 2:
 			var hp := clampf(v.hp[i], 0.0, 1.0)
 			_shown[i] = lerpf(_shown[i], hp, 1.0 - exp(-dt * 18.0))
@@ -349,7 +365,8 @@ class HudView extends Control:
 					sub += "\nTap for the next fight"
 		if text == "":
 			return
-		var fs := int(96 * u)
+		var room := size.x - 2.0 * FightHud.side_margin(self)
+		var fs := _fit(text, int(96 * u), room)
 		var tw := _font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 		var y := size.y * 0.45
 		_text(Vector2(size.x * 0.5 - tw * 0.5, y), text, fs, col, int(10 * u))
@@ -358,9 +375,14 @@ class HudView extends Control:
 			var s := lines[k]
 			if s == "":
 				continue
-			var ss := int(30 * u)
+			var ss := _fit(s, int(30 * u), room)
 			var sw := _font.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, ss).x
 			_text(Vector2(size.x * 0.5 - sw * 0.5, y + 56 * u + k * 40 * u), s, ss, Color.WHITE, int(6 * u))
+
+	## The font size `s` fits across `room` at, up to `fs`.
+	func _fit(s: String, fs: int, room: float) -> int:
+		var tw := _font.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		return fs if tw <= room else maxi(8, int(fs * room / tw))
 
 	func _text(at: Vector2, s: String, fs: int, col: Color, outline := 0) -> void:
 		draw_string_outline(_font, at + Vector2(0, 2), s, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, maxi(4, outline), Color(0, 0, 0, 0.75))
