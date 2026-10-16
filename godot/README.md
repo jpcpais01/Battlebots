@@ -42,7 +42,9 @@ godot/tools/build-apk.sh         # -> godot/build/battlebots.apk
 Every merge to main that touches `godot/` also builds the APK on GitHub and publishes it on the
 repo's Releases page (`.github/workflows/android-release.yml`, signed with the release key from
 the repository secrets named at the top of that file). The newest one is always at
-`releases/latest/download/Battlebots.apk`.
+<https://github.com/jpcpais01/Battlebots/releases/latest/download/Battlebots.apk>. The workflow
+can't be started by hand from Claude's GitHub app (dispatch is refused), so a release follows a
+merge that touches `godot/`.
 
 Translation rules worth knowing: every number is a double, `%` is `fmod`, bit operations go
 through int32 helpers, and long float literals are written as exact integer ratios because
