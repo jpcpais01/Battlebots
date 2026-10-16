@@ -43,6 +43,9 @@ window/size/viewport_height=720
 window/handheld/orientation=4
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
+# Swappy paces frames to the refresh rate the app started at (60 on most phones), which held the
+# fight at 60 on 120 Hz screens; plain vsync runs at whatever rate game/display.gd asks for
+window/frame_pacing/android/swappy_mode=0
 
 [rendering]
 

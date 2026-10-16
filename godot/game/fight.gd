@@ -77,6 +77,8 @@ var _fixed_cam := []
 
 
 func _ready() -> void:
+	# the screen's fastest refresh rate, not Android's default 60
+	Display.boost_refresh()
 	TInit.run()
 	_seed_rng.randomize()
 	if OS.get_environment("BB_SEED") != "":
