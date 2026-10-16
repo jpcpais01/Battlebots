@@ -1120,7 +1120,7 @@ class Brain extends RefCounted:
 				wait -= (minf(readyFor, 1.2) * 18.0)
 			wait += fx.wait
 			if ((((not ready) and (not gift)) and (now > exitUntil)) and (now > coverUntil)):
-				var jab = JS.find(opts, func(o, _a1): return (((o.id == "jab") and (not o.feint)) and (o.u > 0.0)))
+				var jab = JS.find(opts, func(o, _a1 = null, _a2 = null): return (((o.id == "jab") and (not o.feint)) and (o.u > 0.0)))
 				var late: float = TMath.smoothstep_(55.0, 85.0, now)
 				if ((jab != null) and rng.chance(((((0.025 + (maxf(0.0, t.rangeBias) * 0.6)) + (((1.0 - t.pocketLove)) * 0.02))) * ((1.0 + (late * 2.0)))))):
 					if (not me.tryStrike("jab", jab.zone, zoneAim(jab.zone, p, V3.new()))):
@@ -1129,21 +1129,21 @@ class Brain extends RefCounted:
 					self.probe = true
 					return true
 		if (((not chain) and (tempo < trigger)) and (tempo > (trigger * 0.3))):
-			var feint = JS.find(opts, func(o_2, _a1): return o_2.feint)
+			var feint = JS.find(opts, func(o_2, _a1 = null, _a2 = null): return o_2.feint)
 			if ((feint != null) and rng.chance((t.feintiness * 0.08))):
 				if (not me.tryStrike(feint.id, feint.zone, zoneAim(feint.zone, p, V3.new()), true)):
 					return false
 				self.lastFeint = {"t": now, "uid": me.strike.uid}
 				return true
-		var utils: Array = JS.map(opts, func(o_3, _a1): return o_3.u)
+		var utils: Array = JS.map(opts, func(o_3, _a1 = null, _a2 = null): return o_3.u)
 		var best: float = (-INF)
 		for u_5 in utils:
 			best = maxf(best, u_5)
 		if (best < wait):
 			return false
 		var temp: float = ((3.0 + (traits.creativity * 18.0)) + (tired * 4.0))
-		var viable: Array = JS.filter(opts, func(o_4, _a1): return (o_4.u > (best - (temp * 2.5))))
-		var pick = viable[TMath.softmaxPick(JS.map(viable, func(o_5, _a1): return o_5.u), temp, rng)]
+		var viable: Array = JS.filter(opts, func(o_4, _a1 = null, _a2 = null): return (o_4.u > (best - (temp * 2.5))))
+		var pick = viable[TMath.softmaxPick(JS.map(viable, func(o_5, _a1 = null, _a2 = null): return o_5.u), temp, rng)]
 		var aim: V3 = zoneAim(pick.zone, p, V3.new(), TMoves.MOVES[pick.id])
 		if (not me.tryStrike(pick.id, pick.zone, aim, pick.feint)):
 			return false

@@ -146,7 +146,7 @@ static func __init_module() -> void:
 ]
 	TDamage.CARRIES = [[0.0], [], [], [3.0, 4.0, 5.0], [4.0, 5.0], [], [6.0, 7.0, 8.0], [7.0, 8.0], [], [9.0, 10.0, 11.0], [10.0, 11.0], [], [12.0, 13.0, 14.0], [13.0, 14.0], []]
 	TDamage.SOCKET = [1.0, -1.0, -1.0, 1.0, 3.0, -1.0, 1.0, 6.0, -1.0, 2.0, 9.0, -1.0, 2.0, 12.0, -1.0]
-	TDamage.DETACHABLE = JS.map(TDamage.CARRIES, func(c: Array, _a1): return (float(c.size()) > 0.0))
+	TDamage.DETACHABLE = JS.map(TDamage.CARRIES, func(c: Array, _a1 = null, _a2 = null): return (float(c.size()) > 0.0))
 	TDamage.CUT_JOINTS = [[3.0], [], [], [5.0, 6.0], [6.0], [], [8.0, 9.0], [9.0], [], [11.0, 12.0], [12.0], [], [14.0, 15.0], [15.0], []]
 	TDamage.PART_SLOT = ["head", "chest", "legs", "chest", "fist", "fist", "chest", "fist", "fist", "legs", "kick", "kick", "legs", "kick", "kick"]
 	TDamage.DURABILITY = [620.0, 980.0, 720.0, 300.0, 250.0, 250.0, 300.0, 250.0, 250.0, 300.0, 220.0, 220.0, 300.0, 220.0, 220.0]

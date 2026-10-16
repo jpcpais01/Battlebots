@@ -117,7 +117,7 @@ static func softmaxPick(utils: Array, temperature: float, rng: TMath.Rng) -> flo
 			max_ = u
 	var t: float = maxf(0.01, temperature)
 	var sum = [0.0]
-	var __f1 = func(u_2: float, _a1):
+	var __f1 = func(u_2: float, _a1 = null, _a2 = null):
 		var e: float = DM.exp((((u_2 - max_)) / t))
 		sum[0] += e
 		return e

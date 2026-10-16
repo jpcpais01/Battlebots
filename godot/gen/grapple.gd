@@ -197,10 +197,13 @@ class Grapple extends RefCounted:
 		self.g0 = [0.0, 0.0, 0.0, 0.0]
 		self.poses = [TEmote.EmotePose.new(), TEmote.EmotePose.new()]
 		self.body = [TGrapple.Body.new(), TGrapple.Body.new()]
-		self.sp = [JS.array_from(TEmote.EC.N, func(_a0, _a1): return TMath.Spring1.new()), JS.array_from(TEmote.EC.N, func(_a0, _a1): return TMath.Spring1.new())]
+		self.sp = [
+	JS.array_from(TEmote.EC.N, func(_a0 = null, _a1 = null): return TMath.Spring1.new()),
+	JS.array_from(TEmote.EC.N, func(_a0 = null, _a1 = null): return TMath.Spring1.new())
+]
 		self.wsp = [TMath.Spring1.new(), TMath.Spring1.new()]
 		self.gp = [[V3.new(), V3.new()], [V3.new(), V3.new()]]
-		self.gs = [JS.array_from(6.0, func(_a0, _a1): return TMath.Spring1.new()), JS.array_from(6.0, func(_a0, _a1): return TMath.Spring1.new())]
+		self.gs = [JS.array_from(6.0, func(_a0 = null, _a1 = null): return TMath.Spring1.new()), JS.array_from(6.0, func(_a0 = null, _a1 = null): return TMath.Spring1.new())]
 		self.swimFrom = [[V3.new(), V3.new()], [V3.new(), V3.new()]]
 		self.swimT = [[0.0, 0.0], [0.0, 0.0]]
 		self.gripW = [[0.0, 0.0], [0.0, 0.0]]

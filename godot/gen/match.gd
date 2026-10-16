@@ -127,7 +127,7 @@ class Match extends RefCounted:
 	
 	func on(fn):
 		listeners.append(fn)
-		return func(): self.listeners = JS.filter(listeners, func(l, _a1): return (not is_same(l, fn)))
+		return func(): self.listeners = JS.filter(listeners, func(l, _a1 = null, _a2 = null): return (not is_same(l, fn)))
 	
 	func emit(type: String, data = null) -> void:
 		for l in listeners:
@@ -156,7 +156,7 @@ class Match extends RefCounted:
 		JS.sort(coachQueue, __f2)
 	
 	func coachPending(side: float) -> bool:
-		return JS.some(coachQueue, func(c, _a1): return (c.side == side))
+		return JS.some(coachQueue, func(c, _a1 = null, _a2 = null): return (c.side == side))
 	
 	func coachReady(side: float) -> bool:
 		return (((((phase == "fight") and (not (fin != null))) and (not (winner != null))) and (time >= coachReadyAt[side])) and (not coachPending(side)))

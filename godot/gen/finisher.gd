@@ -91,7 +91,7 @@ static var FINISHER_NAME
 static var STYLE_PICK
 
 static func pickFinisher(rng: TMath.Rng, picks, style: String) -> String:
-	var ok: Array = JS.filter(((picks if picks != null else [])), func(id: String, _a1): return TFinisher.FINISHERS[id])
+	var ok: Array = JS.filter(((picks if picks != null else [])), func(id: String, _a1 = null, _a2 = null): return TFinisher.FINISHERS[id])
 	if (float(ok.size()) != 0.0):
 		return ok[floorf((rng.next() * float(ok.size())))]
 	var w: Array = (TFinisher.STYLE_PICK.get(style) if TFinisher.STYLE_PICK.get(style) != null else TFinisher.STYLE_PICK.Boxer)
@@ -1008,7 +1008,7 @@ static func __init_module() -> void:
 	var __f13 = func():
 		var CADENCE: float = 0.19
 		var shots: Array = [["jab", "head"], ["cross", "head"], ["jab", "body"], ["cross", "head"], ["jab", "head"], ["cross", "body"], ["jab", "head"]]
-		var __f10 = func(__p0: Array, i_3: float):
+		var __f10 = func(__p0: Array, i_3: float, _a2 = null):
 			var m: String = __p0[0]
 			var z: String = __p0[1]
 			return ({
@@ -1155,9 +1155,9 @@ static func __init_module() -> void:
 }
 	TFinisher.headhunter = (__f16).call()
 	TFinisher._s = JS.f32(TEmote.EC.N)
-	TFinisher.FINISHERS = JS.from_entries(JS.map([TFinisher.skyfall, TFinisher.meteor, TFinisher.cyclone, TFinisher.overdrive, TFinisher.headhunter], func(s_9, _a1): return [s_9.id, s_9]))
-	TFinisher.FINISHER_IDS = JS.map(JS.filter(TEmote.EMOTE_INFO, func(e, _a1): return (e.kind == "finish")), func(e_2, _a1): return e_2.id)
-	TFinisher.FINISHER_NAME = JS.from_entries(JS.map(JS.filter(TEmote.EMOTE_INFO, func(e_3, _a1): return (e_3.kind == "finish")), func(e_4, _a1): return [e_4.id, e_4.name_]))
+	TFinisher.FINISHERS = JS.from_entries(JS.map([TFinisher.skyfall, TFinisher.meteor, TFinisher.cyclone, TFinisher.overdrive, TFinisher.headhunter], func(s_9, _a1 = null, _a2 = null): return [s_9.id, s_9]))
+	TFinisher.FINISHER_IDS = JS.map(JS.filter(TEmote.EMOTE_INFO, func(e, _a1 = null, _a2 = null): return (e.kind == "finish")), func(e_2, _a1 = null, _a2 = null): return e_2.id)
+	TFinisher.FINISHER_NAME = JS.from_entries(JS.map(JS.filter(TEmote.EMOTE_INFO, func(e_3, _a1 = null, _a2 = null): return (e_3.kind == "finish")), func(e_4, _a1 = null, _a2 = null): return [e_4.id, e_4.name_]))
 	TFinisher.STYLE_PICK = {
 	"Boxer": [["skyfall", 2.0], ["overdrive", 1.5], ["cyclone", 1.0], ["headhunter", 0.6], ["meteor", 0.6]],
 	"Brawler": [["meteor", 2.2], ["skyfall", 1.2], ["headhunter", 1.0], ["overdrive", 0.6], ["cyclone", 0.5]],
