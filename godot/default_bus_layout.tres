@@ -1,0 +1,76 @@
+[gd_resource type="AudioBusLayout" format=3]
+
+[sub_resource type="AudioEffectAmplify" id="AudioEffectAmplify_j3pel"]
+volume_db = -3.0980392
+
+[sub_resource type="AudioEffectCompressor" id="AudioEffectCompressor_g28q7"]
+threshold = -3.5
+ratio = 1.8396907
+gain = 2.0
+attack_us = 2000.0
+release_ms = 120.0
+
+[sub_resource type="AudioEffectHardLimiter" id="AudioEffectHardLimiter_n8wo2"]
+ceiling_db = -1.0
+release = 0.12
+
+[sub_resource type="AudioEffectCompressor" id="AudioEffectCompressor_5t1r3"]
+threshold = -8.0
+ratio = 1.0456724
+gain = 0.6
+attack_us = 3000.0
+
+[sub_resource type="AudioEffectDelay" id="AudioEffectDelay_cenje"]
+dry = 0.0
+tap1_delay_ms = 83.0
+tap1_level_db = -8.239289
+tap1_pan = -0.6310805
+tap2_delay_ms = 131.0
+tap2_level_db = -8.239289
+tap2_pan = 0.6310805
+feedback_active = true
+feedback_delay_ms = 83.0
+feedback_level_db = -9.897
+feedback_lowpass = 2400.0
+
+[resource]
+bus/0/effect/0/effect = SubResource("AudioEffectAmplify_j3pel")
+bus/0/effect/0/enabled = true
+bus/0/effect/1/effect = SubResource("AudioEffectCompressor_g28q7")
+bus/0/effect/1/enabled = true
+bus/0/effect/2/effect = SubResource("AudioEffectHardLimiter_n8wo2")
+bus/0/effect/2/enabled = true
+bus/1/name = &"Fx"
+bus/1/solo = false
+bus/1/mute = false
+bus/1/bypass_fx = false
+bus/1/volume_db = 0.0
+bus/1/send = &"Master"
+bus/1/effect/0/effect = SubResource("AudioEffectCompressor_5t1r3")
+bus/1/effect/0/enabled = true
+bus/2/name = &"Hits"
+bus/2/solo = false
+bus/2/mute = false
+bus/2/bypass_fx = false
+bus/2/volume_db = 0.0
+bus/2/send = &"Fx"
+bus/2/effect/0/effect = SubResource("AudioEffectDelay_cenje")
+bus/2/effect/0/enabled = true
+bus/3/name = &"Crowd"
+bus/3/solo = false
+bus/3/mute = false
+bus/3/bypass_fx = false
+bus/3/volume_db = 0.0
+bus/3/send = &"Fx"
+bus/4/name = &"Music"
+bus/4/solo = false
+bus/4/mute = false
+bus/4/bypass_fx = false
+bus/4/volume_db = 0.0
+bus/4/send = &"Fx"
+bus/5/name = &"Voice"
+bus/5/solo = false
+bus/5/mute = false
+bus/5/bypass_fx = false
+bus/5/volume_db = 0.0
+bus/5/send = &"Master"

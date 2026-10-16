@@ -12,12 +12,31 @@ const SIM_DT := 1.0 / 120.0
 const MAX_STEPS := 16
 ## stage.ts rims: colour (0xff7a2a, 0x2ad8ff in linear) and position.
 const RIMS := [[Color(1.0, 0.1946, 0.0232), Vector3(-5.5, 3.5, -2)], [Color(0.0232, 0.6867, 1.0), Vector3(5.5, 3.5, 2)]]
+## Longest the intro waits for the booth's opening, in seconds (game.ts INTRO_MAX).
+const INTRO_MAX := 16.0
 
 var m
 var models: Array[BotModel] = []
 var arena: Arena
 ## The crowd's excitement (game.ts crowdMood): the fans in the stands follow it.
 var crowd_mood := CrowdMood.new()
+## The crowd you hear (game.ts sfx.crowdEvent / crowdTick), with its own mood as in the web.
+var crowd_audio: CrowdAudio
+## game.ts crowdState, refilled each frame; and the countdown number the house last shouted
+## (hud.ts lastCount).
+var _crowd_state := CrowdAudio.State.new()
+var _crowd_count := -1
+## The commentary booth and its voices (game.ts sfx.booth; audio/booth.gd, audio/voice.gd).
+var voice: Voice
+var booth: Booth
+## The fight's sound kit (game.ts sfx: impacts, whooshes, thuds, hiss, bell, KO, the lifts, the
+## walk-ons and the countdown's chant; audio/sfx.gd), the countdown number it last called
+## (hud.ts lastCount), and game.ts groundImpacts' grounded flags for the thuds.
+var sfx: Sfx
+var _sfx_count := -1
+var _thud_prev := [[false, false, false], [false, false, false]]
+## Per steam vent (FxSteam key): the wait its last burst set, so each burst hisses once.
+var _hiss_seen := {}
 var cam: Camera3D
 var hud: FightHud
 ## The hit and damage effects: sparks, smoke, bits, torn-off parts, oil and steam (game.ts fx,
@@ -81,11 +100,38 @@ func _ready() -> void:
 	add_child(drones)
 	contact_ao = ContactAO.new()
 	add_child(contact_ao)
+	# (a test may have handed in its own, e.g. tests/crowd_record.gd's logging one)
+	if crowd_audio == null:
+		crowd_audio = CrowdAudio.new()
+	add_child(crowd_audio)
+	# the fight screen: a full house (app.ts camera: sfx.ambience(1))
+	crowd_audio.ambience(1.0)
+	# the commentators (sfx.ts: the booth hands its clips to the voice); a test may hand in its own
+	if voice == null:
+		voice = Voice.new()
+	add_child(voice)
+	if booth == null:
+		booth = Booth.new(voice)
+	# the crowd dips under each line (voice.ts duck)
+	if not voice.ducked.is_connected(crowd_audio.duck):
+		voice.ducked.connect(crowd_audio.duck)
+	var man = Voice.load_manifest()
+	if man != null:
+		booth.set_manifest(man)
+		# (its first stock of lines, read now, as the web has it downloaded before any fight)
+		voice.flush()
 	effects = FightFx.new()
 	effects.arena = arena
-	effects.crowd_mood = crowd_mood
+	# (a part landing in the seats reaches both moods, as game.ts sends debrisCrowd to both)
+	effects.crowd_mood = CrowdAudio.Tee.new(crowd_mood, crowd_audio)
 	effects.enabled = OS.get_environment("BB_NOSPARKS") == ""
 	add_child(effects)
+	sfx = Sfx.new()
+	add_child(sfx)
+	# bits of plating clinking on the canvas, torn parts landing (game.ts fx.bits.onClink, debris.update)
+	effects.fx.bits.on_clink = func(p: Vector3, k: float) -> void: sfx.tink(k, Sfx.pan_of(cam, p))
+	if "on_land" in effects:
+		effects.set("on_land", func(p: Vector3, sp: float) -> void: sfx.thud(minf(0.7, sp / 6.0), Sfx.pan_of(cam, p)))
 	hud = FightHud.new()
 	hud.visible = OS.get_environment("BB_NOHUD") == ""
 	add_child(hud)
@@ -95,9 +141,14 @@ func _ready() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
 		_sync()
+		# (the booth keeps what it said, so the next session picks fresh lines)
+		if booth != null:
+			booth.end()
 		get_tree().quit()
 	elif what == NOTIFICATION_PREDELETE:
 		_sync()
+		if booth != null:
+			booth.end()
 
 
 ## Wait for the sim steps running on the worker, if any.
@@ -124,6 +175,17 @@ func _queue_event(type: String, data) -> void:
 func new_fight() -> void:
 	_sync()
 	_events.clear()
+	# between fights the web's crowd ticks with no fight on (crowdState null), so each walk-out
+	# brings the house up afresh
+	_crowd_count = -1
+	crowd_audio.tick(0.0, null)
+	# the last fight's screen is gone: the booth stops talking (game.ts endMatch)
+	booth.end()
+	# ...and its walk-on fades (game.ts endMatch)
+	sfx.walk_on_stop(0.4)
+	_sfx_count = -1
+	_thud_prev = [[false, false, false], [false, false, false]]
+	_hiss_seen.clear()
 	for bm in models:
 		bm.queue_free()
 	models.clear()
@@ -136,6 +198,8 @@ func new_fight() -> void:
 	# to the countdown, for quick checks)
 	if OS.get_environment("BB_SKIPINTRO") != "":
 		m.skipIntro()
+	# the booth's welcome (game.ts startMatch: booth.begin, offline)
+	booth.begin(m, false)
 	for i in 2:
 		var bm := BotModel.new(m.specs[i])
 		bm.visible = OS.get_environment("BB_NOBOTS") == ""
@@ -145,9 +209,13 @@ func new_fight() -> void:
 	effects.start(m, models)
 	# each corner's entrance is lit in its robot's colours (game.ts startMatch)
 	arena.corners.set_accents(int(a.paint.accent), int(b.paint.accent))
-	arena.corners.on_cue = func(_i: int, cue: String) -> void:
+	arena.corners.on_cue = func(i: int, cue: String) -> void:
+		# the lift's clunks and hydraulics, from its corner (game.ts corners.onCue)
+		sfx.lift(cue, Sfx.pan_of(cam, _v(m.fighters[i].body.pos[0])))
 		if cue == "arrive":
 			arena.excite(1.1)
+	# both walk-on themes ready before the entrances (game.ts startMatch: primeWalkOn)
+	sfx.prime_walk_on(Sfx.walk_on_for(a), Sfx.walk_on_for(b))
 	_acc = 0.0
 	_end_time = -1.0
 	_hype = 0.3
@@ -163,10 +231,123 @@ func new_fight() -> void:
 
 
 func _on_event(type: String, data) -> void:
+	# the crowd you hear (game.ts onEvent: sfx.crowdEvent), then FIGHT! shouted with the screen
+	# (hud.ts onEvent fightStart: sfx.countdown(0) -> crowd "count" 0)
+	crowd_audio.event(type, data)
+	if type == "fightStart":
+		crowd_audio.event("count", 0)
+	# the commentators hear every sim event (game.ts onEvent: sfx.booth.event)
+	booth.event(type, data)
 	_arena_event(type, data)
 	# (the torn-off piece flies before the socket's wrench, as in game.ts tearOff)
 	effects.on_event(type, data)
 	_bot_event(type, data)
+	_sound_event(type, data)
+
+
+## The sound kit's side of a sim event (game.ts onEvent's sfx calls, tearOff, finisherBlow, and
+## hud.ts onEvent's FIGHT! call). Pans follow the camera as it is this frame (game.ts pan).
+func _sound_event(type: String, data) -> void:
+	match type:
+		"hit":
+			var h = data
+			if h.shielded:
+				sfx.shield()
+			elif h.blocked:
+				sfx.block(h.damage, Sfx.pan_of(cam, _v(h.point)), JS.truthy(h.get("guardBreak")))
+			else:
+				sfx.hit(h.damage, h.zone, JS.truthy(h.get("crit")), h.move.kind, Sfx.pan_of(cam, _v(h.point)), 1.0 - float(h.partCond))
+		"detach":
+			# (game.ts tearOff: the socket bursts where the part was)
+			var i := int(data.f.index)
+			var at: Vector3 = models[i].joints[FightFx.STUMP.get(int(data.part), FightFx.J_CHEST)]
+			sfx.hit(160.0, "head", true, "kick", Sfx.pan_of(cam, at))
+			sfx.zap()
+		"static":
+			sfx.zap()
+		"shieldUp":
+			sfx.shield_up()
+		"strikeStart":
+			var s = data.s
+			if JS.truthy(s.move.get("ability")) and not JS.truthy(s.get("feint")):
+				sfx.charge(s.move.kind == "kick")
+		"strikeActive":
+			var s = data.s
+			sfx.whoosh(JS.truthy(s.move.get("power")) or JS.truthy(s.move.get("ability")), s.move.kind == "kick")
+		"dodge":
+			sfx.whoosh(false, false, 0.5)
+		"clinch":
+			# chest plates meeting
+			sfx.thud(0.3, Sfx.pan_of(cam, _v(data.f.body.pos[1])))
+		"clinchBreak":
+			sfx.whoosh(false, false, 0.4)
+		"sprawl":
+			sfx.thud(0.45, Sfx.pan_of(cam, _v(data.f.body.pos[0])))
+		"takedown":
+			sfx.whoosh(true, false, 0.7)
+		"step":
+			sfx.step(int(data.f.index))
+		"ropes":
+			sfx.ropes()
+		"ko":
+			sfx.ko()
+		"finisher":
+			sfx.charge(false)
+			sfx.zap()
+		"finisherBlow":
+			# (game.ts finisherBlow: a slam thuds through the floor)
+			if str(data.kind) == "slam":
+				sfx.thud(1.0, Sfx.pan_of(cam, _v(data.point)))
+			sfx.ko()
+		"fistBump":
+			sfx.fist_bump()
+		"decision":
+			sfx.bell(2)
+		"fightStart":
+			sfx.bell(1)
+			# FIGHT! (hud.ts onEvent fightStart)
+			sfx.countdown(0)
+		"entrance":
+			# the walk-on music starts as the corner's doors open, from where the entrance is now
+			var i := int(data.f.index)
+			sfx.walk_on(Sfx.walk_on_for(m.specs[i]), maxf(0.0, m.phaseTime - i * TEntrance.PRESENT - TEntrance.ENTRY.start))
+		"phase":
+			# the house quietens for the countdown
+			if str(data) == "countdown":
+				sfx.walk_on_stop(0.9)
+
+
+## The sound kit's side of a frame, after the effects (the sim is idle): the countdown called
+## with the screen (hud.ts update: sfx.countdown(n)), bodies slamming into the canvas (game.ts
+## groundImpacts: sfx.thud) and hinges blowing vapour (game.ts damageEffects: sfx.hiss).
+func _sound_frame() -> void:
+	if m.phase == "countdown":
+		var n := int(TMatch.COUNTDOWN) - floori(m.phaseTime)
+		if n != _sfx_count and n >= 1:
+			_sfx_count = n
+			sfx.countdown(n)
+	for i in 2:
+		var f = m.fighters[i]
+		if not f.isDown:
+			continue
+		var body = f.body
+		for k in 3:
+			var j: int = FightFx.GROUND_JOINTS[k]
+			var g := JS.truthy(body.grounded[j])
+			if g and not _thud_prev[i][k]:
+				var sp: float = body.velocity(j, SIM_DT, V3.new()).length()
+				if sp > 1.2:
+					sfx.thud(minf(1.0, sp / 4.0), Sfx.pan_of(cam, _v(body.pos[j])))
+			_thud_prev[i][k] = g
+	# FightFx's steam starts the bursts (steam.gd vent): one starts with its vent's clock at 0 and a
+	# fresh wait drawn. (Read here, as FightFx drops vent()'s return value.)
+	var vents: Dictionary = effects.steam._vents
+	for key in vents:
+		var v = vents[key]
+		if v.since == 0.0 and v.burst > 0.0 and _hiss_seen.get(key) != v.wait:
+			_hiss_seen[key] = v.wait
+			var at: Vector3 = models[key >> 4].joints[FightFx.VENT_AT[key & 15][0]]
+			sfx.hiss((0.4 + v.k * 0.6) * v.blow, v.burst_len, Sfx.pan_of(cam, at))
 
 
 ## The robots' own metal (game.ts: the hit's dent and oil, a torn socket's wrench and gush).
@@ -264,6 +445,7 @@ func _process(dt: float) -> void:
 	contact_ao.commit()
 	# sparks, smoke, vapour and oil off the wrecked parts, the debris, the trails (the sim is idle)
 	effects.update(dt, dt * m.pace, cam)
+	_sound_frame()
 	if m.phase == "end" and _end_time < 0:
 		_end_time = _time
 	_view = FightHud.snapshot(m)
@@ -272,6 +454,23 @@ func _process(dt: float) -> void:
 	var hp: Array = _view.hp
 	crowd_mood.tick(dt, m.phase, m.clock, hp[0], hp[1])
 	arena.crowd.update(dt, crowd_mood.excite, m.phase == "fight" or m.phase == "greet")
+	# the house shouts 3, 2, 1 with the screen (hud.ts update: sfx.countdown(n) -> crowd "count")
+	if m.phase == "countdown":
+		var n := int(TMatch.COUNTDOWN) - floori(m.phaseTime)
+		if n != _crowd_count and n >= 1:
+			_crowd_count = n
+			crowd_audio.event("count", n)
+	# the crowd you hear (game.ts frame: crowdState, sfx.crowdTick)
+	_crowd_state.phase = m.phase
+	_crowd_state.clock = m.clock
+	_crowd_state.hp[0] = hp[0]
+	_crowd_state.hp[1] = hp[1]
+	crowd_audio.tick(dt, _crowd_state)
+	# the booth (game.ts frame: booth.tick); offline the countdown waits for the opening speech
+	# to finish, up to INTRO_MAX (written here, before this frame's steps start, as game.ts does)
+	booth.tick(dt, crowd_mood.excite, true)
+	if m.phase == "intro" and booth.busy and m.phaseTime >= m.introLength - 0.1 and m.phaseTime < INTRO_MAX:
+		m.introLength = m.phaseTime + 0.2
 	arena.score(dt, {"names": [m.fighters[0].name_, m.fighters[1].name_], "hp": hp, "clock": m.clock, "phase": m.phase, "presenting": int(m.presenting)})
 	arena.update(dt, _time)
 	arena.corners.update(dt, _time, m, effects.fx, false)

@@ -78,6 +78,8 @@ var oil: FxOil
 ## crowd's mood. Both optional.
 var arena: Node = null
 var crowd_mood: Object = null
+## A torn-off part hitting the canvas: (point, speed), for its thud (game.ts debris.update).
+var on_land := Callable()
 ## False: sparks, smoke and the rest stay off (BB_NOSPARKS shots); parts still come off.
 var enabled := true
 var m
@@ -297,7 +299,7 @@ func update(dt: float, flow: float, camera: Camera3D) -> void:
 			if _oil_feet[i * 2 + 1] != null:
 				_feet.append(_oil_feet[i * 2 + 1])
 	var t1 := Time.get_ticks_usec()
-	debris.update(flow, fx, _feet, Callable(), _on_crowd)
+	debris.update(flow, fx, _feet, on_land, _on_crowd)
 	var t2 := Time.get_ticks_usec()
 	var stepped := oil.update(flow, _oil_feet)
 	# stepping in a puddle splashes the foot and shin
