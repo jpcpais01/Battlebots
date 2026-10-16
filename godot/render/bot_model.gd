@@ -129,6 +129,10 @@ var _mats: Array[ShaderMaterial] = []
 var _wear := PackedFloat32Array()
 var _dent_p := PackedVector4Array()
 var _dent_n := PackedVector4Array()
+## Dent slots grouped by bone, and per bone where its group starts | its size << 6 (the shader's
+## dent_list and dent_at).
+var _dent_list := PackedInt32Array()
+var _dent_at := PackedInt32Array()
 var _dent_dir := PackedVector3Array()
 var _dent_target := PackedFloat32Array()
 var _dent_shown := PackedFloat32Array()
@@ -166,6 +170,8 @@ func _init(bot_spec) -> void:
 	_wear.resize(PART_COUNT)
 	_dent_p.resize(DENTS)
 	_dent_n.resize(DENTS)
+	_dent_list.resize(DENTS)
+	_dent_at.resize(BONE_COUNT)
 	for k in DENTS:
 		_dent_n[k] = Vector4(0, 0, 0, -1)
 	_dent_dir.resize(DENTS)
@@ -1012,14 +1018,39 @@ func _push_damage(all: bool) -> void:
 	if not (all or _dents_dirty):
 		return
 	_dents_dirty = false
+	# each bone's dents, listed together, so a corner only visits its own bone's
+	var count := PackedInt32Array()
+	count.resize(BONE_COUNT)
+	for k in DENTS:
+		var b := int(_dent_n[k].w)
+		if b >= 0:
+			count[b] += 1
+	var at := 0
+	for b in BONE_COUNT:
+		var n := count[b]
+		_dent_at[b] = at | (n << 6)
+		count[b] = at
+		at += n
+	for k in DENTS:
+		var b := int(_dent_n[k].w)
+		if b >= 0:
+			_dent_list[count[b]] = k
+			count[b] += 1
+	var marks := 0
+	for k in MARKS:
+		if int(_mark_b[k].y) != MARK_NONE:
+			marks = k + 1
 	for m in _mats:
 		m.set_shader_parameter("dent_p", _dent_p)
 		m.set_shader_parameter("dent_n", _dent_n)
+		m.set_shader_parameter("dent_list", _dent_list)
+		m.set_shader_parameter("dent_at", _dent_at)
 		if all:
 			m.set_shader_parameter("wear", _wear)
 		if m.shader == OPAQUE_SHADER:
 			m.set_shader_parameter("marks", _marks)
 			m.set_shader_parameter("mark_b", _mark_b)
+			m.set_shader_parameter("mark_count", marks)
 			m.set_shader_parameter("grime", _grime)
 
 

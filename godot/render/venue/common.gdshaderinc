@@ -34,4 +34,10 @@ float bb_hash(float n) { return fract(sin(n) * 43758.5453); }
 // clear_ok on materials of anything rising above the floor; CLEAR_VIEW opens their fragment().
 #include "res://render/clear/clear_view.gdshaderinc"
 uniform bool clear_ok = false;
+// A shader that can discard loses the GPU's early depth test (hidden pixels get fully shaded
+// first), so generated materials start with NO_CLEAR and only the ones marked get the discard.
+#ifdef NO_CLEAR
+#define CLEAR_VIEW
+#else
 #define CLEAR_VIEW if (clear_ok && clear_view_gone((INV_VIEW_MATRIX * vec4(VERTEX, 1.0)).xz, FRAGCOORD.xy)) discard;
+#endif

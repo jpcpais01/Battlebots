@@ -57,6 +57,10 @@ anti_aliasing/quality/msaa_3d=2
 
 [shader_globals]
 
+bb_surface_detail={
+"type": "bool",
+"value": true
+}
 bb_time={
 "type": "float",
 "value": 0.0

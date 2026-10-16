@@ -17,17 +17,22 @@ uniform float time = 0.0;
 uniform vec4 marks[12];
 // per mark: the bone it sits on, its kind (0 none, 1 a torn-off part's socket, 2 oil), its strength
 uniform vec3 mark_b[12];
+// marks in use: slots below this (the first four are the sockets, the rest oil)
+uniform int mark_count = 0;
 // oily grime over the whole robot, 0..1
 uniform float grime = 0.0;
-// brushed grain, patchy sheen and a faint ripple in the plating (the web's high quality)
-uniform bool surface_detail = true;
+// brushed grain, patchy sheen and a faint ripple in the plating (the web's high quality only;
+// Settings sets it with the graphics quality)
+global uniform bool bb_surface_detail;
 
 varying flat float v_key;
 varying vec3 v_dmg_p;
 varying float v_wear;
 varying flat float v_bone;
 varying float v_dent;
-varying vec3 v_world;
+// the contact occlusion, worked out per corner: it changes over the spheres' size, which the
+// finely split plating follows closely, and a corner is far cheaper than every pixel it covers
+varying float v_ao;
 
 void vertex() {
 	int code = int(CUSTOM1.x + 0.5);
@@ -36,29 +41,35 @@ void vertex() {
 	float db;
 	dmg_rest(VERTEX, b, dp, db);
 	float w = wear[(code >> 5) & 15];
-	// the metal around a torn-off part's socket is wrenched and wrecked
-	for (int k = 0; k < 12; k++) {
+	// the metal around a torn-off part's socket is wrenched and wrecked (sockets: the first slots)
+	for (int k = 0; k < min(mark_count, 4); k++) {
 		if (mark_b[k].y == 1.0 && abs(mark_b[k].x - db) < 0.5)
 			w = max(w, mark_b[k].z * (1.0 - smoothstep(marks[k].w * 0.35, marks[k].w, distance(dp, marks[k].xyz))));
 	}
 	float cav = 0.0;
-	vec3 d = dmg_deform(dp, db, w, cav);
 	vec3 n = NORMAL;
-	if (w > 0.01 || dot(d, d) > 0.0) {
-		// the bent surface's true normal: the inverse transpose of the bend's Jacobian (by
-		// finite differences), applied through its cofactors
-		const float e = 0.006;
-		float c_ = 0.0;
-		vec3 c0 = vec3(1.0, 0.0, 0.0) + (dmg_deform(dp + vec3(e, 0.0, 0.0), db, w, c_) - d) / e;
-		vec3 c1 = vec3(0.0, 1.0, 0.0) + (dmg_deform(dp + vec3(0.0, e, 0.0), db, w, c_) - d) / e;
-		vec3 c2 = vec3(0.0, 0.0, 1.0) + (dmg_deform(dp + vec3(0.0, 0.0, e), db, w, c_) - d) / e;
-		n = normalize(cross(c1, c2) * n.x + cross(c2, c0) * n.y + cross(c0, c1) * n.z);
-		if (w > 0.01) {
-			// and a worn shell is covered in small dings that catch the light
-			float vis = 1.0 - (1.0 - w) * (1.0 - w);
-			vec3 r = dp * 31.0;
-			vec3 small = vec3(dmg_noise(r + 5.1), dmg_noise(r + 23.9), dmg_noise(r + 61.3)) - 0.5;
-			n = normalize(n + small * (vis * 0.9 + smoothstep(0.45, 1.0, w) * 0.7));
+	vec3 d;
+	if (IN_SHADOW_PASS) {
+		// the shadow map only needs where the bent plating is: no normals' Jacobian, no dings,
+		// no occlusion (the light's normal bias is far coarser than any of them)
+		d = dmg_deform(dp, db, w, cav);
+	} else {
+		mat3 J = mat3(0.0);
+		d = dmg_deform_j(dp, db, w, cav, J);
+		if (w > 0.01 || dot(d, d) > 0.0) {
+			// the bent surface's true normal: the inverse transpose of the bend's Jacobian, applied
+			// through its cofactors
+			vec3 c0 = vec3(1.0, 0.0, 0.0) + J[0];
+			vec3 c1 = vec3(0.0, 1.0, 0.0) + J[1];
+			vec3 c2 = vec3(0.0, 0.0, 1.0) + J[2];
+			n = normalize(cross(c1, c2) * n.x + cross(c2, c0) * n.y + cross(c0, c1) * n.z);
+			if (w > 0.01) {
+				// and a worn shell is covered in small dings that catch the light
+				float vis = 1.0 - (1.0 - w) * (1.0 - w);
+				vec3 r = dp * 31.0;
+				vec3 small = vec3(dmg_noise(r + 5.1), dmg_noise(r + 23.9), dmg_noise(r + 61.3)) - 0.5;
+				n = normalize(n + small * (vis * 0.9 + smoothstep(0.45, 1.0, w) * 0.7));
+			}
 		}
 	}
 	v_dmg_p = dp;
@@ -72,7 +83,13 @@ void vertex() {
 	VERTEX = vec3(dot(r0, v), dot(r1, v), dot(r2, v));
 	NORMAL = normalize(vec3(dot(r0.xyz, n), dot(r1.xyz, n), dot(r2.xyz, n)));
 	v_key = CUSTOM0.x;
-	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	// limbs, torsos and the opponent shade each other; legs and feet darken towards the canvas
+	v_ao = 1.0;
+	if (!IN_SHADOW_PASS) {
+		vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+		vec3 nw = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+		v_ao = ao_spheres(world, nw, 1.8) * ao_ground(world, nw, 0.0, 0.5, 0.5);
+	}
 }
 
 void fragment() {
@@ -82,7 +99,7 @@ void fragment() {
 	float rgh = rough[key];
 	vec3 nrm = NORMAL;
 	vec3 emit = vec3(0.0);
-	if (surface_detail) {
+	if (bb_surface_detail) {
 		// surfaceDetail.ts: how much of the part one pixel covers; the fine finish fades past ~1 cm
 		float fine = 1.0 - smoothstep(0.004, 0.014, length(fwidth(v_dmg_p)));
 		// an uneven sheen: polished in places, dulled by handling in others
@@ -104,7 +121,7 @@ void fragment() {
 	}
 	float sock_w = 0.0;
 	float oil = 0.0;
-	for (int k = 0; k < 12; k++) {
+	for (int k = 0; k < mark_count; k++) {
 		float kind = mark_b[k].y;
 		if (kind == 0.0 || abs(mark_b[k].x - v_bone) > 0.5) continue;
 		vec3 q = v_dmg_p - marks[k].xyz;
@@ -191,8 +208,6 @@ void fragment() {
 	ROUGHNESS = rgh;
 	EMISSION = emit;
 	NORMAL = nrm;
-	// limbs, torsos and the opponent shade each other; legs and feet darken towards the canvas
-	vec3 nw = (INV_VIEW_MATRIX * vec4(nrm, 0.0)).xyz;
-	AO = ao_spheres(v_world, nw, 1.8) * ao_ground(v_world, nw, 0.0, 0.5, 0.5);
+	AO = v_ao;
 	AO_LIGHT_AFFECT = 0.6;
 }

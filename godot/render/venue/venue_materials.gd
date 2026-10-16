@@ -49,7 +49,9 @@ func make(rec: Dictionary, node: Dictionary, scene: BakedScene) -> Array:
 			# vertex colours ride in a float slot: Godot keeps COLOR in 8 bits, and glow colours go past 1
 			return [_cached(key, func(): return _basic(rec, scene, house, spots)), {"aSpot": "CUSTOM0", "color": "CUSTOM1"}]
 		"MeshStandardMaterial":
-			return [_cached(key, func(): return _standard(rec, scene, house)), {}]
+			# the lighting truss hangs above everything that casts a shadow: skip the shadow lookups
+			var lit_only: bool = node.name == "truss"
+			return [_cached(key + ("s" if lit_only else ""), func(): return _standard(rec, scene, house, lit_only)), {}]
 		"ShaderMaterial":
 			var kind: String = rec.kind
 			if not KINDS.has(kind):
@@ -77,8 +79,16 @@ func mark_clear(scene: BakedScene) -> void:
 			continue
 		for k in mi.mesh.get_surface_count():
 			var sm := mi.mesh.surface_get_material(k) as ShaderMaterial
-			if sm:
-				sm.set_shader_parameter("clear_ok", true)
+			# (additive light only brightens: a faint haze in front of the robots can stay)
+			if sm == null or sm.shader.code.contains("blend_add"):
+				continue
+			if sm.shader.code.contains(NO_CLEAR):
+				sm.shader = _shader(sm.shader.code.replace(NO_CLEAR, ""))
+			sm.set_shader_parameter("clear_ok", true)
+
+
+## Generated shaders leave the clear-view discard out until mark_clear puts it in (common.gdshaderinc).
+const NO_CLEAR := "#define NO_CLEAR\n"
 
 
 func _cached(key: String, build: Callable) -> Material:
@@ -104,10 +114,12 @@ static func _lin(c) -> Color:
 	return Color(1, 1, 1)
 
 
-func _render_mode(rec: Dictionary, unshaded: bool) -> String:
+func _render_mode(rec: Dictionary, unshaded: bool, no_shadows := false) -> String:
 	var modes := []
 	if unshaded:
 		modes.append("unshaded")
+	if no_shadows:
+		modes.append("shadows_disabled")
 	modes.append(SIDES[int(rec.side)])
 	var blend: int = rec.blending
 	if blend == BakedScene.ADDITIVE_BLEND or (blend == BakedScene.CUSTOM_BLEND and rec.blend[0] == 201 and rec.blend[1] == 201):
@@ -168,7 +180,7 @@ func _basic(rec: Dictionary, scene: BakedScene, house: bool, spots: bool) -> Mat
 		defs.append("HOUSE")
 	if spots:
 		defs.append("SPOTS")
-	var code := "shader_type spatial;\n" + _render_mode(rec, true)
+	var code := "shader_type spatial;\n" + _render_mode(rec, true) + NO_CLEAR
 	for d in defs:
 		code += "#define " + d + "\n"
 	code += BASIC_BODY
@@ -242,7 +254,7 @@ void fragment() {
 
 
 ## MeshStandardMaterial: lit, metal/rough, emissive (map), house light in the venue.
-func _standard(rec: Dictionary, scene: BakedScene, house: bool) -> Material:
+func _standard(rec: Dictionary, scene: BakedScene, house: bool, no_shadows := false) -> Material:
 	house = house and rec.toneMapped and rec.blending != BakedScene.ADDITIVE_BLEND and rec.userData.get("house", true) != false
 	var defs := []
 	if rec.has("map"):
@@ -270,7 +282,7 @@ func _standard(rec: Dictionary, scene: BakedScene, house: bool) -> Material:
 			defs.append("AO_GROUND")
 		if ao.has("stage"):
 			defs.append("AO_STAGE")
-	var code := "shader_type spatial;\n" + _render_mode(rec, false)
+	var code := "shader_type spatial;\n" + _render_mode(rec, false, no_shadows) + NO_CLEAR
 	for d in defs:
 		code += "#define " + d + "\n"
 	code += STANDARD_BODY
