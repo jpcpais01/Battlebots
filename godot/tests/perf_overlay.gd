@@ -52,6 +52,49 @@ func _wait(n: int) -> void:
 		await process_frame
 
 
+## The live GPU split: a Mobile renderer frame's stamps (in the order servers/rendering stamps
+## them; Vulkan only, so made up here) land in the right stages, the AO map's viewport as its own.
+func _stages() -> void:
+	var ao := Perf._ao_vp
+	var fake := RenderingServer.viewport_create()
+	Perf.watch_ao(fake)
+	var ao_id: String = Perf._ao_begin.substr(9)
+	var frame := [
+		["> Render Viewports", 0], ["> Render Viewport 0", 2], ["vp_begin_" + ao_id, 3], ["> Render Canvas 0", 5],
+		["< Render Canvas 0", 205], ["vp_end_" + ao_id, 206], ["< Render Viewport 0", 207],
+		["> Render Viewport 1", 210], ["vp_begin_1", 211], ["> Render 3D Scene", 212], ["Prepare 3D Scene", 215],
+		["Setup 3D Scene", 220], ["Setup Sky", 300], ["Setup Shadows", 400], ["Render Shadows", 450],
+		["Render Opaque + Transparent", 1450], ["Tonemap", 6450], ["Glow", 6460], ["Tonemap", 7460],
+		["< Render 3D Scene", 7960], ["> Render Canvas 0", 7961], ["< Render Canvas 0", 8261], ["vp_end_1", 8262],
+		["< Render Viewport 1", 8263], ["< Render Viewports", 8300],
+	]
+	var names := PackedStringArray()
+	var times := PackedInt64Array()
+	for e in frame:
+		names.append(e[0])
+		times.append(int(e[1]) * 1000)
+	var was_on := Perf.on
+	Perf.on = true
+	Perf._reset_window()
+	Perf.add_stages(names, times)
+	var got := Perf._stage_ns.duplicate()
+	Perf._reset_window()
+	Perf.on = was_on
+	Perf.watch_ao(ao)
+	RenderingServer.free_rid(fake)
+	# (in us: 3D scene setup and the sky are the scene's, the canvas inside the AO viewport its own)
+	var want := {Perf.G_SHADOWS: 1050, Perf.G_SCENE: 5000 + 3 + 5 + 80 + 100, Perf.G_GLOW: 1000, Perf.G_POST: 10 + 500, Perf.G_HUD: 300, Perf.G_AO: 203, Perf.G_OTHER: 2 + 1 + 1 + 3 + 1 + 1 + 1 + 1 + 1 + 37}
+	var ok := got.size() == Perf.G_COUNT
+	var total := 0.0
+	for g in want:
+		if ok and absf(got[g] / 1000.0 - want[g]) > 0.01:
+			ok = false
+			print("  stage %d: %.1f us, want %d" % [g, got[g] / 1000.0, want[g]])
+	for v in got:
+		total += v
+	_check(ok and absf(total / 1000.0 - 8300.0) < 0.01, "the live GPU stages split a frame's stamps as the renderer means them")
+
+
 func _run() -> void:
 	var f = _fight
 	var ov: PerfOverlay = f.hud.perf
@@ -61,6 +104,7 @@ func _run() -> void:
 	ov.set_compact(false)
 	await _cpu_sums(f)
 	await _gpu_live()
+	_stages()
 	await _invariance(f, ov)
 	await _measure(f, ov)
 	if _out != "":

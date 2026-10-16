@@ -516,8 +516,8 @@ export class Stretcher {
     const s = (this.size = loser.size);
     // the bot's real limb lengths (the rig is built in unit space)
     const rest = (a: number, b: number, d: number) => {
-      for (const c of loser.body.constraints) if ((c.a === a && c.b === b) || (c.a === b && c.b === a)) return c.rest / s;
-      return d;
+      const r = loser.body.restBetween(a, b);
+      return r >= 0 ? r / s : d;
     };
     this.len = { ua: rest(J.ShR, J.ElR, 0.28), fa: rest(J.ElR, J.HandR, 0.27), th: rest(J.HipR, J.KneeR, 0.4), sh: rest(J.KneeR, J.FootR, 0.4) };
     const parts = loser.parts;

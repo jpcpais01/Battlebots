@@ -3,20 +3,28 @@
 class_name DM
 extends RefCounted
 
-static var _buf := PackedByteArray([0, 0, 0, 0, 0, 0, 0, 0])
-static var _quadrant := 0
+## (No shared scratch: the sim steps on a worker thread while the frame can call these too, so
+## everything is a local or a read-only table.)
+
+## 2^k as exact doubles, k = -1022..1023 (index k + 1022).
+static var _P2 := _make_pow2()
 
 
-static func _hi_word(x: float) -> int:
-	_buf.encode_double(0, x)
-	return _buf.decode_s32(4)
+static func _make_pow2() -> PackedFloat64Array:
+	var b := PackedByteArray()
+	b.resize(8)
+	var t := PackedFloat64Array()
+	t.resize(2046)
+	for k in range(-1022, 1024):
+		b.encode_s32(4, (k + 1023) << 20)
+		b.encode_s32(0, 0)
+		t[k + 1022] = b.decode_double(0)
+	return t
 
 
 ## 2^k as an exact double, for -1022 <= k <= 1023.
 static func _pow2(k: int) -> float:
-	_buf.encode_s32(4, (k + 1023) << 20)
-	_buf.encode_s32(0, 0)
-	return _buf.decode_double(0)
+	return _P2[k + 1022]
 
 
 const _PI := (float(884279719003555) / 281474976710656)
@@ -54,7 +62,7 @@ static func exp(x: float) -> float:
 	if ki > 1023 or ki < -1022:
 		var k1 := ki >> 1
 		return y * _pow2(k1) * _pow2(ki - k1)
-	return y * _pow2(ki)
+	return y * _P2[ki + 1022]
 
 
 const LG1 := (float(6004799503160723) / 9007199254740992)
@@ -77,14 +85,16 @@ static func log(x: float) -> float:
 	if x < (((((((((((((((((float(1) / 4611686018427387904) / 4611686018427387904) / 4611686018427387904) / 4611686018427387904) / 4611686018427387904) / 4611686018427387904) / 4611686018427387904) / 4611686018427387904) / 4611686018427387904) / 4611686018427387904) / 4611686018427387904) / 4611686018427387904) / 4611686018427387904) / 4611686018427387904) / 4611686018427387904) / 4611686018427387904) / 1073741824):
 		x *= (float(9007199254740992) * 2)
 		k -= 54
-	var hx := _hi_word(x)
+	var b := PackedByteArray()
+	b.resize(8)
+	b.encode_double(0, x)
+	var hx := b.decode_s32(4)
 	k += (hx >> 20) - 1023
 	hx &= 0x000fffff
 	var i := (hx + 0x95f64) & 0x100000
-	_buf.encode_double(0, x)
-	_buf.encode_s32(4, hx | (i ^ 0x3ff00000))
+	b.encode_s32(4, hx | (i ^ 0x3ff00000))
 	k += i >> 20
-	var f := _buf.decode_double(0) - 1.0
+	var f := b.decode_double(0) - 1.0
 	var s := f / (2.0 + f)
 	var z := s * s
 	var w := z * z
@@ -132,63 +142,55 @@ const C5 := ((float(1261860039765105) / 4611686018427387904) / 131072)
 const C6 := -((float(1757820317994549) / 4611686018427387904) / 33554432)
 
 
-static func _ksin(x: float) -> float:
-	var z := x * x
-	var r := S2 + z * (S3 + z * (S4 + z * (S5 + z * S6)))
-	return x + z * x * (S1 + z * r)
-
-
-static func _kcos(x: float) -> float:
-	var z := x * x
-	var r := z * (C1 + z * (C2 + z * (C3 + z * (C4 + z * (C5 + z * C6)))))
-	var hz := 0.5 * z
-	var w := 1.0 - hz
-	return w + (1.0 - w - hz + z * r)
-
-
 const PIO2_1 := (float(1686629713) / 1073741824)
 const PIO2_2 := ((float(2242054355) / 4611686018427387904) / 8)
 const PIO2_3 := ((float(160220439) / 4611686018427387904) / 17179869184)
 const INV_PIO2 := (float(5734161139222659) / 9007199254740992)
 
 
-static func _reduce(x: float) -> float:
-	if x > -(float(884279719003555) / 1125899906842624) and x < (float(884279719003555) / 1125899906842624):
-		_quadrant = 0
-		return x
-	var n := floorf(x * INV_PIO2 + 0.5)
-	_quadrant = int(n) & 3
-	return x - n * PIO2_1 - n * PIO2_2 - n * PIO2_3
+const _PIO4 := (float(884279719003555) / 1125899906842624)
 
 
+## (_ksin/_kcos and the reduction to [-pi/4, pi/4] written out in each: the quarter turn count
+## stays a local, and no calls.)
 static func sin(x: float) -> float:
 	if not is_finite(x):
 		return NAN
-	var r := _reduce(x)
-	match _quadrant:
-		0:
-			return _ksin(r)
-		1:
-			return _kcos(r)
-		2:
-			return -_ksin(r)
-		_:
-			return -_kcos(r)
+	var q := 0
+	if not (x > -_PIO4 and x < _PIO4):
+		var n := floorf(x * INV_PIO2 + 0.5)
+		q = int(n) & 3
+		x = x - n * PIO2_1 - n * PIO2_2 - n * PIO2_3
+	var z := x * x
+	if (q & 1) == 0:
+		var r := S2 + z * (S3 + z * (S4 + z * (S5 + z * S6)))
+		var v := x + z * x * (S1 + z * r)
+		return v if q == 0 else -v
+	var rc := z * (C1 + z * (C2 + z * (C3 + z * (C4 + z * (C5 + z * C6)))))
+	var hz := 0.5 * z
+	var w := 1.0 - hz
+	var c := w + (1.0 - w - hz + z * rc)
+	return c if q == 1 else -c
 
 
 static func cos(x: float) -> float:
 	if not is_finite(x):
 		return NAN
-	var r := _reduce(x)
-	match _quadrant:
-		0:
-			return _kcos(r)
-		1:
-			return -_ksin(r)
-		2:
-			return -_kcos(r)
-		_:
-			return _ksin(r)
+	var q := 0
+	if not (x > -_PIO4 and x < _PIO4):
+		var n := floorf(x * INV_PIO2 + 0.5)
+		q = int(n) & 3
+		x = x - n * PIO2_1 - n * PIO2_2 - n * PIO2_3
+	var z := x * x
+	if (q & 1) == 0:
+		var rc := z * (C1 + z * (C2 + z * (C3 + z * (C4 + z * (C5 + z * C6)))))
+		var hz := 0.5 * z
+		var w := 1.0 - hz
+		var c := w + (1.0 - w - hz + z * rc)
+		return c if q == 0 else -c
+	var r := S2 + z * (S3 + z * (S4 + z * (S5 + z * S6)))
+	var v := x + z * x * (S1 + z * r)
+	return v if q == 3 else -v
 
 
 const ATAN_HI := [(float(8352332796509007) / 18014398509481984), (float(884279719003555) / 1125899906842624), (float(8852218891597467) / 9007199254740992), (float(884279719003555) / 562949953421312)]
@@ -258,7 +260,38 @@ static func atan2(y: float, x: float) -> float:
 		if x > 0.0:
 			return 0.0 if y > 0.0 else -0.0
 		return _PI if y > 0.0 else -_PI
-	var z := DM.atan(absf(y / x))
+	# (atan of a >= 0, written out)
+	var a := absf(y / x)
+	var z: float
+	if a >= (float(9007199254740992) * 8192):
+		z = PIO2_HI
+	elif a < 0.4375 and a < (float(1) / 268435456):
+		z = a
+	else:
+		var id := -1
+		if a < 0.4375:
+			pass
+		elif a < 1.1875:
+			if a < 0.6875:
+				id = 0
+				a = (2.0 * a - 1.0) / (2.0 + a)
+			else:
+				id = 1
+				a = (a - 1.0) / (a + 1.0)
+		elif a < 2.4375:
+			id = 2
+			a = (a - 1.5) / (1.0 + 1.5 * a)
+		else:
+			id = 3
+			a = -1.0 / a
+		var zz := a * a
+		var w := zz * zz
+		var s1 := zz * (AT0 + w * (AT2 + w * (AT4 + w * (AT6 + w * (AT8 + w * AT10)))))
+		var s2 := w * (AT1 + w * (AT3 + w * (AT5 + w * (AT7 + w * AT9))))
+		if id < 0:
+			z = a - a * (s1 + s2)
+		else:
+			z = ATAN_HI[id] - (a * (s1 + s2) - ATAN_LO[id] - a)
 	if x > 0.0:
 		return z if y > 0.0 else -z
 	return _PI - (z - PI_LO) if y > 0.0 else z - PI_LO - _PI
@@ -320,9 +353,11 @@ static func asin(x: float) -> float:
 	if a >= 0.975:
 		t = PIO2_HI - (2.0 * (s + s * r) - PIO2_LO)
 	else:
-		_buf.encode_double(0, s)
-		_buf.encode_s32(0, 0)
-		var df := _buf.decode_double(0)
+		var b := PackedByteArray()
+		b.resize(8)
+		b.encode_double(0, s)
+		b.encode_s32(0, 0)
+		var df := b.decode_double(0)
 		var c := (z - df * df) / (s + df)
 		var p := 2.0 * s * r - (PIO2_LO - 2.0 * c)
 		var q := PIO4_HI - 2.0 * df

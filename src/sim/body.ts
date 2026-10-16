@@ -33,15 +33,6 @@ const MASS = [9, 10, 2, 3.2, 2.2, 1.6, 1.5, 2.2, 1.6, 1.5, 3, 2.4, 1.6, 3, 2.4, 
 /** How strongly each particle chases its animation target per 120Hz step. */
 const FOLLOW = [0.5, 0.42, 0.42, 0.36, 0.5, 0.42, 0.62, 0.5, 0.42, 0.62, 0.55, 0.55, 0.85, 0.55, 0.55, 0.85];
 
-interface Constraint {
-  a: number;
-  b: number;
-  rest: number;
-  /** Only enforced as a ragdoll (keeps the torso rigid without fighting twist animation). */
-  ragdollOnly: boolean;
-  stiffness: number;
-}
-
 const BONES: [number, number][] = [
   [J.Pelvis, J.Chest],
   [J.Chest, J.Neck],
@@ -75,6 +66,20 @@ const BRACES: [number, number][] = [
   [J.ShL, J.Head],
   [J.ShR, J.Head],
 ];
+
+/**
+ * The distance constraints: the bones (always held), then the braces (held only as a ragdoll,
+ * keeping the torso rigid without fighting the twist animation), as flat arrays so the solver
+ * loop reads numbers rather than objects.
+ */
+const CONSTRAINT_A = [...BONES, ...BRACES].map((c) => c[0]);
+const CONSTRAINT_B = [...BONES, ...BRACES].map((c) => c[1]);
+const CONSTRAINT_STIFF = [...BONES.map(() => 1), ...BRACES.map(() => 0.6)];
+const BONE_COUNT = BONES.length;
+const CONSTRAINT_COUNT = BONES.length + BRACES.length;
+/** The bones' indices in Body.rest: the forearms, whose rest length telescopes with the arm. */
+export const FOREARM_L = BONES.findIndex(([a, b]) => a === J.ElL && b === J.HandL);
+export const FOREARM_R = BONES.findIndex(([a, b]) => a === J.ElR && b === J.HandR);
 
 /** Corner radius of the octagonal ring (the posts); matches the rendered arena. */
 export const RING_CORNER = 5.0;
@@ -127,7 +132,8 @@ export class Body {
   /** Per-particle looseness multiplier (1 = normal). Hits drop it briefly. */
   loose = new Float32Array(JOINT_COUNT).fill(1);
   invMass = new Float32Array(JOINT_COUNT);
-  constraints: Constraint[] = [];
+  /** Rest length of each constraint (CONSTRAINT_A/B): the rest pose's, the forearms telescoping. */
+  readonly rest = new Float64Array(CONSTRAINT_COUNT);
   /** 1 = fully driven by animation, 0 = ragdoll. */
   tone = 1;
   grounded = new Uint8Array(JOINT_COUNT);
@@ -137,11 +143,25 @@ export class Body {
   readonly cut = new Uint8Array(JOINT_COUNT);
   /** Collision radius of each particle (RADII scaled by the frame size). */
   readonly radii: number[];
+  /**
+   * Per particle, squared: inside clear2 (from the ring's centre) it can't reach the ropes, the
+   * stage's edges, the posts or the barrier, so collideWorld only tests the canvas; beyond post2
+   * it may be touching a corner post. (Both with a hair to spare: they only skip tests that can't
+   * change anything.)
+   */
+  private readonly clear2 = new Float64Array(JOINT_COUNT);
+  private readonly post2 = new Float64Array(JOINT_COUNT);
   readonly size: number;
 
   constructor(restPose: Vector3[], size = 1) {
     this.size = size;
     this.radii = RADII.map((r) => r * size);
+    for (let i = 0; i < JOINT_COUNT; i++) {
+      const c = ROPE_LINE - this.radii[i] - 1e-6;
+      const p = RING_CORNER - POST_R - this.radii[i] - 1e-6;
+      this.clear2[i] = c * c;
+      this.post2[i] = p * p;
+    }
     for (let i = 0; i < JOINT_COUNT; i++) {
       this.pos.push(restPose[i].clone());
       this.prev.push(restPose[i].clone());
@@ -149,12 +169,15 @@ export class Body {
       this.target.push(restPose[i].clone());
       this.invMass[i] = 1 / MASS[i];
     }
-    for (const [a, b] of BONES) this.addConstraint(a, b, restPose, false, 1);
-    for (const [a, b] of BRACES) this.addConstraint(a, b, restPose, true, 0.6);
+    for (let c = 0; c < CONSTRAINT_COUNT; c++) this.rest[c] = restPose[CONSTRAINT_A[c]].distanceTo(restPose[CONSTRAINT_B[c]]);
   }
 
-  private addConstraint(a: number, b: number, pose: Vector3[], ragdollOnly: boolean, stiffness: number) {
-    this.constraints.push({ a, b, rest: pose[a].distanceTo(pose[b]), ragdollOnly, stiffness });
+  /** The rest length between joints a and b, or -1 if no constraint joins them. */
+  restBetween(a: number, b: number) {
+    for (let c = 0; c < CONSTRAINT_COUNT; c++) {
+      if ((CONSTRAINT_A[c] === a && CONSTRAINT_B[c] === b) || (CONSTRAINT_A[c] === b && CONSTRAINT_B[c] === a)) return this.rest[c];
+    }
+    return -1;
   }
 
   /** Tear particles loose (a part came off): they drop free and stop pulling on the rest. */
@@ -221,28 +244,32 @@ export class Body {
     }
 
     const iterations = ragdoll ? 6 : 3;
+    // (the braces only hold a ragdoll)
+    const count = ragdoll ? CONSTRAINT_COUNT : BONE_COUNT;
+    const pos = this.pos, cut = this.cut, invMass = this.invMass, rest = this.rest;
     for (let it = 0; it < iterations; it++) {
-      for (const c of this.constraints) {
-        if (c.ragdollOnly && !ragdoll) continue;
-        if (this.cut[c.a] !== this.cut[c.b]) continue;
-        this.solve(c);
+      for (let c = 0; c < count; c++) {
+        const a = CONSTRAINT_A[c], b = CONSTRAINT_B[c];
+        if (cut[a] !== cut[b]) continue;
+        const pa = pos[a];
+        const pb = pos[b];
+        const dx = pb.x - pa.x, dy = pb.y - pa.y, dz = pb.z - pa.z;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (d < 1e-6) continue;
+        const wa = invMass[a];
+        const wb = invMass[b];
+        const diff = ((d - rest[c]) / (d * (wa + wb))) * CONSTRAINT_STIFF[c];
+        const ka = diff * wa, kb = -diff * wb;
+        pa.x += dx * ka;
+        pa.y += dy * ka;
+        pa.z += dz * ka;
+        pb.x += dx * kb;
+        pb.y += dy * kb;
+        pb.z += dz * kb;
       }
       if (ragdoll) this.hinges();
       this.collideWorld();
     }
-  }
-
-  private solve(c: Constraint) {
-    const pa = this.pos[c.a];
-    const pb = this.pos[c.b];
-    _a.subVectors(pb, pa);
-    const d = _a.length();
-    if (d < 1e-6) return;
-    const wa = this.invMass[c.a];
-    const wb = this.invMass[c.b];
-    const diff = ((d - c.rest) / (d * (wa + wb))) * c.stiffness;
-    pa.addScaledVector(_a, diff * wa);
-    pb.addScaledVector(_a, -diff * wb);
   }
 
   /** Knees bend forward, never backward; keeps ragdolls from looking broken. */
@@ -275,11 +302,23 @@ export class Body {
       const p = this.pos[i];
       const q = this.prev[i];
       const r = this.radii[i];
+      // well inside the ropes only the canvas can touch it (the same as the full test below,
+      // which this skips: its sides, ropes, posts and barrier all come out untouched)
+      if (!this.outside[i] && p.x * p.x + p.z * p.z < this.clear2[i] && (p.y >= r || !(q.y < r - 0.04 && groundAt(q.x, q.z) < 0))) {
+        if (p.y < r) {
+          p.y = r;
+          this.grounded[i] = 1;
+          const f = this.tone < 0.5 ? 0.35 : 0.1;
+          q.x += (p.x - q.x) * f;
+          q.z += (p.z - q.z) * f;
+        } else this.grounded[i] = 0;
+        continue;
+      }
       const side = ropeSide(p.x, p.z);
       const nx = SIDE_NX[side], nz = SIDE_NZ[side];
       const oct = p.x * nx + p.z * nz;
-      // the ground: the canvas, or off the stage the base and the arena floor
-      const g = groundAt(p.x, p.z);
+      // the ground: the canvas, or off the stage the base and the arena floor (groundAt)
+      const g = oct < CANVAS_EDGE ? 0 : oct < BASE_EDGE ? BASE_Y : ARENA_FLOOR;
       if (p.y < g + r) {
         if (q.y < g + r - 0.04 && groundAt(q.x, q.z) < g) {
           // coming in from lower down: that's the side of the stage, not its top
@@ -347,7 +386,7 @@ export class Body {
         q.z = p.z;
       }
       // the corner posts are solid all the way up
-      if (p.y < POST_TOP + r) {
+      if (p.y < POST_TOP + r && p.x * p.x + p.z * p.z > this.post2[i]) {
         const c = Math.round((DM.atan2(p.z, p.x) - Math.PI / 8) / (Math.PI / 4)) * (Math.PI / 4) + Math.PI / 8;
         const cx = p.x - DM.cos(c) * RING_CORNER, cz = p.z - DM.sin(c) * RING_CORNER;
         const dc = Math.sqrt(cx * cx + cz * cz);

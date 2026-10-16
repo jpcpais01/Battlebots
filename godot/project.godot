@@ -19,6 +19,9 @@ config/quit_on_go_back=false
 
 [debug]
 
+# the renderer stamps each render stage on the GPU's clock (and prints a summary to the log once
+# a second): the performance overlay's live GPU rows read these (game/perf.gd)
+settings/stdout/print_gpu_profile=true
 gdscript/warnings/shadowed_variable=0
 gdscript/warnings/shadowed_variable_base_class=0
 gdscript/warnings/shadowed_global_identifier=0

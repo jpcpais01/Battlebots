@@ -160,6 +160,17 @@ export class SpringVec {
 export class Spring1 {
   v = 0;
   vel = 0;
+  /**
+   * The decay (and swing) the last step took the exp (cos, sin) of, and what they came to: a
+   * spring mostly steps with the same settings, so these are only worked out when they change.
+   */
+  private cx = NaN;
+  private ce = 0;
+  private ux = NaN;
+  private uw = NaN;
+  private ue = 0;
+  private uc = 0;
+  private us = 0;
   /** Step towards target (omega: stiffness in rad/s, zeta: damping ratio, <= 1). dt 0 snaps. */
   to(target: number, omega: number, zeta: number, dt: number) {
     if (dt <= 0) {
@@ -170,13 +181,26 @@ export class Spring1 {
     const y = this.v - target;
     if (zeta >= 0.999) {
       const j = this.vel + omega * y;
-      const e = DM.exp(-omega * dt);
+      const x = -omega * dt;
+      if (x !== this.cx || x === 0) {
+        this.cx = x;
+        this.ce = DM.exp(x);
+      }
+      const e = this.ce;
       this.v = target + (y + j * dt) * e;
       this.vel = (this.vel - omega * j * dt) * e;
     } else {
       const a = zeta * omega;
       const wd = omega * Math.sqrt(1 - zeta * zeta);
-      const e = DM.exp(-a * dt), c = DM.cos(wd * dt), s = DM.sin(wd * dt);
+      const x = -a * dt, w = wd * dt;
+      if (x !== this.ux || w !== this.uw || x === 0 || w === 0) {
+        this.ux = x;
+        this.uw = w;
+        this.ue = DM.exp(x);
+        this.uc = DM.cos(w);
+        this.us = DM.sin(w);
+      }
+      const e = this.ue, c = this.uc, s = this.us;
       const b = (this.vel + a * y) / wd;
       this.v = target + e * (y * c + b * s);
       this.vel = e * (this.vel * c - (y * wd + a * b) * s);
