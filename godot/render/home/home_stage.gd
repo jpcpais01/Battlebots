@@ -91,6 +91,13 @@ func _kit_now() -> Kit:
 
 func _build(sid: String):
 	var s = _scenes.get(sid)
+	if s == null and game != null and game.made.has("home:" + sid):
+		# (built ahead behind the loading screen)
+		s = game.made["home:" + sid]
+		game.made.erase("home:" + sid)
+		s.visible = false
+		_scenes[sid] = s
+		add_child(s)
 	if s == null:
 		s = load(SCENES[sid]).new()
 		s.visible = false
