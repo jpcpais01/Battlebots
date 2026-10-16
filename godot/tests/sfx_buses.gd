@@ -4,7 +4,7 @@
 ##
 ## - Master: the final mix (sfx.ts `out` and after): MASTER volume 0.7, the fast limiter
 ##   (threshold -4 dB, ratio 20, 2 ms attack, 120 ms release, plus the make-up gain Chromium's
-##   DynamicsCompressor adds by itself) and a ceiling in place of the soft clipper.
+##   DynamicsCompressor adds by itself) and a -1 dB ceiling in place of the soft clipper.
 ## - Fx -> Master: effects, the crowd and the music, through the glue compressor (threshold -14,
 ##   ratio 4, a 30 dB knee: on a steady tone it is a +0.6 dB lift that eases off near full scale).
 ## - Hits -> Fx: the impacts' arena slap: one echo off each side wall (83 ms left, 131 ms right)
@@ -45,7 +45,9 @@ static func build() -> AudioBusLayout:
 	limit.gain = 2.0
 	srv.add_bus_effect(0, limit)
 	var ceiling := AudioEffectHardLimiter.new()
-	ceiling.ceiling_db = -0.1
+	# (-1 dB: where the web's look-ahead limiter and make-up gain hold the peaks; Godot's compressor
+	# has no look-ahead, so this catches the transients it lets through)
+	ceiling.ceiling_db = -1.0
 	ceiling.release = 0.12
 	srv.add_bus_effect(0, ceiling)
 	_bus("Fx", "Master")

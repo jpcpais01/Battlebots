@@ -112,6 +112,9 @@ func _ready() -> void:
 	add_child(voice)
 	if booth == null:
 		booth = Booth.new(voice)
+	# the crowd dips under each line (voice.ts duck)
+	if not voice.ducked.is_connected(crowd_audio.duck):
+		voice.ducked.connect(crowd_audio.duck)
 	var man = Voice.load_manifest()
 	if man != null:
 		booth.set_manifest(man)
