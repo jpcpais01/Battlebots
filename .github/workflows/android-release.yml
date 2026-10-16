@@ -12,7 +12,8 @@ name: Android release
 on:
   push:
     branches: [main]
-    paths: ["godot/**", ".github/workflows/android-release.yml"]
+    # (public/voice too: the app ships the web game's commentary clips, see the packaging step)
+    paths: ["godot/**", "public/voice/**", ".github/workflows/android-release.yml"]
   workflow_dispatch:
 
 permissions:
@@ -67,6 +68,17 @@ jobs:
           mkdir -p "$BB_TOOLS"
           echo "$BB_TOOLS/bin" >> "$GITHUB_PATH"
           PATH="$BB_TOOLS/bin:$PATH" sh godot/tools/setup-container.sh
+
+      # The commentary clips aren't in godot/: they are the web game's public/voice (manifest and
+      # ~4,500 mp3s), which this repo checkout has. pack-voice.py copies them into
+      # godot/assets/voice (gitignored) and bakes the robot's ring-mod and comb into its clips
+      # with ffmpeg; build-apk.sh runs it again, which then finds nothing left to do.
+      - name: Package the commentary clips
+        if: steps.secrets.outputs.ok == 'true'
+        run: |
+          command -v ffmpeg >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q ffmpeg; }
+          test -f public/voice/manifest.json
+          python3 godot/tools/pack-voice.py
 
       - name: Build the APK
         if: steps.secrets.outputs.ok == 'true'

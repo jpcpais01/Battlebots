@@ -14,6 +14,8 @@ if [ -z "$GODOT_ANDROID_KEYSTORE_RELEASE_PATH" ] && [ -f "$DEV" ]; then
   export GODOT_ANDROID_KEYSTORE_RELEASE_USER=$(sed -n 's/^alias=//p' "$DEV.txt")
   export GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=$(sed -n 's/^password=//p' "$DEV.txt")
 fi
+# the commentary clips, from the web game's public/voice (gitignored here; see tools/pack-voice.py)
+python3 tools/pack-voice.py
 godot --headless --path . --import >/dev/null 2>&1 || true
 godot --headless --path . --export-release Android "$OUT" 2>&1 | grep -v "^\s*$" | tail -5
 ls -la "$OUT"
