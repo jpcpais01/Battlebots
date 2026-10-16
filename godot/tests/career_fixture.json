@@ -1,0 +1,7 @@
+{
+	"record": {
+		"wins": 5, "losses": 2, "draws": 0, "streak": 1, "best": 3,
+		"events": {"harbor": {"run": 1, "titles": 0}, "grove": {"run": 0, "titles": 1}},
+		"career": {"credits": 1240, "fame": 230, "owned": [], "fresh": [], "shop": {"seed": 12345, "left": 2, "sold": []}, "earned": 1500, "found": 1}
+	}
+}

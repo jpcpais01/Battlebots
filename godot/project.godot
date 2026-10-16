@@ -12,7 +12,7 @@ config_version=5
 
 config/name="Battlebots"
 config/description="Auto 1v1 robot fighting."
-run/main_scene="res://game/fight.tscn"
+run/main_scene="res://app/main.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 # Android's back button pauses the fight (ui/pause_menu.gd) instead of quitting
 config/quit_on_go_back=false
@@ -100,6 +100,14 @@ bb_fog_density={
 "type": "float",
 "value": 0.016
 }
+bb_home_key={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+bb_cam_pos={
+"type": "vec3",
+"value": Vector3(0, 3, 9)
+}
 bb_ao_spheres={
 "type": "sampler2D",
 "value": ""
@@ -135,4 +143,36 @@ bb_clear_cam={
 bb_clear_fwd={
 "type": "vec2",
 "value": Vector2(0, -1)
+}
+map_time={
+"type": "float",
+"value": 0.0
+}
+map_sun_col={
+"type": "vec3",
+"value": Vector3(2.15, 1.3856, 0.7768)
+}
+map_sky={
+"type": "vec3",
+"value": Vector3(0.2593, 0.3473, 0.5932)
+}
+map_gnd={
+"type": "vec3",
+"value": Vector3(0.0701, 0.0478, 0.0335)
+}
+map_dusk={
+"type": "float",
+"value": 0.55
+}
+map_night={
+"type": "float",
+"value": 0.0
+}
+map_glow={
+"type": "float",
+"value": 7.0
+}
+map_fog={
+"type": "vec4",
+"value": Vector4(0.6795, 0.5271, 0.4452, 0.00019)
 }

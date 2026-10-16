@@ -92,7 +92,7 @@ static var FINISHER_NAME
 static var STYLE_PICK
 
 static func pickFinisher(rng: TMath.Rng, picks, style: String) -> String:
-	var ok: Array = JS.filter(((picks if picks != null else [])), func(id: String, _a1 = null, _a2 = null): return TFinisher.FINISHERS[id])
+	var ok: Array = JS.filter(((picks if picks != null else [])), func(id: String, _a1 = null, _a2 = null): return TFinisher.FINISHERS.get(id))
 	if (float(ok.size()) != 0.0):
 		return ok[floorf((rng.next() * float(ok.size())))]
 	var _hSTYLE_PICK = TFinisher.STYLE_PICK

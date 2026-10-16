@@ -1,11 +1,14 @@
-## A quick fight between two random robots: the translated sim stepped at 120 Hz, the robots
-## posed from it, the ring, a broadcast camera and the fight HUD. Tap after the result for the
-## next fight. (Phase 1 of the Godot port: the web game's Game.frame loop, src/game/game.ts.)
+## The game's world (src/game/game.ts Game): the fights (the translated sim stepped at 120 Hz,
+## the robots posed from it, the arena, a broadcast camera, the fight HUD) and, between them, a
+## bot idling on its own (show_bot) in one of the world's places (set_place). The app (app/app.gd)
+## starts and ends the fights; run on its own (auto), the scene plays one quick fight between two
+## random robots after another.
 ##
 ## The sim runs on a worker thread, a frame ahead: each frame waits for the steps it started
 ## last frame, reads the fight (poses, events, HUD) while nothing moves, then starts this
 ## frame's steps and carries on with the camera and drawing while they run.
 extends Node3D
+class_name Game
 
 const SIM_DT := 1.0 / 120.0
 ## Most sim steps one frame may run before it lets time slip (game.ts does the same).
@@ -44,6 +47,13 @@ var hud: FightHud
 ## The hit and damage effects: sparks, smoke, bits, torn-off parts, oil and steam (game.ts fx,
 ## debris, oil, steam and their wiring).
 var effects: FightFx
+## The loser's hover stretcher ride after the fight (game.ts stretcher).
+var stretcher: Stretcher
+var _gate_on := false
+## The loser's stretcher is still on its way out: the results wait for it (game.ts carrying).
+var carrying: bool:
+	get:
+		return m != null and _mv.phase == "end" and _mv.winner != null and _mv.phaseTime < Stretcher.ride_end(m.result)
 var _acc := 0.0
 var _time := 0.0
 var _hype := 0.3
@@ -51,6 +61,11 @@ var _hype := 0.3
 var contact_ao: ContactAO
 ## The coloured rim lights either side (stage.ts rims) and their base energy.
 var _rims: Array[OmniLight3D] = []
+## The rims' colour (linear) and three intensity in the venue fights are in (the look's rims:
+## render/venues/venue_look.gd sets them for an event's venue).
+var rims_look: Array = [[RIMS[0][0], 22.0], [RIMS[1][0], 22.0]]
+## The world map events' own venues (render/venues/venues.gd), made the first time one is wanted.
+var venues: EventVenues
 ## The broadcast camera director and its camera drones (game.ts director, drones).
 var director: Director
 var drones: Drones
@@ -96,6 +111,30 @@ var pause_menu: PauseMenu
 var _env: Environment
 var _key: SpotLight3D
 
+## Each sim event of the fight on screen, after the game has handled it (the app: results,
+## career, the HUD's next screens). Emitted on the main thread in step order.
+signal match_event(type: String, data)
+## The pause menu's Forfeit, when the app runs the fights (auto off).
+signal forfeited
+## A fight between two random bots starts by itself, and the next one after a tap at the end
+## (the fight scene on its own: tests, BB_* checks). The app turns this off before the scene
+## enters the tree and starts every fight itself.
+var auto := true
+## Where the world is (game.ts Place): "arena" (fights and the menus behind them), "garage",
+## "home" or "map". Only the arena exists so far: the others are added by their own modules.
+var place := "arena"
+## The bot idling on its own between fights (null in a fight or with nobody shown).
+var showcase: Showcase
+var _shown_spec = null
+var _places := {}
+## The world's other places, built the first time the world goes there (a missing one isn't
+## offered: App.go stays in the arena). Each script's node: see add_place.
+const PLACES := {
+	"garage": "res://render/garage/garage.gd",
+	"map": "res://render/map/world_map.gd",
+	"home": "res://render/home/home_stage.gd",
+}
+
 
 func _ready() -> void:
 	# the screen's fastest refresh rate, not Android's default 60
@@ -112,6 +151,9 @@ func _ready() -> void:
 			_fixed_cam.append(Vector3(c[0], c[1], c[2]))
 	arena = Arena.new()
 	add_child(arena)
+	# the loser's ride out after the fight (game.ts stretcher)
+	stretcher = Stretcher.new()
+	add_child(stretcher)
 	cam = Camera3D.new()
 	cam.fov = 38
 	cam.near = 0.1
@@ -180,7 +222,14 @@ func _ready() -> void:
 	pause_menu.resume_requested.connect(resume)
 	pause_menu.forfeit_requested.connect(forfeit)
 	hud.pause_pressed.connect(pause)
-	new_fight()
+	if auto:
+		new_fight()
+	else:
+		# the menus: the house half full, the camera orbiting the ring (app.ts camera('home'))
+		hud.visible = false
+		director.mode = "menu"
+		crowd_audio.ambience(0.25)
+		director.snap()
 
 
 func _notification(what: int) -> void:
@@ -217,11 +266,14 @@ func resume() -> void:
 	Engine.max_fps = Display.cap
 
 
-## Forfeit (app.ts pause: Forfeit): walk out of this fight. With no home screen yet, the next one
-## starts.
+## Forfeit (app.ts pause: Forfeit): walk out of this fight. On its own the scene starts the next
+## one; under the app, the app decides where to go (forfeited).
 func forfeit() -> void:
 	resume()
-	new_fight()
+	if auto:
+		new_fight()
+	else:
+		forfeited.emit()
 
 
 ## Wait for the sim steps running on the worker, if any.
@@ -234,9 +286,9 @@ func _sync() -> void:
 func _run_steps(n: int) -> void:
 	var t0 := Time.get_ticks_usec()
 	var done := 0
+	# (the match steps on after the final bell too: the winner celebrates while the loser is
+	# carried out, as game.ts keeps stepping in the end phase)
 	for i in n:
-		if m.phase == "end":
-			break
 		m.step(SIM_DT)
 		if _sim_slow > 0:
 			var until := Time.get_ticks_usec() + _sim_slow
@@ -277,8 +329,21 @@ func _queue_event(type: String, data) -> void:
 	_events.append([type, data])
 
 
+## A fight between two random bots (the scene on its own: see auto).
 func new_fight() -> void:
+	var rng := TMath.Rng.new(float(_seed_rng.randi_range(1, 2000000000)))
+	var a = TLoadout.randomBot(rng)
+	var b = TLoadout.randomBot(rng, 0.35, a.paint)
+	start_match(a, b, rng.int_(0.0, 1e9))
+
+
+## Start a fight between bots a (the player's corner, filmed screen-left) and b from `seed` (game.ts
+## startMatch, offline). The sim is deterministic: the same bots and seed give the same fight.
+func start_match(a, b, seed: float) -> void:
 	_sync()
+	if place != "arena":
+		set_place("arena")
+	show_bot(null)
 	_events.clear()
 	# between fights the web's crowd ticks with no fight on (crowdState null), so each walk-out
 	# brings the house up afresh
@@ -294,10 +359,8 @@ func new_fight() -> void:
 	for bm in models:
 		bm.queue_free()
 	models.clear()
-	var rng := TMath.Rng.new(float(_seed_rng.randi_range(1, 2000000000)))
-	var a = TLoadout.randomBot(rng)
-	var b = TLoadout.randomBot(rng, 0.35, a.paint)
-	m = TMatch.Match.new(a, b, rng.int_(0.0, 1e9))
+	stretcher.clear()
+	m = TMatch.Match.new(a, b, seed)
 	m.on(_queue_event)
 	# the walkout: each robot rides its corner lift up and makes its entrance (BB_SKIPINTRO=1: straight
 	# to the countdown, for quick checks)
@@ -310,6 +373,7 @@ func new_fight() -> void:
 		bm.visible = OS.get_environment("BB_NOBOTS") == ""
 		add_child(bm)
 		models.append(bm)
+	hud.visible = OS.get_environment("BB_NOHUD") == ""
 	hud.start(m)
 	_mv.capture(m)
 	effects.start(m, models)
@@ -336,6 +400,204 @@ func new_fight() -> void:
 	director.player = 0
 	director.begin(m)
 	director.snap()
+	crowd_audio.ambience(1.0)
+
+
+## Leave the fight on screen (game.ts endMatch): the sim stops, the robots and everything they
+## left on the canvas go, the booth stops talking and the walk-on fades. The world stays where
+## it is, with nobody in the ring until show_bot.
+func end_match() -> void:
+	if m == null:
+		return
+	_sync()
+	_events.clear()
+	booth.end()
+	sfx.walk_on_stop(0.4)
+	for bm in models:
+		bm.queue_free()
+	models.clear()
+	effects.stop()
+	stretcher.clear()
+	if _gate_on:
+		_gate_on = false
+		arena.gate_hit(null)
+	m = null
+	_end_time = -1.0
+	hud.visible = false
+	_crowd_count = -1
+	crowd_audio.tick(0.0, null)
+	for i in 2:
+		contact_ao.set_robot(i, [] as Array[Vector3], 1.0)
+	contact_ao.commit()
+
+
+## Show a single bot idling (game.ts showBot): behind the menus in the ring, on the garage lift.
+## null shows nobody. A new spec builds a new robot; the same one keeps it.
+func show_bot(spec) -> void:
+	_shown_spec = spec
+	# the home scenes have their own actor (game.ts showBot: home.setBot)
+	if place == "home" and _places.has("home"):
+		_places.home.set_bot(spec)
+	if showcase != null:
+		# (its sparring dummy too: game.ts showBot's sparring(false))
+		showcase.dispose()
+		showcase = null
+	if spec == null:
+		return
+	showcase = Showcase.new(spec)
+	showcase.game = self
+	# its strikes whoosh and its feet step (game.ts showBot hooks.emit)
+	showcase.on_emit = func(ev: String, data) -> void:
+		if ev == "strikeStart" and data.s.move.get("ability") != null:
+			sfx.charge(data.s.move.kind == "kick")
+		elif ev == "strikeActive":
+			sfx.whoosh(data.s.move.power or data.s.move.get("ability") != null, data.s.move.kind == "kick")
+		elif ev == "step":
+			sfx.step(0)
+	showcase.model.visible = place != "home" and place != "map"
+	add_child(showcase.model)
+
+
+## Add a place the world can be (game.ts setPlace's garage, home scenes and map): a node kept
+## hidden until set_place picks it. It may have enter(game) and exit() (switching to and away
+## from it) and update(dt, time) (each frame it's shown, with no fight on).
+func add_place(id: String, node: Node3D) -> void:
+	_places[id] = node
+	node.visible = place == id
+	if node.get_parent() == null:
+		add_child(node)
+
+
+## Whether the world can go to place `p` (the arena always; the others once ported).
+func has_place(p: String) -> bool:
+	return p == "arena" or _places.has(p) or ResourceLoader.exists(PLACES.get(p, ""))
+
+
+## Which place the home screen shows: "beach", "gym" or "lounge" (game.ts homeScene; it switches
+## straight away if it's showing).
+func home_scene(id: String) -> void:
+	var h = get_place("home")
+	if h != null:
+		h.use(id)
+
+
+## The Fight button on an animated home: play the way out, then `done` at the cut to the arena
+## (game.ts homeOutro).
+func home_outro(done: Callable) -> void:
+	if place != "home" or not _places.has("home"):
+		done.call()
+		return
+	_places.home.outro(done)
+
+
+## Skip to the end of the home scene's way out (game.ts homeSkip).
+func home_skip() -> void:
+	if _places.has("home"):
+		_places.home.skip()
+
+
+## The home scene's way out is playing (game.ts homeLeaving).
+func home_leaving() -> bool:
+	return place == "home" and _places.has("home") and _places.home.leaving
+
+
+## A place's node, built on first use (null for the arena or one not there).
+func get_place(p: String) -> Node3D:
+	if not _places.has(p) and ResourceLoader.exists(PLACES.get(p, "")):
+		add_place(p, load(PLACES[p]).new())
+	return _places.get(p)
+
+
+## Switch the world between its places (game.ts setPlace): the arena (fights and the menus behind
+## them) or one in PLACES / added with add_place. Each shows its own and hides the others'.
+func set_place(p: String) -> void:
+	if p == place:
+		return
+	get_place(p)
+	var was = _places.get(place)
+	if was != null:
+		if was.has_method("exit"):
+			was.exit()
+		was.visible = false
+	place = p
+	var in_arena := p == "arena"
+	arena.visible = in_arena
+	drones.visible = in_arena
+	if showcase != null:
+		showcase.model.visible = p != "home" and p != "map"
+	var now = _places.get(p)
+	if now != null:
+		now.visible = true
+		if now.has_method("enter"):
+			now.enter(self)
+	# back in the arena, its venue's light again (game.ts setPlace: applyLook(this.look))
+	if venues != null:
+		venues.place_changed(p)
+
+
+## Build a world map event's venue ahead of its fights (game.ts loadVenue), in the background:
+## the map screen calls it when an event is picked, so the round starts without a hitch.
+func load_venue(id: String) -> void:
+	_event_venues().load_venue(id)
+
+
+## Fight in this venue from now on (game.ts setArena: events.ts ArenaId, "grand" = the indoor
+## arena). One not built yet goes up as soon as it's ready.
+func set_arena(id: String) -> void:
+	_event_venues().set_arena(id)
+
+
+func _event_venues() -> EventVenues:
+	if venues == null:
+		venues = EventVenues.new(self)
+		add_child(venues)
+	return venues
+
+
+## Who is on the workshop lift: [name, power, accent] (game.ts onLift).
+var _on_lift := []
+var _thumbs: PartThumbs = null
+## Pictures of the real robot parts for the part tiles and cards (game.ts thumbs), made on first use.
+var thumbs: PartThumbs:
+	get:
+		if _thumbs == null:
+			_thumbs = PartThumbs.new()
+			add_child(_thumbs)
+		return _thumbs
+
+
+## Tell the workshop who is on the lift (game.ts garageBot): desk monitor, bay light colour.
+func garage_bot(bot_name: String, power: float, paint) -> void:
+	_on_lift = [bot_name, power, int(paint.accent)]
+	var g = _places.get("garage")
+	if g != null:
+		g.set_bot(bot_name, power, int(paint.accent))
+
+
+## Light sweep up the robot in the workshop (game.ts garagePulse: a part was fitted).
+func garage_pulse() -> void:
+	var g = _places.get("garage")
+	if g != null:
+		g.pulse()
+
+
+## The garage camera on one slot's part, or the whole robot ("") (app.ts setFocus), for the
+## robot shown (its frame size).
+func garage_focus(slot := "") -> void:
+	Garage.focus(director, slot, Garage.spec_size(_shown_spec))
+
+
+## Bring out (or put away) the garage's sparring dummy (game.ts sparring).
+func sparring(on: bool) -> void:
+	if showcase != null:
+		showcase.sparring(on)
+
+
+## Let the showcase bot perform a celebration, taunt or (on the sparring dummy) finisher, to the
+## garage camera (game.ts previewEmote).
+func preview_emote(id: String) -> void:
+	if showcase != null:
+		showcase.preview_emote(id, director.garage_yaw)
 
 
 func _on_event(type: String, data) -> void:
@@ -529,6 +791,9 @@ func _process(dt: float) -> void:
 	Perf.frame()
 	dt = minf(dt, 0.1)
 	_time += dt
+	if m == null:
+		_idle_frame(dt)
+		return
 	# the fight holds still from here until the next steps start
 	var budget := _step_budget(dt)
 	var w0 := Time.get_ticks_usec()
@@ -549,6 +814,8 @@ func _process(dt: float) -> void:
 	_events = []
 	for e in events:
 		_on_event(e[0], e[1])
+		# (listeners mustn't end or start a match from here: the frame goes on with this one)
+		match_event.emit(e[0], e[1])
 	Perf.lap(Perf.SIM)
 	_direct_steps(events)
 	Perf.lap(Perf.CAMERA)
@@ -567,34 +834,41 @@ func _process(dt: float) -> void:
 	# reads the match; everything below reads the view, so the worker runs while the rest of the
 	# frame poses, lights and draws
 	var steps := 0
-	if m.phase != "end":
-		_acc += dt * m.pace
-		steps = mini(budget, int(_acc / SIM_DT))
-		_acc -= steps * SIM_DT
-		if _acc >= SIM_DT:
-			_acc = 0.0
+	_acc += dt * m.pace
+	steps = mini(budget, int(_acc / SIM_DT))
+	_acc -= steps * SIM_DT
+	if _acc >= SIM_DT:
+		_acc = 0.0
 	_alpha = _acc / SIM_DT
 	if steps > 0:
 		_task = WorkerThreadPool.add_task(_run_steps.bind(steps), true, "sim")
 	Perf.lap(Perf.SIM)
 	_pose_alpha = pose_alpha
+	# the loser's ride out: from the stretcher's deck, not its body (game.ts frame: carry)
+	var carried := _carry(dt * _mv.pace)
 	# both bodies first: each robot's limbs then slide out of either robot's armour (game.ts)
 	for i in 2:
+		if i == carried:
+			models[i].begin_posed(stretcher.puppet, stretcher.joints, cam.global_position)
+			continue
 		var f = _mv.fighters[i]
 		var em = f.emote
 		var look = _v(em.gaze) if em != null and em.gazeOn else _v(_mv.fighters[1 - i].body.pos[3])
 		models[i].begin(f, pose_alpha, look)
 	for i in 2:
-		models[i].end(_mv.fighters[i], _time, models[1 - i])
+		models[i].end(stretcher.puppet if i == carried else _mv.fighters[i], _time, models[1 - i])
+		if i == carried:
+			stretcher.dress(models[i])
 	BotWear.update(models, _mv, dt)
 	# riding the corner lift up in the intro (game.ts: model.root.position.y = drop)
 	var drops := [arena.corners.drop(_mv, 0), arena.corners.drop(_mv, 1)]
 	for i in 2:
 		models[i].position.y += drops[i]
 	Perf.lap(Perf.BOTS)
-	# (a robot still down in its lift shaft casts nothing on the canvas)
+	# (a robot still down in its lift shaft casts nothing on the canvas, nor one carried off)
+	var away := stretcher.loser if stretcher.gone() else -1
 	for i in 2:
-		contact_ao.set_robot(i, models[i].joints if drops[i] >= -0.3 else ([] as Array[Vector3]), models[i].size)
+		contact_ao.set_robot(i, models[i].joints if drops[i] >= -0.3 and i != away else ([] as Array[Vector3]), models[i].size)
 	contact_ao.commit()
 	# sparks, smoke, vapour and oil off the wrecked parts, the debris, the trails (the view's)
 	effects.update(dt, dt * _mv.pace, cam)
@@ -629,15 +903,24 @@ func _process(dt: float) -> void:
 		# the fighter whose corner this light hangs over
 		var i := 0 if at.x * h0[0] + at.z * h0[1] > 0.0 else 1
 		var k: float = arena.corners.flare(i)
-		_rims[j].light_energy = 22.0 / PI * (1.0 + 1.4 * k)
+		_rims[j].light_energy = rims_look[j][1] / PI * (1.0 + 1.4 * k)
 		# blended in linear as three does; Godot takes light colours in sRGB
-		var rc: Color = RIMS[j][0].lerp(_lin(int(_mv.specs[i].paint.accent)), 0.7 * minf(1.0, k * 1.5)) if k > 0.0 else RIMS[j][0]
+		var rc: Color = rims_look[j][0].lerp(_lin(int(_mv.specs[i].paint.accent)), 0.7 * minf(1.0, k * 1.5)) if k > 0.0 else rims_look[j][0]
 		_rims[j].light_color = rc.linear_to_srgb()
 	_hype = arena.hype
 	Perf.lap(Perf.ARENA)
+	# the stretcher's shot, and its tunnel's gate rippling as it goes through (game.ts frame)
+	var st_shot := stretcher.shot if stretcher.on else {}
+	if not st_shot.is_empty():
+		director.film(st_shot.pos, st_shot.look, st_shot.fov_k, st_shot.cut)
+	if stretcher.posed or _gate_on:
+		_gate_on = stretcher.posed
+		arena.gate_hit(stretcher.at if stretcher.posed else null)
 	_frame_camera(dt, false)
 	# ropes, posts and rigging between the lens and the robots dissolve; the house exposes for the ring
 	var chests: Array[Vector3] = [_v(_mv.fighters[0].body.pos[1]), _v(_mv.fighters[1].body.pos[1])]
+	if stretcher.posed:
+		chests[stretcher.loser] = models[stretcher.loser].joints[1]
 	var pov: int = director.pov
 	ClearView.update(cam, [chests[1 - pov]] as Array[Vector3] if pov >= 0 else chests)
 	arena.expose(dt, cam.global_position.distance_to((chests[0] + chests[1]) * 0.5) if _fixed_cam.is_empty() else _cam_dist)
@@ -646,9 +929,81 @@ func _process(dt: float) -> void:
 	Perf.lap(Perf.HUD)
 
 
+## The fight is over: the loser rides off on the hover stretcher, on the match clock (game.ts
+## carry). Returns the fighter whose model is posed from the stretcher this frame, or -1.
+func _carry(flow: float) -> int:
+	var st := stretcher
+	if _mv.phase != "end" or _mv.winner == null or models.size() < 2:
+		if st.on and _mv.phase != "end":
+			st.clear()
+		return -1
+	var loser := 1 - int(_mv.winner.index)
+	if not st.on:
+		st.begin(_mv, m.fighters[loser].body, m.result, loser)
+	st.update(_mv.phaseTime + _acc, flow, models[loser], effects.debris, sfx, false)
+	# carried off: its model goes with the stretcher, and stays gone once that has left
+	models[loser].visible = not st.gone() and OS.get_environment("BB_NOBOTS") == ""
+	return loser if (st.posed or st.gone()) and st.joints.size() == 16 else -1
+
+
+## A frame with no fight on (game.ts frame without a match): the showcase bot idles, the arena,
+## its crowd and its light show run on, and the director flies its menu or garage camera.
+func _idle_frame(dt: float) -> void:
+	Perf.lap(Perf.SIM)
+	var shown: Array[BotModel] = []
+	if showcase != null and place != "home" and place != "map":
+		showcase.update(dt, _time)
+		shown.append(showcase.model)
+		# (the garage's sparring dummy, while it's out)
+		if showcase.spar_model != null:
+			shown.append(showcase.spar_model)
+	elif place == "home" and _places.has("home") and _places.home.model != null:
+		# (the home scene's robot: game.ts frame's homeModel)
+		shown.append(_places.home.model)
+	Perf.lap(Perf.BOTS)
+	for i in 2:
+		contact_ao.set_robot(i, shown[i].joints if i < shown.size() else ([] as Array[Vector3]), shown[i].size if i < shown.size() else 1.0)
+	contact_ao.commit()
+	# (torn-off sparring parts fly in the showcase's slow motion: game.ts debris.update(dt * slowmo))
+	effects.update(dt, dt * (showcase.flow if showcase != null else 1.0), cam)
+	Perf.lap(Perf.FX)
+	booth.tick(dt, crowd_mood.excite, false)
+	crowd_audio.tick(dt, null)
+	Perf.lap(Perf.AUDIO)
+	if place == "arena":
+		arena.press_ropes([], [])
+		crowd_mood.tick(dt, "", 0.0, 1.0, 1.0)
+		arena.crowd.update(dt, crowd_mood.excite, false)
+		arena.score(dt, null)
+		arena.update(dt, _time)
+		arena.corners.update(dt, _time, null, effects.fx, false)
+		for j in 2:
+			_rims[j].light_energy = rims_look[j][1] / PI
+			_rims[j].light_color = (rims_look[j][0] as Color).linear_to_srgb()
+		_hype = arena.hype
+	else:
+		var here = _places.get(place)
+		if here != null and here.has_method("update"):
+			here.update(dt, _time)
+	Perf.lap(Perf.ARENA)
+	var vp := get_viewport().get_visible_rect().size
+	var narrow := vp.x / maxf(1.0, vp.y) < 1.2
+	director.set_base_fov(55.0 if narrow else 38.0, narrow)
+	director.update(dt, null, 1.0)
+	var focus := Vector3(0, 1.1, 0)
+	drones.update(dt, cam, director.cuts, director.mode, focus, false)
+	# the gantry dissolves when the garage camera swings behind it
+	var near: Array[Vector3] = []
+	if place == "garage" and showcase != null:
+		near.append(showcase.model.joints[1])
+	ClearView.update(cam, near)
+	arena.expose(dt, -1.0)
+	Perf.lap(Perf.CAMERA)
+
+
 func _unhandled_input(e: InputEvent) -> void:
 	var tap: bool = (e is InputEventScreenTouch and e.pressed) or (e is InputEventMouseButton and e.pressed)
-	if tap and _end_time >= 0 and _time - _end_time > 1.5:
+	if auto and tap and _end_time >= 0 and _time - _end_time > 1.5:
 		new_fight()
 
 
@@ -666,7 +1021,8 @@ func _frame_camera(dt: float, _snap: bool) -> void:
 		cam.look_at_from_position(_fixed_cam[0], _fixed_cam[1])
 		cam.fov = 38.0
 		cam.near = 0.1
-		cam.far = 120.0
+		# (the venue's far plane: render/venues)
+		cam.far = director.far
 	_cam_dist = cam.global_position.distance_to(focus)
 	drones.update(dt, cam, director.cuts, director.mode, focus, director.pov >= 0)
 

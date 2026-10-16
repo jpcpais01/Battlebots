@@ -203,9 +203,9 @@ func _run() -> void:
 			"Med": func(): return vp.msaa_3d == Viewport.MSAA_2X and f._key.shadow_enabled and f._env.glow_enabled and f.arena.node("showBeams").visible and vp.positional_shadow_atlas_size == 2048 and _cfg("graphics", "quality") == "med",
 			"High": func(): return vp.msaa_3d == Viewport.MSAA_4X and f._key.shadow_enabled and vp.positional_shadow_atlas_size == 4096 and _cfg("graphics", "quality") == "high",
 			"Auto": func(): return s.quality == "" and s.tier() == Settings.auto_quality() and _cfg("graphics", "quality") == "auto"},
-		"resolution": {"0.5x": func(): return is_equal_approx(vp.scaling_3d_scale, 0.5) and _cfg("graphics", "resolution") == 0.5,
-			"0.75x": func(): return is_equal_approx(vp.scaling_3d_scale, 0.75) and _cfg("graphics", "resolution") == 0.75,
-			"Native": func(): return is_equal_approx(vp.scaling_3d_scale, 1.0) and _cfg("graphics", "resolution") == 1.0,
+		"resolution": {"Low (0.5x)": func(): return is_equal_approx(vp.scaling_3d_scale, 0.5) and _cfg("graphics", "resolution") == 0.5,
+			"Normal (0.75x)": func(): return is_equal_approx(vp.scaling_3d_scale, 0.75) and _cfg("graphics", "resolution") == 0.75,
+			"Extra (1x native)": func(): return is_equal_approx(vp.scaling_3d_scale, 1.0) and _cfg("graphics", "resolution") == 1.0,
 			"Auto": func(): return is_equal_approx(vp.scaling_3d_scale, s.scale_now()) and s.resolution == 0.0 and _cfg("graphics", "resolution") == 0.0},
 		"fps": {"60": func(): return Engine.max_fps == 60 and _cfg("graphics", "fps") == 60,
 			"30": func(): return Engine.max_fps == 30 and _cfg("graphics", "fps") == 30,
@@ -233,7 +233,7 @@ func _run() -> void:
 	await _tap(scr.row("commentary").button("Quiet"))
 	await _tap(scr.row("zoom").button("Wide"))
 	await _tap(scr.row("quality").button("Low"))
-	await _tap(scr.row("resolution").button("0.75x"))
+	await _tap(scr.row("resolution").button("Normal (0.75x)"))
 	await _tap(scr.row("fps").button("30"))
 	await _tap(scr.row("perf").button("Off"))
 	var fresh := Settings.new()

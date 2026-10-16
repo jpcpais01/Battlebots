@@ -77,7 +77,8 @@ static func icon(name: String, px: int) -> Texture2D:
 	var key := "%s@%d" % [name, px]
 	if _icons.has(key):
 		return _icons[key]
-	var parts: Array = ICONS[name]
+	# (every other icons.ts icon, and the slot, maker, move and passive sets: app/ui/icons.gd)
+	var parts: Array = ICONS[name] if ICONS.has(name) else Icons.find(name)
 	var src := '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" %s>%s</svg>' % [parts[1], parts[0]]
 	src = src.replace("currentColor", "#ffffff")
 	# (a second stroke-width attribute would be a malformed svg: the icon's own wins)
@@ -322,6 +323,13 @@ static func icon_button(icon_name: String, px := 46.0, glyph := 19) -> Button:
 	b.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	# the glyph is rasterized at 3x; draw it at its own size
 	b.add_theme_constant_override(&"icon_max_width", glyph)
+	# A bordered StyleBoxFlat whose corners meet in the middle on both axes (a circle, radius 999)
+	# draws a dark seam down its centre: round this one to just under half its size instead.
+	var t := theme()
+	for s in [&"normal", &"hover", &"pressed", &"hover_pressed", &"disabled", &"focus"]:
+		var sb := t.get_stylebox(s, &"IconBtn").duplicate() as StyleBoxFlat
+		sb.set_corner_radius_all(maxi(0, int(floor((px + sb.expand_margin_left + sb.expand_margin_right) * 0.5)) - 1))
+		b.add_theme_stylebox_override(s, sb)
 	press_feedback(b, 0.9)
 	return b
 

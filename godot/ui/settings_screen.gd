@@ -83,7 +83,7 @@ func _label_for(k: String) -> Array:
 			return ["Quality", "Auto picked %s" % _q_name(Settings.auto_quality()) if s.quality == "" else ""]
 		"resolution":
 			var now := s.scale_now()
-			var sub := ("Auto, now %sx" % _num(now)) if s.resolution == 0.0 else ("Native" if now >= 0.999 else "%sx" % _num(now))
+			var sub := ("Auto, now %sx" % _num(now)) if s.resolution == 0.0 else _res_name(s.resolution)
 			var px := _pixels(now)
 			return ["Resolution", sub + " · " + px if px != "" else sub]
 		"fps":
@@ -112,8 +112,7 @@ func _opts_for(k: String) -> Array:
 				out.append(["Med" if q == "med" else _q_name(q), s.quality == q, s.set_quality.bind(q)])
 		"resolution":
 			for r: float in Settings.RESOLUTIONS:
-				var text := "Auto" if r == 0.0 else ("Native" if r >= 0.999 else "%sx" % _num(r))
-				out.append([text, is_equal_approx(s.resolution, r), s.set_resolution.bind(r)])
+				out.append([_res_name(r), is_equal_approx(s.resolution, r), s.set_resolution.bind(r)])
 		"fps":
 			for c: int in Settings.FPS_CAPS:
 				out.append(["Max %d" % Display.hz() if c == 0 else str(c), s.fps_cap == c, s.set_fps_cap.bind(c)])
@@ -122,6 +121,15 @@ func _opts_for(k: String) -> Array:
 
 static func _q_name(q: String) -> String:
 	return "Medium" if q == "med" else q.capitalize()
+
+
+## A fixed resolution's name in the picker (João: Low, Normal, Extra), 0 = Auto.
+static func _res_name(r: float) -> String:
+	if r == 0.0:
+		return "Auto"
+	if r >= 0.999:
+		return "Extra (1x native)"
+	return ("Low (%sx)" if r < 0.6 else "Normal (%sx)") % _num(r)
 
 
 ## 0.75 -> "0.75", 0.8 -> "0.8", 1 -> "1".

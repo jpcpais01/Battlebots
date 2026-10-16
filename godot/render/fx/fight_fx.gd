@@ -135,6 +135,23 @@ func start(match_, bot_models: Array[BotModel]) -> void:
 	_ground_prev = [[false, false, false], [false, false, false]]
 
 
+## The fight is over and gone (game.ts endMatch): its trails, parts, oil and vapour go with it.
+func stop() -> void:
+	m = null
+	models = []
+	fx.clear()
+	debris.clear()
+	oil.clear()
+	steam.clear()
+	for list in _trails:
+		for t in list:
+			fx.remove_trail(t)
+	_trails = [[], []]
+	_stumps = [[], []]
+	_feet.clear()
+	_oil_feet = [null, null, null, null]
+
+
 func _paint(i: int):
 	return m.specs[i].paint
 

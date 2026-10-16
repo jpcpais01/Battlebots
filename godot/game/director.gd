@@ -253,7 +253,7 @@ var scene_lambda := 3.0
 var clip := PackedFloat32Array()
 ## The far clip plane in the arena.
 var far := 120.0
-## Horizontal framing offset as a fraction of the view width (menus; not applied yet in Godot).
+## Horizontal framing offset as a fraction of the view width (menus): an off-centre frustum.
 var shift_x := 0.0
 ## Fight-shot zoom level: 'close' | 'normal' | 'wide'.
 var zoom := "normal"
@@ -650,6 +650,15 @@ func update(dt: float, m, alpha: float = 1.0) -> void:
 	camera.fov = lens_fov - _fov_kick
 	camera.near = clip[0] if clip.size() == 2 else 0.2 if pov >= 0 else 0.1
 	camera.far = clip[1] if clip.size() == 2 else far
+	# the picture slides sideways by shift_x of its width (three's setViewOffset, director.ts): an
+	# off-centre frustum of the same lens (the garage frames the robot left of its panel)
+	if absf(_shift) > 0.002:
+		var h := 2.0 * camera.near * tan(deg_to_rad(camera.fov) * 0.5)
+		camera.projection = Camera3D.PROJECTION_FRUSTUM
+		camera.size = h
+		camera.frustum_offset = Vector2(_shift * h * aspect, 0.0)
+	elif camera.projection != Camera3D.PROJECTION_PERSPECTIVE:
+		camera.projection = Camera3D.PROJECTION_PERSPECTIVE
 
 
 # ------------------------------------------------------------------ fight
