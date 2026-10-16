@@ -27,12 +27,14 @@ void vertex() {
 	bool print = MODEL_MATRIX[2].y > 0.5;
 	// prints are long and narrow; puddles a little oval
 	vec2 sc = print ? vec2(r * 1.1, r * 2.4) : vec2(r * aspect * 2.0, r * 2.0 / aspect);
-	vec2 l = VERTEX.xz * sc;
+	// the quad shrunk to the dots' bounds (x 20..110, y 23..102 of 128): under half the pixels
+	vec2 qv = mix(vec2(20.0, 23.0), vec2(110.0, 102.0), VERTEX.xz + 0.5) / 128.0 - 0.5;
+	vec2 l = qv * sc;
 	vec2 t = vec2(l.x * cos(rot) + l.y * sin(rot), -l.x * sin(rot) + l.y * cos(rot));
 	vec3 wp = vec3(o.x + t.x, 0.003, o.z + t.y);
 	v_world = wp;
 	// the plane's uv on three's flipped canvas: x across, z down the image
-	v_px = (VERTEX.xz + 0.5) * 128.0;
+	v_px = (qv + 0.5) * 128.0;
 	v_fade = MODEL_MATRIX[2].x * min(1.0, (now - MODEL_MATRIX[1].z) * 8.0);
 	VERTEX = (VIEW_MATRIX * vec4(wp, 1.0)).xyz;
 	// (the web's polygon offset: a hair toward the camera, so it never fights the canvas)

@@ -42,9 +42,9 @@ const FPS_CAPS := [0, 60, 30]
 ## A reduced 3D resolution is upscaled bilinearly: Godot 4.7 has FSR 1 on Forward+ only (the
 ## Mobile renderer warns and falls back), so FSR is used only where the game runs on Forward+.
 const TIERS := {
-	"low": {"msaa": Viewport.MSAA_2X, "shadow": false, "atlas": 2048, "soft": RenderingServer.SHADOW_QUALITY_HARD, "glow": false, "bicubic": false, "aniso": Viewport.ANISOTROPY_2X, "beams": false, "ao_map": 256, "res_px": 720},
-	"med": {"msaa": Viewport.MSAA_2X, "shadow": true, "atlas": 2048, "soft": RenderingServer.SHADOW_QUALITY_HARD, "glow": true, "bicubic": false, "aniso": Viewport.ANISOTROPY_4X, "beams": true, "ao_map": 384, "res_px": 900},
-	"high": {"msaa": Viewport.MSAA_4X, "shadow": true, "atlas": 4096, "soft": RenderingServer.SHADOW_QUALITY_SOFT_LOW, "glow": true, "bicubic": true, "aniso": Viewport.ANISOTROPY_16X, "beams": true, "ao_map": 512, "res_px": 0},
+	"low": {"msaa": Viewport.MSAA_2X, "shadow": false, "atlas": 2048, "soft": RenderingServer.SHADOW_QUALITY_HARD, "glow": false, "bicubic": false, "aniso": Viewport.ANISOTROPY_2X, "beams": false, "ao_map": 256, "detail": false, "res_px": 720},
+	"med": {"msaa": Viewport.MSAA_2X, "shadow": true, "atlas": 2048, "soft": RenderingServer.SHADOW_QUALITY_HARD, "glow": true, "bicubic": false, "aniso": Viewport.ANISOTROPY_4X, "beams": true, "ao_map": 384, "detail": false, "res_px": 900},
+	"high": {"msaa": Viewport.MSAA_4X, "shadow": true, "atlas": 4096, "soft": RenderingServer.SHADOW_QUALITY_SOFT_LOW, "glow": true, "bicubic": true, "aniso": Viewport.ANISOTROPY_16X, "beams": true, "ao_map": 512, "detail": true, "res_px": 0},
 }
 
 ## Where the settings live (a test points this somewhere else).
@@ -244,6 +244,8 @@ func _apply_quality() -> void:
 		# one shadowed light (the key spot): give it a whole quadrant, not a quarter of one
 		vp.set_positional_shadow_atlas_quadrant_subdiv(0, Viewport.SHADOW_ATLAS_QUADRANT_SUBDIV_1)
 	RenderingServer.positional_soft_shadow_filter_set_quality(t.soft)
+	# the robots' fine metal finish (surfaceDetail.ts: the web's high quality only)
+	RenderingServer.global_shader_parameter_set("bb_surface_detail", t.detail)
 	if key != null:
 		# (BB_NOSHADOW: tests that want none)
 		key.shadow_enabled = t.shadow and OS.get_environment("BB_NOSHADOW") == ""

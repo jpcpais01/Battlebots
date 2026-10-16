@@ -26,7 +26,8 @@ void vertex() {
 
 void fragment() {
 	CLEAR_VIEW
-	float edge = pow(abs(dot(normalize(NORMAL), normalize(VIEW))), 1.5);
-	float k = edge * (0.03 + 0.12 * v_y * v_y);
-	ALBEDO = color * 2.0 * k * k * smoothstep(1.0 - cut, 1.0 - cut + 0.22, v_y);
+	// (edge^1.5, squared: edge cubed, no pow)
+	float e = abs(dot(normalize(NORMAL), normalize(VIEW)));
+	float q = 0.03 + 0.12 * v_y * v_y;
+	ALBEDO = color * 2.0 * e * e * e * q * q * smoothstep(1.0 - cut, 1.0 - cut + 0.22, v_y);
 }

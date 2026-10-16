@@ -24,7 +24,9 @@ void fragment() {
 	float band = smoothstep(0.034, 0.04, rr) * (1.0 - smoothstep(0.07, 0.076, rr));
 	float seg = fract(a * 24.0 + spin);
 	float dash = band * smoothstep(0.0, 0.06, seg) * (1.0 - smoothstep(0.52, 0.58, seg));
-	float head = pow(0.5 + 0.5 * cos((a - spin * 0.25) * 12.566371), 6.0);
+	float c = 0.5 + 0.5 * cos((a - spin * 0.25) * 12.566371);
+	c *= c;
+	float head = c * c * c;
 	float k = seam * (0.8 + chase) + dash * (0.35 + head * chase * 2.5);
 	ALBEDO = color * k * glow;
 }
