@@ -7,3 +7,5 @@ dev-dist
 voice-raw
 .env
 .env.local
+# the commentary clips, copied from public/voice at build time (godot/tools/pack-voice.py)
+godot/assets/voice/
