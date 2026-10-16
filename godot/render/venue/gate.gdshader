@@ -1,7 +1,8 @@
 // The tunnel gates' energy curtain (venue.ts): a rim, scan lines, a sheen, and ripples where a
 // robot pushes through (hit: world point, strength).
 shader_type spatial;
-render_mode unshaded, cull_back;
+// (a ShaderMaterial without fog on the web)
+render_mode unshaded, cull_back, fog_disabled;
 #include "res://render/venue/common.gdshaderinc"
 
 uniform vec3 color = vec3(1.0);

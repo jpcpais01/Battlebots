@@ -60,6 +60,14 @@ export async function run() {
     if ((o as THREE.Mesh).material === (a.glowMat as THREE.Material)) o.name = 'ringGlow';
   });
   const v = arena.indoor as unknown as Any;
+  // the centre-hung screens (Scoreboard's canvas) and the tunnel gates (west, east)
+  v.group.traverse((o: THREE.Object3D) => {
+    const m = (o as THREE.Mesh).material as Any;
+    if (!m || Array.isArray(m)) return;
+    if (m.map && m.map === v.board.texture) o.name = 'scoreScreen';
+    const gi = (v.gates as THREE.Material[]).indexOf(m);
+    if (gi >= 0) o.name = `gate${gi}`;
+  });
   v.crowd.group.name = 'crowd';
   v.floor.group.name = 'floorShow';
   v.show.group.name = 'show';

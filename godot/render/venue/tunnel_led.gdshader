@@ -1,7 +1,8 @@
 // The entrance tunnels' LED strips (venue.ts): a chase running out towards the ring.
 // CUSTOM1 the strip colour (HDR), CUSTOM0.x aChase (position along the run, < 0 for steady strips).
 shader_type spatial;
-render_mode unshaded, cull_back;
+// (a ShaderMaterial without fog on the web)
+render_mode unshaded, cull_back, fog_disabled;
 #include "res://render/venue/common.gdshaderinc"
 
 varying vec3 v_c;

@@ -22,6 +22,11 @@ const KINDS := {
 	"floor_glow_points": ["res://render/venue/floor_glow_points.gdshader", {}],
 	"photo_flash": ["res://render/venue/photo_flash.gdshader", {}],
 	"truss_beams": ["res://render/venue/truss_beams.gdshader", {"aAlong": "CUSTOM0", "aSway": "CUSTOM1"}],
+	"show_beams": ["res://render/venue/show_beams.gdshader", {"aPos": "CUSTOM0", "aId": "CUSTOM1"}],
+	"show_heads": ["res://render/venue/show_heads.gdshader", {"aId": "CUSTOM0"}],
+	"pyro_fire": ["res://render/venue/pyro_fire.gdshader", {"aE": "CUSTOM0", "aR": "CUSTOM1", "aK": "CUSTOM2"}],
+	"pyro_sparks": ["res://render/venue/pyro_sparks.gdshader", {"aE": "CUSTOM0", "aR": "CUSTOM1"}],
+	"confetti": ["res://render/venue/confetti.gdshader", {"aR": "CUSTOM0"}],
 }
 
 ## The materials built so far, by bake material id and use.

@@ -1,7 +1,8 @@
 // The LED skirt round the stage (arena.ts): sponsor lettering scrolling round, and two bright
 // sweeps chasing round the ring, faster when the crowd is up. map holds two masks (r: a, g: b).
 shader_type spatial;
-render_mode unshaded, cull_back;
+// (a ShaderMaterial without fog on the web)
+render_mode unshaded, cull_back, fog_disabled;
 #include "res://render/venue/common.gdshaderinc"
 
 uniform sampler2D map : filter_linear_mipmap_anisotropic, repeat_enable;
@@ -17,5 +18,4 @@ void fragment() {
 	float chase = smoothstep(0.85, 1.0, fract(u * 2.0 - bb_time * (0.12 + 0.2 * bb_hype)));
 	float k = 0.5 + 0.4 * bb_hype + flash + chase * 0.7;
 	ALBEDO = (a * t.r + b * t.g) * k + vec3(0.018, 0.02, 0.028);
-	FOG = bb_fog(VERTEX);
 }
