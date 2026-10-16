@@ -1,0 +1,29 @@
+{
+  "modules": {
+    "src/sim/body.ts": "TBody",
+    "src/sim/brain.ts": "TBrain",
+    "src/sim/coach.ts": "TCoach",
+    "src/sim/damage.ts": "TDamage",
+    "src/sim/emote.ts": "TEmote",
+    "src/sim/entrance.ts": "TEntrance",
+    "src/sim/fighter.ts": "TFighter",
+    "src/sim/finisher.ts": "TFinisher",
+    "src/sim/grapple.ts": "TGrapple",
+    "src/sim/greet.ts": "TGreet",
+    "src/sim/match.ts": "TMatch",
+    "src/sim/math.ts": "TMath",
+    "src/sim/moves.ts": "TMoves",
+    "src/game/items.ts": "TItems",
+    "src/game/loadout.ts": "TLoadout",
+    "src/game/paint.ts": "TPaint"
+  },
+  "external": {
+    "src/sim/dmath.ts": {
+      "DM": "DM"
+    },
+    "src/perf.ts": {
+      "perf": "TPerf"
+    }
+  },
+  "overrides": {}
+}
