@@ -1,6 +1,6 @@
 /**
- * The sound of the animated home screens (synthesized, no assets): the beach's surf, gulls
- * and a little steel-drum tune, the gym's room tone and a beat on a tinny radio, the lounge's
+ * The sound of the animated home screens (synthesized, no assets): the beach's lapping water, a
+ * dove in the palms and a slow steel-drum tune, the gym's room tone and a beat on a tinny radio, the lounge's
  * rain on the window and lo-fi keys on a record player. Notes are
  * scheduled a little ahead on a timer so the loop keeps time whatever the frame rate.
  */
@@ -9,7 +9,7 @@ export type HomeSoundKind = 'beach' | 'gym' | 'lounge';
 const AHEAD = 0.35;
 
 // C major pentatonic-ish island tune: chord roots and a melody over 4 bars of 8 eighths
-const BEACH_BPM = 104;
+const BEACH_BPM = 86;
 const BEACH_ROOTS = [130.81, 110.0, 87.31, 98.0];
 const BEACH_TRIADS = [
   [261.63, 329.63, 392.0],
@@ -54,7 +54,7 @@ export class HomeSound {
   private timer = 0;
   private next = 0;
   private step = 0;
-  private gullAt = 0;
+  private birdAt = 0;
   /** Lounge: the next drip off the sill, the next roll of thunder. */
   private dripAt = 0;
   private thunderAt = 0;
@@ -96,7 +96,7 @@ export class HomeSound {
     this.music.connect(this.bus);
     this.next = t + 0.1;
     this.step = 0;
-    this.gullAt = t + 1.5;
+    this.birdAt = t + 1.5;
     this.dripAt = t + 1;
     this.thunderAt = t + 8 + Math.random() * 10;
     if (kind === 'beach') this.beach();
@@ -175,44 +175,43 @@ export class HomeSound {
   // ------------------------------------------------------------------ beach
 
   private beach() {
-    // the surf: a deep roll and a hissing wash, breathing on slow out-of-step swells
-    const roll = this.gain(0.05);
-    this.loopNoise(0.5).connect(this.filter('lowpass', 420)).connect(roll).connect(this.bus);
-    this.lfo(0.085, 0.04, roll.gain);
-    const wash = this.gain(0.018);
-    this.loopNoise(1).connect(this.filter('bandpass', 2600, 0.4)).connect(wash).connect(this.bus);
-    this.lfo(0.085, 0.016, wash.gain, 2.2);
+    // the lagoon lapping at the sand: a soft roll and a hissing wash, breathing with each little
+    // wave (the same 8.5 seconds as the swash on screen)
+    const roll = this.gain(0.03);
+    this.loopNoise(0.5).connect(this.filter('lowpass', 320)).connect(roll).connect(this.bus);
+    this.lfo(1 / 8.5, 0.024, roll.gain);
+    const wash = this.gain(0.013);
+    this.loopNoise(1).connect(this.filter('bandpass', 2400, 0.4)).connect(wash).connect(this.bus);
+    this.lfo(1 / 8.5, 0.012, wash.gain, 2.2);
     // a soft breeze
     const air = this.gain(0.008);
     this.loopNoise(0.8).connect(this.filter('bandpass', 900, 0.3)).connect(air).connect(this.bus);
     this.lfo(0.031, 0.006, air.gain);
   }
 
-  private gull(t: number) {
+  /** A zebra dove somewhere in the palms: a soft, rolling coo, rising and falling. */
+  private coo(t: number) {
     const ctx = this.ctx;
-    const n = 2 + ((Math.random() * 3) | 0);
-    const base = 1300 + Math.random() * 500;
     const pan = ctx.createStereoPanner();
-    pan.pan.value = Math.random() * 1.6 - 0.8;
+    pan.pan.value = Math.random() * 1.2 - 0.6;
     pan.connect(this.bus);
-    for (let i = 0; i < n; i++) {
-      const at = t + i * (0.2 + Math.random() * 0.06);
+    const base = 480 + Math.random() * 60;
+    const notes = [1, 1.12, 0.94, 1.06, 0.9];
+    let at = t;
+    for (let i = 0; i < notes.length; i++) {
+      const d = i === notes.length - 1 ? 0.34 : 0.13;
       const o = ctx.createOscillator();
-      o.type = 'sawtooth';
-      o.frequency.setValueAtTime(base, at);
-      o.frequency.exponentialRampToValueAtTime(base * 1.45, at + 0.05);
-      o.frequency.exponentialRampToValueAtTime(base * 0.75, at + 0.17);
-      const f = ctx.createBiquadFilter();
-      f.type = 'bandpass';
-      f.frequency.value = base * 1.6;
-      f.Q.value = 2.5;
+      o.type = 'sine';
+      o.frequency.setValueAtTime(base * notes[i], at);
+      o.frequency.exponentialRampToValueAtTime(base * notes[i] * 0.93, at + d);
       const g = ctx.createGain();
       g.gain.setValueAtTime(0.0001, at);
-      g.gain.exponentialRampToValueAtTime(0.012, at + 0.03);
-      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.18);
-      o.connect(f).connect(g).connect(pan);
+      g.gain.exponentialRampToValueAtTime(0.006, at + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + d);
+      o.connect(g).connect(pan);
       o.start(at);
-      o.stop(at + 0.2);
+      o.stop(at + d + 0.02);
+      at += d + 0.035;
     }
     window.setTimeout(() => pan.disconnect(), 3000);
   }
@@ -279,11 +278,11 @@ export class HomeSound {
   private beachStep(i: number, at: number) {
     const bar = ((i / 8) | 0) % 4;
     const e = i % 8;
-    if (e === 0 || e === 3 || e === 4) this.pluck('triangle', BEACH_ROOTS[bar], at, 0.4, 0.07, 600);
+    if (e === 0 || e === 3 || e === 4) this.pluck('triangle', BEACH_ROOTS[bar], at, 0.5, 0.06, 520);
     if (e === 2 || e === 6) for (const f of BEACH_TRIADS[bar]) this.pan(f, at, 0.012);
-    this.tick(at, e % 2 ? 0.05 : 0.08, e % 2 ? 0.006 : 0.01, 6000);
+    this.tick(at, e % 2 ? 0.05 : 0.08, e % 2 ? 0.004 : 0.007, 6000);
     const n = BEACH_TUNE[bar][e];
-    if (n >= 0) this.pan(523.25 * Math.pow(2, n / 12), at, 0.03);
+    if (n >= 0) this.pan(523.25 * Math.pow(2, n / 12), at, 0.024);
   }
 
   // ------------------------------------------------------------------ gym
@@ -460,9 +459,9 @@ export class HomeSound {
       this.next += eighth;
       this.step++;
     }
-    if (beach && now > this.gullAt) {
-      this.gull(now + 0.05);
-      this.gullAt = now + 4 + Math.random() * 7;
+    if (beach && now > this.birdAt) {
+      this.coo(now + 0.05);
+      this.birdAt = now + 9 + Math.random() * 12;
     }
     if (lounge && now > this.dripAt) {
       this.drip(now + 0.05);
