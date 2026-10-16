@@ -67,7 +67,7 @@ class Body extends RefCounted:
 		self.outside = JS.filled(TBody.JOINT_COUNT, 0.0)
 		self.cut = JS.filled(TBody.JOINT_COUNT, 0.0)
 		self.size_ = size_
-		self.radii = JS.map(TBody.RADII, func(r: float, _a1): return (r * size_))
+		self.radii = JS.map(TBody.RADII, func(r: float, _a1 = null, _a2 = null): return (r * size_))
 		var i: float = 0.0
 		while (i < TBody.JOINT_COUNT):
 			pos.append(restPose[i].clone())

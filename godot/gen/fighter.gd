@@ -336,7 +336,7 @@ class Fighter extends RefCounted:
 		self.tries = []
 		self.getupFail = 0.0
 		self.getupFrom = V3.new()
-		self.getupSnap = JS.array_from(TBody.JOINT_COUNT, func(_a0, _a1): return V3.new())
+		self.getupSnap = JS.array_from(TBody.JOINT_COUNT, func(_a0 = null, _a1 = null): return V3.new())
 		self.getupKeys = TFighter.GETUP_BACK
 		self.getupDur = 1.5
 		self._gch = JS.fill(JS.filled(19.0, null), 0.0)
@@ -403,10 +403,10 @@ class Fighter extends RefCounted:
 		self.rPitch = TMath.SpringNum.new(170.0, 13.0)
 		self.rDip = TMath.SpringNum.new(140.0, 12.0)
 		self.rRoll = TMath.SpringNum.new(160.0, 12.0)
-		self.sp = JS.array_from(10.0, func(_a0, _a1): return TMath.Spring1.new())
-		self.gsp = JS.array_from(4.0, func(_a0, _a1): return TMath.Spring1.new())
-		self.csp = JS.array_from(12.0, func(_a0, _a1): return TMath.Spring1.new())
-		self.isp = JS.array_from(12.0, func(_a0, _a1): return TMath.Spring1.new())
+		self.sp = JS.array_from(10.0, func(_a0 = null, _a1 = null): return TMath.Spring1.new())
+		self.gsp = JS.array_from(4.0, func(_a0 = null, _a1 = null): return TMath.Spring1.new())
+		self.csp = JS.array_from(12.0, func(_a0 = null, _a1 = null): return TMath.Spring1.new())
+		self.isp = JS.array_from(12.0, func(_a0 = null, _a1 = null): return TMath.Spring1.new())
 		self.armOut = [JS.f64(12.0), JS.f64(12.0)]
 		self.armOutSet = [false, false]
 		self.armSrc = [null, null]
@@ -458,7 +458,7 @@ class Fighter extends RefCounted:
 		self.footFlex = [0.0, 0.0]
 		self._hd = V3.new()
 		self._pd = V3.new()
-		self.L = JS.array_from(TBody.JOINT_COUNT, func(_a0, _a1): return V3.new())
+		self.L = JS.array_from(TBody.JOINT_COUNT, func(_a0 = null, _a1 = null): return V3.new())
 		self.hooks = null
 		self.index = index
 		self.name_ = name_
@@ -478,7 +478,7 @@ class Fighter extends RefCounted:
 			self.shield = true
 			self.shieldTimer = shieldCd
 		computeLocalPose(0.0)
-		var rest: Array = JS.map(L, func(v: V3, _a1): return v.clone().multiplyScalar(size_))
+		var rest: Array = JS.map(L, func(v: V3, _a1 = null, _a2 = null): return v.clone().multiplyScalar(size_))
 		self.body = TBody.Body.new(rest, size_)
 	
 	func legTorn() -> void:
@@ -541,7 +541,7 @@ class Fighter extends RefCounted:
 		self.yaw = yaw
 		self.spinYaw = 0.0
 		computeLocalPose(0.0)
-		var world: Array = JS.map(L, func(l: V3, _a1): return toWorld(l, V3.new()))
+		var world: Array = JS.map(L, func(l: V3, _a1 = null, _a2 = null): return toWorld(l, V3.new()))
 		body.teleport(world)
 		feet[0.0].pos.copy(world[12.0])
 		feet[1.0].pos.copy(world[15.0])
@@ -2256,7 +2256,7 @@ class Fighter extends RefCounted:
 	func updateGuardWeights(dt: float) -> void:
 		var w = guardW
 		var mode: String = (guardMode if ((state == "fight") or (state == "stun")) else "normal")
-		JS.for_each((["normal", "high", "body", "low"]), func(m: String, i: float): w[m] = gsp[i].to((1.0 if (m == mode) else 0.0), 16.0, 1.0, dt))
+		JS.for_each((["normal", "high", "body", "low"]), func(m: String, i: float, _a2 = null): w[m] = gsp[i].to((1.0 if (m == mode) else 0.0), 16.0, 1.0, dt))
 	
 	func strikeTwist(s) -> float:
 		var m = s.move

@@ -232,7 +232,7 @@ class Ctx extends RefCounted:
 		self.walk = 0.0
 		self.plant = 1.0
 		self.reach = 0.0
-		self.onBeat = func(): pass
+		self.onBeat = func(_a0 = null, _a1 = null): pass
 	
 	func reset() -> void:
 		self.face = "opp"
@@ -323,7 +323,7 @@ static func celebrationWeights(r) -> Array:
 ]
 
 static func only(w: Array, picks) -> Array:
-	var out: Array = JS.filter(w, func(e: Array, _a1): return ((e[1.0] >= 0.0) and ((not (picks != null)) or picks.has(e[0.0]))))
+	var out: Array = JS.filter(w, func(e: Array, _a1 = null, _a2 = null): return ((e[1.0] >= 0.0) and ((not (picks != null)) or picks.has(e[0.0]))))
 	if (not (picks != null)):
 		return out
 	var top: float = 0.0
@@ -447,9 +447,9 @@ class Showman extends RefCounted:
 					out[TEmote.EMOTES[id]] = true
 			return (out if (float(out.size()) != 0.0) else null)
 		var set_ = __f1
-		self.wins = set_.call((JS.filter(picks.win, func(id_2: String, _a1): return (TEmote.EMOTE_KIND[id_2] == "win")) if picks != null and picks.win != null else null))
-		self.taunts = set_.call((JS.filter(picks.taunt, func(id_3: String, _a1): return (TEmote.EMOTE_KIND[id_3] == "taunt")) if picks != null and picks.taunt != null else null))
-		self.entrances = set_.call((JS.filter(picks.get("entrance"), func(id_4: String, _a1): return (TEmote.EMOTE_KIND[id_4] == "entrance")) if picks != null and picks.get("entrance") != null else null))
+		self.wins = set_.call((JS.filter(picks.win, func(id_2: String, _a1 = null, _a2 = null): return (TEmote.EMOTE_KIND[id_2] == "win")) if picks != null and picks.win != null else null))
+		self.taunts = set_.call((JS.filter(picks.taunt, func(id_3: String, _a1 = null, _a2 = null): return (TEmote.EMOTE_KIND[id_3] == "taunt")) if picks != null and picks.taunt != null else null))
+		self.entrances = set_.call((JS.filter(picks.get("entrance"), func(id_4: String, _a1 = null, _a2 = null): return (TEmote.EMOTE_KIND[id_4] == "entrance")) if picks != null and picks.get("entrance") != null else null))
 		me.emote = pose
 		var __f2 = func(k: float, shake: float):
 			if match_ != null:
@@ -543,7 +543,7 @@ class Showman extends RefCounted:
 		if (not (wins != null)):
 			w = TEmote.encoreWeights(r, last)
 		else:
-			w = JS.map(Array(wins), func(s, _a1): return [s, (0.0 if ((is_same(s, TEmote.standOver)) and r.decision) else 1.5)])
+			w = JS.map(Array(wins), func(s, _a1 = null, _a2 = null): return [s, (0.0 if ((is_same(s, TEmote.standOver)) and r.decision) else 1.5)])
 			if (float(w.size()) < 2.0):
 				for s_2 in [TEmote.fistPumps, TEmote.wave, TEmote.lap]:
 					if (not wins.has(s_2)):
@@ -1094,7 +1094,13 @@ static func __init_module() -> void:
 			o_15[TEmote.EC.HEAD] += ((DM.sin((t_15 * 15.0)) * 0.045) * shake_2)
 			c_15.gaze = ("crowd" if ((t_15 > 1.6) and (t_15 < 2.7)) else "down")
 			c_15.beat(0.45, 0.35)
-		return {"id": "shrug", "len_": 4.4, "min_": 1.5, "line": func(me_2: String): return ((me_2) + " shrugs. Is that all?"), "sample": __f30}
+		return {
+	"id": "shrug",
+	"len_": 4.4,
+	"min_": 1.5,
+	"line": func(me_2: String, _a1 = null): return ((me_2) + " shrugs. Is that all?"),
+	"sample": __f30
+}
 	TEmote.shrug = (__f31).call()
 	var __f33 = func():
 		var point_2: PackedFloat32Array = TEmote.S({"crouch": 0.05, "pitch": 0.12, "twist": -0.3, "a": TEmote.POINT, "b": TEmote.HIP, "stance": null})
@@ -1142,7 +1148,13 @@ static func __init_module() -> void:
 			o_17[(TEmote.armI(1.0) + 2.0)] -= ((s * 0.08) * go)
 			c_17.gaze = ("crowd" if (t_17 < 1.6) else "down")
 			c_17.beat(1.7, 0.6)
-		return {"id": "shuffle", "len_": 4.0, "min_": 2.0, "line": func(me_4: String): return ((me_4) + " breaks out the shuffle!"), "sample": __f34}
+		return {
+	"id": "shuffle",
+	"len_": 4.0,
+	"min_": 2.0,
+	"line": func(me_4: String, _a1 = null): return ((me_4) + " breaks out the shuffle!"),
+	"sample": __f34
+}
 	TEmote.shuffle = (__f35).call()
 	var __f37 = func():
 		var set__9: PackedFloat32Array = TEmote.S({"crouch": 0.03, "pitch": -0.1, "a": TEmote.ROOF_LO, "b": TEmote.ROOF_LO, "stance": null})
@@ -1166,7 +1178,7 @@ static func __init_module() -> void:
 	"id": "crowdPump",
 	"len_": 3.8,
 	"min_": 1.8,
-	"line": func(me_5: String): return ((me_5) + " turns to the crowd for more noise!"),
+	"line": func(me_5: String, _a1 = null): return ((me_5) + " turns to the crowd for more noise!"),
 	"sample": __f36
 }
 	TEmote.crowdPump = (__f37).call()
@@ -1250,7 +1262,7 @@ static func __init_module() -> void:
 	"id": "gloveTap",
 	"len_": 4.0,
 	"min_": 1.4,
-	"line": func(me_7: String): return ((me_7) + " bangs the gloves together and waits."),
+	"line": func(me_7: String, _a1 = null): return ((me_7) + " bangs the gloves together and waits."),
 	"sample": __f40
 }
 	TEmote.gloveTap = (__f41).call()
@@ -1271,7 +1283,13 @@ static func __init_module() -> void:
 			c_21.turn = 3.0
 			c_21.gaze = ("crowd" if going else "down")
 			c_21.plant = 0.0
-		return {"id": "strut", "len_": 4.0, "min_": 1.8, "line": func(me_8: String): return ((me_8) + " struts around the ring."), "sample": __f42}
+		return {
+	"id": "strut",
+	"len_": 4.0,
+	"min_": 1.8,
+	"line": func(me_8: String, _a1 = null): return ((me_8) + " struts around the ring."),
+	"sample": __f42
+}
 	TEmote.strut = (__f43).call()
 	TEmote.ARRIVE = (TEntrance.ENTRY.arrive - TEntrance.ENTRY.start)
 	TEmote.E_LEAD = TEmote.arm([0.12, 0.28, 0.4], TEmote.GUARD.pole, 0.1)
@@ -1451,7 +1469,7 @@ static func __init_module() -> void:
 	TEmote.earthquake = (__f56).call()
 	TEmote.ENTRANCES = [TEmote.powerUp, TEmote.heroLanding, TEmote.coldStare, TEmote.crowdPleaser, TEmote.shadowBoxer, TEmote.earthquake]
 	TEmote._f = V3.new()
-	TEmote.EMOTES = JS.from_entries(JS.map(([TEmote.champion, TEmote.flex, TEmote.chestPound, TEmote.leap, TEmote.salute, TEmote.bow, TEmote.kneel, TEmote.shadowbox, TEmote.standOver, TEmote.fistPumps, TEmote.wave, TEmote.lap, TEmote.beckon, TEmote.shrug, TEmote.pointDown, TEmote.shuffle, TEmote.crowdPump, TEmote.stompRoar, TEmote.gloveTap, TEmote.strut, TEmote.bump] + TEmote.ENTRANCES.duplicate()), func(s_3, _a1): return [s_3.id, s_3]))
+	TEmote.EMOTES = JS.from_entries(JS.map(([TEmote.champion, TEmote.flex, TEmote.chestPound, TEmote.leap, TEmote.salute, TEmote.bow, TEmote.kneel, TEmote.shadowbox, TEmote.standOver, TEmote.fistPumps, TEmote.wave, TEmote.lap, TEmote.beckon, TEmote.shrug, TEmote.pointDown, TEmote.shuffle, TEmote.crowdPump, TEmote.stompRoar, TEmote.gloveTap, TEmote.strut, TEmote.bump] + TEmote.ENTRANCES.duplicate()), func(s_3, _a1 = null, _a2 = null): return [s_3.id, s_3]))
 	TEmote.EMOTE_INFO = [
 	{"id": "champion", "kind": "win", "name_": "Champion", "blurb": "Both fists to the sky, then a strut for the fans."},
 	{"id": "flex", "kind": "win", "name_": "Flex", "blurb": "Double biceps for the cameras."},
@@ -1495,4 +1513,4 @@ static func __init_module() -> void:
 },
 	{"id": "headhunter", "kind": "finish", "name_": "Headhunter", "blurb": "Chops them to their knees and kicks the head clean off."}
 ]
-	TEmote.EMOTE_KIND = JS.from_entries(JS.map(TEmote.EMOTE_INFO, func(e, _a1): return [e.id, e.kind]))
+	TEmote.EMOTE_KIND = JS.from_entries(JS.map(TEmote.EMOTE_INFO, func(e, _a1 = null, _a2 = null): return [e.id, e.kind]))

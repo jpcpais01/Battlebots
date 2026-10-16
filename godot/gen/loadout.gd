@@ -11,7 +11,7 @@ static func randomName(rng: TMath.Rng) -> String:
 
 static func rollRarity(rng: TMath.Rng, tier: float = 0.35) -> float:
 	var w: Array = [(1.0 - (tier * 0.6)), 0.75, (0.42 + (tier * 0.3)), (0.2 + (tier * 0.3)), (0.07 + (tier * 0.2))].slice(0.0, (TItems.MAX_RARITY + 1.0))
-	var sum: float = JS.reduce(w, func(a: float, b: float, _a2): return (a + b), 0.0)
+	var sum: float = JS.reduce(w, func(a: float, b: float, _a2 = null, _a3 = null): return (a + b), 0.0)
 	var r: float = (rng.next() * sum)
 	var i: float = 0.0
 	while (i < float(w.size())):
@@ -26,9 +26,9 @@ static func randomLoadout(rng: TMath.Rng, tier: float = 0.35):
 	var fan = (rng.pick(TItems.COMPANIES) if rng.chance(0.45) else null)
 	for slot: String in TItems.SLOTS:
 		var r: float = TLoadout.rollRarity(rng, tier)
-		var made: Array = JS.filter(TItems.itemsForSlot(slot), func(it, _a1): return (it.tier == r))
-		var all: Array = JS.filter(made, func(it_2, _a1): return (not (TItems.COMPANY_BY_ID.get(it_2.maker).get("needsFull") == true)))
-		var theirs: Array = (JS.filter(made, func(it_3, _a1): return (it_3.maker == fan.id)) if ((fan != null) and ((fan.get("needsFull") == true) or rng.chance(0.75))) else [])
+		var made: Array = JS.filter(TItems.itemsForSlot(slot), func(it, _a1 = null, _a2 = null): return (it.tier == r))
+		var all: Array = JS.filter(made, func(it_2, _a1 = null, _a2 = null): return (not (TItems.COMPANY_BY_ID.get(it_2.maker).get("needsFull") == true)))
+		var theirs: Array = (JS.filter(made, func(it_3, _a1 = null, _a2 = null): return (it_3.maker == fan.id)) if ((fan != null) and ((fan.get("needsFull") == true) or rng.chance(0.75))) else [])
 		out[slot] = TItems.equip(rng.pick((theirs if (float(theirs.size()) != 0.0) else all)))
 	return out
 

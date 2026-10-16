@@ -20,12 +20,27 @@
  * baked once on chest 0, split into its front unit and back reactor ("coreF/l", "coreB/l"), and
  * parts.json carries per chest how far each half shifts (coreShift); the app hangs the halves on
  * bones of their own.
+ *
+ * parts.json also carries per part its opaque corners' box and centre (`pieces`: min xyz, max xyz,
+ * the sum of every triangle corner and their count), which is what a torn-off piece is centred
+ * on (botModel.ts extract), without the app looping over its corners.
+ *
+ * hulls.bin: the contact hulls (src/render/contact.ts Hull, built exactly as botModel.ts builds
+ * them: the torso with the front of its core, the head, the pelvis) as their blurred distance
+ * fields, so the app never builds one (thousands of polygon distances and a 3D blur, far too slow
+ * in GDScript). Same table layout as parts.bin ("BBHL"). An entry: f64 dy, ox, oy, oz; u32 nx, ny,
+ * nz (the hull's own grid), u32 NZ (rows stored), u32 ref (1: add the "torsoBase/<chest>" entry),
+ * then i32 codes[nx * ny * NZ]: the field in units of 1/10000 m (rows past nz hold FAR), as second
+ * differences along x (each x row starts afresh), and minus the reference's when ref is 1. A
+ * torso's grid only ever differs from its bare chest's in how far forward it reaches (checked
+ * below), so its 18 cores are stored against the chest's own field: the differences are zero
+ * away from the core and pack to almost nothing.
  */
 import * as fs from 'node:fs';
 import * as zlib from 'node:zlib';
 import * as P from '../../../src/render/parts';
 import { SkinBuilder } from '../../../src/render/skin';
-import { samplePB, partRadius } from '../../../src/render/contact';
+import { samplePB, partRadius, Hull } from '../../../src/render/contact';
 import { surf, type Surfaces } from '../../../src/render/bake';
 import { PB } from '../../../src/render/partKit';
 
@@ -43,6 +58,7 @@ const u32s = (a: ArrayLike<number>) => { const b = Buffer.alloc(a.length * 4); f
 
 let parts = 0;
 let verts = 0;
+const pieces: Record<string, number[]> = {};
 function family(geo: any, lod: any, opaque: boolean) {
   const pos = geo.attributes.position.array as Float32Array;
   const n = pos.length / 3;
@@ -89,6 +105,20 @@ function part(key: string, pb: PB, keep = false) {
   sb.add(pb, 0, 'head', 0);
   const { opaque, emissive, opaqueLod, emissiveLod } = sb.build();
   out = [];
+  {
+    const pos = opaque.attributes.position.array as Float32Array;
+    const ix = opaque.index!.array as ArrayLike<number>;
+    const b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity, 0, 0, 0, ix.length];
+    for (let k = 0; k < ix.length; k++) {
+      for (let c = 0; c < 3; c++) {
+        const v = pos[ix[k] * 3 + c];
+        b[c] = Math.min(b[c], v);
+        b[3 + c] = Math.max(b[3 + c], v);
+        b[6 + c] += v;
+      }
+    }
+    pieces[key] = ix.length ? b.map((v) => +v.toPrecision(7)) : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  }
   family(opaque, opaqueLod, true);
   family(emissive, emissiveLod, false);
   table.push({ key, data: Buffer.concat(out) });
@@ -162,27 +192,93 @@ for (let c = 0; c < LOOKS; c++) {
 }
 const coreColors = Array.from({ length: LOOKS }, (_, l) => P.coreColor(l));
 
-const packed = table.map((t) => zlib.zstdCompressSync(t.data, { params: { [zlib.constants.ZSTD_c_compressionLevel]: 19 } }));
-const keys = table.map((t) => Buffer.from(t.key, 'utf8'));
-let offset = 12 + keys.reduce((s, k) => s + 2 + k.length + 12, 0);
-const head = Buffer.alloc(offset);
-head.write('BBPK', 0, 'ascii');
-head.writeUInt32LE(1, 4);
-head.writeUInt32LE(parts, 8);
-let o = 12;
-table.forEach((t, i) => {
-  head.writeUInt16LE(keys[i].length, o);
-  keys[i].copy(head, o + 2);
-  o += 2 + keys[i].length;
-  head.writeUInt32LE(offset, o);
-  head.writeUInt32LE(packed[i].length, o + 4);
-  head.writeUInt32LE(t.data.length, o + 8);
-  o += 12;
-  offset += packed[i].length;
-});
-const raw = table.reduce((s, t) => s + t.data.length, 0);
+// ------------------------------------------------------------------ contact hulls
+const Q = 10000;
+const FAR = 0.24;
+const skipAxles = new Set(['joint'] as const) as ReadonlySet<any>;
+const hulls: { key: string; data: Buffer }[] = [];
+/** Quantised field on a grid NZ rows deep (past the hull's own rows: FAR). */
+function lattice(h: any, NZ: number) {
+  const q = new Int32Array(h.nx * h.ny * NZ);
+  for (let k = 0; k < h.ny; k++)
+    for (let j = 0; j < NZ; j++)
+      for (let i = 0; i < h.nx; i++) q[(k * NZ + j) * h.nx + i] = Math.round((j < h.nz ? h.f[(k * h.nz + j) * h.nx + i] : FAR) * Q);
+  return q;
+}
+function hullEntry(key: string, h: any, NZ: number, q: Int32Array, ref: Int32Array | null) {
+  const head = Buffer.alloc(32 + 20);
+  head.writeDoubleLE(h.dy, 0);
+  head.writeDoubleLE(h.ox, 8);
+  head.writeDoubleLE(h.oy, 16);
+  head.writeDoubleLE(h.oz, 24);
+  head.writeUInt32LE(h.nx, 32);
+  head.writeUInt32LE(h.ny, 36);
+  head.writeUInt32LE(h.nz, 40);
+  head.writeUInt32LE(NZ, 44);
+  head.writeUInt32LE(ref ? 1 : 0, 48);
+  const codes = Buffer.alloc(q.length * 4);
+  const nx = h.nx;
+  const v = (i: number) => q[i] - (ref ? ref[i] : 0);
+  for (let i = 0; i < q.length; i++) {
+    const x = i % nx;
+    codes.writeInt32LE(x > 1 ? v(i) - 2 * v(i - 1) + v(i - 2) : x > 0 ? v(i) - v(i - 1) : v(i), i * 4);
+  }
+  hulls.push({ key, data: Buffer.concat([head, codes]) });
+}
+const same = (a: any, b: any) => a.dy === b.dy && a.ox === b.ox && a.oy === b.oy && a.oz === b.oz && a.nx === b.nx && a.ny === b.ny;
+for (let c = 0; c < LOOKS; c++) {
+  const torsoPts = samplePB(P.buildTorso(c), skipAxles);
+  const base: any = new Hull(torsoPts.slice());
+  // (botModel.ts: the core's front unit only, sampled before the chest)
+  const combos: any[] = [];
+  for (let l = 0; l < LOOKS; l++) {
+    const coreFront = new PB();
+    for (const e of P.buildCore(l, c).entries) if (e.m.elements[14] > 0) coreFront.entries.push(e);
+    const h: any = new Hull(samplePB(coreFront, undefined, torsoPts.slice()));
+    if (!same(h, base)) throw new Error(`torso ${c} core ${l}: its grid moved off the bare chest's`);
+    combos.push(h);
+  }
+  const NZ = Math.max(base.nz, ...combos.map((h) => h.nz));
+  const ref = lattice(base, NZ);
+  hullEntry(`torsoBase/${c}`, base, NZ, ref, null);
+  combos.forEach((h, l) => hullEntry(`torso/${c}/${l}`, h, NZ, lattice(h, NZ), ref));
+}
+for (let l = 0; l < LOOKS; l++) {
+  const head: any = new Hull(samplePB(P.buildHead(l)), 0.025);
+  hullEntry(`head/${l}`, head, head.nz, lattice(head, head.nz), null);
+  const pelvis: any = new Hull(samplePB(P.buildPelvis(l), skipAxles));
+  hullEntry(`pelvis/${l}`, pelvis, pelvis.nz, lattice(pelvis, pelvis.nz), null);
+}
+
+/** "MAGI" u32 version u32 entries, the key table, then each entry zstd-packed on its own. */
+function pack(magic: string, entries: { key: string; data: Buffer }[]) {
+  const packed = entries.map((t) => zlib.zstdCompressSync(t.data, { params: { [zlib.constants.ZSTD_c_compressionLevel]: 19 } }));
+  const keys = entries.map((t) => Buffer.from(t.key, 'utf8'));
+  let offset = 12 + keys.reduce((s, k) => s + 2 + k.length + 12, 0);
+  const head = Buffer.alloc(offset);
+  head.write(magic, 0, 'ascii');
+  head.writeUInt32LE(1, 4);
+  head.writeUInt32LE(entries.length, 8);
+  let o = 12;
+  entries.forEach((t, i) => {
+    head.writeUInt16LE(keys[i].length, o);
+    keys[i].copy(head, o + 2);
+    o += 2 + keys[i].length;
+    head.writeUInt32LE(offset, o);
+    head.writeUInt32LE(packed[i].length, o + 4);
+    head.writeUInt32LE(t.data.length, o + 8);
+    o += 12;
+    offset += packed[i].length;
+  });
+  return { buf: Buffer.concat([head, ...packed]), raw: entries.reduce((s, t) => s + t.data.length, 0), size: offset };
+}
+
+const partPack = pack('BBPK', table);
 const dir = new URL('../../assets/bots/', import.meta.url);
 fs.mkdirSync(dir, { recursive: true });
-fs.writeFileSync(new URL('parts.bin', dir), Buffer.concat([head, ...packed]));
-fs.writeFileSync(new URL('parts.json', dir), JSON.stringify({ opaqueKeys: OPAQUE_KEYS, radii, coreShift, coreColors }) + '\n');
-console.log(`${parts} parts, ${verts} vertices, ${(raw / 1e6).toFixed(1)} MB raw, ${(offset / 1e6).toFixed(1)} MB packed, ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+fs.writeFileSync(new URL('parts.bin', dir), partPack.buf);
+const hullPack = pack('BBHL', hulls);
+fs.writeFileSync(new URL('hulls.bin', dir), hullPack.buf);
+console.log(`${hulls.length} hulls, ${(hullPack.raw / 1e6).toFixed(1)} MB raw, ${(hullPack.size / 1e6).toFixed(2)} MB packed`);
+fs.writeFileSync(new URL('parts.json', dir), JSON.stringify({ opaqueKeys: OPAQUE_KEYS, radii, coreShift, coreColors, pieces }) + '\n');
+console.log(`${parts} parts, ${verts} vertices, ${(partPack.raw / 1e6).toFixed(1)} MB raw, ${(partPack.size / 1e6).toFixed(1)} MB packed, ${((performance.now() - t0) / 1000).toFixed(1)} s`);

@@ -682,7 +682,7 @@ class ModuleEmitter {
       if (p.questionToken) return `${nm} = null`;
       return `${nm}${ann ? ': ' + ann : ''}`;
     });
-    while (ps.length < padTo) ps.push(`_a${ps.length}`);
+    while (ps.length < padTo) ps.push(`_a${ps.length} = null`);
     return ps.join(', ');
   }
 
@@ -1557,6 +1557,13 @@ class ModuleEmitter {
     const scope = new Scope(ctx.scope);
     // locals were already named by the enclosing prepareFunction (it walks closures too)
     const c2 = { ...ctx, scope, pre: [], loops: [], cond: 0, inLambda: false };
+    // JavaScript ignores extra arguments and GDScript doesn't: take as many as the function's
+    // type says callers may pass (a taunt's line(me, opp) given as (me) => ...)
+    if (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) {
+      const ct = checker.getContextualType(fn);
+      const types = ct ? (ct.isUnion() ? ct.types : [ct]) : [];
+      for (const t of types) for (const s of t.getCallSignatures()) padTo = Math.max(padTo, s.parameters.length);
+    }
     const params = this.params(fn, c2, padTo);
     const sig = checker.getSignatureFromDeclaration(fn);
     const rt = sig ? checker.getReturnTypeOfSignature(sig) : null;

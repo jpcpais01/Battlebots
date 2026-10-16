@@ -49,3 +49,78 @@ window/stretch/aspect="expand"
 renderer/rendering_method="mobile"
 textures/vram_compression/import_etc2_astc=true
 anti_aliasing/quality/msaa_3d=2
+
+[shader_globals]
+
+bb_time={
+"type": "float",
+"value": 0.0
+}
+bb_hype={
+"type": "float",
+"value": 0.3
+}
+bb_flash={
+"type": "float",
+"value": 0.0
+}
+bb_house={
+"type": "float",
+"value": 0.6
+}
+bb_spot0={
+"type": "vec4",
+"value": Vector4(0, 0, 1, 0)
+}
+bb_spot1={
+"type": "vec4",
+"value": Vector4(0, 0, 1, 0)
+}
+bb_spot2={
+"type": "vec4",
+"value": Vector4(0, 0, 1, 0)
+}
+bb_fog_color={
+"type": "vec3",
+"value": Vector3(0.0021, 0.0031, 0.0062)
+}
+bb_fog_density={
+"type": "float",
+"value": 0.016
+}
+bb_ao_spheres={
+"type": "sampler2D",
+"value": ""
+}
+bb_ao_b0={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+bb_ao_b1={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+bb_ao_map={
+"type": "sampler2D",
+"value": ""
+}
+bb_clear_on={
+"type": "float",
+"value": 0.0
+}
+bb_clear_depth={
+"type": "float",
+"value": 0.0
+}
+bb_clear_span={
+"type": "vec2",
+"value": Vector2(0, 0)
+}
+bb_clear_cam={
+"type": "vec2",
+"value": Vector2(0, 0)
+}
+bb_clear_fwd={
+"type": "vec2",
+"value": Vector2(0, -1)
+}

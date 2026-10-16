@@ -16,7 +16,7 @@ static func samePaint(a, b) -> bool:
 	return (((((a.primary == b.primary) and (a.secondary == b.secondary)) and (a.accent == b.accent)) and (a.finish == b.finish)) and (a.frame == b.frame))
 
 static func schemeOf(p):
-	return JS.find(TPaint.SCHEMES, func(s, _a1): return TPaint.samePaint(s.paint, p))
+	return JS.find(TPaint.SCHEMES, func(s, _a1 = null, _a2 = null): return TPaint.samePaint(s.paint, p))
 
 static func paintKey(p) -> String:
 	return ((JS.s(p.primary)) + "." + (JS.s(p.secondary)) + "." + (JS.s(p.accent)) + "." + JS.s(p.finish) + "." + JS.s(p.frame))
@@ -58,7 +58,7 @@ static func paintsContrast(a, b) -> bool:
 	return (minf(minf(TPaint.dist(a.primary, b.primary), (TPaint.dist(a.secondary, b.primary) * 1.4)), (TPaint.dist(a.primary, b.secondary) * 1.4)) > 150.0)
 
 static func contrastingPaint(mine, rng = null):
-	var ok: Array = JS.filter(TPaint.SCHEMES, func(s, _a1): return ((not TPaint.samePaint(s.paint, mine)) and TPaint.paintsContrast(s.paint, mine)))
+	var ok: Array = JS.filter(TPaint.SCHEMES, func(s, _a1 = null, _a2 = null): return ((not TPaint.samePaint(s.paint, mine)) and TPaint.paintsContrast(s.paint, mine)))
 	var pick = (((rng.pick(ok) if (rng != null) else ok[0.0])) if (float(ok.size()) != 0.0) else TPaint.SCHEMES[fmod(((JS.index_of(TPaint.SCHEMES, JS.nullish(TPaint.schemeOf(mine), TPaint.SCHEMES[0.0])) + 5.0)), float(TPaint.SCHEMES.size()))])
 	return JS.merge([pick.paint])
 

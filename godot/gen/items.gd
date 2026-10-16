@@ -18,12 +18,12 @@ static func inPlay(item) -> bool:
 	return (item.tier <= TItems.MAX_RARITY)
 
 static func itemsForSlot(slot: String) -> Array:
-	return JS.filter(TItems.ITEMS, func(i, _a1): return ((i.slot == slot) and TItems.inPlay(i)))
+	return JS.filter(TItems.ITEMS, func(i, _a1 = null, _a2 = null): return ((i.slot == slot) and TItems.inPlay(i)))
 
 static func itemsOf(f = null) -> Array:
 	if f == null:
 		f = {}
-	return JS.filter(TItems.ITEMS, func(i, _a1): return ((((f.get("slot") == null) or (i.slot == f.get("slot"))) and ((f.get("maker") == null) or (i.maker == f.get("maker")))) and ((f.get("tier") == null) or (i.tier == f.get("tier")))))
+	return JS.filter(TItems.ITEMS, func(i, _a1 = null, _a2 = null): return ((((f.get("slot") == null) or (i.slot == f.get("slot"))) and ((f.get("maker") == null) or (i.maker == f.get("maker")))) and ((f.get("tier") == null) or (i.tier == f.get("tier")))))
 
 static func currentItemId(id: String):
 	return ((id if TItems.ITEM_BY_ID.has(id) else TItems.LEGACY_ITEMS[id]))
@@ -63,10 +63,14 @@ static func setsOf(loadout) -> Array:
 		if (item != null):
 			var __t1 = n.get(item.maker)
 			n[item.maker] = (((__t1 if __t1 != null else 0.0)) + 1.0)
-	var __f2 = func(company, _a1):
+	var __f2 = func(company, _a1 = null, _a2 = null):
 		var count: float = n.get(company.id)
-		return {"company": company, "count": count, "active": float(JS.filter(company.sets, func(b, _a1): return (count >= b.at)).size())}
-	return JS.map(JS.filter(TItems.COMPANIES, func(c, _a1): return n.has(c.id)), __f2)
+		return {
+	"company": company,
+	"count": count,
+	"active": float(JS.filter(company.sets, func(b, _a1 = null, _a2 = null): return (count >= b.at)).size())
+}
+	return JS.map(JS.filter(TItems.COMPANIES, func(c, _a1 = null, _a2 = null): return n.has(c.id)), __f2)
 const SIZE_MIN: float = 0.8
 const SIZE_MAX: float = 1.2
 
@@ -95,7 +99,7 @@ static func computeBuild(loadout, size_: float = 1.0):
 		var item = TItems.ITEM_BY_ID.get(eq.id)
 		tough[slot] = 0.0
 		var co = TItems.COMPANY_BY_ID.get(item.maker)
-		if ((co.get("needsFull") == true) and (JS.find(sets, func(st, _a1): return (is_same(st.company, co))).count < float(TItems.SLOTS.size()))):
+		if ((co.get("needsFull") == true) and (JS.find(sets, func(st, _a1 = null, _a2 = null): return (is_same(st.company, co))).count < float(TItems.SLOTS.size()))):
 			stalled.append(slot)
 			rating += 30.0
 			continue
@@ -324,7 +328,7 @@ static func __init_module() -> void:
 ]
 }
 ]
-	TItems.COMPANY_BY_ID = JS.map_from(JS.map(TItems.COMPANIES, func(c, _a1): return [c.id, c]))
+	TItems.COMPANY_BY_ID = JS.map_from(JS.map(TItems.COMPANIES, func(c, _a1 = null, _a2 = null): return [c.id, c]))
 	TItems.ITEMS = [
 	{
 	"id": "locomotive",
@@ -1567,8 +1571,8 @@ static func __init_module() -> void:
 	"look": 17.0
 }
 ]
-	TItems.LEGACY_ITEMS = JS.from_entries(JS.map(Array(((((((((("sentinel:kabuto piston:kote leech:zen counter:lamellar strider:hakama snap:kama " + "hawkeye:nighthawk peregrine:nighthawk rocket:sidewinder talon:sidewinder fusion:scramjet turbine:scramjet ") + "aero:wraith skyframe:wraith hopper:raptor swift:raptor whip:afterburner gale:afterburner ") + "oracle:vision seraph:vision thunder:touch arc:touch static:cell zenith:cell ") + "reactive:unibody lattice:unibody phantom:glide drift:glide comet:curve nova:curve ") + "bulwark:tianyan rampart:tianyan titan:jingang breaker:jingang aegis:qilin bunker:qilin ") + "juggernaut:greatwall citadel:greatwall anchor:longma pylon:longma sweeper:xuanfeng battering:xuanfeng ") + "berserker:centurione crucible:centurione brawler:colosseo anvil:colosseo overdrive:soledoro magma:soledoro ") + "plated:corazza foundry:corazza hydraulic:legionario steamhammer:legionario jet:spartano firebrand:spartano")).split(" ")), func(p: String, _a1): return Array(p.split(":"))))
-	TItems.ITEM_BY_ID = JS.map_from(JS.map(TItems.ITEMS, func(i, _a1): return [i.id, i]))
+	TItems.LEGACY_ITEMS = JS.from_entries(JS.map(Array(((((((((("sentinel:kabuto piston:kote leech:zen counter:lamellar strider:hakama snap:kama " + "hawkeye:nighthawk peregrine:nighthawk rocket:sidewinder talon:sidewinder fusion:scramjet turbine:scramjet ") + "aero:wraith skyframe:wraith hopper:raptor swift:raptor whip:afterburner gale:afterburner ") + "oracle:vision seraph:vision thunder:touch arc:touch static:cell zenith:cell ") + "reactive:unibody lattice:unibody phantom:glide drift:glide comet:curve nova:curve ") + "bulwark:tianyan rampart:tianyan titan:jingang breaker:jingang aegis:qilin bunker:qilin ") + "juggernaut:greatwall citadel:greatwall anchor:longma pylon:longma sweeper:xuanfeng battering:xuanfeng ") + "berserker:centurione crucible:centurione brawler:colosseo anvil:colosseo overdrive:soledoro magma:soledoro ") + "plated:corazza foundry:corazza hydraulic:legionario steamhammer:legionario jet:spartano firebrand:spartano")).split(" ")), func(p: String, _a1 = null, _a2 = null): return Array(p.split(":"))))
+	TItems.ITEM_BY_ID = JS.map_from(JS.map(TItems.ITEMS, func(i, _a1 = null, _a2 = null): return [i.id, i]))
 	TItems.SIZE_EFFECT = {
 	"hp": 0.1,
 	"armor": 0.0,
