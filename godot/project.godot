@@ -88,3 +88,39 @@ bb_fog_density={
 "type": "float",
 "value": 0.016
 }
+bb_ao_spheres={
+"type": "sampler2D",
+"value": ""
+}
+bb_ao_b0={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+bb_ao_b1={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+bb_ao_map={
+"type": "sampler2D",
+"value": ""
+}
+bb_clear_on={
+"type": "float",
+"value": 0.0
+}
+bb_clear_depth={
+"type": "float",
+"value": 0.0
+}
+bb_clear_span={
+"type": "vec2",
+"value": Vector2(0, 0)
+}
+bb_clear_cam={
+"type": "vec2",
+"value": Vector2(0, 0)
+}
+bb_clear_fwd={
+"type": "vec2",
+"value": Vector2(0, -1)
+}

@@ -5,6 +5,15 @@
 //
 // Output: <name>.json (the description) and <name>.bin (every buffer, 4-byte aligned).
 import * as THREE from 'three';
+import { contactAO } from '../../../../src/render/ao';
+
+// contactAO.patch() hides its options inside onBeforeCompile: keep a copy where the bake sees it
+// (userData.ao), so Godot can give each surface the same contact occlusion.
+const aoPatch = contactAO.patch.bind(contactAO);
+contactAO.patch = (mat, o) => {
+  mat.userData.ao = { ...o };
+  return aoPatch(mat, o);
+};
 
 type Json = Record<string, unknown>;
 
