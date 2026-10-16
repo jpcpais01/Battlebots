@@ -5,7 +5,8 @@ extends RefCounted
 static var TEMPO
 
 static func M(d):
-	return (JS.merge([d, {"windup": (d.windup * TMoves.TEMPO.windup), "active": (d.active * TMoves.TEMPO.active), "recovery": (d.recovery * TMoves.TEMPO.recovery)}]))
+	var _hTEMPO = TMoves.TEMPO
+	return (JS.merge([d, {"windup": (d.windup * _hTEMPO.windup), "active": (d.active * _hTEMPO.active), "recovery": (d.recovery * _hTEMPO.recovery)}]))
 static var MOVES
 static var BASIC_PUNCHES: Array
 

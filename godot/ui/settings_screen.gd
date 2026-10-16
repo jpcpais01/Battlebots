@@ -78,7 +78,7 @@ func _label_for(k: String) -> Array:
 		"zoom":
 			return ["Camera zoom", ""]
 		"perf":
-			return ["Performance stats", "Frame-rate counter"]
+			return ["Performance stats", "FPS and ms per part"]
 		"quality":
 			return ["Quality", "Auto picked %s" % _q_name(Settings.auto_quality()) if s.quality == "" else ""]
 		"resolution":

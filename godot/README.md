@@ -32,6 +32,12 @@ diff /tmp/ts.txt /tmp/gd.txt
 
 (`parity.ts` needs `three` resolvable, like the bake: set `THREE_MODULE` or install node_modules.)
 
+The translator also writes the sim for speed without changing a single result: module tables and
+scratch vectors are read into locals once per function, Vector3 calls are written out as field
+maths, and one-line maths helpers are written in place. `tests/sim_steps.gd` times every step of
+five fights; `tests/perf_hitches.gd` plays real-time fights and prints any slow frame by part
+(`BB_SIM_SLOW=<us>` makes each sim step that much slower, to see what a slow phone gets).
+
 ## Building the APK
 
 ```sh

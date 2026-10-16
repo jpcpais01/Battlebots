@@ -12,11 +12,9 @@ var _intro := IntroView.new()
 ## 1 while the robots are being presented (the bars wait off screen), easing to 0 for the countdown.
 var _intro_k := 0.0
 var _last_ms := 0
-## Frames per second in the top-left corner: frames counted over half a second, so the label
-## changes twice a second and costs nothing in between.
-var _fps := Label.new()
-var _fps_frames := 0
-var _fps_from := 0
+## The performance overlay (Settings: Performance stats): FPS, and what each part of the frame
+## costs on the CPU and the GPU (ui/perf_overlay.gd).
+var perf := PerfOverlay.new()
 ## The pause button, bottom left like the web's (hud.ts .hud-bl), and how far the intro has it
 ## hidden (style.css .hud.intro .hud-bl: faded, 1.5em down, not tappable).
 var _pause := UiTheme.icon_button("pause")
@@ -28,13 +26,7 @@ func _init() -> void:
 		c.set_anchors_preset(Control.PRESET_FULL_RECT)
 		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(c)
-	_fps.position = Vector2(8, 4)
-	_fps.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_fps.add_theme_font_size_override("font_size", 13)
-	_fps.add_theme_color_override("font_color", Color(1, 1, 1, 0.7))
-	_fps.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
-	_fps.add_theme_constant_override("outline_size", 3)
-	add_child(_fps)
+	add_child(perf)
 	_pause.theme = UiTheme.theme()
 	_pause.pressed.connect(func() -> void: pause_pressed.emit())
 	add_child(_pause)
@@ -67,27 +59,14 @@ static func bottom_margin(c: Control) -> float:
 	return m
 
 
-## Show or hide the FPS counter (the web's Performance stats setting).
+## Show or hide the performance overlay (the web's Performance stats setting).
 func show_fps(on: bool) -> void:
-	_fps.visible = on
-	_fps_from = 0
-	set_process(on)
+	perf.set_on(on)
 
 
 func _place_pause() -> void:
 	var at := Vector2(side_margin(_view), _view.size.y - bottom_margin(_view) - _pause.size.y)
 	_pause.position = at + Vector2(0, 24.0 * maxf(_pause_k, 0.0))
-
-
-func _process(_dt: float) -> void:
-	_fps_frames += 1
-	var now := Time.get_ticks_usec()
-	if now - _fps_from >= 500000:
-		if _fps_from > 0:
-			_fps.text = "%d FPS" % roundi(_fps_frames * 1e6 / (now - _fps_from))
-			_fps.position.x = side_margin(_view)
-		_fps_frames = 0
-		_fps_from = now
 
 
 func start(m) -> void:
@@ -212,6 +191,12 @@ class IntroView extends Control:
 			queue_redraw()
 
 	func _draw() -> void:
+		# (timed for the performance overlay's HUD row)
+		var t0 := Perf.now()
+		_draw_body()
+		Perf.add(Perf.HUD, t0)
+
+	func _draw_body() -> void:
 		var u := clampf(size.y / 720.0, 0.6, 2.0)
 		var fade := 1.0 - _gone
 		if _out >= 0 and _out_t < 0.3:
@@ -327,6 +312,12 @@ class HudView extends Control:
 		_font = ThemeDB.fallback_font
 
 	func _draw() -> void:
+		# (timed for the performance overlay's HUD row)
+		var t0 := Perf.now()
+		_draw_body()
+		Perf.add(Perf.HUD, t0)
+
+	func _draw_body() -> void:
 		if m == null or v.is_empty():
 			return
 		var now := Time.get_ticks_msec()

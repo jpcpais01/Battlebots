@@ -16,7 +16,7 @@ static func invLerp(a: float, b: float, v: float) -> float:
 	return TMath.clamp01((((v - a)) / ((b - a))))
 
 static func smoothstep_(a: float, b: float, v: float) -> float:
-	var t: float = TMath.invLerp(a, b, v)
+	var t: float = (TMath.clamp01((((v - a)) / ((b - a)))))
 	return ((t * t) * ((3.0 - (2.0 * t))))
 
 static func easeOutQuad(t: float) -> float:
@@ -138,8 +138,13 @@ static func closestOnSegment(p: V3, a: V3, b: V3, out: V3) -> float:
 	var abz: float = (b.z - a.z)
 	var len2: float = (((abx * abx) + (aby * aby)) + (abz * abz))
 	var t: float = ((((((((p.x - a.x)) * abx) + (((p.y - a.y)) * aby)) + (((p.z - a.z)) * abz))) / len2) if (len2 > ((float(4835703278458517) / 4611686018427387904) / 1048576)) else 0.0)
-	t = TMath.clamp01(t)
-	out.set3((a.x + (abx * t)), (a.y + (aby * t)), (a.z + (abz * t)))
+	t = (((0.0 if (t < 0.0) else (1.0 if (t > 1.0) else t))))
+	var __v1: float = (a.x + (abx * t))
+	var __v2: float = (a.y + (aby * t))
+	var __v3: float = (a.z + (abz * t))
+	out.x = __v1
+	out.y = __v2
+	out.z = __v3
 	return t
 
 static func dampVec(cur: V3, target: V3, lambda: float, dt: float) -> void:
@@ -167,7 +172,9 @@ class SpringVec extends RefCounted:
 		vel.x += ((((((tx - v.x)) * stiffness) - (vel.x * damping))) * dt)
 		vel.y += ((((((ty - v.y)) * stiffness) - (vel.y * damping))) * dt)
 		vel.z += ((((((tz - v.z)) * stiffness) - (vel.z * damping))) * dt)
-		v.addScaledVector(vel, dt)
+		v.x += vel.x * dt
+		v.y += vel.y * dt
+		v.z += vel.z * dt
 	
 	func kick(x: float, y: float, z: float) -> void:
 		vel.x += x
