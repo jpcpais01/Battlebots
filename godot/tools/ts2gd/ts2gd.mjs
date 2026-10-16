@@ -60,7 +60,14 @@ const RESERVED = new Set([
   'script', 'V3', 'JS', 'DM', 'TPerf', 'name',
 ]);
 // Short math helpers are fine as members (called through their class) but not as locals.
-const gd = (n) => (n === '_' ? '_u' : /^_+$/.test(n) ? n + 'u' : RESERVED.has(n) ? n + '_' : n);
+// Every name changed this way, for TInit.RENAMED: saves and other JSON go through
+// TInit.from_json/to_json so their keys match what the translated code reads.
+const RENAMED = new Map();
+const gd = (n) => {
+  const g = n === '_' ? '_u' : /^_+$/.test(n) ? n + 'u' : RESERVED.has(n) ? n + '_' : n;
+  if (g !== n && /^[A-Za-z_$][\w$]*$/.test(n)) RENAMED.set(n, g);
+  return g;
+};
 
 // --------------------------------------------------------------------------- program
 const roots = [...MODULES.keys()].map((p) => path.join(REPO, p));
@@ -135,6 +142,8 @@ const isArr = (t) => {
 const isList = (t) => isArr(t) || !!typedKind(t);
 const isMap = (t) => ['Map', 'ReadonlyMap'].includes(symName(t));
 const isSet = (t) => ['Set', 'ReadonlySet'].includes(symName(t));
+/** A Record<string, X> (an index signature and nothing else): any key may be missing. */
+const isKeyed = (t) => !!nonNull(t).getStringIndexType?.() && !nonNull(t).getProperties().length && !isList(t);
 const isAny = (t) => !!(t.flags & (F.Any | F.Unknown));
 /** The class declaration (in translated code) a type is an instance of, if any. */
 const classDeclOf = (t) => {
@@ -1318,6 +1327,8 @@ class ModuleEmitter {
     }
     if (ts.isPrefixUnaryExpression(e) && e.operator === K.ExclamationToken) return `(not ${this.cond(e.operand, ctx)})`;
     const t = typeOf(e);
+    // a Record<string, X> read may be undefined whatever X is
+    if (ts.isElementAccessExpression(e) && isKeyed(typeOf(e.expression))) return `JS.truthy(${this.expr(e, ctx)})`;
     return this.truthy(this.expr(e, ctx), t);
   }
 
@@ -1516,7 +1527,10 @@ class ModuleEmitter {
       if (maybeMissing && (ts.isBinaryExpression(parent) || ts.isPropertyAccessExpression(parent))) return `JS.idx(${recv}, ${idx})`;
       return `${recv}[${idx}]`;
     }
-    if (maybeMissing) return `${recv}.get(${idx})`;
+    // (a key read off data of unknown shape, e.g. a save, may simply not be there)
+    // (as is a read of a Record<string, X> by any key: JavaScript reads undefined for one it hasn't)
+    const keyed = isKeyed(rt);
+    if (maybeMissing || ((isAny(typeOf(node)) || keyed) && !isWriteTarget(node))) return `${recv}.get(${idx})`;
     return `${recv}[${idx}]`;
   }
 
@@ -1747,7 +1761,7 @@ class ModuleEmitter {
         cur = [];
         const t = typeOf(el.expression);
         const v = this.expr(el.expression, ctx);
-        segs.push(isArr(t) ? `${v}.duplicate()` : `Array(${v})`);
+        segs.push(isArr(t) ? `${v}.duplicate()` : isSet(t) ? `${v}.keys()` : `Array(${v})`);
         continue;
       }
       if (ts.isOmittedExpression(el)) {
@@ -2048,6 +2062,12 @@ class ModuleEmitter {
     }
     if (obj === 'console') return `print(${a().join(', ')})`;
     if (obj === 'JSON' && name === 'stringify') return `JSON.stringify(${a()[0]})`;
+    if (obj === 'JSON' && name === 'parse') {
+      // JSON.parse(JSON.stringify(x)), JavaScript's deep copy
+      const inner = skipOuter(node.arguments[0]);
+      if (ts.isCallExpression(inner) && inner.expression.getText() === 'JSON.stringify') return `(${this.expr(inner.arguments[0], ctx)}).duplicate(true)`;
+      return `TInit.from_json(JSON.parse_string(${a()[0]}))`;
+    }
     return null;
   }
 
@@ -2224,6 +2244,8 @@ class ModuleEmitter {
       const x = A();
       if (name === 'toFixed') return `JS.to_fixed(${r}, ${x[0] ?? '0.0'})`;
       if (name === 'toString') return `JS.s(${r})`;
+      // (only ever 'en-US' here: digits grouped in threes with commas)
+      if (name === 'toLocaleString') return `JS.to_locale(${r})`;
       fail(node, `number method ${name}`);
     }
     if (isFn(rt) && (name === 'call' || name === 'apply' || name === 'bind')) fail(node, `Function.${name}`);
@@ -2449,6 +2471,40 @@ for (const [src, cls] of MODULES) {
     '\t\treturn',
     '\tdone = true',
     ...order.map((src) => `\t${MODULES.get(src)}.__init_module()`),
+    '',
+    '',
+    '## Names the translation renamed (a JavaScript name that is a GDScript keyword or builtin),',
+    '## and so the dictionary keys the translated code reads and writes in their place.',
+    `const RENAMED := {${[...RENAMED].sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, v]) => `${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(', ')}}`,
+    'static var _unrenamed := {}',
+    '',
+    '',
+    '## Data parsed from JSON (a save, the cloud) with its keys renamed as the translated code',
+    '## names them, at every depth.',
+    'static func from_json(v: Variant) -> Variant:',
+    '\tif v is Dictionary:',
+    '\t\tvar out := {}',
+    '\t\tfor k in v:',
+    '\t\t\tout[RENAMED.get(k, k) if k is String else k] = from_json(v[k])',
+    '\t\treturn out',
+    '\tif v is Array:',
+    '\t\treturn (v as Array).map(from_json)',
+    '\treturn v',
+    '',
+    '',
+    '## The other way: translated data with its keys back to the JavaScript names, for JSON.',
+    'static func to_json(v: Variant) -> Variant:',
+    '\tif _unrenamed.is_empty():',
+    '\t\tfor k in RENAMED:',
+    '\t\t\t_unrenamed[RENAMED[k]] = k',
+    '\tif v is Dictionary:',
+    '\t\tvar out := {}',
+    '\t\tfor k in v:',
+    '\t\t\tout[_unrenamed.get(k, k) if k is String else k] = to_json(v[k])',
+    '\t\treturn out',
+    '\tif v is Array:',
+    '\t\treturn (v as Array).map(to_json)',
+    '\treturn v',
   ];
   fs.writeFileSync(path.join(OUT, 'init.gd'), lines.join('\n') + '\n');
 }

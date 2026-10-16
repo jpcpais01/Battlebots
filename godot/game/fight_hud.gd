@@ -19,6 +19,9 @@ var perf := PerfOverlay.new()
 ## hidden (style.css .hud.intro .hud-bl: faded, 1.5em down, not tappable).
 var _pause := UiTheme.icon_button("pause")
 var _pause_k := -1.0
+## A map event's rival for the next fight, billed in the intro: {style, taunt}, or null (hud.ts
+## rivalIntro; App sets it before each fight starts).
+var rival_intro = null
 
 
 func _init() -> void:
@@ -71,6 +74,9 @@ func _place_pause() -> void:
 
 func start(m) -> void:
 	_view.start(m)
+	# (the cards' part pictures come from the game: Game.thumbs)
+	_intro.game = get_parent()
+	_intro.rival = rival_intro
 	_intro.start(m)
 	_intro_k = 1.0 if m.phase == "intro" else 0.0
 
@@ -127,6 +133,15 @@ class IntroView extends Control:
 	var _styles: Array[String] = []
 	var _tunes: Array[String] = []
 	var _paint: Array[Color] = []
+	var _taunts: Array[String] = []
+	## The game the HUD is in (the cards' part pictures), and this fight's rival billing.
+	var game
+	var rival = null
+	## Each robot's card (botCard.ts), sliding in on its corner's side while it's presented.
+	var _cards: Array[BotCard] = []
+	var _specs := []
+	var _pic_wait := 0.0
+	var _taunt_font: Font
 	var _who := -1
 	## Seconds since the shown robot's presentation began, and since the last one was let go.
 	var _t := 0.0
@@ -143,10 +158,23 @@ class IntroView extends Control:
 		_styles.clear()
 		_tunes.clear()
 		_paint.clear()
+		_taunts.clear()
+		_specs.clear()
+		for c in _cards:
+			c.queue_free()
+		_cards.clear()
 		for i in 2:
 			var spec = m.specs[i]
+			var rv = rival if i == 1 else null
+			_specs.append(spec)
 			_names.append(str(spec.name_))
-			_styles.append(str(m.brains[i].traits.style).to_upper())
+			_styles.append(str(rv.style if rv != null else m.brains[i].traits.style).to_upper())
+			_taunts.append(str(rv.taunt) if rv != null else "")
+			# hud.ts showVs: the card, its parts popping in from 0.3s
+			var card := BotCard.make(game, spec, m.fighters[i].build, "r" if i == 1 else "l", "Challenger" if i == 1 else "Your bot", 0.3)
+			card.visible = false
+			add_child(card)
+			_cards.append(card)
 			_tunes.append(_walk_on(spec).to_upper())
 			_paint.append(Color.hex((int(spec.paint.primary) << 8) | 0xff))
 		_who = -1
@@ -158,6 +186,12 @@ class IntroView extends Control:
 		(_bold as SystemFont).font_names = PackedStringArray(["Russo One", "Arial Black", "Impact", "sans-serif"])
 		(_bold as SystemFont).font_weight = 800
 		(_bold as SystemFont).font_italic = true
+		# .banner .taunt: 0.95em, italic, 650
+		var tv := FontVariation.new()
+		tv.base_font = UiTheme.font(650)
+		tv.variation_transform = Transform2D(Vector2(1, 0), Vector2(0.2, 1), Vector2.ZERO)
+		_taunt_font = tv
+		_pic_wait = 0.5
 
 	## walkOn.ts walkOnFor: the bot's own pick, or one that always goes with its name (FNV-1a).
 	static func _walk_on(spec) -> String:
@@ -189,6 +223,51 @@ class IntroView extends Control:
 		visible = _gone < 1.0
 		if visible:
 			queue_redraw()
+			_place_cards(float(v.phaseTime) if intro else INF, dt)
+		else:
+			for c in _cards:
+				c.visible = false
+
+	## The cards: the one presented slides in from its side (slideL / slideR: 60vw, 0.6s), the one
+	## let go fades and drops (presentOut), all inside .present's padding, centred up and down.
+	func _place_cards(intro_t: float, dt: float) -> void:
+		if _cards.is_empty():
+			return
+		var fade := 1.0 - _gone
+		var pad := FightHud.side_margin(self)
+		var w := minf(size.x * 0.27, 16.0 * UiTheme.EM)
+		var top := 10.0
+		var bottom := size.y - (4.6 * UiTheme.EM + FightHud.bottom_margin(self) - 2.0)
+		for i in 2:
+			var c := _cards[i]
+			var a := 0.0
+			var dx := 0.0
+			var dy := 0.0
+			if i == _who:
+				a = fade
+				dx = (1.0 if i == 1 else -1.0) * size.x * 0.6 * (1.0 - _ease(clampf(_t / 0.6, 0.0, 1.0)))
+			elif i == _out and _out_t < 0.3:
+				var k := _out_t / 0.3
+				a = fade * (1.0 - k)
+				dy = 10.0 * k
+			c.visible = a > 0.0
+			if not c.visible:
+				continue
+			c.modulate.a = a
+			var h := c.get_combined_minimum_size().y
+			c.size = Vector2(w, h)
+			var x := size.x - pad - w if i == 1 else pad
+			c.position = Vector2(x + dx, top + maxf(0.0, (bottom - top - h) * 0.5) + dy)
+			# gearIn runs from when the cards were made (the start of the intro), shown or not
+			c.gear_at(intro_t)
+		# the garage's part renders come in a few frames after they're first asked for
+		if _pic_wait > 0.0:
+			_pic_wait -= dt
+			if _pic_wait <= 0.0:
+				var all := true
+				for i in 2:
+					all = _cards[i].refresh_pictures(game, _specs[i]) and all
+				_pic_wait = 0.0 if all else 0.5
 
 	func _draw() -> void:
 		# (timed for the performance overlay's HUD row)
@@ -217,12 +296,21 @@ class IntroView extends Control:
 		var pad := maxf(28.0 * u, FightHud.side_margin(self))
 		var edge := size.x - pad if right else pad
 		var y := size.y - 18.0 * u + drop
-		# bottom up: style, the name with its bar, the tune, the corner
+		# bottom up (the web's column top down: corner, name, style, taunt, tune)
 		var lines := []
+		var tune_col := side.lerp(Color.WHITE, 0.3)
+		tune_col.a = 0.85
+		lines.append(["\u266a  " + _tunes[i], int(0.72 * em), tune_col, 0.35, 0.45, _wide])
+		if _taunts[i] != "":
+			# a career rival's taunt (.banner .taunt: up to 22em wide, wrapping), last line first
+			var tfs := int(0.95 * em)
+			var wrapped := _wrap(_taunts[i], _taunt_font, tfs, minf(22.0 * tfs, size.x * 0.62))
+			wrapped.reverse()
+			for ln in wrapped:
+				lines.append([ln, tfs, Color.WHITE, 2.8, 0.5, _taunt_font])
 		lines.append([_styles[i], int(0.85 * em), MUTED, 2.35, 0.45, _wide])
 		lines.append(["\n", 0, side, 0.0, 0.0, null])
 		lines.append([_names[i], int(minf(3.4 * em, size.x * 0.085)), Color.WHITE, 1.95, 0.55, _bold])
-		lines.append(["\u266a  " + _tunes[i], int(0.72 * em), side.lerp(Color.WHITE, 0.3), 0.35, 0.45, _wide])
 		lines.append(["IN THE BLUE CORNER" if i == 0 else "AND IN THE ORANGE CORNER", int(0.8 * em), side, 0.1, 0.45, _wide])
 		for line in lines:
 			var text: String = line[0]
@@ -277,6 +365,21 @@ class IntroView extends Control:
 					draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
 			y -= lh + 0.15 * em
 
+	## `text` broken into lines no wider than `room` at `fs`.
+	static func _wrap(text: String, font: Font, fs: int, room: float) -> Array[String]:
+		var out: Array[String] = []
+		var line := ""
+		for word in text.split(" ", false):
+			var next := word if line == "" else line + " " + word
+			if line != "" and font.get_string_size(next, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > room:
+				out.append(line)
+				line = word
+			else:
+				line = next
+		if line != "":
+			out.append(line)
+		return out
+
 	## cubic-bezier(0.2, 1, 0.3, 1), near enough.
 	static func _ease(x: float) -> float:
 		return 1.0 - pow(1.0 - x, 4.0)
@@ -298,6 +401,8 @@ class HudView extends Control:
 	var _font: Font
 	var _c1: Array[Color] = []
 	var _c2: Array[Color] = []
+	## How much of the big call is left (it fades once the fight's over).
+	var _a := 1.0
 
 	func start(match_) -> void:
 		m = match_
@@ -320,6 +425,7 @@ class HudView extends Control:
 	func _draw_body() -> void:
 		if m == null or v.is_empty():
 			return
+		_a = 1.0
 		var now := Time.get_ticks_msec()
 		var dt := minf(0.1, (now - _last_ms) / 1000.0) if _last_ms > 0 else 0.0
 		_last_ms = now
@@ -398,6 +504,14 @@ class HudView extends Control:
 					sub += "\nTap for the next fight"
 		if text == "":
 			return
+		# the result clears off once the fight's over (hud.ts .finish.out, 0.5s; a decision's
+		# TIME! callout holds 1.8s): the loser's ride out has the screen
+		_a = 1.0
+		if v.phase == "end":
+			var hold := 1.8 if str(v.result) == "Decision" else 0.0
+			_a = clampf(1.0 - (float(v.phaseTime) - hold) / (0.4 if hold > 0.0 else 0.5), 0.0, 1.0)
+			if _a <= 0.0:
+				return
 		var room := size.x - 2.0 * FightHud.side_margin(self)
 		var fs := _fit(text, int(96 * u), room)
 		var tw := _font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
@@ -418,7 +532,8 @@ class HudView extends Control:
 		return fs if tw <= room else maxi(8, int(fs * room / tw))
 
 	func _text(at: Vector2, s: String, fs: int, col: Color, outline := 0) -> void:
-		draw_string_outline(_font, at + Vector2(0, 2), s, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, maxi(4, outline), Color(0, 0, 0, 0.75))
+		draw_string_outline(_font, at + Vector2(0, 2), s, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, maxi(4, outline), Color(0, 0, 0, 0.75 * _a))
+		col.a *= _a
 		draw_string(_font, at, s, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
 
 	## A chamfered bar shape: square at the outer end, cut on the clock side (mirrored for the right bar).

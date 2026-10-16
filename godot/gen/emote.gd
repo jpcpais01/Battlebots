@@ -448,13 +448,13 @@ class Showman extends RefCounted:
 		var __f1 = func(ids):
 			var out: Dictionary = {}
 			for id: String in (ids if ids != null else []):
-				if (TEmote.EMOTES[id] != null):
-					out[TEmote.EMOTES[id]] = true
+				if JS.truthy(TEmote.EMOTES.get(id)):
+					out[TEmote.EMOTES.get(id)] = true
 			return (out if (float(out.size()) != 0.0) else null)
 		var set_ = __f1
-		self.wins = set_.call((JS.filter(picks.win, func(id_2: String, _a1 = null, _a2 = null): return (TEmote.EMOTE_KIND[id_2] == "win")) if picks != null and picks.win != null else null))
-		self.taunts = set_.call((JS.filter(picks.taunt, func(id_3: String, _a1 = null, _a2 = null): return (TEmote.EMOTE_KIND[id_3] == "taunt")) if picks != null and picks.taunt != null else null))
-		self.entrances = set_.call((JS.filter(picks.get("entrance"), func(id_4: String, _a1 = null, _a2 = null): return (TEmote.EMOTE_KIND[id_4] == "entrance")) if picks != null and picks.get("entrance") != null else null))
+		self.wins = set_.call((JS.filter(picks.win, func(id_2: String, _a1 = null, _a2 = null): return (TEmote.EMOTE_KIND.get(id_2) == "win")) if picks != null and picks.win != null else null))
+		self.taunts = set_.call((JS.filter(picks.taunt, func(id_3: String, _a1 = null, _a2 = null): return (TEmote.EMOTE_KIND.get(id_3) == "taunt")) if picks != null and picks.taunt != null else null))
+		self.entrances = set_.call((JS.filter(picks.get("entrance"), func(id_4: String, _a1 = null, _a2 = null): return (TEmote.EMOTE_KIND.get(id_4) == "entrance")) if picks != null and picks.get("entrance") != null else null))
 		me.emote = pose
 		var __f2 = func(k: float, shake: float):
 			if match_ != null:
@@ -499,13 +499,13 @@ class Showman extends RefCounted:
 		return spec.id
 	
 	func preview(id: String, yaw: float) -> void:
-		var spec = TEmote.EMOTES[id]
+		var spec = TEmote.EMOTES.get(id)
 		if (not (spec != null)):
 			return
 		self.ringR = 0.9
 		var _hEMOTE_KIND = TEmote.EMOTE_KIND
-		var entrance: bool = (_hEMOTE_KIND[id] == "entrance")
-		play(spec, ("taunt" if (_hEMOTE_KIND[id] == "taunt") else ("greet" if entrance else "celebrate")), (0.3 if (fmod(plays, 2.0) != 0.0) else 0.7))
+		var entrance: bool = (_hEMOTE_KIND.get(id) == "entrance")
+		play(spec, ("taunt" if (_hEMOTE_KIND.get(id) == "taunt") else ("greet" if entrance else "celebrate")), (0.3 if (fmod(plays, 2.0) != 0.0) else 0.7))
 		if entrance:
 			self.skip = (TEmote.ARRIVE - 0.5)
 			c.T = (spec.len_ - skip)
@@ -552,7 +552,7 @@ class Showman extends RefCounted:
 		if (not (wins != null)):
 			w = TEmote.encoreWeights(r, last)
 		else:
-			w = JS.map(Array(wins), func(s, _a1 = null, _a2 = null): return [s, (0.0 if ((is_same(s, TEmote.standOver)) and r.decision) else 1.5)])
+			w = JS.map(wins.keys(), func(s, _a1 = null, _a2 = null): return [s, (0.0 if ((is_same(s, TEmote.standOver)) and r.decision) else 1.5)])
 			if (float(w.size()) < 2.0):
 				for s_2 in [_hfistPumps, _hwave, _hlap]:
 					if (not wins.has(s_2)):

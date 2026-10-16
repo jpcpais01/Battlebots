@@ -46,6 +46,10 @@ var show = null
 var corners = null
 ## How worked up the building is (arena.ts hype): 0.3 at rest, up to 1.5 after a finisher.
 var hype := 0.3
+## An event's own venue round the ring (render/venues/outdoor_venue.gd), or null: the indoor bowl.
+## See set_venue.
+var outdoor = null
+var _indoor_parts := []
 
 var _flash := 0.0
 var _house := 0.7
@@ -277,6 +281,37 @@ func strobe(k: float) -> void:
 	_flash = minf(1.0, _flash + k)
 
 
+## Put the ring in another venue (arena.ts setVenue, game.ts useVenue): `v` an event's
+## OutdoorVenue (render/venues/), or null for the indoor bowl. The ring stays; the bowl, its crowd,
+## screens, gates and follow spots give way to the venue's, the light shafts under the truss go
+## (VenueLike.beams), and the show's pyro and confetti move over (the outdoor show is the same rig
+## without the moving heads). Its light is the caller's (render/venues/venue_look.gd).
+func set_venue(v) -> void:
+	if v == outdoor:
+		return
+	if _indoor_parts.is_empty():
+		_indoor_parts = [crowd, board, _gates, {}]
+		for n in ["pyro", "confetti"]:
+			if node(n):
+				_indoor_parts[3][n] = node(n).get_parent()
+	if outdoor != null:
+		outdoor.visible = false
+	outdoor = v
+	crowd = v.crowd if v != null and v.crowd != null else _indoor_parts[0]
+	board = v.board if v != null and v.board != null else _indoor_parts[1]
+	_gates = v.gates if v != null else _indoor_parts[2]
+	var parents: Dictionary = _indoor_parts[3]
+	for n in parents:
+		node(n).reparent(v if v != null else parents[n], false)
+	for n in ["venue", "beams"]:
+		if node(n):
+			node(n).visible = v == null
+	if v != null:
+		v.visible = true
+		for i in 3:
+			RenderingServer.global_shader_parameter_set("bb_spot%d" % i, Vector4(0, -999, 1, 0))
+
+
 ## Once a frame, after crowd.update() and score() (arena.ts update, venue.ts update).
 func update(dt: float, time: float) -> void:
 	if _time_fixed >= 0.0:
@@ -302,6 +337,10 @@ func _venue_update(dt: float, time: float) -> void:
 		show.update(dt, time, hype)
 	_flash = maxf(0.0, _flash - dt * 0.8)
 	RenderingServer.global_shader_parameter_set("bb_flash", _flash)
+	if outdoor != null:
+		# (no follow spots out of doors: set_venue put them out) the venue's own animation
+		outdoor.update(dt, time)
+		return
 	# follow spots roaming the stands, livelier with the crowd
 	for i in 3:
 		var a := time * (0.09 + i * 0.03) * (-1.0 if i % 2 else 1.0) + i * 2.1

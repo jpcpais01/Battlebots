@@ -16,6 +16,14 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-16 21:00",
+    title: "The Android app gets its menus",
+    notes: [
+      "The Android app now has the whole game around the fights: the garage, the career map with its event venues, the Parts Market, the trophy room and the animated home scenes.",
+      "On Android, the Resolution setting now reads Low (0.5x), Normal (0.75x) and Extra (1x native).",
+    ],
+  },
+  {
     hour: "2026-10-16 16:00",
     title: "Lighter fights",
     notes: [

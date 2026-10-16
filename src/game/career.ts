@@ -79,9 +79,9 @@ export function sanitizeCareer(raw: unknown, events: EventsRecord): CareerState 
   };
 }
 
-/** Careers made just now, from a save that had none (not saved: it only matters at launch). */
-const born = new WeakSet<CareerState>();
-export const isNewCareer = (c: CareerState) => born.has(c);
+/** The career made last, from a save that had none (not saved: it only matters at launch). */
+let born: CareerState | null = null;
+export const isNewCareer = (c: CareerState) => c === born;
 
 /** A new career keeps the better parts the player already wears (from before career mode). */
 export function adoptWorn(c: CareerState, bots: BotSpec[]) {
@@ -102,7 +102,7 @@ function newCareer(events: EventsRecord): CareerState {
     fame += t * titleFame(e);
   }
   const c: CareerState = { credits, fame, owned: [], fresh: [], shop: { seed: freshSeed(), left: SHOP_EVERY, sold: [] }, earned: credits - START_CREDITS, found: 0 };
-  born.add(c);
+  born = c;
   return c;
 }
 
@@ -110,7 +110,7 @@ function newCareer(events: EventsRecord): CareerState {
 export function rankOf(fame: number) {
   let i = 0;
   while (i + 1 < RANKS.length && fame >= RANKS[i + 1].fame) i++;
-  const next = RANKS[i + 1];
+  const next = i + 1 < RANKS.length ? RANKS[i + 1] : null;
   const k = next ? (fame - RANKS[i].fame) / (next.fame - RANKS[i].fame) : 1;
   return { i, name: RANKS[i].name, next: next?.name ?? null, toNext: next ? next.fame - fame : 0, k };
 }

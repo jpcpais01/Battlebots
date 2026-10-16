@@ -26,3 +26,43 @@ static func run() -> void:
 	TMatch.__init_module()
 	TPaint.__init_module()
 	TLoadout.__init_module()
+	TCatalogue.__init_module()
+	TEvents.__init_module()
+	TCareer.__init_module()
+	TWalkOns.__init_module()
+	TSaves.__init_module()
+	TPatchNotes.__init_module()
+
+
+## Names the translation renamed (a JavaScript name that is a GDScript keyword or builtin),
+## and so the dictionary keys the translated code reads and writes in their place.
+const RENAMED := {"_": "_u", "clamp": "clamp_", "clear": "clear_", "cos": "cos_", "floor": "floor_", "int": "int_", "keys": "keys_", "len": "len_", "lerp": "lerp_", "load": "load_", "match": "match_", "max": "max_", "min": "min_", "name": "name_", "range": "range_", "round": "round_", "seed": "seed_", "set": "set_", "sign": "sign_", "size": "size_", "smoothstep": "smoothstep_", "tr": "tr_"}
+static var _unrenamed := {}
+
+
+## Data parsed from JSON (a save, the cloud) with its keys renamed as the translated code
+## names them, at every depth.
+static func from_json(v: Variant) -> Variant:
+	if v is Dictionary:
+		var out := {}
+		for k in v:
+			out[RENAMED.get(k, k) if k is String else k] = from_json(v[k])
+		return out
+	if v is Array:
+		return (v as Array).map(from_json)
+	return v
+
+
+## The other way: translated data with its keys back to the JavaScript names, for JSON.
+static func to_json(v: Variant) -> Variant:
+	if _unrenamed.is_empty():
+		for k in RENAMED:
+			_unrenamed[RENAMED[k]] = k
+	if v is Dictionary:
+		var out := {}
+		for k in v:
+			out[_unrenamed.get(k, k) if k is String else k] = to_json(v[k])
+		return out
+	if v is Array:
+		return (v as Array).map(to_json)
+	return v

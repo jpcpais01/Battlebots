@@ -240,7 +240,7 @@ class Brain extends RefCounted:
 	"Out-fighter": [0.85, 0.3, 0.1],
 	"Counter-puncher": [0.3, 0.55, 0.3]
 }
-		var __t1 = lean[style]
+		var __t1 = lean.get(style)
 		var fw: float = __t1[0]
 		var hm: float = __t1[1]
 		var pl: float = __t1[2]
@@ -264,7 +264,7 @@ class Brain extends RefCounted:
 	"plumPref": 0.0
 }
 		var grab = {"Boxer": 0.3, "Brawler": 0.65, "Swarmer": 0.6, "Out-fighter": 0.15, "Counter-puncher": 0.35}
-		t.grappling = TMath.clamp_((((grab[style] + (((st.stability - 1.0)) * 0.9)) + (power * 0.3)) + r.range_(-0.18, 0.18)), 0.05, 0.95)
+		t.grappling = TMath.clamp_((((grab.get(style) + (((st.stability - 1.0)) * 0.9)) + (power * 0.3)) + r.range_(-0.18, 0.18)), 0.05, 0.95)
 		t.plumPref = TMath.clamp_(((r.range_(0.0, 1.0) + ((0.3 if (f.kickAbility == "flyingKnee") else 0.0))) - (((st.stability - 1.0)) * 0.6)), 0.0, 1.0)
 		return t
 	

@@ -15,7 +15,13 @@
     "src/sim/moves.ts": "TMoves",
     "src/game/items.ts": "TItems",
     "src/game/loadout.ts": "TLoadout",
-    "src/game/paint.ts": "TPaint"
+    "src/game/paint.ts": "TPaint",
+    "src/game/catalogue.ts": "TCatalogue",
+    "src/game/events.ts": "TEvents",
+    "src/game/career.ts": "TCareer",
+    "src/game/walkOns.ts": "TWalkOns",
+    "src/game/saves.ts": "TSaves",
+    "src/patchNotes.ts": "TPatchNotes"
   },
   "external": {
     "src/sim/dmath.ts": {
@@ -26,6 +32,16 @@
     }
   },
   "overrides": {
+    "src/patchNotes.ts:hourLabel": [
+      "# (the web's Date and toLocale*String: the UTC hour in the phone's own time zone, as \"Oct 12 · 19:00\")",
+      "if not RegEx.create_from_string(\"^\\\\d{4}-\\\\d{2}-\\\\d{2} \\\\d{2}:\\\\d{2}$\").search(hour):",
+      "\treturn hour",
+      "var t := Time.get_unix_time_from_datetime_string(hour.replace(\" \", \"T\") + \":00\")",
+      "t += int(Time.get_time_zone_from_system().bias) * 60",
+      "var d := Time.get_datetime_dict_from_unix_time(t)",
+      "var months := [\"Jan\", \"Feb\", \"Mar\", \"Apr\", \"May\", \"Jun\", \"Jul\", \"Aug\", \"Sep\", \"Oct\", \"Nov\", \"Dec\"]",
+      "return \"%s %d · %02d:%02d\" % [months[int(d.month) - 1], int(d.day), int(d.hour), int(d.minute)]"
+    ],
     "src/sim/math.ts:Rng.next": [
       "# (mulberry32 in 64-bit ints rather than through JS.imul/bxor/ushr: the same 32-bit maths, no calls)",
       "self.s += float(1831565813)",

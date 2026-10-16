@@ -26,7 +26,7 @@ static func itemsOf(f = null) -> Array:
 	return JS.filter(TItems.ITEMS, func(i, _a1 = null, _a2 = null): return ((((f.get("slot") == null) or (i.slot == f.get("slot"))) and ((f.get("maker") == null) or (i.maker == f.get("maker")))) and ((f.get("tier") == null) or (i.tier == f.get("tier")))))
 
 static func currentItemId(id: String):
-	return ((id if TItems.ITEM_BY_ID.has(id) else TItems.LEGACY_ITEMS[id]))
+	return ((id if TItems.ITEM_BY_ID.has(id) else TItems.LEGACY_ITEMS.get(id)))
 
 static func equip(item):
 	return ({"id": item.id, "rarity": item.tier})

@@ -99,6 +99,21 @@ static func to_fixed(x: float, d: float) -> String:
 	return String.num(x, int(d)).pad_decimals(int(d)) if d > 0.0 else str(int(round(x)))
 
 
+## Number.toLocaleString('en-US') for whole numbers: "1,250".
+static func to_locale(x: float) -> String:
+	var t := s(x)
+	var neg := t.begins_with("-")
+	if neg:
+		t = t.substr(1)
+	var dot := t.find(".")
+	var whole := t if dot < 0 else t.substr(0, dot)
+	var out := ""
+	while whole.length() > 3:
+		out = "," + whole.substr(whole.length() - 3) + out
+		whole = whole.substr(0, whole.length() - 3)
+	return ("-" if neg else "") + whole + out + ("" if dot < 0 else t.substr(dot))
+
+
 static func pad_start(s: String, n: float, c: String = " ") -> String:
 	var out := s
 	while out.length() < int(n):
@@ -561,8 +576,9 @@ static func str_replace(s: String, what: String, with: String) -> String:
 	return s.substr(0, i) + with + s.substr(i + what.length())
 
 
-static func is_integer(x: float) -> bool:
-	return is_finite(x) and x == floorf(x)
+## Number.isInteger: false for anything that isn't a number (a save may hold anything).
+static func is_integer(x: Variant) -> bool:
+	return (x is float or x is int) and is_finite(x) and x == floorf(x)
 
 
 static func fround(x: float) -> float:
