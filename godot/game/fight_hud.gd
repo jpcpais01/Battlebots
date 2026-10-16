@@ -9,6 +9,11 @@ var _intro := IntroView.new()
 ## 1 while the robots are being presented (the bars wait off screen), easing to 0 for the countdown.
 var _intro_k := 0.0
 var _last_ms := 0
+## Frames per second in the top-left corner: frames counted over half a second, so the label
+## changes twice a second and costs nothing in between.
+var _fps := Label.new()
+var _fps_frames := 0
+var _fps_from := 0
 
 
 func _init() -> void:
@@ -16,6 +21,23 @@ func _init() -> void:
 		c.set_anchors_preset(Control.PRESET_FULL_RECT)
 		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(c)
+	_fps.position = Vector2(8, 4)
+	_fps.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fps.add_theme_font_size_override("font_size", 13)
+	_fps.add_theme_color_override("font_color", Color(1, 1, 1, 0.7))
+	_fps.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
+	_fps.add_theme_constant_override("outline_size", 3)
+	add_child(_fps)
+
+
+func _process(_dt: float) -> void:
+	_fps_frames += 1
+	var now := Time.get_ticks_usec()
+	if now - _fps_from >= 500000:
+		if _fps_from > 0:
+			_fps.text = "%d FPS" % roundi(_fps_frames * 1e6 / (now - _fps_from))
+		_fps_frames = 0
+		_fps_from = now
 
 
 func start(m) -> void:
