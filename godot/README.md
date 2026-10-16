@@ -39,6 +39,11 @@ godot/tools/setup-container.sh   # once per container: Godot, templates, SDK sta
 godot/tools/build-apk.sh         # -> godot/build/battlebots.apk
 ```
 
+Every merge to main that touches `godot/` also builds the APK on GitHub and publishes it on the
+repo's Releases page (`.github/workflows/android-release.yml`, signed with the release key from
+the repository secrets named at the top of that file). The newest one is always at
+`releases/latest/download/Battlebots.apk`.
+
 Translation rules worth knowing: every number is a double, `%` is `fmod`, bit operations go
 through int32 helpers, and long float literals are written as exact integer ratios because
 Godot's literal parser rounds some of them differently from JavaScript.
