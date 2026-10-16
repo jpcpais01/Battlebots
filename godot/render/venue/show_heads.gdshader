@@ -27,6 +27,7 @@ void vertex() {
 }
 
 void fragment() {
+	CLEAR_VIEW
 	vec2 d = POINT_COORD - 0.5;
 	float r = dot(d, d);
 	if (r > 0.25) discard;

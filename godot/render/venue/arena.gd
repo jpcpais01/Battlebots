@@ -71,6 +71,7 @@ func _init() -> void:
 	scene = BakedScene.open(BAKE)
 	scene.factory = mats.make
 	scene.build(self)
+	mats.mark_clear(scene)
 	var crowd_mats: Array = mats.by_kind.get("crowd", [])
 	crowd = ArenaCrowd.new(crowd_mats[0] if crowd_mats.size() > 0 else null)
 	var flash_mats: Array = mats.by_kind.get("photo_flash", [])
@@ -102,8 +103,8 @@ func _init() -> void:
 		_rope_u[k * 4] = 0.5
 		_rope_u[k * 4 + 2] = 1.0
 	# integration: one line each (show.gd / corners.gd); every use below is null-checked
-	# show = Show.new(self)
-	# corners = Corners.new(self)
+	show = Show.new(self)
+	corners = Corners.new(self)
 	if OS.get_environment("BB_HOUSE") != "":
 		# a fixed exposure, for matching the web reference renders (shot.ts `house=`)
 		_house_fixed = float(OS.get_environment("BB_HOUSE"))

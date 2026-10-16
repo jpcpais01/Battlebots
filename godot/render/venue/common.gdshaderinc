@@ -29,3 +29,9 @@ vec4 bb_fog(vec3 view_pos) {
 }
 
 float bb_hash(float n) { return fract(sin(n) * 43758.5453); }
+
+// The camera's clear view of the fight (render/clear/clear_view.gdshaderinc): VenueMaterials sets
+// clear_ok on materials of anything rising above the floor; CLEAR_VIEW opens their fragment().
+#include "res://render/clear/clear_view.gdshaderinc"
+uniform bool clear_ok = false;
+#define CLEAR_VIEW if (clear_ok && clear_view_gone((INV_VIEW_MATRIX * vec4(VERTEX, 1.0)).xz, FRAGCOORD.xy)) discard;

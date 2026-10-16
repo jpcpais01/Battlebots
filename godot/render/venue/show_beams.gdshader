@@ -58,6 +58,7 @@ void vertex() {
 }
 
 void fragment() {
+	CLEAR_VIEW
 	// brightest through the middle of the shaft, nothing at its edges
 	float edge = abs(dot(normalize(v_n), normalize(VIEW)));
 	edge *= edge;

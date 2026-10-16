@@ -61,6 +61,26 @@ func make(rec: Dictionary, node: Dictionary, scene: BakedScene) -> Array:
 	return [null, {}]
 
 
+## ClearView (clearView.ts apply): every material of something rising above the floor may
+## dissolve when it stands between the lens and the robots; floor-level ones never do.
+func mark_clear(scene: BakedScene) -> void:
+	var world: Array[Transform3D] = []
+	world.resize(scene.nodes.size())
+	for i in scene.nodes.size():
+		var n: Node3D = scene.nodes[i]
+		var p: int = scene.json.nodes[i].parent
+		world[i] = n.transform if p < 0 else world[p] * n.transform
+		var mi := n as MeshInstance3D
+		if mi == null or mi.mesh == null:
+			continue
+		if (world[i] * mi.mesh.get_aabb()).end.y < 0.3:
+			continue
+		for k in mi.mesh.get_surface_count():
+			var sm := mi.mesh.surface_get_material(k) as ShaderMaterial
+			if sm:
+				sm.set_shader_parameter("clear_ok", true)
+
+
 func _cached(key: String, build: Callable) -> Material:
 	if not _cache.has(key):
 		_cache[key] = build.call()
@@ -185,6 +205,7 @@ void vertex() {
 #endif
 }
 void fragment() {
+	CLEAR_VIEW
 	vec3 c = color;
 	float a = opacity;
 #ifdef VCOL
@@ -236,6 +257,19 @@ func _standard(rec: Dictionary, scene: BakedScene, house: bool) -> Material:
 		defs.append("HOUSE")
 	if rec.transparent:
 		defs.append("BLEND")
+	# contact occlusion near the robots (ao.ts patch options, kept by the bake)
+	var ao: Dictionary = rec.userData.get("ao", {})
+	if not ao.is_empty():
+		defs.append("AO_ON")
+		if ao.get("floor", false):
+			defs.append("AO_FLOOR")
+		if ao.get("spheres", false):
+			# a flat floor at the map's strength reads the top-down map instead of looping
+			defs.append("AO_MAP" if ao.get("floor", false) and float(ao.get("strength", 1.0)) == 2.0 else "AO_SPHERES")
+		if ao.has("ground"):
+			defs.append("AO_GROUND")
+		if ao.has("stage"):
+			defs.append("AO_STAGE")
 	var code := "shader_type spatial;\n" + _render_mode(rec, false)
 	for d in defs:
 		code += "#define " + d + "\n"
@@ -255,11 +289,27 @@ func _standard(rec: Dictionary, scene: BakedScene, house: bool) -> Material:
 		_tex_params(scene, m, "map", rec.map)
 	if rec.has("emissiveMap"):
 		_tex_params(scene, m, "emap", rec.emissiveMap)
+	if not ao.is_empty():
+		m.set_shader_parameter("ao_strength", float(ao.get("strength", 1.0)))
+		m.set_shader_parameter("ao_direct", float(ao.get("direct", 0.35)))
+		var g: Dictionary = ao.get("ground", {})
+		if not g.is_empty():
+			m.set_shader_parameter("ao_g", Vector3(g.y, g.height, g.k))
+		var st: Dictionary = ao.get("stage", {})
+		if not st.is_empty():
+			m.set_shader_parameter("ao_s", Vector3(st.r0, st.r1, st.k))
 	return m
 
 
 const STANDARD_BODY := """
 #include "res://render/venue/common.gdshaderinc"
+#ifdef AO_ON
+#include "res://render/ao/contact_ao.gdshaderinc"
+uniform float ao_strength = 1.0;
+uniform float ao_direct = 0.35;
+uniform vec3 ao_g = vec3(0.0, 0.5, 0.0);
+uniform vec3 ao_s = vec3(5.9, 8.2, 0.0);
+#endif
 uniform vec3 color = vec3(1.0);
 uniform float opacity = 1.0;
 uniform float metalness = 0.0;
@@ -278,6 +328,7 @@ void vertex() {
 	w_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 void fragment() {
+	CLEAR_VIEW
 	vec3 c = color;
 	float a = opacity;
 #ifdef VCOL
@@ -303,6 +354,29 @@ void fragment() {
 	EMISSION = e;
 #ifdef BLEND
 	ALPHA = a;
+#endif
+#ifdef AO_ON
+#ifdef AO_FLOOR
+	vec3 n_w = vec3(0.0, 1.0, 0.0);
+#else
+	vec3 n_w = normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz);
+#endif
+	float ao = 1.0;
+#ifdef AO_MAP
+	ao *= ao_floor_map(w_pos.xz);
+#endif
+#ifdef AO_SPHERES
+	ao *= ao_spheres(w_pos, n_w, ao_strength);
+#endif
+#ifdef AO_GROUND
+	ao *= ao_ground(w_pos, n_w, ao_g.x, ao_g.y, ao_g.z);
+#endif
+#ifdef AO_STAGE
+	ao *= ao_stage(w_pos, ao_s.x, ao_s.y, ao_s.z);
+#endif
+	// ambient and reflections take all of it, direct light the `direct` share (ao.ts patch)
+	AO = ao;
+	AO_LIGHT_AFFECT = ao_direct;
 #endif
 	FOG = bb_fog(VERTEX);
 }

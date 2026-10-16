@@ -30,6 +30,7 @@ void vertex() {
 }
 
 void fragment() {
+	CLEAR_VIEW
 	float rf = abs(dot(normalize(NORMAL), normalize(VIEW)));
 	vec3 c;
 	if (v_kind < 0.5) {

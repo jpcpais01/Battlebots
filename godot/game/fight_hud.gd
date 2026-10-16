@@ -5,16 +5,23 @@ class_name FightHud
 extends CanvasLayer
 
 var _view := HudView.new()
+var _intro := IntroView.new()
+## 1 while the robots are being presented (the bars wait off screen), easing to 0 for the countdown.
+var _intro_k := 0.0
+var _last_ms := 0
 
 
 func _init() -> void:
-	_view.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_view)
+	for c: Control in [_view, _intro]:
+		c.set_anchors_preset(Control.PRESET_FULL_RECT)
+		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(c)
 
 
 func start(m) -> void:
 	_view.start(m)
+	_intro.start(m)
+	_intro_k = 1.0 if m.phase == "intro" else 0.0
 
 
 ## What the HUD shows, read from the match while the sim is still (the sim steps on a worker).
@@ -28,13 +35,192 @@ static func snapshot(m) -> Dictionary:
 		"winner": w.name_ if w != null else null,
 		"hp": [m.fighters[0].hpRatio, m.fighters[1].hpRatio],
 		"stamina": [m.fighters[0].staminaRatio, m.fighters[1].staminaRatio],
+		"presenting": int(m.presenting),
 	}
 
 
 func update_hud(view: Dictionary, can_restart: bool) -> void:
+	var now := Time.get_ticks_msec()
+	var dt := minf(0.1, (now - _last_ms) / 1000.0) if _last_ms > 0 else 0.0
+	_last_ms = now
+	# the bars wait for the countdown (style.css .hud.intro .hud-top: fade and slide up)
+	var target := 1.0 if view.get("phase", "") == "intro" else 0.0
+	_intro_k = move_toward(_intro_k, target, dt / 0.45)
+	var k := _intro_k * _intro_k * (3.0 - 2.0 * _intro_k)
+	_view.modulate.a = 1.0 - k
+	_view.position.y = -30.0 * clampf(_view.size.y / 720.0, 0.6, 2.0) * k
+	_view.visible = k < 0.999
 	_view.v = view
 	_view.can_restart = can_restart
 	_view.queue_redraw()
+	_intro.update(view, dt)
+
+
+## The intro (hud.ts showVs, style.css .present .banner): while the camera presents each robot,
+## its corner, walk-on tune, name and fighting style land across the other side of the screen,
+## timed to its corner lift (the name slams in as the lift locks at the top, ENTRY.arrive).
+class IntroView extends Control:
+	const CYAN := Color(0.165, 0.847, 1.0)
+	const ORANGE := Color(1.0, 0.478, 0.102)
+	const MUTED := Color(0.84, 0.875, 0.94, 0.54)
+	## src/audio/walkOn.ts WALK_ONS (id -> name), in order.
+	const WALK_ONS := [["anthem", "Steel Anthem"], ["neon", "Neon Drive"], ["forge", "Iron Forge"], ["drop", "Bass Drop"], ["fanfare", "Champion's Call"], ["arcade", "Arcade Boss"]]
+	var _names: Array[String] = []
+	var _styles: Array[String] = []
+	var _tunes: Array[String] = []
+	var _paint: Array[Color] = []
+	var _who := -1
+	## Seconds since the shown robot's presentation began, and since the last one was let go.
+	var _t := 0.0
+	var _out := -1
+	var _out_t := 0.0
+	var _gone := 1.0
+	var _font: Font
+	var _bold: Font
+	## Uppercase captions are letter-spaced (letter-spacing 0.16-0.26em).
+	var _wide := FontVariation.new()
+
+	func start(m) -> void:
+		_names.clear()
+		_styles.clear()
+		_tunes.clear()
+		_paint.clear()
+		for i in 2:
+			var spec = m.specs[i]
+			_names.append(str(spec.name_))
+			_styles.append(str(m.brains[i].traits.style).to_upper())
+			_tunes.append(_walk_on(spec).to_upper())
+			_paint.append(Color.hex((int(spec.paint.primary) << 8) | 0xff))
+		_who = -1
+		_out = -1
+		_gone = 0.0 if m.phase == "intro" else 1.0
+		_font = ThemeDB.fallback_font
+		_wide.base_font = _font
+		_bold = SystemFont.new()
+		(_bold as SystemFont).font_names = PackedStringArray(["Russo One", "Arial Black", "Impact", "sans-serif"])
+		(_bold as SystemFont).font_weight = 800
+		(_bold as SystemFont).font_italic = true
+
+	## walkOn.ts walkOnFor: the bot's own pick, or one that always goes with its name (FNV-1a).
+	static func _walk_on(spec) -> String:
+		var pick = spec.get("walkOn") if spec is Dictionary else null
+		for w in WALK_ONS:
+			if pick != null and str(pick) == w[0]:
+				return w[1]
+		var h := 2166136261
+		var name_: String = str(spec.name_)
+		for c in name_.length():
+			h = ((h ^ name_.unicode_at(c)) * 16777619) & 0xffffffff
+		return WALK_ONS[h % WALK_ONS.size()][1]
+
+	func update(v: Dictionary, dt: float) -> void:
+		if _names.is_empty():
+			return
+		var who: int = v.get("presenting", -1)
+		var intro: bool = v.get("phase", "") == "intro"
+		if who != _who:
+			if _who >= 0:
+				_out = _who
+				_out_t = 0.0
+			_who = who
+		if who >= 0:
+			# the same clock the sim presents by, so the name lands with the lift
+			_t = float(v.phaseTime) - (TEntrance.PRESENT if who == 1 else 0.0)
+		_out_t += dt
+		_gone = move_toward(_gone, 0.0 if intro else 1.0, dt / 0.4)
+		visible = _gone < 1.0
+		if visible:
+			queue_redraw()
+
+	func _draw() -> void:
+		var u := clampf(size.y / 720.0, 0.6, 2.0)
+		var fade := 1.0 - _gone
+		if _out >= 0 and _out_t < 0.3:
+			# presentOut: fade and drop 10px
+			var k := _out_t / 0.3
+			_banner(_out, 9.0, u, fade * (1.0 - k), 10.0 * u * k)
+		if _who >= 0:
+			_banner(_who, _t, u, fade, 0.0)
+
+	## One robot's banner at `t` seconds into its presentation.
+	func _banner(i: int, t: float, u: float, alpha: float, drop: float) -> void:
+		if alpha <= 0.0:
+			return
+		var em := 20.0 * u
+		_wide.spacing_glyph = int(0.2 * 0.8 * em)
+		var side := CYAN if i == 0 else ORANGE
+		var right := i == 0  # the blue robot stands screen-left, so its name lands on the right
+		var pad := 28.0 * u
+		var edge := size.x - pad if right else pad
+		var y := size.y - 18.0 * u + drop
+		# bottom up: style, the name with its bar, the tune, the corner
+		var lines := []
+		lines.append([_styles[i], int(0.85 * em), MUTED, 2.35, 0.45, _wide])
+		lines.append(["\n", 0, side, 0.0, 0.0, null])
+		lines.append([_names[i], int(minf(3.4 * em, size.x * 0.085)), Color.WHITE, 1.95, 0.55, _bold])
+		lines.append(["\u266a  " + _tunes[i], int(0.72 * em), side.lerp(Color.WHITE, 0.3), 0.35, 0.45, _wide])
+		lines.append(["IN THE BLUE CORNER" if i == 0 else "AND IN THE ORANGE CORNER", int(0.8 * em), side, 0.1, 0.45, _wide])
+		for line in lines:
+			var text: String = line[0]
+			var fs: int = line[1]
+			if text == "\n":
+				# the name's underline, wiping in from the corner's side (barIn at 2.25s)
+				var nfs := int(minf(3.4 * em, size.x * 0.085))
+				var nw := minf(_bold.get_string_size(_names[i], HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x, size.x * 0.62)
+				var bk := _ease(clampf((t - 2.25) / 0.5, 0.0, 1.0))
+				if bk > 0.0:
+					var bh := maxf(2.0, nfs * 0.1)
+					var x0 := edge - nw if right else edge
+					var steps := 12
+					for s in steps:
+						var a := float(s) / steps
+						var b := float(s + 1) / steps
+						# grows from its outer end (transform-origin left / right)
+						var ca := a * bk
+						var cb := b * bk
+						var xa := (edge - nw * ca) if right else (x0 + nw * ca)
+						var xb := (edge - nw * cb) if right else (x0 + nw * cb)
+						var c := side.lerp(_paint[i], (a + b) * 0.5)
+						c.a = alpha
+						draw_rect(Rect2(minf(xa, xb), y - bh, absf(xb - xa) + 0.5, bh), c)
+					y -= bh + 0.05 * em
+				continue
+			var t0: float = line[3]
+			var dur: float = line[4]
+			var font: Font = line[5]
+			var k := clampf((t - t0) / dur, 0.0, 1.0)
+			var lh := fs * 1.05
+			if k > 0.0:
+				var tw := minf(font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x, size.x * 0.62)
+				var col: Color = line[2]
+				col.a *= alpha * k
+				var at := Vector2(edge - tw if right else edge, y - fs * 0.22)
+				if font == _bold:
+					# nameSlam: from 1.7x, skewed, out of nothing
+					var e := _ease_back(k)
+					var sc := lerpf(1.7, 1.0, e)
+					var pivot := at + Vector2(tw * 0.5, -fs * 0.35)
+					draw_set_transform_matrix(Transform2D(Vector2(sc, 0), Vector2(-0.18 * (1.0 - e) * sc, sc), pivot) * Transform2D(0.0, -pivot))
+					var glow := _paint[i]
+					glow.a = 0.3 * col.a
+					draw_string_outline(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, size.x * 0.62, fs, int(fs * 0.14), glow)
+					draw_string(font, at + Vector2(0, 4 * u), text, HORIZONTAL_ALIGNMENT_LEFT, size.x * 0.62, fs, Color(0, 0, 0, 0.5 * col.a))
+					draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, size.x * 0.62, fs, col)
+					draw_set_transform_matrix(Transform2D.IDENTITY)
+				else:
+					at.y += 0.6 * fs * (1.0 - _ease(k))
+					draw_string_outline(font, at + Vector2(0, 1), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, maxi(3, int(fs * 0.2)), Color(0, 0, 0, 0.45 * col.a))
+					draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
+			y -= lh + 0.15 * em
+
+	## cubic-bezier(0.2, 1, 0.3, 1), near enough.
+	static func _ease(x: float) -> float:
+		return 1.0 - pow(1.0 - x, 4.0)
+
+	## cubic-bezier(0.2, 1.4, 0.4, 1): overshoots a touch, then settles.
+	static func _ease_back(x: float) -> float:
+		var c := 1.9
+		return 1.0 + (c + 1.0) * pow(x - 1.0, 3.0) + c * pow(x - 1.0, 2.0)
 
 
 class HudView extends Control:

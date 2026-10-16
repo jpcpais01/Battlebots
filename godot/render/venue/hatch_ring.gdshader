@@ -2,6 +2,7 @@
 // with two bright heads racing round when the corner runs hot (spin, chase).
 shader_type spatial;
 render_mode unshaded, blend_add, depth_draw_never, cull_back, fog_disabled;
+#include "res://render/venue/common.gdshaderinc"
 
 uniform vec3 color = vec3(1.0);
 uniform float glow = 1.4;
@@ -16,6 +17,7 @@ void vertex() {
 }
 
 void fragment() {
+	CLEAR_VIEW
 	float rr = length(v_p) - r;
 	float a = atan(v_p.y, v_p.x) / 6.2831853;
 	float seam = smoothstep(0.0, 0.006, rr) * (1.0 - smoothstep(0.016, 0.024, rr));

@@ -10,6 +10,8 @@ extends Node3D
 const SIM_DT := 1.0 / 120.0
 ## Most sim steps one frame may run before it lets time slip (game.ts does the same).
 const MAX_STEPS := 16
+## stage.ts rims: colour (0xff7a2a, 0x2ad8ff in linear) and position.
+const RIMS := [[Color(1.0, 0.1946, 0.0232), Vector3(-5.5, 3.5, -2)], [Color(0.0232, 0.6867, 1.0), Vector3(5.5, 3.5, 2)]]
 
 var m
 var models: Array[BotModel] = []
@@ -24,6 +26,10 @@ var effects: FightFx
 var _acc := 0.0
 var _time := 0.0
 var _hype := 0.3
+## Contact shadows round the robots (ao.ts contactAO), read by the canvas, floor and the robots.
+var contact_ao: ContactAO
+## The coloured rim lights either side (stage.ts rims) and their base energy.
+var _rims: Array[OmniLight3D] = []
 ## The broadcast camera director and its camera drones (game.ts director, drones).
 var director: Director
 var drones: Drones
@@ -73,6 +79,8 @@ func _ready() -> void:
 		_step_views.append(Director.View.new())
 	drones = Drones.new()
 	add_child(drones)
+	contact_ao = ContactAO.new()
+	add_child(contact_ao)
 	effects = FightFx.new()
 	effects.arena = arena
 	effects.crowd_mood = crowd_mood
@@ -124,8 +132,9 @@ func new_fight() -> void:
 	var b = TLoadout.randomBot(rng, 0.35, a.paint)
 	m = TMatch.Match.new(a, b, rng.int_(0.0, 1e9))
 	m.on(_queue_event)
-	# (BB_INTRO=1: keep the walkout and presentations, for the director's intro checks)
-	if OS.get_environment("BB_INTRO") == "":
+	# the walkout: each robot rides its corner lift up and makes its entrance (BB_SKIPINTRO=1: straight
+	# to the countdown, for quick checks)
+	if OS.get_environment("BB_SKIPINTRO") != "":
 		m.skipIntro()
 	for i in 2:
 		var bm := BotModel.new(m.specs[i])
@@ -134,6 +143,11 @@ func new_fight() -> void:
 		models.append(bm)
 	hud.start(m)
 	effects.start(m, models)
+	# each corner's entrance is lit in its robot's colours (game.ts startMatch)
+	arena.corners.set_accents(int(a.paint.accent), int(b.paint.accent))
+	arena.corners.on_cue = func(_i: int, cue: String) -> void:
+		if cue == "arrive":
+			arena.excite(1.1)
 	_acc = 0.0
 	_end_time = -1.0
 	_hype = 0.3
@@ -211,6 +225,11 @@ func _arena_event(type: String, data) -> void:
 			arena.excite(0.5)
 
 
+## A 0xRRGGBB colour in linear (three's Color.setHex).
+static func _lin(hex: int) -> Color:
+	return Color.hex((hex << 8) | 0xff).srgb_to_linear()
+
+
 static func _v(p) -> Vector3:
 	return Vector3(p.x, p.y, p.z)
 
@@ -235,12 +254,48 @@ func _process(dt: float) -> void:
 	for i in 2:
 		models[i].end(m.fighters[i], _time, models[1 - i])
 	BotWear.update(models, m, dt)
+	# riding the corner lift up in the intro (game.ts: model.root.position.y = drop)
+	var drops := [arena.corners.drop(m, 0), arena.corners.drop(m, 1)]
+	for i in 2:
+		models[i].position.y += drops[i]
+	# (a robot still down in its lift shaft casts nothing on the canvas)
+	for i in 2:
+		contact_ao.set_robot(i, models[i].joints if drops[i] >= -0.3 else ([] as Array[Vector3]), models[i].size)
+	contact_ao.commit()
 	# sparks, smoke, vapour and oil off the wrecked parts, the debris, the trails (the sim is idle)
 	effects.update(dt, dt * m.pace, cam)
 	if m.phase == "end" and _end_time < 0:
 		_end_time = _time
 	_view = FightHud.snapshot(m)
-	# this frame's steps (Match.pace slows time round big hits)
+	# the building (game.ts frame: pressRopes, crowdMood.tick, crowd.update, venue.score, arena.update)
+	arena.press_ropes([models[0].joints, models[1].joints], [models[0].size, models[1].size])
+	var hp: Array = _view.hp
+	crowd_mood.tick(dt, m.phase, m.clock, hp[0], hp[1])
+	arena.crowd.update(dt, crowd_mood.excite, m.phase == "fight" or m.phase == "greet")
+	arena.score(dt, {"names": [m.fighters[0].name_, m.fighters[1].name_], "hp": hp, "clock": m.clock, "phase": m.phase, "presenting": int(m.presenting)})
+	arena.update(dt, _time)
+	arena.corners.update(dt, _time, m, effects.fx, false)
+	# the rim light over each corner swings to that robot's colours while it makes its entrance
+	var h0: Array = TEntrance.hatchXZ(0.0)
+	for j in 2:
+		var at: Vector3 = RIMS[j][1]
+		# the fighter whose corner this light hangs over
+		var i := 0 if at.x * h0[0] + at.z * h0[1] > 0.0 else 1
+		var k: float = arena.corners.flare(i)
+		_rims[j].light_energy = 22.0 / PI * (1.0 + 1.4 * k)
+		# blended in linear as three does; Godot takes light colours in sRGB
+		var rc: Color = RIMS[j][0].lerp(_lin(int(m.specs[i].paint.accent)), 0.7 * minf(1.0, k * 1.5)) if k > 0.0 else RIMS[j][0]
+		_rims[j].light_color = rc.linear_to_srgb()
+	_hype = arena.hype
+	_frame_camera(dt, false)
+	# ropes, posts and rigging between the lens and the robots dissolve; the house exposes for the ring
+	var chests: Array[Vector3] = [_v(m.fighters[0].body.pos[1]), _v(m.fighters[1].body.pos[1])]
+	var pov: int = director.pov
+	ClearView.update(cam, [chests[1 - pov]] as Array[Vector3] if pov >= 0 else chests)
+	arena.expose(dt, cam.global_position.distance_to((chests[0] + chests[1]) * 0.5) if _fixed_cam.is_empty() else _cam_dist)
+	hud.update_hud(_view, _end_time >= 0 and _time - _end_time > 1.5)
+	# this frame's steps (Match.pace slows time round big hits), started last: everything above
+	# reads the match, and the worker runs while the frame draws
 	var steps := 0
 	if m.phase != "end":
 		_acc += dt * m.pace
@@ -251,17 +306,6 @@ func _process(dt: float) -> void:
 	_alpha = _acc / SIM_DT
 	if steps > 0:
 		_task = WorkerThreadPool.add_task(_run_steps.bind(steps), true, "sim")
-	# the building (game.ts frame: pressRopes, crowdMood.tick, crowd.update, venue.score, arena.update)
-	arena.press_ropes([models[0].joints, models[1].joints], [models[0].size, models[1].size])
-	var hp: Array = _view.hp
-	crowd_mood.tick(dt, m.phase, m.clock, hp[0], hp[1])
-	arena.crowd.update(dt, crowd_mood.excite, m.phase == "fight" or m.phase == "greet")
-	arena.score(dt, {"names": [m.fighters[0].name_, m.fighters[1].name_], "hp": hp, "clock": m.clock, "phase": m.phase, "presenting": int(m.presenting)})
-	arena.update(dt, _time)
-	_hype = arena.hype
-	arena.expose(dt, _cam_dist)
-	_frame_camera(dt, false)
-	hud.update_hud(_view, _end_time >= 0 and _time - _end_time > 1.5)
 
 
 func _unhandled_input(e: InputEvent) -> void:
@@ -430,12 +474,13 @@ func _build_world() -> void:
 	add_child(key)
 	key.look_at_from_position(Vector3(2.2, 13, 3), Vector3.ZERO)
 	# coloured rims either side
-	for r in [[Color.hex(0xff7a2aff), Vector3(-5.5, 3.5, -2)], [Color.hex(0x2ad8ffff), Vector3(5.5, 3.5, 2)]]:
+	for r in RIMS:
 		var o := OmniLight3D.new()
-		o.light_color = r[0]
+		o.light_color = (r[0] as Color).linear_to_srgb()
 		# 22 / pi; Godot's omni falloff is three's (cutoff window times distance^-decay)
 		o.light_energy = 22.0 / PI
 		o.omni_range = 14.0
 		o.omni_attenuation = 1.6
 		o.position = r[1]
 		add_child(o)
+		_rims.append(o)
