@@ -74,6 +74,12 @@ var _alpha := 0.0
 var _view := {}
 ## BB_CAM="x,y,z;x,y,z": a fixed camera and target (look checks against the web game's renders).
 var _fixed_cam := []
+## The player's settings (ui/settings.gd) and the pause menu over the fight (ui/pause_menu.gd).
+var settings: Settings
+var pause_menu: PauseMenu
+## What the graphics settings reach into: the environment (glow) and the key spot (its shadow).
+var _env: Environment
+var _key: SpotLight3D
 
 
 func _ready() -> void:
@@ -137,20 +143,67 @@ func _ready() -> void:
 	hud = FightHud.new()
 	hud.visible = OS.get_environment("BB_NOHUD") == ""
 	add_child(hud)
+	# the saved settings, in force before the first fight (the booth's welcome checks commentary)
+	settings = Settings.new()
+	settings.sfx = sfx
+	settings.voice = voice
+	settings.booth = booth
+	settings.director = director
+	settings.hud = hud
+	settings.env = _env
+	settings.key = _key
+	settings.arena = arena
+	settings.contact_ao = contact_ao
+	add_child(settings)
+	settings.load_and_apply()
+	pause_menu = PauseMenu.new(settings)
+	add_child(pause_menu)
+	pause_menu.pause_requested.connect(pause)
+	pause_menu.resume_requested.connect(resume)
+	pause_menu.forfeit_requested.connect(forfeit)
+	hud.pause_pressed.connect(pause)
 	new_fight()
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
-		_sync()
-		# (the booth keeps what it said, so the next session picks fresh lines)
+	# (Android's back button pauses now: PauseMenu takes it)
+	if what == NOTIFICATION_APPLICATION_PAUSED:
+		# sent to the background: pause, as the web does when its page is hidden (app.ts
+		# visibilitychange), and keep what the booth has said in case Android ends the app there
+		pause()
 		if booth != null:
-			booth.end()
-		get_tree().quit()
+			booth._save()
 	elif what == NOTIFICATION_PREDELETE:
 		_sync()
 		if booth != null:
 			booth.end()
+
+
+## Pause the fight (app.ts pause): the sim's last steps finish on the worker first, then the whole
+## tree stops (the sim, the robots, the camera, the arena's clock, the effects, every sound
+## player) and the menu, which runs while paused, comes up. Nothing here reads the match after,
+## and no steps start until resume().
+func pause() -> void:
+	if m == null or get_tree().paused:
+		return
+	_sync()
+	get_tree().paused = true
+	# the frozen scene doesn't need 120 frames a second behind the menu (battery)
+	Engine.max_fps = 30 if Display.cap == 0 or Display.cap > 30 else Display.cap
+	pause_menu.open()
+
+
+func resume() -> void:
+	pause_menu.close()
+	get_tree().paused = false
+	Engine.max_fps = Display.cap
+
+
+## Forfeit (app.ts pause: Forfeit): walk out of this fight. With no home screen yet, the next one
+## starts.
+func forfeit() -> void:
+	resume()
+	new_fight()
 
 
 ## Wait for the sim steps running on the worker, if any.
@@ -657,6 +710,7 @@ func _build_world() -> void:
 	env.set_glow_level(2, 0.8)
 	env.set_glow_level(3, 0.6)
 	env.set_glow_level(4, 0.4)
+	_env = env
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
@@ -669,7 +723,9 @@ func _build_world() -> void:
 	key.spot_attenuation = 0.0
 	key.spot_angle = rad_to_deg(0.62)
 	key.spot_angle_attenuation = 0.6
+	# (on or off with the quality tier: ui/settings.gd)
 	key.shadow_enabled = OS.get_environment("BB_NOSHADOW") == ""
+	_key = key
 	key.shadow_bias = 0.15
 	key.shadow_normal_bias = 2.0
 	add_child(key)
