@@ -955,7 +955,7 @@ func _process(dt: float) -> void:
 	ClearView.update(cam, [chests[1 - pov]] as Array[Vector3] if pov >= 0 else chests)
 	arena.expose(dt, cam.global_position.distance_to((chests[0] + chests[1]) * 0.5) if _fixed_cam.is_empty() else _cam_dist)
 	Perf.lap(Perf.CAMERA)
-	hud.update_hud(_view, _end_time >= 0 and _time - _end_time > 1.5, dt)
+	hud.update_hud(_view, auto and _end_time >= 0 and _time - _end_time > 1.5, dt)
 	Perf.lap(Perf.HUD)
 
 
