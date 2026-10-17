@@ -59,6 +59,8 @@ var carrying: bool:
 	get:
 		return m != null and _mv.phase == "end" and _mv.winner != null and _mv.phaseTime < Stretcher.ride_end(m.result)
 var _acc := 0.0
+## The player's fight speed: 1, 2 or 0.5 (game.ts speed; the HUD's speed button). Reset each fight.
+var speed := 1.0
 var _time := 0.0
 var _hype := 0.3
 ## Contact shadows round the robots (ao.ts contactAO), read by the canvas, floor and the robots.
@@ -380,6 +382,9 @@ func start_match(a, b, seed: float) -> void:
 		add_child(bm)
 		models.append(bm)
 	hud.visible = OS.get_environment("BB_NOHUD") == ""
+	speed = 1.0
+	hud.game = self
+	hud.cam = cam
 	hud.start(m)
 	_mv.capture(m)
 	effects.start(m, models)
@@ -429,6 +434,7 @@ func end_match() -> void:
 		arena.gate_hit(null)
 	m = null
 	_end_time = -1.0
+	hud.stop()
 	hud.visible = false
 	_crowd_count = -1
 	crowd_audio.tick(0.0, null)
@@ -614,6 +620,8 @@ func _on_event(type: String, data) -> void:
 		crowd_audio.event("count", 0)
 	# the commentators hear every sim event (game.ts onEvent: sfx.booth.event)
 	booth.event(type, data)
+	# the HUD's callouts, counts, numbers and banners (hud.ts onEvent)
+	hud.on_event(type, data)
 	_arena_event(type, data)
 	# (the torn-off piece flies before the socket's wrench, as in game.ts tearOff)
 	effects.on_event(type, data)
@@ -833,14 +841,18 @@ func _process(dt: float) -> void:
 	Perf.lap(Perf.AUDIO)
 	if m.phase == "end" and _end_time < 0:
 		_end_time = _time
-	_view = FightHud.snapshot(m)
+	# the coach call the player tapped goes in at the next step (app.ts hud.onCoach: queueCoach)
+	var call := hud.take_coach()
+	if call != "":
+		m.queueCoach(0.0, call)
+	_view = hud.capture(m)
 	# (the alpha the view's bodies are drawn at: the one left over by the steps that made them)
 	var pose_alpha := _alpha
 	# this frame's steps (Match.pace slows time round big hits), started now: everything above
 	# reads the match; everything below reads the view, so the worker runs while the rest of the
 	# frame poses, lights and draws
 	var steps := 0
-	_acc += dt * m.pace
+	_acc += dt * speed * m.pace
 	steps = mini(budget, int(_acc / SIM_DT))
 	_acc -= steps * SIM_DT
 	if _acc >= SIM_DT:
@@ -851,7 +863,8 @@ func _process(dt: float) -> void:
 	Perf.lap(Perf.SIM)
 	_pose_alpha = pose_alpha
 	# the loser's ride out: from the stretcher's deck, not its body (game.ts frame: carry)
-	var carried := _carry(dt * _mv.pace)
+	var flow := dt * speed * _mv.pace
+	var carried := _carry(flow)
 	# both bodies first: each robot's limbs then slide out of either robot's armour (game.ts)
 	for i in 2:
 		if i == carried:
@@ -877,7 +890,7 @@ func _process(dt: float) -> void:
 		contact_ao.set_robot(i, models[i].joints if drops[i] >= -0.3 and i != away else ([] as Array[Vector3]), models[i].size)
 	contact_ao.commit()
 	# sparks, smoke, vapour and oil off the wrecked parts, the debris, the trails (the view's)
-	effects.update(dt, dt * _mv.pace, cam)
+	effects.update(dt, flow, cam)
 	Perf.lap(Perf.FX)
 	_sound_frame()
 	Perf.lap(Perf.AUDIO)
@@ -931,7 +944,7 @@ func _process(dt: float) -> void:
 	ClearView.update(cam, [chests[1 - pov]] as Array[Vector3] if pov >= 0 else chests)
 	arena.expose(dt, cam.global_position.distance_to((chests[0] + chests[1]) * 0.5) if _fixed_cam.is_empty() else _cam_dist)
 	Perf.lap(Perf.CAMERA)
-	hud.update_hud(_view, _end_time >= 0 and _time - _end_time > 1.5)
+	hud.update_hud(_view, _end_time >= 0 and _time - _end_time > 1.5, dt)
 	Perf.lap(Perf.HUD)
 
 
