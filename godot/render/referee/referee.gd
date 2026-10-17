@@ -26,7 +26,12 @@ extends Node3D
 const HULL := Vector3(0.235, 0.2, 0.225)
 const POD := Vector3(0.33, 0.035, -0.015)
 const DUCT_R := 0.095
-const SHOULDER := Vector3(0.185, -0.1, 0.04)
+## What the arms keep clear of round each pod (its own frame): the rim's reach, plus a little air,
+## and the slab from under the rim to over the glow ring.
+const POD_R := DUCT_R + 0.037
+const POD_MID := 0.004
+const POD_HALF := 0.05
+const SHOULDER := Vector3(0.175, -0.1, 0.085)
 const UPPER := 0.12
 const FORE := 0.11
 ## Arm a's side: arm 0 on +X (the drone's left, the viewer's right when it faces you), arm 1 on -X.
@@ -828,7 +833,7 @@ func _pose(a: int, dir: Vector3, bend: float, rate: float, hint := FWD) -> void:
 
 ## Arm a's hand raised over its head: the upper arm out and up past the hull, the forearm upright.
 func _raise(a: int, rate: float, lean := 0.0, bend := 0.85) -> void:
-	_pose(a, Vector3(SIDE[a] * 0.75, 0.62, 0.1 + lean), bend, rate, UP)
+	_pose(a, Vector3(SIDE[a] * 0.62, 0.62, 0.42 + lean), bend, rate, UP)
 
 
 ## Arm a pointing at a spot in the world.
@@ -850,7 +855,8 @@ func _pose_bones() -> void:
 		var s: float = SIDE[a]
 		_set_bone(1 + a, b0 * Transform3D(Basis(Vector3.RIGHT, _pod_tilt[a]), Vector3(POD.x * s, POD.y, POD.z)))
 		var arm := _arms[a]
-		var up := b0 * Transform3D(_arm_basis(arm.dir, arm.hint), Vector3(SHOULDER.x * s, SHOULDER.y, SHOULDER.z))
+		var dir := _clear_pod(a, arm.dir, arm.bend, arm.hint)
+		var up := b0 * Transform3D(_arm_basis(dir, arm.hint), Vector3(SHOULDER.x * s, SHOULDER.y, SHOULDER.z))
 		var fore := up * Transform3D(Basis(Vector3.RIGHT, -arm.bend), Vector3(0, -UPPER, 0))
 		var hand := fore * Transform3D(Basis(Vector3.RIGHT, -arm.bend * 0.3), Vector3(0, -FORE, 0))
 		_set_bone(3 + a * 3, up)
@@ -858,6 +864,55 @@ func _pose_bones() -> void:
 		_set_bone(5 + a * 3, hand)
 	_body_mat.set_shader_parameter("bones", _bones)
 	_rotor_mat.set_shader_parameter("bones", _bones)
+
+
+## The arm's direction swung forward just enough that the arm and glove pass in front of its
+## fan pod instead of through the duct (raises, waves and the shrug all lift the arm past it).
+## The least swing that clears, so the arm slides round the pod as it moves.
+func _clear_pod(a: int, d: Vector3, bend: float, hint: Vector3) -> Vector3:
+	if not _hits_pod(a, d, bend, hint):
+		return d
+	var lo := 0.0
+	var hi := 3.0
+	if _hits_pod(a, (d + Vector3(0, 0, hi)).normalized(), bend, hint):
+		return (d + Vector3(0, 0, hi)).normalized()
+	for i in 10:
+		var mid := (lo + hi) * 0.5
+		if _hits_pod(a, (d + Vector3(0, 0, mid)).normalized(), bend, hint):
+			lo = mid
+		else:
+			hi = mid
+	return (d + Vector3(0, 0, hi)).normalized()
+
+
+## Whether arm a, posed so, touches its fan pod (the duct ring and its rim, a flat cylinder in the
+## pod's tilted frame), sampling the upper arm, elbow, forearm and glove with their thickness.
+func _hits_pod(a: int, d: Vector3, bend: float, hint: Vector3) -> bool:
+	var s: float = SIDE[a]
+	var sh := Vector3(SHOULDER.x * s, SHOULDER.y, SHOULDER.z)
+	var b_up := _arm_basis(d, hint)
+	var b_fore := b_up * Basis(Vector3.RIGHT, -bend)
+	var b_hand := b_fore * Basis(Vector3.RIGHT, -bend * 0.3)
+	var elbow := sh + b_up * Vector3(0, -UPPER, 0)
+	var wrist := elbow + b_fore * Vector3(0, -FORE, 0)
+	var pod_inv: Basis = Basis(Vector3.RIGHT, _pod_tilt[a]).inverse()
+	var pod := Vector3(POD.x * s, POD.y, POD.z)
+	for p: Vector4 in [
+		_ball((sh + elbow) * 0.5, 0.02),
+		_ball(elbow, 0.024),
+		_ball((elbow + wrist) * 0.5, 0.019),
+		_ball(wrist, 0.021),
+		_ball(wrist + b_hand * Vector3(0, -0.032, 0), 0.034),
+		_ball(wrist + b_hand * Vector3(0, -0.068, 0), 0.02),
+	]:
+		var l := pod_inv * (Vector3(p.x, p.y, p.z) - pod)
+		if absf(l.y - POD_MID) < POD_HALF + p.w and Vector2(l.x, l.z).length() < POD_R + p.w:
+			return true
+	return false
+
+
+static func _ball(c: Vector3, r: float) -> Vector4:
+	return Vector4(c.x, c.y, c.z, r)
 
 
 ## The upper arm's frame: its -Y down the arm towards `d`, its +Z (the way the elbow bends) as

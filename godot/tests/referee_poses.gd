@@ -1,6 +1,6 @@
 ## The referee drone's faces and signals side by side, close up (render/referee/referee.gd):
 ## each drone posed by hand into one of its moments, for checking the look.
-##   BB_NOSKY=1 godot/tools/shots/shot.sh res://tests/referee_poses.gd <out.png> [close-up on moment k]
+##   BB_NOSKY=1 godot/tools/shots/shot.sh res://tests/referee_poses.gd <out.png> [close-up on moment k] [top|side]
 extends SceneTree
 
 var _fight
@@ -45,6 +45,11 @@ func _process(_dt: float) -> bool:
 			var k := int(args[1])
 			var at := Vector3((k % 3 - 1) * 1.25, 2.55 - (k / 3) * 1.0, 0)
 			_cam.look_at_from_position(at + Vector3(0.35, -0.12, 1.25), at)
+			# (and a third, "top" or "side": look down on it, or from its left, to see the arms clear the fans)
+			if args.size() > 2 and args[2] == "top":
+				_cam.look_at_from_position(at + Vector3(0.2, 1.3, 0.35), at)
+			elif args.size() > 2 and args[2] == "side":
+				_cam.look_at_from_position(at + Vector3(1.3, 0.25, 0.15), at)
 		_cam.current = true
 		for k in _moments.size():
 			var r := Referee.new()
