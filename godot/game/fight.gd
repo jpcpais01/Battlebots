@@ -65,6 +65,8 @@ var _time := 0.0
 var _hype := 0.3
 ## Contact shadows round the robots (ao.ts contactAO), read by the canvas, floor and the robots.
 var contact_ao: ContactAO
+## The Ray tracing setting's screen-space light and reflections (render/rt/ray_trace.gd).
+var ray: RayTrace
 ## The coloured rim lights either side (stage.ts rims) and their base energy.
 var _rims: Array[OmniLight3D] = []
 ## The rims' colour (linear) and three intensity in the venue fights are in (the look's rims:
@@ -177,6 +179,9 @@ func _ready() -> void:
 	add_child(referee)
 	contact_ao = ContactAO.new()
 	add_child(contact_ao)
+	# the Ray tracing setting's traced light and reflections (hidden while it's off)
+	ray = RayTrace.new()
+	add_child(ray)
 	# (a test may have handed in its own, e.g. tests/crowd_record.gd's logging one)
 	if crowd_audio == null:
 		crowd_audio = CrowdAudio.new()
@@ -226,6 +231,7 @@ func _ready() -> void:
 	settings.key = _key
 	settings.arena = arena
 	settings.contact_ao = contact_ao
+	settings.ray = ray
 	add_child(settings)
 	settings.load_and_apply()
 	pause_menu = PauseMenu.new(settings)
@@ -540,6 +546,8 @@ func set_place(p: String) -> void:
 	place = p
 	var in_arena := p == "arena"
 	arena.visible = in_arena
+	if ray != null:
+		ray.set_place(p)
 	drones.visible = in_arena
 	referee.visible = in_arena
 	if showcase != null:

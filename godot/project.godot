@@ -21,6 +21,9 @@ boot_splash/show_image=false
 config/features=PackedStringArray("4.7", "Mobile")
 # Android's back button pauses the fight (ui/pause_menu.gd) instead of quitting
 config/quit_on_go_back=false
+# Ray tracing's Heavy mode (ui/settings.gd) asks for the Forward+ renderer in this file; it is read
+# before the renderer starts, so the switch happens at the next start
+config/project_settings_override="user://renderer.cfg"
 
 [debug]
 
