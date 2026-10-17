@@ -134,6 +134,8 @@ func _use(v: OutdoorVenue) -> void:
 		return
 	current = v
 	game.arena.set_venue(v)
+	if game.ray != null:
+		game.ray.set_arena(v.id if v != null else "grand")
 	FxDebris.outer_ground_y = v.outer if v != null else NAN
 	if game.place == "arena":
 		_relight()

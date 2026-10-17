@@ -12,6 +12,12 @@ extends Node
 
 const SCREEN := preload("res://app/boot/boot_screen.gd")
 const MAIN := "res://app/main.tscn"
+## Ray tracing's Heavy mode (ui/settings.gd): the file asking for Forward+, and a mark left while
+## a start on it is under way. A mark still there at the next start means that start never got
+## to the beach, so Heavy is taken back (Light from the next start) rather than failing again.
+const RENDERER_CFG := "user://renderer.cfg"
+const TRIAL := "user://renderer_trial"
+const SETTINGS := "user://settings.cfg"
 ## Built ahead on the worker thread: Game.made.
 const AHEAD := [
 	["arena", "res://render/venue/arena.gd", "Building the arena"],
@@ -29,6 +35,7 @@ var _clock := 0.0
 
 
 func _ready() -> void:
+	_guard_renderer()
 	_layer = CanvasLayer.new()
 	_layer.layer = 100
 	add_child(_layer)
@@ -132,7 +139,33 @@ func _frames(n: int, secs: float) -> void:
 		await get_tree().process_frame
 
 
+func _guard_renderer() -> void:
+	var heavy := RenderingServer.get_current_rendering_method() == "forward_plus" and FileAccess.file_exists(RENDERER_CFG)
+	if not heavy:
+		_remove(TRIAL)
+		return
+	if FileAccess.file_exists(TRIAL):
+		push_warning("boot: the last start on Forward+ didn't finish; back to Light ray tracing")
+		_remove(TRIAL)
+		_remove(RENDERER_CFG)
+		var cfg := ConfigFile.new()
+		cfg.load(SETTINGS)
+		cfg.set_value("graphics", "rt", "light")
+		cfg.save(SETTINGS)
+		return
+	var f := FileAccess.open(TRIAL, FileAccess.WRITE)
+	if f != null:
+		f.store_string("starting")
+
+
+static func _remove(path: String) -> void:
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
 func _finish() -> void:
+	# (made it to the beach: Heavy works on this device)
+	_remove(TRIAL)
 	# the home screen's words rise in as the loading screen lifts off them
 	screen.lifting.connect(func() -> void:
 		var s = app.screens.get(app.current)

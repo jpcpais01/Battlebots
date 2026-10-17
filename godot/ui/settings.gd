@@ -6,9 +6,10 @@
 ##
 ## Game: sound, commentary level, camera zoom, the FPS counter.
 ## Graphics: a quality tier (Auto picks one for the device), the 3D resolution (Auto holds the
-## frame rate by moving it, between camera cuts) and the frame-rate cap.
+## frame rate by moving it, between camera cuts), the frame-rate cap and ray tracing (the web's
+## bb.rt: Off, Light on the phone's usual renderer, Heavy on Forward+ after a restart).
 ##
-## The fight sets the targets (sfx, voice, booth, director, hud, env, key, arena, contact_ao) and
+## The fight sets the targets (sfx, voice, booth, director, hud, env, key, arena, contact_ao, ray) and
 ## calls load_and_apply() once they exist. Anything left null is skipped, so this also works for
 ## a screen without a fight. Process mode is the default: the governor rests while the game is
 ## paused (a paused frame says nothing about the fight's cost).
@@ -26,6 +27,19 @@ const QUALITIES := ["low", "med", "high"]
 ## Fixed resolutions offered (0 = Auto), as a share of the screen's own pixels.
 const RESOLUTIONS := [0.0, 0.5, 0.75, 1.0]
 const FPS_CAPS := [0, 60, 30]
+const RT_MODES := ["off", "light", "heavy"]
+## Where Heavy's renderer is asked for: project.godot's application/config/project_settings_override
+## reads this file before the renderer starts, so Forward+ takes over from the next start.
+const RENDERER_PATH := "user://renderer.cfg"
+## Heavy's own effects, on Forward+ (tuned to the arena's metres: a robot is ~1.2 m tall).
+const HEAVY_ENV := {
+	"ssao_radius": 0.6, "ssao_intensity": 1.6, "ssao_power": 1.5, "ssao_detail": 0.5,
+	"ssao_horizon": 0.06, "ssao_sharpness": 0.98, "ssao_light_affect": 0.25,
+	"ssil_radius": 3.0, "ssil_intensity": 1.0, "ssil_sharpness": 0.98, "ssil_normal_rejection": 1.0,
+	"ssr_max_steps": 48, "ssr_fade_in": 0.15, "ssr_fade_out": 2.0, "ssr_depth_tolerance": 0.2,
+}
+## The key spot's size with ray tracing on, for its soft shadows (pcss.ts KEY_SIZE 1.6 m across).
+const KEY_SIZE := {"light": 0.8, "heavy": 0.8}
 
 ## What each quality tier turns on, for Godot's Mobile renderer (the web's tiers in stage.ts,
 ## arena.ts, show.ts and ao.ts, translated):
@@ -47,8 +61,9 @@ const TIERS := {
 	"high": {"msaa": Viewport.MSAA_4X, "shadow": true, "atlas": 4096, "soft": RenderingServer.SHADOW_QUALITY_SOFT_LOW, "glow": true, "bicubic": true, "aniso": Viewport.ANISOTROPY_16X, "beams": true, "ao_map": 512, "detail": true, "res_px": 0},
 }
 
-## Where the settings live (a test points this somewhere else).
+## Where the settings live (a test points this somewhere else, and its renderer file too).
 static var path := PATH
+static var renderer_path := RENDERER_PATH
 
 var sound := true
 var commentary := 1.0
@@ -62,6 +77,8 @@ var quality := ""
 var resolution := 0.0
 ## 0 = as fast as the screen goes, else 60 or 30 (Display.set_cap).
 var fps_cap := 0
+## "off", "light" or "heavy" (what the player picked: rt_mode() says what is in force now).
+var rt := "off"
 
 var sfx: Sfx
 var voice: Voice
@@ -72,6 +89,7 @@ var env: Environment
 var key: Light3D
 var arena: Arena
 var contact_ao: ContactAO
+var ray: RayTrace
 
 var _gov := ResGovernor.new()
 ## The 3D scale on screen now, and how long a change the governor wants has waited for a cut.
@@ -113,6 +131,11 @@ func load_and_apply() -> void:
 			quality = ""
 		resolution = _pick(float(cfg.get_value("graphics", "resolution", 0.0)), RESOLUTIONS, 0.0)
 		fps_cap = int(_pick(float(cfg.get_value("graphics", "fps", 0)), [0.0, 60.0, 30.0], 0.0))
+		rt = str(cfg.get_value("graphics", "rt", "off"))
+		if not RT_MODES.has(rt):
+			rt = "off"
+	# (the renderer file follows the setting: boot.gd may have taken Heavy back after a failed start)
+	_write_renderer()
 	apply_all()
 
 
@@ -133,6 +156,7 @@ func save() -> void:
 	cfg.set_value("graphics", "quality", quality if quality != "" else "auto")
 	cfg.set_value("graphics", "resolution", resolution)
 	cfg.set_value("graphics", "fps", fps_cap)
+	cfg.set_value("graphics", "rt", rt)
 	var err := cfg.save(path)
 	if err != OK:
 		push_warning("settings: couldn't save %s (%s)" % [path, error_string(err)])
@@ -145,6 +169,38 @@ func apply_all() -> void:
 	_apply_perf()
 	_apply_quality()
 	_apply_fps()
+
+
+## The renderer running now: "mobile" (phones, and this project's default), "forward_plus" (Heavy)
+## or "gl_compatibility" (a device without Vulkan, and the container's screenshots).
+static func renderer() -> String:
+	return RenderingServer.get_current_rendering_method()
+
+
+## The ray tracing in force now: Heavy waits for Forward+ (Light until then).
+func rt_mode() -> String:
+	if rt == "heavy" and renderer() != "forward_plus":
+		return "light"
+	return rt
+
+
+## What the Ray tracing row has to say beyond the pick: "restart" (the renderer changes when the
+## app starts again), "unsupported" (Heavy picked, but this device runs neither Vulkan renderer)
+## or "".
+func rt_note() -> String:
+	var r := renderer()
+	if rt == "heavy" and r != "forward_plus":
+		return "unsupported" if r == "gl_compatibility" else "restart"
+	if rt != "heavy" and r == "forward_plus":
+		return "restart"
+	return ""
+
+
+## Start the app again (Heavy's renderer only changes at a start). Android restarts the activity.
+func restart() -> void:
+	save()
+	OS.set_restart_on_exit(true)
+	get_tree().quit()
 
 
 # ------------------------------------------------------------------ the picks
@@ -195,6 +251,13 @@ func set_resolution(r: float) -> void:
 func set_fps_cap(c: int) -> void:
 	fps_cap = c
 	_apply_fps()
+	_changed()
+
+
+func set_rt(m: String) -> void:
+	rt = m
+	_write_renderer()
+	_apply_rt()
 	_changed()
 
 
@@ -262,6 +325,45 @@ func _apply_quality() -> void:
 	# a new tier has a new ceiling: the governor starts again under it
 	_gov.reset(_ceiling())
 	_apply_resolution()
+	# (ray tracing raises the shadows' filter over the tier's)
+	_apply_rt()
+
+
+func _apply_rt() -> void:
+	var m := rt_mode()
+	if ray != null:
+		ray.set_key(key)
+		ray.set_mode(m)
+	if env != null:
+		var heavy := m == "heavy"
+		env.ssao_enabled = heavy
+		env.ssil_enabled = heavy
+		env.ssr_enabled = heavy
+		if heavy:
+			for k: String in HEAVY_ENV:
+				env.set(k, HEAVY_ENV[k])
+	if key != null:
+		key.light_size = KEY_SIZE.get(m, 0.0)
+	if m != "off":
+		# soft shadows with a size (PCSS-like): the blocker search needs a filter with taps to spare
+		var soft: int = TIERS[tier()].soft
+		var want := RenderingServer.SHADOW_QUALITY_SOFT_HIGH if m == "heavy" else RenderingServer.SHADOW_QUALITY_SOFT_MEDIUM
+		RenderingServer.positional_soft_shadow_filter_set_quality(maxi(soft, want))
+
+
+## Heavy asks for Forward+ in the renderer file; anything else takes the file away.
+func _write_renderer() -> void:
+	if rt == "heavy":
+		if FileAccess.file_exists(renderer_path):
+			return
+		var cfg := ConfigFile.new()
+		cfg.set_value("rendering", "renderer/rendering_method", "forward_plus")
+		cfg.set_value("rendering", "renderer/rendering_method.mobile", "forward_plus")
+		var err := cfg.save(renderer_path)
+		if err != OK:
+			push_warning("settings: couldn't save %s (%s)" % [renderer_path, error_string(err)])
+	elif FileAccess.file_exists(renderer_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(renderer_path))
 
 
 ## The 3D scale the screen shows: the player's fixed pick, or the governor's.

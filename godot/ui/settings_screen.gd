@@ -20,6 +20,8 @@ var settings: Settings
 var blip: Callable = func(_kind: String) -> void: pass
 
 var _rows: Array[SegRow] = []
+## Under Graphics while a ray tracing pick waits for the renderer to change at the next start.
+var _restart: Control
 var _grid := GridContainer.new()
 var _scroll := ScrollContainer.new()
 var _head := HBoxContainer.new()
@@ -61,10 +63,21 @@ func _build() -> void:
 	var game := _col("Game")
 	for k in ["sound", "commentary", "zoom", "perf"]:
 		_row(game, k)
-	# Graphics: quality, resolution, frame rate
+	# Graphics: quality, resolution, frame rate, ray tracing
 	var gfx := _col("Graphics")
-	for k in ["quality", "resolution", "fps"]:
+	for k in ["quality", "resolution", "fps", "rt"]:
 		_row(gfx, k)
+	_restart = MarginContainer.new()
+	_restart.add_theme_constant_override(&"margin_top", 4)
+	_restart.add_theme_constant_override(&"margin_bottom", 6)
+	var b := UiTheme.button("Restart now", "", &"BtnPrimary")
+	b.focus_mode = Control.FOCUS_NONE
+	b.pressed.connect(func() -> void:
+		blip.call("select")
+		settings.restart())
+	_restart.add_child(b)
+	gfx.add_child(_restart)
+	_restart.visible = settings.rt_note() == "restart"
 
 
 ## A row's label: [what it is, its quieter second line or ""].
@@ -88,7 +101,26 @@ func _label_for(k: String) -> Array:
 			return ["Resolution", sub + " · " + px if px != "" else sub]
 		"fps":
 			return ["Frame rate", "Screen %d Hz" % Display.hz()]
+		"rt":
+			return ["Ray tracing", _rt_sub()]
 	return [k, ""]
+
+
+## The Ray tracing row's second line: what the pick does, or what it waits on.
+func _rt_sub() -> String:
+	var s := settings
+	match s.rt_note():
+		"restart":
+			return "Heavy starts after a restart" if s.rt == "heavy" else "Heavy stays until a restart"
+		"unsupported":
+			return "Heavy needs Vulkan: using Light"
+	match s.rt:
+		"light":
+			return "Bounce light, shadows, reflections"
+		"heavy":
+			return "Forward+: GI, AO, reflections"
+	return "Traced light and reflections"
+
 
 
 ## A row's choices: [text, lit, what picking it does] each, read from the live settings.
@@ -116,6 +148,9 @@ func _opts_for(k: String) -> Array:
 		"fps":
 			for c: int in Settings.FPS_CAPS:
 				out.append(["Max %d" % Display.hz() if c == 0 else str(c), s.fps_cap == c, s.set_fps_cap.bind(c)])
+		"rt":
+			for m: String in Settings.RT_MODES:
+				out.append([m.capitalize(), s.rt == m, s.set_rt.bind(m)])
 	return out
 
 
@@ -177,7 +212,8 @@ func _row(parent: VBoxContainer, k: String) -> void:
 	_rows.append(r)
 
 
-## The row for a setting ("sound", "commentary", "zoom", "perf", "quality", "resolution", "fps").
+## The row for a setting ("sound", "commentary", "zoom", "perf", "quality", "resolution", "fps",
+## "rt").
 func row(k: String) -> SegRow:
 	for r in _rows:
 		if r.name == k:
@@ -189,6 +225,8 @@ func row(k: String) -> SegRow:
 func refresh() -> void:
 	for r in _rows:
 		r.sync()
+	if _restart != null:
+		_restart.visible = settings.rt_note() == "restart"
 
 
 ## Size the card for `avail` (the screen less its margins): .box.settings is min(50em, 100%) wide,
