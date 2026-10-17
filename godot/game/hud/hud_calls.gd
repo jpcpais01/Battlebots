@@ -82,6 +82,14 @@ var can_restart := false
 var callout_on := false
 ## The referee's count: "down" while counting, "up" once the bot beats it, "" otherwise.
 var ref_state := ""
+## The count's number while it's on (0 before the first), else -1, and whose count it is (the
+## referee drone counts along: render/referee/referee.gd).
+var ref_n: int:
+	get:
+		return _ref_n if _ref_live else -1
+var ref_side: int:
+	get:
+		return _ref_i
 
 static var _shaders := {}
 static var _fonts := {}

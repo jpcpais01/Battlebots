@@ -17,6 +17,16 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-17 03:00",
+	"title": "A referee in the ring",
+	"notes": [
+	"Android fights now have a referee: a little striped drone that drops in for the walk-outs, presents both robots, counts down 3-2-1 on its face and chops the air for FIGHT!",
+	"The referee watches every exchange, flinches at the big hits and throws its hands up at finishers. Get too cosy in a clinch and it moves in to break you up.",
+	"When a robot goes down, the referee flies over and counts it, the number on its face and its arm pumping with each count, and waves it on if it beats the count.",
+	"At a knockout it waves the fight off, then raises the winner's hand with a happy spin, lit in the winner's colours."
+]
+},
+	{
 	"hour": "2026-10-16 21:00",
 	"title": "The Android app gets its menus",
 	"notes": [
