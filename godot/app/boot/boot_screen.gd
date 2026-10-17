@@ -224,10 +224,20 @@ func _add_part(c: Control, gap: float) -> void:
 		_mid.add_child(sp)
 
 
+## The logo's size the letters were last made at.
+var _logo_px := -1.0
+
+
 ## The logo's letters, sized to the screen (min(14vh, 9vw, 84px)).
 func _fill_logo(px: float) -> void:
+	if px == _logo_px:
+		return
+	_logo_px = px
 	var logo := _mid.get_node("Logo") as HBoxContainer
+	# (out of the row now, not at the end of the frame: the old letters left in for the layout
+	# that follows made the column twice as wide, so it sat off to the right)
 	for c in logo.get_children():
+		logo.remove_child(c)
 		c.queue_free()
 	var f := _broadcast()
 	logo.add_child(_grad("BATTLE", px, f, Color.WHITE, Color("#aec4ff"), 0.35))
@@ -292,7 +302,8 @@ func _layout() -> void:
 	_mid.size = Vector2(w, 0)
 	_mid.reset_size()
 	var cy := (0.42 if tall else 0.45) * size.y
-	_mid.position = Vector2((size.x - w) * 0.5, cy - _mid.size.y * 0.5)
+	# (centred on its real width: the logo can be wider than w)
+	_mid.position = Vector2((size.x - _mid.size.x) * 0.5, cy - _mid.size.y * 0.5)
 	_mid.pivot_offset = _mid.size * 0.5
 	var side := maxf(_side(), 24.0)
 	var bottom := 22.0

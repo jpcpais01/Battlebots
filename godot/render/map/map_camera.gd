@@ -42,7 +42,6 @@ var _pinch := {}
 var _last_move := 0.0
 var _moved := 0.0
 var _el: Control
-var _touch_seen := false
 
 
 func _init() -> void:
@@ -143,7 +142,6 @@ func attach(el: Control) -> void:
 func handle_input(e: InputEvent) -> void:
 	var now := float(Time.get_ticks_msec())
 	if e is InputEventScreenTouch:
-		_touch_seen = true
 		var t := e as InputEventScreenTouch
 		if t.pressed:
 			_down(t.index, t.position)
@@ -163,15 +161,17 @@ func handle_input(e: InputEvent) -> void:
 			# a wheel notch is about 100 of the web's deltaY: 0.0018 * 100 per notch
 			var dy := (-1.0 if b.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0) * 100.0 * maxf(1.0, b.factor)
 			_wheel(b.position, dy)
-		elif b.button_index == MOUSE_BUTTON_LEFT and not _touch_seen:
-			# (a phone's touches also arrive as emulated mouse clicks: the touches win)
+		elif b.button_index == MOUSE_BUTTON_LEFT and b.device != InputEvent.DEVICE_ID_EMULATION:
+			# (a phone's first finger also arrives as a mouse, just before its touch: left to the
+			# touches, or the finger counted twice is a pinch round a point that never lets go, and
+			# every drag after it zooms)
 			if b.pressed:
 				_down(-1, b.position)
 				if b.double_click:
 					_zoom_at(b.position, dist * 0.5, true)
 			else:
 				_up(-1, now, true)
-	elif e is InputEventMouseMotion and not _touch_seen:
+	elif e is InputEventMouseMotion and e.device != InputEvent.DEVICE_ID_EMULATION:
 		var m := e as InputEventMouseMotion
 		_move(-1, m.position, now)
 	elif e is InputEventMagnifyGesture:
