@@ -93,6 +93,8 @@ jobs:
           VERSION_CODE=$((GITHUB_RUN_NUMBER + 1))
           sed -i -e "s/^version\/code=.*/version\/code=$VERSION_CODE/" \
                  -e "s/^version\/name=.*/version\/name=\"$VERSION_NAME\"/" godot/export_presets.cfg
+          # (and the app shows it on the home screen)
+          sed -i -e "s/^config\/version=.*/config\/version=\"$VERSION_NAME\"/" godot/project.godot
           sh godot/tools/build-apk.sh "$RUNNER_TEMP/Battlebots.apk"
           python3 godot/tools/apksigner.py verify "$RUNNER_TEMP/Battlebots.apk"
           rm -f "$GODOT_ANDROID_KEYSTORE_RELEASE_PATH"
@@ -109,7 +111,19 @@ jobs:
             echo
             echo "Latest change: $(git log -1 --format=%s)"
           } > "$RUNNER_TEMP/notes.md"
-          gh release create "android-v$VERSION_NAME" "$RUNNER_TEMP/Battlebots.apk" \
-            --title "Battlebots Android $VERSION_NAME" \
-            --notes-file "$RUNNER_TEMP/notes.md" \
-            --target "$GITHUB_SHA" --latest
+          # (GitHub's API sometimes answers 502 and may have made the release anyway: retry, and
+          # finish a release that exists without its APK)
+          TAG="android-v$VERSION_NAME"
+          for i in 1 2 3 4 5; do
+            if gh release view "$TAG" > /dev/null 2>&1; then
+              gh release upload "$TAG" "$RUNNER_TEMP/Battlebots.apk" --clobber \
+                && gh release edit "$TAG" --draft=false --latest && break
+            else
+              gh release create "$TAG" "$RUNNER_TEMP/Battlebots.apk" \
+                --title "Battlebots Android $VERSION_NAME" \
+                --notes-file "$RUNNER_TEMP/notes.md" \
+                --target "$GITHUB_SHA" --latest && break
+            fi
+            sleep $((i * 15))
+          done
+          gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qx Battlebots.apk

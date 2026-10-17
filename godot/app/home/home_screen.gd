@@ -80,6 +80,7 @@ func _build_top() -> void:
 	brand.add_child(_logo())
 	_notes = _notes_button()
 	brand.add_child(_notes)
+	brand.add_child(_version_label())
 	var gap := Control.new()
 	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -125,6 +126,25 @@ func _logo() -> Control:
 	l2.custom_minimum_size.x = f.get_string_size("BOTS", HORIZONTAL_ALIGNMENT_LEFT, -1, int(round(px))).x + 0.15 * px
 	row.add_child(l2)
 	return row
+
+
+## The build this is ("v0.1.19"; the release build stamps application/config/version, a local
+## one says "dev"), quietly beside the What's new pill.
+func _version_label() -> Label:
+	var v := app_version()
+	var l := MenuKit.label(v if v == "dev" else "v" + v, 0.72 * _em, 650, Color(1, 1, 1, 0.85))
+	l.name = "Version"
+	# (a soft shadow, like the wordmark's, keeps it readable on a bright sky)
+	l.add_theme_color_override(&"font_shadow_color", Color(0, 0, 0, 0.35))
+	l.add_theme_constant_override(&"shadow_offset_y", 1)
+	l.add_theme_constant_override(&"shadow_outline_size", 6)
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+
+static func app_version() -> String:
+	return str(ProjectSettings.get_setting("application/config/version", "dev"))
 
 
 ## The What's new pill (.notes-btn), with a dot until the newest notes are opened (patchBtn).
