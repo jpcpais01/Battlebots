@@ -19,6 +19,7 @@ node godot/tools/ts2gd/ts2gd.mjs                     # src/sim, items, loadout, 
 THREE_MODULE=node_modules/three/build/three.module.js \
   node --experimental-transform-types --no-warnings --import ./godot/tools/node/register.mjs \
   godot/tools/bake/bake_parts.ts                     # robot parts -> godot/assets/bots
+godot --headless --path godot -s res://tools/bake/bake_lite.gd   # the simplified armour the app draws
 ```
 
 Then check the translated sim still matches the web one step for step (any difference is a bug):
