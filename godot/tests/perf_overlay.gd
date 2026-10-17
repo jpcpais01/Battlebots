@@ -25,6 +25,8 @@ func _init() -> void:
 		PerfOverlay.GpuProbe.rounds = 1
 	Settings.path = "user://perf_test_settings.cfg"
 	PerfOverlay.cfg_path = "user://perf_test_overlay.cfg"
+	# (Measure is checked once, by hand; the live parts would start one on their own)
+	PerfOverlay.live_default = false
 	for p in [Settings.path, PerfOverlay.cfg_path]:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(p))
 	OS.set_environment("BB_SKIPINTRO", "1")
@@ -107,6 +109,7 @@ func _run() -> void:
 	_stages()
 	await _invariance(f, ov)
 	await _measure(f, ov)
+	await _live(f, ov)
 	if _out != "":
 		await _shots(f, _out)
 		f.hud.perf.set_compact(true)
@@ -271,6 +274,39 @@ func _measure(f, ov: PerfOverlay) -> void:
 	_check(_same(before, _snapshot(f)) == 0, "after Measure: every mesh's layers, the camera and the lights as before")
 	_check(f.cam.cull_mask == cam_mask, "the fight's camera mask untouched")
 	_check(ov.find_child("PerfProbe", true, false) == null, "after Measure: the probe's viewport is freed")
+
+
+## The live parts: started by the button, a new round's numbers again and again on the same
+## viewport, stopped by folding the panel and by the button, everything put back each time.
+func _live(f, ov: PerfOverlay) -> void:
+	var before := _snapshot(f)
+	ov.set_live(true)
+	await _wait(2)
+	_check(ov.is_live() or not _gl, "the button starts the live parts")
+	if not _gl:
+		ov.set_live(false)
+		return
+	var seen := []
+	var t0 := Time.get_ticks_msec()
+	while seen.size() < 3 and Time.get_ticks_msec() - t0 < 240000:
+		await process_frame
+		var r := ov.result()
+		if r != null and not seen.has(r):
+			seen.append(r)
+	print("  live: %d rounds in %.1f s" % [seen.size() - 1, (Time.get_ticks_msec() - t0) / 1000.0])
+	_check(seen.size() >= 3 and ov.is_live(), "live rounds keep coming, on one viewport")
+	ov.set_compact(true)
+	await _wait(3)
+	_check(not ov.is_live() and ov.find_child("PerfProbe", true, false) == null, "folded: the live parts rest, viewport freed")
+	ov.set_compact(false)
+	await _wait(3)
+	_check(ov.is_live(), "open again: they start again")
+	ov.set_live(false)
+	await _wait(3)
+	_check(not ov.is_live() and _same(before, _snapshot(f)) == 0, "the button stops them, everything back as it was")
+	var cfg := ConfigFile.new()
+	cfg.load(PerfOverlay.cfg_path)
+	_check(cfg.get_value("overlay", "live", true) == false, "the choice is kept")
 
 
 ## The open panel over the fight, and its two layers for ui_srgb.py (see tests/ui_shot.gd).
