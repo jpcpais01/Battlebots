@@ -67,6 +67,10 @@ const TOE_OFFSET := Vector3(0, -0.048, 0.072)
 const HOLD := 0.15
 ## Radius on screen, in pixels, below which a piece is dropped (botModel.ts DETAIL_PX).
 const DETAIL_PX := 0.7
+## Room in the shader for the contact occlusion's per-bone sphere lists (bot_opaque.gdshader),
+## and how far dents and wear may push the plating past its rest bounds, in metres.
+const AO_LIST_MAX := 768
+const AO_MARGIN := 0.12
 ## Detail levels handed to Godot's mesh LOD: drop pieces smaller than these radii (metres).
 const LOD_RADII := [0.004, 0.008, 0.016, 0.03]
 const HOT := Color(1, 0.13, 0.05)
@@ -151,6 +155,12 @@ var _bone_corners := {}
 ## Blows waiting for their plating search (run on a worker thread), oldest first.
 var _dent_jobs: Array = []
 var _hull_task := -1
+## Each skin bone's plating in its rest frame: centre xyz, radius w (for the contact occlusion's
+## per-bone sphere lists, ao_lists), and where _upload last centred the meshes.
+var _bone_bound := PackedVector4Array()
+var _origin := Vector3.ZERO
+var _ao_list := PackedInt32Array()
+var _ao_at := PackedInt32Array()
 var _hulls_loaded: Array = []
 
 
@@ -259,6 +269,7 @@ func _build() -> void:
 				_bone_corners[db] = []
 			_bone_corners[db].append([f.pos, f.nor, _core_shift[bone - CORE_F] if bone >= CORE_F else Vector3.ZERO])
 
+	_bound_bones()
 	_opaque_mat = ShaderMaterial.new()
 	_opaque_mat.shader = OPAQUE_SHADER
 	_glow_mat = ShaderMaterial.new()
@@ -527,6 +538,7 @@ func _upload() -> void:
 	# the meshes sit at the chest, so Godot's culling and detail levels see where the robot is
 	var origin := joints[J_CHEST]
 	position = origin
+	_origin = origin
 	for b in BONE_COUNT:
 		var sc := Vector3.ZERO if _head_hidden and (b == HEAD or b == NECK) else _scl[b]
 		var m := _rot[b] * Basis.from_scale(sc)
@@ -536,6 +548,81 @@ func _upload() -> void:
 		_bones[b * 3 + 2] = Vector4(m.x.z, m.y.z, m.z.z, p.z)
 	_opaque_mat.set_shader_parameter("bones", _bones)
 	_glow_mat.set_shader_parameter("bones", _bones)
+
+
+## The rest-frame bounds of each skin bone's pieces (BotParts.info.pieces boxes), as spheres.
+func _bound_bones() -> void:
+	var lo: Array[Vector3] = []
+	var hi: Array[Vector3] = []
+	lo.resize(BONE_COUNT)
+	hi.resize(BONE_COUNT)
+	var has := PackedByteArray()
+	has.resize(BONE_COUNT)
+	var pieces: Dictionary = BotParts.info.pieces
+	for e in _list:
+		var info: Array = pieces.get(e[0], [])
+		if info.size() < 6:
+			continue
+		var b: int = e[1]
+		var a := Vector3(info[0], info[1], info[2])
+		var c := Vector3(info[3], info[4], info[5])
+		if has[b] == 0:
+			lo[b] = a
+			hi[b] = c
+			has[b] = 1
+		else:
+			lo[b] = lo[b].min(a)
+			hi[b] = hi[b].max(c)
+	_bone_bound.resize(BONE_COUNT)
+	for b in BONE_COUNT:
+		if has[b] == 0:
+			# (a bone with no box: -1 keeps every sphere, never wrongly none)
+			_bone_bound[b] = Vector4(0, 0, 0, -1)
+		else:
+			var c := (lo[b] + hi[b]) * 0.5
+			_bone_bound[b] = Vector4(c.x, c.y, c.z, (hi[b] - lo[b]).length() * 0.5)
+
+
+## The contact-occlusion spheres (ContactAO, this frame's) that can reach each bone's plating,
+## so a corner loops over the few near it instead of all 48. Exact: a sphere left out darkens
+## nothing there (its reach ends at ContactAO.RANGE radii). Call after ContactAO.commit().
+func ao_lists(ao: ContactAO) -> void:
+	if _opaque_mat == null or _bone_bound.is_empty() or _pos.size() < BONE_COUNT:
+		return
+	var data := ao.spheres()
+	var xf := global_transform if is_inside_tree() else transform
+	var g := xf.basis.get_scale()
+	var gs := maxf(g.x, maxf(g.y, g.z))
+	_ao_list.resize(0)
+	_ao_at.resize(BONE_COUNT)
+	for b in BONE_COUNT:
+		var start := _ao_list.size()
+		var bb := _bone_bound[b]
+		var sc := _scl[b]
+		var all := bb.w < 0.0
+		var c := Vector3.ZERO
+		var r := 0.0
+		if not all:
+			c = xf * (_pos[b] - _origin + _rot[b] * (sc * Vector3(bb.x, bb.y, bb.z)))
+			r = bb.w * maxf(sc.x, maxf(sc.y, sc.z)) * gs + AO_MARGIN
+		for k in data.size() / 4:
+			var sr := data[k * 4 + 3]
+			if sr <= 0.0:
+				continue
+			var reach := sr * ContactAO.RANGE + r
+			if all or Vector3(data[k * 4], data[k * 4 + 1], data[k * 4 + 2]).distance_squared_to(c) < reach * reach:
+				_ao_list.append(k)
+		_ao_at[b] = start | ((_ao_list.size() - start) << 10)
+	# (past the shader's room for them, every corner loops over all the spheres, as before)
+	var listed := _ao_list.size() <= AO_LIST_MAX
+	_opaque_mat.set_shader_parameter("ao_listed", listed)
+	if listed:
+		var pack := PackedInt32Array()
+		pack.resize(AO_LIST_MAX / 4)
+		for j in _ao_list.size():
+			pack[j >> 2] |= _ao_list[j] << ((j & 3) * 8)
+		_opaque_mat.set_shader_parameter("ao_pack", pack)
+		_opaque_mat.set_shader_parameter("ao_at", _ao_at)
 
 
 ## Y along a→b, Z towards z_hint.
@@ -1158,6 +1245,9 @@ func detach_piece(part: int) -> Node3D:
 		mesh.custom_aabb = box
 		var mat: ShaderMaterial = (_opaque_mat if opaque else _glow_mat).duplicate()
 		mat.set_shader_parameter("bones", bones)
+		# (the lists follow the robot's bones, not a piece flying off)
+		if opaque:
+			mat.set_shader_parameter("ao_listed", false)
 		_mats.append(mat)
 		var mi := MeshInstance3D.new()
 		mi.mesh = mesh
