@@ -36,6 +36,11 @@ var player
 var record
 ## The player's saved bots.
 var saves: Array = []
+## For now every part is the player's to fit (João, 2026-10-17): Rare and Epic parts aren't locked
+## and nothing rolls back to Common. The career still pays, sells and hands out parts as before;
+## set this false to bring the locks back.
+const UNLOCK_ALL := true
+
 ## The bot faced last, kept for a rematch (app.ts opponent).
 var opponent = null
 ## The fight on screen is a round of a map event: {id, round, defence} (app.ts eventRun).
@@ -82,7 +87,7 @@ func _setup() -> void:
 	if TCareer.isNewCareer(record.career):
 		TCareer.adoptWorn(record.career, [player] + saves)
 		Store.save_record(record)
-	if TCareer.fitOwned(player, record.career):
+	if fit_owned(player):
 		Store.save_player(player)
 	game = (load("res://game/fight.tscn") as PackedScene).instantiate()
 	game.auto = false
@@ -251,6 +256,17 @@ func fit_part(item) -> void:
 	TCareer.markSeen(record.career, [item.id])
 	Store.save_record(record)
 	commit_player()
+
+
+## Whether the player may fit this part (career.ts owns, unless UNLOCK_ALL).
+func owns(item) -> bool:
+	return UNLOCK_ALL or TCareer.owns(record.career, item)
+
+
+## Parts the player may not fit come off the bot, the Common version going on (career.ts
+## fitOwned): whether anything changed. Nothing does while UNLOCK_ALL is on.
+func fit_owned(bot) -> bool:
+	return false if UNLOCK_ALL else TCareer.fitOwned(bot, record.career)
 
 
 ## How to get a part the player doesn't have yet (app.ts lockText).

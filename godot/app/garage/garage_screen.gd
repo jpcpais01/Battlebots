@@ -420,9 +420,10 @@ func redraw() -> void:
 	refresh_garage()
 
 
-## Rare and Epic parts are earned in career mode: until then they can be tried on, not fitted.
+## Rare and Epic parts are earned in career mode: until then they can be tried on, not fitted
+## (unless App.UNLOCK_ALL).
 func locked(item) -> bool:
-	return not TCareer.owns(app.record.career, item)
+	return not app.owns(item)
 
 
 func lock_text(item) -> String:
@@ -498,7 +499,7 @@ func randomize_bot() -> void:
 			p.erase(k)
 	app.player = p
 	# (only parts the player has: the rest roll back to Common)
-	TCareer.fitOwned(app.player, app.record.career)
+	app.fit_owned(app.player)
 	commit_player()
 	pulse()
 
