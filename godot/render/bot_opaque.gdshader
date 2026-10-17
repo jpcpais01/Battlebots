@@ -19,6 +19,13 @@ uniform vec4 marks[12];
 uniform vec3 mark_b[12];
 // marks in use: slots below this (the first four are the sockets, the rest oil)
 uniform int mark_count = 0;
+// the contact occlusion's spheres that can reach each bone (bot_model.gd ao_lists): bone b's
+// are list entries (ao_at[b] & 1023) on, (ao_at[b] >> 10) of them; off: every sphere, as before.
+// The list packs four sphere numbers to an int, a byte each (std140 pads an int array to 16
+// bytes an element: packed, 768 entries take 768 bytes)
+uniform bool ao_listed = false;
+uniform ivec4 ao_pack[48];
+uniform int ao_at[31];
 // oily grime over the whole robot, 0..1
 uniform float grime = 0.0;
 // brushed grain, patchy sheen and a faint ripple in the plating (the web's high quality only;
@@ -88,7 +95,18 @@ void vertex() {
 	if (!IN_SHADOW_PASS) {
 		vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 		vec3 nw = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
-		v_ao = ao_spheres(world, nw, 1.8) * ao_ground(world, nw, 0.0, 0.5, 0.5);
+		float occ = 1.0;
+		if (ao_listed) {
+			int at = ao_at[b];
+			int end = (at & 1023) + (at >> 10);
+			for (int j = at & 1023; j < end; j++) {
+				int k = (ao_pack[j >> 4][(j >> 2) & 3] >> ((j & 3) * 8)) & 255;
+				occ *= ao_sphere(ao_sphere_at(k), world, nw, 1.8);
+			}
+		} else {
+			occ = ao_spheres(world, nw, 1.8);
+		}
+		v_ao = occ * ao_ground(world, nw, 0.0, 0.5, 0.5);
 	}
 }
 

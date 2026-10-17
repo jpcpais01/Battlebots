@@ -295,7 +295,7 @@ func _measure(f, ov: PerfOverlay) -> void:
 			_check(res.full > 0.0, "the full offscreen frame was timed (%.2f ms)" % res.full)
 			_check(res.ms[PerfOverlay.GpuProbe.BOTS] >= 0.0 and res.ms[PerfOverlay.GpuProbe.CROWD] >= 0.0, "parts have numbers")
 			var base: float = res.full - maxf(0.0, res.ms[PerfOverlay.GpuProbe.SHADOWS]) - maxf(0.0, res.ms[PerfOverlay.GpuProbe.GLOW])
-			_check(parts + res.ms[PerfOverlay.GpuProbe.OTHER] >= base * 0.98 - 0.01, "parts + Other make up the base frame")
+			_check(parts + res.ms[PerfOverlay.GpuProbe.EMPTY] + res.ms[PerfOverlay.GpuProbe.OTHER] >= base * 0.98 - 0.01, "parts, the empty frame and Other make up the base frame")
 	else:
 		_check(res == null and ov._note != "", "no GPU timer: Measure says so (%s)" % ov._note)
 	await _wait(2)

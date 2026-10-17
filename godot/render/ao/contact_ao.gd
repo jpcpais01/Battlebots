@@ -95,6 +95,12 @@ func set_robot(i: int, joints: Array[Vector3], size := 1.0) -> void:
 	_bounds[i] = Vector4(c.x, c.y, c.z, r)
 
 
+## This frame's spheres, four floats each (centre xyz, radius; 0 for none): robot 0's PER, then
+## robot 1's, as the shaders' bb_ao_spheres rows hold them.
+func spheres() -> PackedFloat32Array:
+	return _data
+
+
 ## Upload this frame's spheres (once, after both robots are set).
 func commit() -> void:
 	_image.set_data(PER, 2, false, Image.FORMAT_RGBAF, _data.to_byte_array())

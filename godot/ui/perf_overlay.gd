@@ -601,10 +601,13 @@ class Edge extends Node:
 class GpuProbe extends RefCounted:
 	enum { BOTS, CROWD, VENUE, RING, SHOW, FX, RT, PARTS }
 	## Row labels: the parts, then what the other versions isolate.
-	const ROWS := ["Bots", "Crowd", "Venue", "Ring", "Light show", "Effects", "Ray tracing", "Shadows", "Glow/post", "Other"]
+	## ("Empty frame": the frame with every part gone, what clearing, resolving and the post
+	## chain cost on their own; "Other": what the parts cost together beyond their sum)
+	const ROWS := ["Bots", "Crowd", "Venue", "Ring", "Light show", "Effects", "Ray tracing", "Shadows", "Glow/post", "Empty frame", "Other"]
 	const SHADOWS := PARTS
 	const GLOW := PARTS + 1
-	const OTHER := PARTS + 2
+	const EMPTY := PARTS + 2
+	const OTHER := PARTS + 3
 	## Visual layer bits the parts move to (layers 13 to 19: nothing else here uses them).
 	const BIT0 := 12
 	## The versions drawn: full, without shadows, without glow, then without each part.
@@ -612,6 +615,8 @@ class GpuProbe extends RefCounted:
 	const V_NO_SHADOW := 1
 	const V_NO_GLOW := 2
 	const V_PART := 3
+	## (and with every part gone)
+	const V_EMPTY := V_PART + PARTS
 	## Rounds of every version, frames kept per version and round (after one thrown away at each
 	## switch), and the most frames the GPU's timing may lag. Live measuring runs shorter rounds,
 	## over and over.
@@ -797,7 +802,7 @@ class GpuProbe extends RefCounted:
 		var p := part
 		if n is BotModel:
 			p = BOTS
-		elif n is FightFx or n is Drones:
+		elif n is FightFx or n is Drones or n is Referee:
 			p = FX
 		elif n is Arena:
 			p = RING
@@ -844,6 +849,7 @@ class GpuProbe extends RefCounted:
 		for p in PARTS:
 			if _count[p] > 0:
 				vs.append(V_PART + p)
+		vs.append(V_EMPTY)
 		return vs
 
 	func _make_plan() -> void:
@@ -867,7 +873,10 @@ class GpuProbe extends RefCounted:
 		var env: Environment = null if glow or not _glow else _env_noglow
 		if _cam.environment != env:
 			_cam.environment = env
-		_cam.cull_mask = (_full_mask & ~(1 << (BIT0 + v - V_PART))) if v >= V_PART else _full_mask
+		if v == V_EMPTY:
+			_cam.cull_mask = _full_mask & ~_all_bits
+		else:
+			_cam.cull_mask = (_full_mask & ~(1 << (BIT0 + v - V_PART))) if v >= V_PART else _full_mask
 
 	## Once a frame, after the fight has moved its camera.
 	func step() -> void:
@@ -960,7 +969,9 @@ class GpuProbe extends RefCounted:
 				continue
 			r.ms[p] = maxf(0.0, base - without)
 			parts += r.ms[p]
-		r.ms[OTHER] = maxf(0.0, base - parts)
+		var empty: float = med.call(V_EMPTY)
+		r.ms[EMPTY] = maxf(0.0, empty)
+		r.ms[OTHER] = maxf(0.0, base - parts - maxf(0.0, empty))
 		r.at = Time.get_ticks_msec()
 		r.samples = _samples
 		res = r

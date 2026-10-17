@@ -347,7 +347,9 @@ func _apply_rt() -> void:
 	if m != "off":
 		# soft shadows with a size (PCSS-like): the blocker search needs a filter with taps to spare
 		var soft: int = TIERS[tier()].soft
-		var want := RenderingServer.SHADOW_QUALITY_SOFT_HIGH if m == "heavy" else RenderingServer.SHADOW_QUALITY_SOFT_MEDIUM
+		# (Light keeps it to the low filter: the medium one cost a phone 3 ms a frame, João's
+		# Adreno 840, for a penumbra the traced contact shadows already firm up)
+		var want := RenderingServer.SHADOW_QUALITY_SOFT_HIGH if m == "heavy" else RenderingServer.SHADOW_QUALITY_SOFT_LOW
 		RenderingServer.positional_soft_shadow_filter_set_quality(maxi(soft, want))
 
 

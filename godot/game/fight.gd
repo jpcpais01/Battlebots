@@ -908,6 +908,8 @@ func _process(dt: float) -> void:
 	for i in 2:
 		contact_ao.set_robot(i, models[i].joints if drops[i] >= -0.3 and i != away else ([] as Array[Vector3]), models[i].size)
 	contact_ao.commit()
+	for md in models:
+		md.ao_lists(contact_ao)
 	# sparks, smoke, vapour and oil off the wrecked parts, the debris, the trails (the view's)
 	effects.update(dt, flow, cam)
 	Perf.lap(Perf.FX)
@@ -1002,6 +1004,8 @@ func _idle_frame(dt: float) -> void:
 	for i in 2:
 		contact_ao.set_robot(i, shown[i].joints if i < shown.size() else ([] as Array[Vector3]), shown[i].size if i < shown.size() else 1.0)
 	contact_ao.commit()
+	for md in shown:
+		md.ao_lists(contact_ao)
 	# (torn-off sparring parts fly in the showcase's slow motion: game.ts debris.update(dt * slowmo))
 	effects.update(dt, dt * (showcase.flow if showcase != null else 1.0), cam)
 	Perf.lap(Perf.FX)
