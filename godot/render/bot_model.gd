@@ -65,17 +65,10 @@ const LEG_B := Vector3(0, 0.12, -0.08)
 const TOE_OFFSET := Vector3(0, -0.048, 0.072)
 ## How strongly a bone keeps last frame's roll against a weak hint (orient_held).
 const HOLD := 0.15
-## Radius on screen, in pixels, below which a piece is dropped (botModel.ts DETAIL_PX).
-const DETAIL_PX := 0.7
-## The simplified levels' errors BotModel cuts at, per set (clean, safe), in the parts' metres:
-## bake_lods.gd CLEAN_AT and SAFE_AT.
-const LOD_AT := [[0.0005, 0.002, 0.008, 0.02], [0.001, 0.0025, 0.006, 0.014]]
 ## Room in the shader for the contact occlusion's per-bone sphere lists (bot_opaque.gdshader),
 ## and how far dents and wear may push the plating past its rest bounds, in metres.
 const AO_LIST_MAX := 768
 const AO_MARGIN := 0.12
-## Detail levels handed to Godot's mesh LOD: drop pieces smaller than these radii (metres).
-const LOD_RADII := [0.004, 0.008, 0.016, 0.03]
 const HOT := Color(1, 0.13, 0.05)
 
 const OPAQUE_SHADER := preload("res://render/bot_opaque.gdshader")
@@ -161,11 +154,6 @@ var _hull_task := -1
 ## Each skin bone's plating in its rest frame: centre xyz, radius w (for the contact occlusion's
 ## per-bone sphere lists, ao_lists), and where _upload last centred the meshes.
 var _bone_bound := PackedVector4Array()
-## Which simplified levels the plating's mesh uses (0 clean, 1 safe: _use_safe), and the safe
-## mesh's makings, worked out on a worker.
-var _lod_set := 0
-var _safe_job := {}
-var _safe_task := -1
 var _origin := Vector3.ZERO
 var _ao_list := PackedInt32Array()
 var _ao_at := PackedInt32Array()
@@ -360,19 +348,18 @@ func wait_hulls() -> void:
 	hull_pelvis.hull = _hulls_loaded[2]
 
 
-## One material family of the whole robot: every part's corners, the pieces ordered biggest first
-## across the robot (as skin.ts does), so each detail level is just a shorter index list.
+## One material family of the whole robot: every part's corners and triangles (the simplified
+## armour, BotParts.LITE_BIN), drawn the same at any distance.
 func _family_mesh(opaque: bool) -> ArrayMesh:
 	var parts := _parts
 	var pos := PackedVector3Array()
 	var nor := PackedVector3Array()
 	var tag := PackedFloat32Array()
 	var code := PackedFloat32Array()
-	var runs := []
-	var bases := PackedInt32Array()
+	var index := PackedInt32Array()
 	for i in parts.size():
 		var f: BotParts.Family = parts[i].opaque if opaque else parts[i].glow
-		bases.append(pos.size())
+		var base := pos.size()
 		pos.append_array(f.pos)
 		if opaque:
 			nor.append_array(f.nor)
@@ -381,26 +368,15 @@ func _family_mesh(opaque: bool) -> ArrayMesh:
 		c.resize(f.pos.size())
 		c.fill(_codes[i])
 		code.append_array(c)
-		var start := 0
-		for g in f.radii.size():
-			var r := f.radii[g]
-			# [radius, build order, part, first index, end, run]
-			runs.append([INF if r < 0 else r, runs.size(), i, start, f.ends[g], g])
-			start = f.ends[g]
-	# biggest first; equal sizes keep their build order
-	runs.sort_custom(func(a, b): return a[0] > b[0] or (a[0] == b[0] and a[1] < b[1]))
-	# each run's triangles, offset to its part's corners (the full list, then its simplified levels)
-	var plods := []
-	for e in _list:
-		var l: Array = BotParts.get_lods(e[0])
-		plods.append(null if l.is_empty() else l[0 if opaque else 1])
-	var full := []
-	var index := PackedInt32Array()
-	for run in runs:
-		var f: BotParts.Family = parts[run[2]].opaque if opaque else parts[run[2]].glow
-		var s := _offset(f.index.slice(run[3], run[4]), bases[run[2]])
-		full.append(s)
+		var s := f.index
+		if base != 0:
+			s = s.duplicate()
+			for k in s.size():
+				s[k] += base
 		index.append_array(s)
+	var mesh := ArrayMesh.new()
+	if pos.is_empty():
+		return mesh
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = pos
@@ -409,87 +385,8 @@ func _family_mesh(opaque: bool) -> ArrayMesh:
 	arrays[Mesh.ARRAY_CUSTOM0] = tag
 	arrays[Mesh.ARRAY_CUSTOM1] = code
 	arrays[Mesh.ARRAY_INDEX] = index
-	var mesh := ArrayMesh.new()
-	if pos.is_empty():
-		return mesh
-	var job := {"runs": runs, "full": full, "plods": plods, "bases": bases, "size": size}
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], _lod_levels(job, 0), _FLAGS)
-	if opaque:
-		# the safe levels, for once a blow lands: worked out on a worker meanwhile (_use_safe)
-		_safe_job = job
-		_safe_job.arrays = arrays
-		# (a static function: the worker never touches this node, which may go first)
-		_safe_task = WorkerThreadPool.add_task(BotModel._safe_levels.bind(job), false, "bot lods")
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, _FLAGS)
 	return mesh
-
-
-## `s` with `base` added to every index.
-static func _offset(s: PackedInt32Array, base: int) -> PackedInt32Array:
-	if base != 0:
-		for k in s.size():
-			s[k] += base
-	return s
-
-
-## The mesh's detail levels for Godot's mesh LOD, from set 0 (clean) or 1 (safe) of the parts'
-## simplified levels. A level's key is the error it makes, in metres on the robot: Godot draws it
-## while that error covers less than a pixel. At each key a run is either dropped (its pieces'
-## radius is under DETAIL_PX there: botModel.ts drawRange) or drawn at its coarsest baked level
-## within that error, or whole.
-static func _safe_levels(job: Dictionary) -> void:
-	job.lods = _lod_levels(job, 1)
-
-
-static func _lod_levels(job: Dictionary, set: int) -> Dictionary:
-	var runs: Array = job.runs
-	var keys := []
-	for r in LOD_RADII:
-		keys.append(r / DETAIL_PX)
-	keys.append_array(LOD_AT[set])
-	keys.sort()
-	# each run's levels in this set, offset once
-	var levels := []
-	for run in runs:
-		var lods = job.plods[run[2]]
-		var got := []
-		if lods != null:
-			for lv in (lods as BotParts.Lods).runs[run[5]][set]:
-				got.append([lv[0], _offset((lv[1] as PackedInt32Array).duplicate(), job.bases[run[2]])])
-		levels.append(got)
-	var out := {}
-	var last := 0
-	for s in job.full:
-		last += (s as PackedInt32Array).size()
-	for k: float in keys:
-		var index := PackedInt32Array()
-		for j in runs.size():
-			if runs[j][0] < k * DETAIL_PX:
-				continue
-			var pick: PackedInt32Array = job.full[j]
-			for lv in levels[j]:
-				if lv[0] <= k:
-					pick = lv[1]
-			index.append_array(pick)
-		var n := index.size() - index.size() % 3
-		# (a level only where it saves a few percent over the one before)
-		if n > 0 and n < last * 0.97:
-			out[k * float(job.size)] = index.slice(0, n)
-			last = n
-	return out
-
-
-## Damage has reached the plating: swap the clean levels for the safe ones, which keep the
-## corners a dent or a buckle bends (bake_lods.gd), once they're worked out.
-func _use_safe() -> void:
-	if _lod_set == 1 or _safe_task < 0:
-		return
-	_lod_set = 1
-	WorkerThreadPool.wait_for_task_completion(_safe_task)
-	_safe_task = -1
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _safe_job.arrays, [], _safe_job.lods, _FLAGS)
-	_safe_job = {}
-	_opaque.mesh = mesh
 
 
 const _FLAGS := (Mesh.ARRAY_CUSTOM_R_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT) | (Mesh.ARRAY_CUSTOM_R_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM1_SHIFT)
@@ -609,12 +506,12 @@ func tear_off(part: int) -> void:
 
 
 func _upload() -> void:
-	# the meshes sit at the chest, so Godot's culling and detail levels see where the robot is
+	# the meshes sit at the chest, so Godot's culling sees where the robot is
 	var origin := joints[J_CHEST]
 	position = origin
 	_origin = origin
-	# the box Godot culls by and picks detail levels by: round the armour as posed (each bone's
-	# pieces, plus how far a dent pushes them), so a close camera reads the robot's real distance
+	# the box Godot culls by: round the armour as posed (each bone's pieces, plus how far a dent
+	# pushes them), tight so robots off screen or out of a shadow are skipped
 	var lo := Vector3.INF
 	var hi := -Vector3.INF
 	for b in BONE_COUNT:
@@ -938,8 +835,6 @@ func _effects(f, time: float) -> void:
 	_settle_dents(0.0 if _dent_time < 0.0 else time - _dent_time)
 	_dent_time = time
 	_push_damage(false)
-	if _lod_set == 0 and _damaged():
-		_use_safe()
 	for m in _mats:
 		m.set_shader_parameter("time", time)
 	# Aegis shield bubble
@@ -1231,21 +1126,6 @@ func _push_damage(all: bool) -> void:
 			m.set_shader_parameter("grime", _grime)
 
 
-## Anything bending the plating: wear (the crumple and dings start at 0.01), a dent, a
-## wrenched socket (bot_opaque.gdshader vertex()).
-func _damaged() -> bool:
-	for w in _wear:
-		if w > 0.005:
-			return true
-	for k in DENTS:
-		if _dent_n[k].w >= 0.0:
-			return true
-	for k in SOCKET_SLOTS:
-		if int(_mark_b[k].y) == MARK_SOCKET:
-			return true
-	return false
-
-
 ## Put a damage mark on `bone` at a world point (stored in the bone's own frame, so it moves with it).
 func _mark(slot: int, bone: int, at: Vector3, radius: float, kind: int, strength: float) -> void:
 	if _hidden.has(bone):
@@ -1410,9 +1290,6 @@ func _piece_mesh(set: Dictionary, opaque: bool) -> ArrayMesh:
 
 func _exit_tree() -> void:
 	wait_hulls()
-	if _safe_task >= 0:
-		WorkerThreadPool.wait_for_task_completion(_safe_task)
-		_safe_task = -1
 	# a dent search still running reads this robot's corners
 	for job in _dent_jobs:
 		WorkerThreadPool.wait_for_task_completion(job.task)
