@@ -11,6 +11,7 @@ config_version=5
 [application]
 
 config/name="Battlebots"
+config/version="dev"
 config/description="Auto 1v1 robot fighting."
 run/main_scene="res://app/boot/boot.tscn"
 # the engine's own splash (while it starts) in the loading screen's darkest blue, no picture: the
