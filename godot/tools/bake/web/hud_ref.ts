@@ -49,6 +49,7 @@ export async function run() {
   const q = new URLSearchParams(location.search);
   if (q.get('scan')) return scan();
   const seed = Number(q.get('seed') ?? 7);
+  const more = (q.get('more') ?? '').split(',');
   const link = document.createElement('link');
   link.rel = 'stylesheet';
   link.href = '/src/style.css';
@@ -98,6 +99,21 @@ export async function run() {
       mark('finish_dock', 900 + 2600);
     }
     if (t === 'decision') mark('time', 600);
+    // more=calls: in-between frames of the big calls' animations (godot/game/hud/hud_calls.gd)
+    if (more.includes('calls')) {
+      const at: Record<string, [string, number][]> = {
+        fightStart: [['fight_a', 90], ['fight_b', 700], ['fight_c', 1150]],
+        knockdown: [['kd_a', 120], ['kd_b', 1000]],
+        stagger: [['stagger_a', 90]],
+        finisher: [['finisher_a', 150], ['finisher_b', 1600], ['finisher_c', 2500]],
+        ko: [['finish_a', 900 + 120], ['finish_b', 900 + 260], ['finish_c', 900 + 800], ['finish_d', 900 + 1350]],
+      };
+      for (const [name, ms] of at[t] ?? []) mark(name, ms);
+      // more=calls,tko (or dsm): the knockout shown as a TKO (or torn apart), for their looks
+      const pf = (hud as unknown as { pendingFinish: { kind: string; reason: string | null } | null }).pendingFinish;
+      if (t === 'ko' && pf && more.includes('tko')) pf.kind = 'TKO';
+      if (t === 'ko' && pf && more.includes('dsm')) Object.assign(pf, { kind: 'Dismantled', reason: 'head' });
+    }
   });
   // the countdown and the FIGHT! call, by the clock
   let acc = 0;
@@ -135,6 +151,8 @@ export async function run() {
     hud.update(dt);
     if (m.phase === 'countdown' && m.phaseTime > 0.3) mark('count3', 0);
     if (m.phase === 'countdown' && m.phaseTime > 2.45) mark('count1', 0);
+    if (more.includes('calls') && m.phase === 'countdown' && m.phaseTime > 1.08) mark('count2_a', 0);
+    if (more.includes('calls') && m.phase === 'end' && m.phaseTime > 0.25) mark('end_a', 0);
     if (m.phase === 'fight' && m.phaseTime > 3) mark('ready', 0);
     if (document.querySelector('.refcount.on')) mark('refcount', 2300);
     if (document.querySelector('.refcount.up')) mark('refup', 250);

@@ -845,6 +845,9 @@ func _process(dt: float) -> void:
 	var call := hud.take_coach()
 	if call != "":
 		m.queueCoach(0.0, call)
+	# ...and a tap on the intro skips to the countdown (hud.ts skipIntro)
+	if hud.take_skip() and m.phase == "intro":
+		m.skipIntro()
 	_view = hud.capture(m)
 	# (the alpha the view's bodies are drawn at: the one left over by the steps that made them)
 	var pose_alpha := _alpha

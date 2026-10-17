@@ -32,6 +32,11 @@ var finished := false
 ## The coach call the player tapped, waiting for the next sim step (hud.ts onCoach). The Game takes
 ## it with take_coach() once the sim is idle.
 var coach_tap := ""
+## The intro was tapped: skip to the countdown (hud.ts skipIntro; the Game takes it with
+## take_skip() once the sim is idle).
+var skip_tap := false
+## Catches a tap anywhere while the robots are presented (hud.ts .vs.interactive).
+var _skip := Control.new()
 ## 1 while the robots are being presented (the bars wait off screen), easing to 0 for the countdown.
 var _intro_k := 0.0
 var _phase := ""
@@ -42,6 +47,7 @@ var perf := PerfOverlay.new()
 ## hidden (style.css .hud.intro .hud-bl: faded, 1.5em down, not tappable).
 var _pause := UiTheme.icon_button("pause")
 var _pause_k := -1.0
+var _pause_em := -1.0
 ## A map event's rival for the next fight, billed in the intro: {style, taunt}, or null (hud.ts
 ## rivalIntro; App sets it before each fight starts).
 var rival_intro = null
@@ -54,6 +60,12 @@ func _init() -> void:
 	_intro.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_intro.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_intro)
+	_skip.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_skip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_skip.gui_input.connect(func(e: InputEvent) -> void:
+		if (e is InputEventMouseButton and e.pressed) or (e is InputEventScreenTouch and e.pressed):
+			skip_tap = true)
+	add_child(_skip)
 	add_child(perf)
 	_pause.theme = UiTheme.theme()
 	_pause.pressed.connect(func() -> void: pause_pressed.emit())
@@ -92,9 +104,25 @@ func show_fps(on: bool) -> void:
 	perf.set_on(on)
 
 
+## style.css .icon-btn: 2.6em round, its glyph 1.2em, so it sizes with the rest of the HUD.
+func _size_pause() -> void:
+	_pause_em = em
+	var px := 2.6 * em
+	var glyph := maxi(8, roundi(1.2 * em))
+	_pause.icon = UiTheme.icon("pause", glyph)
+	_pause.add_theme_constant_override(&"icon_max_width", glyph)
+	for st in [&"normal", &"hover", &"pressed", &"hover_pressed", &"disabled", &"focus"]:
+		var sb := _pause.get_theme_stylebox(st) as StyleBoxFlat
+		if sb != null:
+			sb.set_corner_radius_all(maxi(0, int(floor((px + sb.expand_margin_left + sb.expand_margin_right) * 0.5)) - 1))
+	_pause.custom_minimum_size = Vector2(px, px)
+	_pause.size = Vector2(px, px)
+	_place_pause()
+
+
 func _place_pause() -> void:
 	var at := Vector2(side_margin(bars), bars.size.y - bottom_margin(bars) - _pause.size.y)
-	_pause.position = at + Vector2(0, 24.0 * maxf(_pause_k, 0.0))
+	_pause.position = at + Vector2(0, 1.5 * em * maxf(_pause_k, 0.0))
 
 
 ## A new fight on screen (hud.ts attach; sim idle).
@@ -106,6 +134,7 @@ func start(m) -> void:
 	em = HudKit.em(bars)
 	finished = false
 	coach_tap = ""
+	skip_tap = false
 	for p in parts:
 		p.m = m
 		p.start(m)
@@ -146,6 +175,13 @@ func take_coach() -> String:
 	return k
 
 
+## The intro was tapped since the last sim step (the Game skips it: Match.skipIntro).
+func take_skip() -> bool:
+	var k := skip_tap
+	skip_tap = false
+	return k
+
+
 ## What the HUD shows, read from the match while the sim is still (the sim steps on a worker).
 static func snapshot(m) -> Dictionary:
 	var w = m.winner
@@ -176,6 +212,8 @@ func update_hud(view: Dictionary, can_restart: bool, dt: float) -> void:
 	bars.position.y = -1.5 * em * k
 	controls.position.y = 1.5 * em * k
 	coach.position.y = 1.5 * em * k
+	if em != _pause_em:
+		_size_pause()
 	if k != _pause_k:
 		_pause_k = k
 		_pause.modulate.a = 1.0 - k
@@ -183,6 +221,8 @@ func update_hud(view: Dictionary, can_restart: bool, dt: float) -> void:
 		_place_pause()
 	# (only tappable once the intro is over, as the web's pointer-events: none)
 	_pause.mouse_filter = Control.MOUSE_FILTER_IGNORE if target > 0.0 else Control.MOUSE_FILTER_STOP
+	# a tap during the intro skips to the countdown
+	_skip.mouse_filter = Control.MOUSE_FILTER_STOP if _phase == "intro" else Control.MOUSE_FILTER_IGNORE
 	calls.can_restart = can_restart
 	for p in parts:
 		p.tick(dt)
