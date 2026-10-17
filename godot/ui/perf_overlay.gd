@@ -6,16 +6,20 @@
 ## game system (game/perf.gd laps around the fight loop), with the sim's own step time beside it
 ## (it runs on a worker, in parallel). GPU shows the whole frame's GPU time, live, and what each
 ## render stage costs, live (shadows, the scene pass, glow, the post chain, the HUD, the AO map:
-## the renderer's own stage stamps, game/perf.gd), and what each part of the scene costs, read
-## by Measure: the GPU draws a stage's objects in one go, so to split a stage by part, as the web
-## does where it has no timer queries, the frame is drawn again without each part and the cost
-## read from the difference (GpuProbe, below). Tap the FPS line to fold the panel down to it. The
-## text changes twice a second and nothing else runs between; hidden, it costs nothing.
+## the renderer's own stage stamps, game/perf.gd), and what each part of the scene costs, live
+## too: the GPU draws a stage's objects in one go, so to split a stage by part, as the web does
+## where it has no timer queries, the frame is drawn again off-screen without each part and the
+## cost read from the difference (GpuProbe, below), round after round while the panel is open
+## (João: always showing). That extra drawing costs GPU time of its own, so the button under the
+## parts stops it (and starts it again); the choice is kept. Tap the FPS line to fold the panel
+## down to it. The text changes twice a second; hidden or folded, it costs nothing.
 class_name PerfOverlay
 extends Control
 
-## Where the folded state is kept (a test points this somewhere else).
+## Where the folded state and the live parts' switch are kept (a test points this somewhere else).
 static var cfg_path := "user://perf_overlay.cfg"
+## Whether the parts are measured live until the player says otherwise (a test turns it off).
+static var live_default := true
 
 ## perfOverlay.ts graph colours (in budget, up to twice it, over).
 const GOOD := Color(0.243, 0.878, 0.561)
@@ -64,6 +68,10 @@ const GPU_STAGES := [
 var scene: Node3D
 
 var _compact := false
+## The parts measured round after round while the panel is open (the button stops it).
+var _live := true
+## A live measurement this scene can't run (Measure refused): not tried again until the button.
+var _live_refused := false
 var _rep: Perf.Report
 var _hist := PackedFloat32Array()
 var _probe: GpuProbe
@@ -119,17 +127,23 @@ func _init() -> void:
 	for e in _edges:
 		add_child(e)
 	_toggle.pressed.connect(_on_toggle)
-	_measure.pressed.connect(measure)
+	_measure.pressed.connect(_on_measure)
 	resized.connect(_layout)
+	_live = live_default
 	var cfg := ConfigFile.new()
 	if cfg.load(cfg_path) == OK:
 		_compact = bool(cfg.get_value("overlay", "compact", false))
+		_live = bool(cfg.get_value("overlay", "live", live_default))
 
 
 func _ready() -> void:
-	# (_process only runs while Measure does)
-	set_process(_probe != null)
+	# (_process only runs while a measurement does, or may start one)
+	_sync_process()
 	_layout()
+
+
+func _sync_process() -> void:
+	set_process(_probe != null or (visible and _live))
 
 
 ## Show or hide the overlay; the profiler runs only while it shows.
@@ -142,6 +156,7 @@ func set_on(on: bool) -> void:
 	Perf.set_on(on, get_viewport().get_viewport_rid() if is_inside_tree() else RID())
 	Perf.on_report = _on_report if on else Callable()
 	_rep = null
+	_sync_process()
 	_gpu_name = _fit("%s · %s" % [RenderingServer.get_video_adapter_name(), _renderer_name()], _font, FS - 1, COL * 2.0 + GAP)
 	_layout()
 	queue_redraw()
@@ -150,26 +165,57 @@ func set_on(on: bool) -> void:
 ## Fold the panel down to its FPS line, or open it.
 func set_compact(c: bool) -> void:
 	_compact = c
-	var cfg := ConfigFile.new()
-	cfg.set_value("overlay", "compact", c)
-	cfg.save(cfg_path)
+	_save_cfg()
 	_layout()
 	queue_redraw()
+
+
+func _save_cfg() -> void:
+	var cfg := ConfigFile.new()
+	cfg.set_value("overlay", "compact", _compact)
+	cfg.set_value("overlay", "live", _live)
+	cfg.save(cfg_path)
+
+
+## Whether the parts are being measured live.
+func is_live() -> bool:
+	return _probe != null and _probe.live
+
+
+## Turn the live parts on or off (the button; kept for next time).
+func set_live(on: bool) -> void:
+	_live = on
+	_live_refused = false
+	_save_cfg()
+	if not on and _probe != null and _probe.live:
+		_stop_probe("Live parts stopped.")
+	_sync_process()
+	queue_redraw()
+
+
+func _on_measure() -> void:
+	set_live(not _live)
+
+
+## The panel is open on a scene to measure: the live parts may run.
+func _want_live() -> bool:
+	return _live and not _live_refused and visible and not _compact and scene != null and is_inside_tree() and not get_tree().paused
 
 
 func is_compact() -> bool:
 	return _compact
 
 
-## Measure what each part of the scene costs on the GPU (the Measure button).
-func measure() -> void:
+## Measure what each part of the scene costs on the GPU: once, or round after round (`live`).
+func measure(live := false) -> void:
 	if _probe != null or scene == null or not is_inside_tree():
 		return
-	_probe = GpuProbe.new(scene, self)
+	_probe = GpuProbe.new(scene, self, live)
 	_note = _probe.refused
 	if _note != "":
 		_probe = null
-	set_process(_probe != null)
+		_live_refused = live
+	_sync_process()
 	_layout()
 	queue_redraw()
 
@@ -202,27 +248,47 @@ func _stop_probe(note: String) -> void:
 	_probe.abort()
 	_probe = null
 	_note = note
-	set_process(false)
+	_sync_process()
 	_layout()
 	queue_redraw()
 
 
 func _process(_dt: float) -> void:
 	var t0 := Perf.now()
+	if _probe == null and _want_live():
+		measure(true)
+	elif _probe != null and _probe.live and not _want_live():
+		# folded, hidden or paused: the live parts rest (the last ones stay on show)
+		_stop_probe("")
 	if _probe != null:
 		var p := _probe
 		p.step()
+		if p.fresh:
+			p.fresh = false
+			_take_result(p.res)
+			_note = ""
 		if p.done:
 			_probe = null
-			set_process(false)
 			if p.res != null:
-				_result = p.res
+				_take_result(p.res)
 				_note = ""
 			else:
 				_note = p.refused
+				_live_refused = p.live
+			_sync_process()
 			_layout()
 		queue_redraw()
 	Perf.add(Perf.PANEL, t0)
+
+
+## A new measurement on show; live rounds ease into the last ones, so one noisy round doesn't
+## make the rows jump.
+func _take_result(r: GpuProbe.Result) -> void:
+	if _result != null and _result != r and _result.ms.size() == r.ms.size() and is_live():
+		for i in r.ms.size():
+			if r.ms[i] >= 0.0 and _result.ms[i] >= 0.0:
+				r.ms[i] = lerpf(_result.ms[i], r.ms[i], 0.5)
+	_result = r
 
 
 func _on_report(r: Perf.Report) -> void:
@@ -370,9 +436,11 @@ func _gpu_column(at: Vector2, r: Perf.Report, budget: float) -> void:
 			ms = r.stages[st[0]] if r.stages.size() > 0 else -2.0
 		_row(at.x, y, st[1], ms, false, budget)
 		y += ROW
-	# what Measure found, part by part (or dashes until it has run)
+	# what the measuring found, part by part (or dashes until it has run)
 	var res := _result
 	var label := "by part" if res == null else ("by part, %ds ago" % roundi((Time.get_ticks_msec() - res.at) / 1000.0))
+	if is_live():
+		label = "by part, live"
 	draw_string(_font, Vector2(at.x, y + 11.0), label, HORIZONTAL_ALIGNMENT_LEFT, COL, FS - 1, UiTheme.MUTED)
 	y += ROW
 	for i in GpuProbe.ROWS.size():
@@ -387,14 +455,18 @@ func _gpu_column(at: Vector2, r: Perf.Report, budget: float) -> void:
 		bb = _btn_box.duplicate()
 		bb.bg_color = Color(1, 1, 1, 0.16)
 	draw_style_box(bb, b)
-	var text := "Measure" if res == null else "Measure again"
+	var text := "Measure live"
 	var col := UiTheme.TEXT
-	if _probe != null:
+	if is_live():
+		text = "Live · tap to stop" if res != null else "Measuring… %d%%" % roundi(_probe.progress() * 100.0)
+	elif _probe != null:
 		text = "Measuring… %d%%" % roundi(_probe.progress() * 100.0)
 		col = UiTheme.MUTED
 	draw_string(_font, Vector2(b.position.x, b.position.y + 17.0), text, HORIZONTAL_ALIGNMENT_CENTER, b.size.x, FS, col)
 	var note := _note
-	if note == "" and res != null:
+	if note == "" and is_live():
+		note = ("Extra off-screen redraw, ~%.1f ms GPU" % res.full) if res != null else "Redraws without each part"
+	elif note == "" and res != null:
 		note = "full redraw %.2f ms" % res.full
 	elif note == "" and r != null and r.gpu < 0.0:
 		note = "No GPU timer here."
@@ -525,13 +597,13 @@ class Edge extends Node:
 ## mask and every light's shadow casters already include (checked first, or Measure refuses), and
 ## when it is done every mesh gets its own layers back and the viewport is freed.
 class GpuProbe extends RefCounted:
-	enum { BOTS, CROWD, VENUE, RING, SHOW, FX, PARTS }
+	enum { BOTS, CROWD, VENUE, RING, SHOW, FX, RT, PARTS }
 	## Row labels: the parts, then what the other versions isolate.
-	const ROWS := ["Bots", "Crowd", "Venue", "Ring", "Light show", "Effects", "Shadows", "Glow/post", "Other"]
+	const ROWS := ["Bots", "Crowd", "Venue", "Ring", "Light show", "Effects", "Ray tracing", "Shadows", "Glow/post", "Other"]
 	const SHADOWS := PARTS
 	const GLOW := PARTS + 1
 	const OTHER := PARTS + 2
-	## Visual layer bits the parts move to (layers 13 to 18: nothing else here uses them).
+	## Visual layer bits the parts move to (layers 13 to 19: nothing else here uses them).
 	const BIT0 := 12
 	## The versions drawn: full, without shadows, without glow, then without each part.
 	const V_FULL := 0
@@ -539,9 +611,12 @@ class GpuProbe extends RefCounted:
 	const V_NO_GLOW := 2
 	const V_PART := 3
 	## Rounds of every version, frames kept per version and round (after one thrown away at each
-	## switch), and the most frames the GPU's timing may lag.
+	## switch), and the most frames the GPU's timing may lag. Live measuring runs shorter rounds,
+	## over and over.
 	static var rounds := 3
 	static var take := 3
+	const LIVE_ROUNDS := 2
+	const LIVE_TAKE := 2
 	const MAX_LAG := 12
 	## How late measured times arrive here, once worked out (per renderer, so kept).
 	static var _lag := -1
@@ -558,6 +633,11 @@ class GpuProbe extends RefCounted:
 
 	var done := false
 	var res: Result
+	## Measuring round after round: `res` is replaced each time and `fresh` set, never done.
+	var live := false
+	var fresh := false
+	var _rounds := 3
+	var _take := 3
 	## Why Measure can't run here (empty when it can).
 	var refused := ""
 
@@ -589,9 +669,12 @@ class GpuProbe extends RefCounted:
 	var _full_ref := 0.0
 	var _switch_at := -1
 
-	func _init(scene: Node3D, host: Node) -> void:
+	func _init(scene: Node3D, host: Node, live_ := false) -> void:
 		_scene = scene
 		_host = host
+		live = live_
+		_rounds = LIVE_ROUNDS if live else rounds
+		_take = LIVE_TAKE if live else take
 		_count.resize(PARTS)
 		_main_vp = scene.get_viewport()
 		_main_cam = _main_vp.get_camera_3d()
@@ -623,15 +706,15 @@ class GpuProbe extends RefCounted:
 	## decals must all already include every part layer.
 	func _check_masks() -> String:
 		if (_main_cam.cull_mask & _all_bits) != _all_bits:
-			return "The camera hides layers 13-18."
+			return "The camera hides layers 13-19."
 		for n in _scene.find_children("*", "Node3D", true, false):
 			if n is Light3D:
 				var l := n as Light3D
 				if (l.light_cull_mask & _all_bits) != _all_bits or (l.shadow_caster_mask & _all_bits) != _all_bits:
-					return "Light %s skips layers 13-18." % l.name
+					return "Light %s skips layers 13-19." % l.name
 			elif n is ReflectionProbe or n is Decal:
 				if (int(n.get("cull_mask")) & _all_bits) != _all_bits:
-					return "%s skips layers 13-18." % n.name
+					return "%s skips layers 13-19." % n.name
 		return ""
 
 	## The arena's own groups (its baked scene names them).
@@ -714,6 +797,9 @@ class GpuProbe extends RefCounted:
 			p = FX
 		elif n is Arena:
 			p = RING
+		elif n is RayTrace:
+			# (with ray tracing off it draws nothing: no row)
+			p = RT if (n as RayTrace).visible else -1
 		var id := n.get_instance_id()
 		if _named.has(id):
 			p = _named[id]
@@ -757,9 +843,9 @@ class GpuProbe extends RefCounted:
 
 	func _make_plan() -> void:
 		var vs := _versions()
-		for r in rounds:
+		for r in _rounds:
 			for v in vs:
-				for k in take + 1:
+				for k in _take + 1:
 					_plan.append(v)
 					# (the first frame after a switch is thrown away: a buffer may be reallocating)
 					_keep.append(1 if k > 0 else 0)
@@ -794,8 +880,8 @@ class GpuProbe extends RefCounted:
 			(_samples[_plan[j]] as Array).append(gpu)
 		var k := _frame - _plan_start
 		if k < _plan.size():
-			if k % (take + 1) == 0:
-				if k % (_versions_count() * (take + 1)) == 0:
+			if k % (_take + 1) == 0:
+				if k % (_versions_count() * (_take + 1)) == 0:
 					# a new round: the screen's size or 3D scale may have moved, parts changed hands
 					_match_viewport()
 					_assign_all()
@@ -873,5 +959,14 @@ class GpuProbe extends RefCounted:
 		r.at = Time.get_ticks_msec()
 		r.samples = _samples
 		res = r
+		if live:
+			# straight into the next round, on the same viewport
+			fresh = true
+			_samples = {}
+			_plan = PackedInt32Array()
+			_keep = PackedByteArray()
+			_make_plan()
+			_plan_start = _frame + 1
+			return
 		_restore()
 		done = true
