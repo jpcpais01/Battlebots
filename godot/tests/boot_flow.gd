@@ -51,6 +51,8 @@ func _init() -> void:
 	_check(home != null and home.id == "beach", "the home place is the beach")
 	_check(app.game.made.is_empty(), "every part built ahead was used")
 	_check(app.game.arena != null and app.game.arena.is_inside_tree(), "the arena built ahead is in the world")
+	var hs = app.screens.home
+	_check(not hs._garage.disabled and not hs._career.disabled, "the home screen's Garage and Career buttons can be tapped")
 	await create_timer(0.5).timeout
 	await _shot("boot_after")
 	print("boot_flow: %d failed" % _fail)

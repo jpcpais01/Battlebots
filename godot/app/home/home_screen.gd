@@ -35,6 +35,7 @@ var _meta := HFlowContainer.new()
 var _tiles: Array[PartTile] = []
 var _record := HBoxContainer.new()
 var _career: Button
+var _garage: Button
 var _cash: Label
 var _fight: Button
 ## The Fight button's way out of an animated home scene is playing (app.ts leaving).
@@ -465,7 +466,7 @@ func _build_actions() -> void:
 	garage.pressed.connect(func() -> void:
 		app.tap("select")
 		_to_garage(""))
-	garage.disabled = app != null and not app.screens.has("garage")
+	_garage = garage
 	two.add_child(garage)
 	# (online play is phase 5: the room screen isn't here yet)
 	var online := UiTheme.button("Online", "globe", &"Btn")
@@ -481,7 +482,6 @@ func _build_actions() -> void:
 	_career.pressed.connect(func() -> void:
 		app.tap("select")
 		app.go("map"))
-	_career.disabled = app != null and not app.screens.has("map")
 	_add_cash(_career)
 	MenuKit.pad_button(_career, 0.6 * _em)
 	sub.add_child(_career)
@@ -587,6 +587,9 @@ func _end_leaving() -> void:
 
 func enter() -> void:
 	_end_leaving()
+	# (the other screens are made after this one: whether they're there is known only now)
+	_garage.disabled = not app.screens.has("garage")
+	_career.disabled = not app.screens.has("map")
 	_sync_scene_btn()
 	_sync_sound()
 	_sync_notes()
