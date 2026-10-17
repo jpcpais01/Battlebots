@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-17 23:00",
+    title: "Every part unlocked",
+    notes: [
+      "On Android, every Rare and Epic part is unlocked for now: fit anything from any maker in the garage, no career wins needed. The career still pays out credits, crates and trophies as usual.",
+    ],
+  },
+  {
     hour: "2026-10-17 03:00",
     title: "A referee in the ring",
     notes: [

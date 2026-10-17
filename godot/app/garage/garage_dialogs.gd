@@ -140,7 +140,7 @@ static func _row(s, saves: Array, i: int, redraw: Callable) -> Control:
 	use.pressed.connect(func() -> void:
 		s.tap("select")
 		s.app.player = bot.duplicate(true)
-		TCareer.fitOwned(s.app.player, s.app.record.career)
+		s.app.fit_owned(s.app.player)
 		s.commit_player()
 		s.pulse()
 		s.close_modal())

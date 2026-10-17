@@ -88,7 +88,10 @@ func _run() -> void:
 	if locked != null:
 		g.parts.pick("fist", locked, false)
 		g.parts.fit("fist", locked)
-		_check(app.player.loadout.fist.id == other.id, "a locked part (%s) can be tried on but not fitted" % locked.id)
+		if App.UNLOCK_ALL:
+			_check(app.player.loadout.fist.id == locked.id, "with everything unlocked, an unearned part (%s) fits" % locked.id)
+		else:
+			_check(app.player.loadout.fist.id == other.id, "a locked part (%s) can be tried on but not fitted" % locked.id)
 		g.drop_trial()
 
 	# paint, size, emotes, walk-on
