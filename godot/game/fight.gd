@@ -75,6 +75,8 @@ var venues: EventVenues
 ## The broadcast camera director and its camera drones (game.ts director, drones).
 var director: Director
 var drones: Drones
+## The referee drone that runs the fight from inside the ropes (render/referee/referee.gd).
+var referee: Referee
 ## Lens to the middle of the fighters (the house lights expose for it).
 var _cam_dist := 8.0
 ## After each sim step on the worker: how many events were queued so far, and the pace it ran at,
@@ -171,6 +173,8 @@ func _ready() -> void:
 		_step_views.append(Director.View.new())
 	drones = Drones.new()
 	add_child(drones)
+	referee = Referee.new()
+	add_child(referee)
 	contact_ao = ContactAO.new()
 	add_child(contact_ao)
 	# (a test may have handed in its own, e.g. tests/crowd_record.gd's logging one)
@@ -386,6 +390,7 @@ func start_match(a, b, seed: float) -> void:
 	hud.game = self
 	hud.cam = cam
 	hud.start(m)
+	referee.start(m)
 	_mv.capture(m)
 	effects.start(m, models)
 	# (the effects read the frame's view of the match: they run while the sim steps)
@@ -436,6 +441,7 @@ func end_match() -> void:
 	_end_time = -1.0
 	hud.stop()
 	hud.visible = false
+	referee.stop()
 	_crowd_count = -1
 	crowd_audio.tick(0.0, null)
 	for i in 2:
@@ -535,6 +541,7 @@ func set_place(p: String) -> void:
 	var in_arena := p == "arena"
 	arena.visible = in_arena
 	drones.visible = in_arena
+	referee.visible = in_arena
 	if showcase != null:
 		showcase.model.visible = p != "home" and p != "map"
 	var now = _places.get(p)
@@ -622,6 +629,7 @@ func _on_event(type: String, data) -> void:
 	booth.event(type, data)
 	# the HUD's callouts, counts, numbers and banners (hud.ts onEvent)
 	hud.on_event(type, data)
+	referee.on_event(type, data)
 	_arena_event(type, data)
 	# (the torn-off piece flies before the socket's wrench, as in game.ts tearOff)
 	effects.on_event(type, data)
@@ -1014,6 +1022,7 @@ func _idle_frame(dt: float) -> void:
 	director.update(dt, null, 1.0)
 	var focus := Vector3(0, 1.1, 0)
 	drones.update(dt, cam, director.cuts, director.mode, focus, false)
+	referee.update(dt, cam, null, [], null)
 	# the gantry dissolves when the garage camera swings behind it
 	var near: Array[Vector3] = []
 	if place == "garage" and showcase != null:
@@ -1047,6 +1056,8 @@ func _frame_camera(dt: float, _snap: bool) -> void:
 		cam.far = director.far
 	_cam_dist = cam.global_position.distance_to(focus)
 	drones.update(dt, cam, director.cuts, director.mode, focus, director.pov >= 0)
+	# the referee flies with the fight's own time (its slow motion, the player's speed)
+	referee.update(dt * speed * _mv.pace, cam, _mv, models, hud.calls)
 
 
 ## The director's side of this frame's sim steps, replayed on the main thread in step order:
