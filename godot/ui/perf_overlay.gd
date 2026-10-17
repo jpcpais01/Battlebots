@@ -24,7 +24,7 @@ const BAD := Color(1.0, 0.247, 0.369)
 ## style.css .perf: rgba(6, 8, 14, 0.78), a hairline, 6px corners.
 const BG := Color(0.024, 0.031, 0.055, 0.78)
 const TRACK := Color(1, 1, 1, 0.07)
-## Below the health bars (fight_hud.gd HudView: they end 74 units down).
+## Below the health bars (style.css .perf: top 8px + 5.6rem).
 const TOP := 84.0
 ## Layout, in units of the 720-tall canvas: padding, text size, row height, column width and gap.
 const PAD := 8.0
