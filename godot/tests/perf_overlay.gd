@@ -95,6 +95,34 @@ func _stages() -> void:
 	for v in got:
 		total += v
 	_check(ok and absf(total / 1000.0 - 8300.0) < 0.01, "the live GPU stages split a frame's stamps as the renderer means them")
+	# the overlay's probe redraws the scene in a viewport of its own: none of it is the game's
+	var probe := RenderingServer.viewport_create()
+	Perf.skip_vp(probe)
+	var pid := str(probe.get_id())
+	var with_probe := PackedStringArray(["> Render Viewport 2", "vp_begin_" + pid, "Render Shadows", "Render Opaque + Transparent", "Glow", "vp_end_" + pid, "< Render Viewport 2"])
+	var probe_t := PackedInt64Array([8300, 8301, 8302, 9302, 13302, 14302, 14303])
+	names.remove_at(names.size() - 1)
+	times.remove_at(times.size() - 1)
+	for i in with_probe.size():
+		names.append(with_probe[i])
+		times.append(probe_t[i] * 1000)
+	names.append("< Render Viewports")
+	times.append(14310 * 1000)
+	Perf.on = true
+	Perf._reset_window()
+	Perf.add_stages(names, times)
+	var got2 := Perf._stage_ns.duplicate()
+	Perf._reset_window()
+	Perf.on = was_on
+	Perf.skip_vp(RID())
+	RenderingServer.free_rid(probe)
+	var same := got2.size() == Perf.G_COUNT
+	# (the AO map is watched no more here: its canvas counts as the HUD now, so the HUD is left out)
+	for g in [Perf.G_SHADOWS, Perf.G_SCENE, Perf.G_GLOW, Perf.G_POST]:
+		if same and absf(got2[g] - got[g]) > 1.0:
+			same = false
+			print("  stage %d with the probe: %.1f us, without %.1f" % [g, got2[g] / 1000.0, got[g] / 1000.0])
+	_check(same, "the probe's own redraw stays out of the live GPU stages")
 
 
 func _run() -> void:

@@ -10,7 +10,9 @@
 ## too: the GPU draws a stage's objects in one go, so to split a stage by part, as the web does
 ## where it has no timer queries, the frame is drawn again off-screen without each part and the
 ## cost read from the difference (GpuProbe, below), round after round while the panel is open
-## (João: always showing). That extra drawing costs GPU time of its own, so the button under the
+## (João: always showing). That extra drawing costs GPU time of its own, which the GPU numbers
+## leave out (the frame row times the screen's viewport only, the stage rows skip the probe's
+## stamps, each part is a difference inside the probe) but the FPS can't: the button under the
 ## parts stops it (and starts it again); the choice is kept. Tap the FPS line to fold the panel
 ## down to it. The text changes twice a second; hidden or folded, it costs nothing.
 class_name PerfOverlay
@@ -465,7 +467,7 @@ func _gpu_column(at: Vector2, r: Perf.Report, budget: float) -> void:
 	draw_string(_font, Vector2(b.position.x, b.position.y + 17.0), text, HORIZONTAL_ALIGNMENT_CENTER, b.size.x, FS, col)
 	var note := _note
 	if note == "" and is_live():
-		note = ("Extra off-screen redraw, ~%.1f ms GPU" % res.full) if res != null else "Redraws without each part"
+		note = ("Probe ~%.1f ms GPU, not counted above" % res.full) if res != null else "Redraws without each part"
 	elif note == "" and res != null:
 		note = "full redraw %.2f ms" % res.full
 	elif note == "" and r != null and r.gpu < 0.0:
@@ -742,6 +744,8 @@ class GpuProbe extends RefCounted:
 		_cam.current = true
 		_copy_camera()
 		RenderingServer.viewport_set_measure_render_time(_vp.get_viewport_rid(), true)
+		# (the stage rows are the game's frame: this redraw stays out of them)
+		Perf.skip_vp(_vp.get_viewport_rid())
 		# shadows and glow: measured only where the fight has them on
 		for l in _scene.find_children("*", "Light3D", true, false):
 			if (l as Light3D).shadow_enabled and (l as Light3D).is_visible_in_tree() and not l is DirectionalLight3D:
@@ -825,6 +829,7 @@ class GpuProbe extends RefCounted:
 		_orig.clear()
 		if _vp != null:
 			RenderingServer.viewport_set_measure_render_time(_vp.get_viewport_rid(), false)
+			Perf.skip_vp(RID())
 			_vp.queue_free()
 			_vp = null
 			_cam = null

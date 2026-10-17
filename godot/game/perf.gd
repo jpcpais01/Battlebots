@@ -63,6 +63,10 @@ static var _vp := RID()
 static var _ao_vp := RID()
 static var _ao_begin := ""
 static var _ao_end := ""
+## A viewport whose stages aren't the game's (the overlay's by-part probe, ui/perf_overlay.gd):
+## its markers' names, and everything between them is left out of the stages.
+static var _skip_begin := ""
+static var _skip_end := ""
 ## Stage sums (ns) over the window, how many frames were read, and each marker name's stage.
 static var _stage_ns := PackedFloat64Array()
 static var _stage_n := 0
@@ -173,6 +177,13 @@ static func _read_stages() -> void:
 	add_stages(names, times)
 
 
+## Leave viewport `vp`'s drawing (or none) out of the GPU stages: the overlay's probe redraws
+## the scene off-screen, which isn't the game's cost. It must time its render (its markers).
+static func skip_vp(vp: RID) -> void:
+	_skip_begin = "vp_begin_%d" % vp.get_id() if vp.is_valid() else ""
+	_skip_end = "vp_end_%d" % vp.get_id() if vp.is_valid() else ""
+
+
 ## Add one frame's stage stamps (names, GPU times in ns, in order) to the window. The renderer
 ## stamps each stage as it starts, so a stage lasts until the next stamp. A "> Name" stamp opens a
 ## block and "< Name" closes it: the time after an opening stamp is that block's own work (a
@@ -189,12 +200,19 @@ static func add_stages(names: PackedStringArray, times: PackedInt64Array) -> voi
 	sums.resize(G_COUNT)
 	var staged := false
 	var in_ao := false
+	var in_skip := false
 	for i in n - 1:
 		var name := names[i]
 		var d := times[i + 1] - times[i]
 		# (a clock that went backwards: not a frame to trust)
 		if d < 0:
 			return
+		if name == _skip_begin:
+			in_skip = true
+		elif name == _skip_end:
+			in_skip = false
+		if in_skip:
+			continue
 		if name == _ao_begin:
 			in_ao = true
 		elif name == _ao_end:
