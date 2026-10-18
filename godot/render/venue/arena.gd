@@ -238,6 +238,9 @@ func _upload_ropes() -> void:
 	for k in ROPES:
 		_rope_v4[k] = Vector4(_rope_u[k * 4], _rope_u[k * 4 + 1], _rope_u[k * 4 + 2], 0.0)
 	_rope_mat.set_shader_parameter("rope", _rope_v4)
+	# (the titans' energy ropes bow with the same physics: render/titan)
+	if outdoor != null and outdoor.get("rope_mat") != null:
+		outdoor.rope_mat.set_shader_parameter("rope", _rope_v4)
 
 
 ## Match events for everyone in the building (venue.ts Venue.event): the crowd, the

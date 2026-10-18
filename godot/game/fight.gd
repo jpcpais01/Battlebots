@@ -72,6 +72,15 @@ var carrying: bool:
 	get:
 		return m != null and _mv.phase == "end" and _mv.winner != null and _mv.phaseTime < Stretcher.ride_end(m.result)
 var _acc := 0.0
+## Titan battles (render/titan): the fight is in the Titan Colosseum, and the robots are 30 m
+## titans. The sim is the same; the world round it is built to their scale, and the fight runs
+## slower (time_k), filmed and heard like giants (Director.titan, Sfx.titan, TitanFx).
+var titan := false
+## How fast the fight's time runs against the clock on the wall: 1, or slower for titans (a body
+## fifteen times the size swings about four times slower; the titans meet it halfway).
+var time_k := 1.0
+## The titans' own effects: dust, ground scars, footfalls (render/titan/titan_fx.gd).
+var titan_fx: TitanFx
 ## The player's fight speed: 1, 2 or 0.5 (game.ts speed; the HUD's speed button). Reset each fight.
 var speed := 1.0
 var _time := 0.0
@@ -228,7 +237,11 @@ func _ready() -> void:
 	# bits of plating clinking on the canvas, torn parts landing (game.ts fx.bits.onClink, debris.update)
 	effects.fx.bits.on_clink = func(p: Vector3, k: float) -> void: sfx.tink(k, Sfx.pan_of(cam, p))
 	if "on_land" in effects:
-		effects.set("on_land", func(p: Vector3, sp: float) -> void: sfx.thud(minf(0.7, sp / 6.0), Sfx.pan_of(cam, p)))
+		effects.set("on_land", func(p: Vector3, sp: float) -> void:
+			sfx.thud(minf(0.7, sp / 6.0), Sfx.pan_of(cam, p))
+			# (a titan's torn-off plate is the size of a house: it lands in a cloud of dust)
+			if titan:
+				titan_fx.land(p, sp))
 	hud = FightHud.new()
 	hud.visible = OS.get_environment("BB_NOHUD") == ""
 	add_child(hud)
@@ -426,6 +439,14 @@ func start_match(a, b, seed: float, partners = null) -> void:
 	effects.m = _mv
 	# each corner's entrance is lit in its robot's colours (game.ts startMatch)
 	arena.corners.set_accents(int(a.paint.accent), int(b.paint.accent))
+	# the Titan Colosseum dresses in the two titans' colours: fans, flags, banners, gates
+	if titan:
+		var tv = venues.current
+		tv.set_teams(_lin(int(a.paint.accent)), _lin(int(b.paint.accent)))
+		titan_fx.start()
+		time_k = TITAN_TIME.intro
+	else:
+		time_k = 1.0
 	arena.corners.on_cue = func(i: int, cue: String) -> void:
 		# the lift's clunks and hydraulics, from its corner (game.ts corners.onCue)
 		sfx.lift(cue, Sfx.pan_of(cam, _v(_mv.fighters[i].body.pos[0])))
@@ -446,6 +467,43 @@ func start_match(a, b, seed: float, partners = null) -> void:
 	director.begin(m)
 	director.snap()
 	crowd_audio.ambience(1.0)
+
+
+## How fast titan time runs in each phase of the fight (time_k): the walk-outs and the
+## countdown nearer real time, the fighting itself at half speed.
+const TITAN_TIME := {"intro": 0.8, "countdown": 0.75, "greet": 0.6, "fight": 0.5, "ko": 0.5, "end": 0.6}
+
+
+## time_k this frame in a titan fight: eased towards its phase's pace (no jolt between phases).
+func _titan_time(dt: float) -> float:
+	var want: float = TITAN_TIME.get(m.phase, 0.5)
+	return time_k + (want - time_k) * (1.0 - exp(-dt * 1.5))
+
+
+## Fight titan battles (render/titan) or not: the world map's venues call this as the Titan
+## Colosseum goes up round the ring (EventVenues._use) or gives way to another. The indoor
+## ring's stage, posts and ropes give way to the titans' deck, pylons and energy ropes; the key
+## spot gives way to the venue's sun; the camera, the sound and the effects go titan scale.
+func set_titan(on: bool) -> void:
+	if on == titan:
+		return
+	titan = on
+	TitanVenue.set_ring_hidden(arena, on)
+	_key.visible = not on
+	director.titan = on
+	sfx.titan = on
+	if on and titan_fx == null:
+		titan_fx = TitanFx.new(self)
+		add_child(titan_fx)
+	if titan_fx != null:
+		titan_fx.visible = on
+		if not on:
+			titan_fx.clear()
+	# the haze glows towards the low sun, and the flame cannons' smoke is grey in daylight
+	_env.fog_sun_scatter = 0.18 if on else 0.0
+	for fm in arena.mats.by_kind.get("pyro_fire", []):
+		fm.set_shader_parameter("smoke", Vector3(0.3, 0.29, 0.28) if on else Vector3(0.05, 0.05, 0.055))
+	time_k = 1.0
 
 
 ## Leave the fight on screen (game.ts endMatch): the sim stops, the robots and everything they
@@ -655,6 +713,10 @@ func set_place(p: String) -> void:
 	# back in the arena, its venue's light again (game.ts setPlace: applyLook(this.look))
 	if venues != null:
 		venues.place_changed(p)
+	# (the home and the map put back the key spot as they found it: in the Titan Colosseum the
+	# sun stands in for it)
+	if in_arena:
+		_key.visible = not titan
 
 
 ## Build a world map event's venue ahead of its fights (game.ts loadVenue), in the background:
@@ -737,6 +799,8 @@ func _on_event(type: String, data) -> void:
 	_arena_event(type, data)
 	# (the torn-off piece flies before the socket's wrench, as in game.ts tearOff)
 	effects.on_event(type, data)
+	if titan:
+		titan_fx.event(type, data)
 	_bot_event(type, data)
 	_sound_event(type, data)
 
@@ -1000,7 +1064,9 @@ func _process(dt: float) -> void:
 	# reads the match; everything below reads the view, so the worker runs while the rest of the
 	# frame poses, lights and draws
 	var steps := 0
-	_acc += dt * speed * m.pace
+	if titan:
+		time_k = _titan_time(dt)
+	_acc += dt * speed * m.pace * time_k
 	steps = mini(budget, int(_acc / SIM_DT))
 	_acc -= steps * SIM_DT
 	if _acc >= SIM_DT:
@@ -1011,7 +1077,7 @@ func _process(dt: float) -> void:
 	Perf.lap(Perf.SIM)
 	_pose_alpha = pose_alpha
 	# the loser's ride out: from the stretcher's deck, not its body (game.ts frame: carry)
-	var flow := dt * speed * _mv.pace
+	var flow := dt * speed * _mv.pace * time_k
 	var carried := _carry(flow)
 	# both bodies first: each robot's limbs then slide out of either robot's armour (game.ts)
 	for i in 2:
@@ -1051,7 +1117,19 @@ func _process(dt: float) -> void:
 	for md in bench:
 		md.ao_lists(contact_ao)
 	# sparks, smoke, vapour and oil off the wrecked parts, the debris, the trails (the view's)
-	effects.update(dt, flow, cam)
+	# (a titan's sparks and smoke drift down slowly, at the titans' scale)
+	effects.update(dt * time_k, flow, cam)
+	if titan:
+		titan_fx.update(dt, flow, _mv, models)
+		# the fight's sound crosses the stadium to the lens (sound's speed at the titans' scale,
+		# eased so a blow never lags its picture by much), and the sun's shadows follow the
+		# graphics settings as the key spot's do
+		var mid := (models[0].global_position + models[1].global_position) * 0.5
+		sfx.titan_delay = minf(0.35, cam.global_position.distance_to(mid) * 0.026)
+		var tv = venues.current
+		if tv is TitanVenue:
+			tv.sun.shadow_enabled = _key.shadow_enabled
+			tv.crowd_mat.set_shader_parameter("fan_seat", director.crowd_seat)
 	Perf.lap(Perf.FX)
 	_sound_frame()
 	Perf.lap(Perf.AUDIO)
@@ -1228,7 +1306,7 @@ func _frame_camera(dt: float, _snap: bool) -> void:
 	_cam_dist = cam.global_position.distance_to(focus)
 	drones.update(dt, cam, director.cuts, director.mode, focus, director.pov >= 0)
 	# the referee flies with the fight's own time (its slow motion, the player's speed)
-	referee.update(dt * speed * _mv.pace, cam, _mv, models, hud.calls)
+	referee.update(dt * speed * _mv.pace * time_k, cam, _mv, models, hud.calls)
 
 
 ## The director's side of this frame's sim steps, replayed on the main thread in step order:
@@ -1244,7 +1322,7 @@ func _direct_steps(events: Array) -> void:
 		while e < marks[k] and e < events.size():
 			_camera_event(events[e][0], events[e][1])
 			e += 1
-		director.step(_step_views[k], SIM_DT / maxf(1e-6, paces[k]))
+		director.step(_step_views[k], SIM_DT / maxf(1e-6, paces[k] * time_k))
 	while e < events.size():
 		_camera_event(events[e][0], events[e][1])
 		e += 1
