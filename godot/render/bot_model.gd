@@ -113,6 +113,12 @@ var _bones := PackedVector4Array()
 var _cols := PackedColorArray()
 var _base_glow: Color
 var _base_core: Color
+## The skin worn (render/skins/skins.gd, null for the plain paint) and the paint's own glow under it.
+var skin = null
+var _paint_glow: Color
+## A new skin painting on (paint_on): seconds into the sweep (-1: none), and the clock it last ran at.
+var _wipe_t := -1.0
+var _wipe_last := -1.0
 var _rarity: Array = []
 # contact (botModel.ts solveContacts): per limb (arms, then legs) the settling, and when it last ran
 var _contact := BotContact.new()
@@ -411,6 +417,8 @@ func _paint_surfaces() -> void:
 		"carbon": [0x1e2128, 0.35, 0.34],
 		"alu": [0xc5cbd3, 0.9, 0.26],
 	}
+	skin = Skins.of(spec)
+	Skins.apply(_opaque_mat, skin, 0)
 	var surf := PackedVector4Array()
 	var rough := PackedFloat32Array()
 	for k in BotParts.OPAQUE_KEYS:
@@ -423,7 +431,8 @@ func _paint_surfaces() -> void:
 
 
 func _glow_colours(core_look: int) -> void:
-	_base_glow = lin(spec.paint.accent) * 3.4
+	_paint_glow = lin(spec.paint.accent)
+	_base_glow = Skins.glow(skin, _paint_glow, 0.0) * 3.4
 	_base_core = lin(BotParts.info.coreColors[core_look]) * 3.2
 	_rarity.clear()
 	for slot in SLOTS:
@@ -846,6 +855,10 @@ func _effects(f, time: float) -> void:
 		_shield.rotation.y = time * 0.5
 		_shield_alpha *= 0.9 + sin(time * 9) * 0.05 + 0.05
 		(_shield.material_override as ShaderMaterial).set_shader_parameter("alpha", _shield_alpha)
+	# a skin's own glow lives with it (lava pulsing, arcs flickering, a neon grid cycling)
+	if skin != null and int(skin.glow) >= 0:
+		_base_glow = Skins.glow(skin, _paint_glow, time) * 3.4
+	_sweep(time)
 	# overdrive: glow runs hot
 	var od := 0.5 + 0.5 * sin(time * 14) if f.overdrive > 0 else 0.0
 	_cols[0] = _base_glow.lerp(HOT * 6.0, od * 0.6) * glow_boost
@@ -860,6 +873,41 @@ func _effects(f, time: float) -> void:
 	for m in _mats:
 		if m.shader == GLOW_SHADER:
 			m.set_shader_parameter("cols", _cols)
+
+
+# ------------------------------------------------------------------ skins
+
+## How long a new skin takes to paint on, feet to head (s).
+const SWEEP := 1.15
+
+
+## Paint this robot's skin on with a sweep of light from its feet up, `was` (a skin, or null for
+## the plain paint) giving way above the line as it climbs (the garage and the vault, when a skin
+## goes on).
+func paint_on(was) -> void:
+	Skins.apply(_opaque_mat, was, 1)
+	var g := Skins.glow(skin, _paint_glow, 0.0) if skin != null else _paint_glow
+	_opaque_mat.set_shader_parameter("skin_band", Vector3(g.r, g.g, g.b) * 2.2 + Vector3.ONE * 0.4)
+	_opaque_mat.set_shader_parameter("skin_wipe", -0.1)
+	_wipe_t = 0.0
+	_wipe_last = -1.0
+
+
+func _sweep(time: float) -> void:
+	if _wipe_t < 0.0:
+		return
+	var dt := 0.0 if _wipe_last < 0.0 else clampf(time - _wipe_last, 0.0, 0.1)
+	_wipe_last = time
+	_wipe_t += dt
+	var k := _wipe_t / SWEEP
+	if k >= 1.0:
+		_wipe_t = -1.0
+		_opaque_mat.set_shader_parameter("skin_wipe", 100.0)
+		Skins.apply(_opaque_mat, null, 1)
+		return
+	# eased: quick off the feet, slowing over the head
+	var e := 1.0 - (1.0 - k) * (1.0 - k)
+	_opaque_mat.set_shader_parameter("skin_wipe", -0.1 + e * 2.35 * size)
 
 
 # ------------------------------------------------------------------ battle damage (botModel.ts)

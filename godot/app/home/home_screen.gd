@@ -20,6 +20,10 @@ var _em := UiTheme.EM
 var _top := HBoxContainer.new()
 var _notes: Button
 var _notes_dot: Control
+## The Skins button (the Skin Vault) and its gold dot while a free pull waits.
+var _vault: Button
+var _vault_dot: Control
+var _vault_t := 0.0
 var _scene: Button
 var _sound: Button
 var _gear: Button
@@ -488,16 +492,27 @@ func _build_actions() -> void:
 		_to_garage(""))
 	_garage = garage
 	two.add_child(garage)
-	# (online play is phase 5: the room screen isn't here yet)
-	var online := UiTheme.button("Online", "globe", &"Btn")
-	MenuKit.pad_button(online, 0.6 * _em)
-	online.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	online.disabled = app == null or not app.screens.has("online")
-	_dim(online)
-	online.pressed.connect(func() -> void:
+	_vault = UiTheme.button("Skins", "paint", &"Btn")
+	MenuKit.pad_button(_vault, 0.6 * _em)
+	_vault.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_vault.tooltip_text = "Skin Vault"
+	_vault.pressed.connect(func() -> void:
 		app.tap("select")
-		app.go("online"))
-	two.add_child(online)
+		app.go("vault"))
+	two.add_child(_vault)
+	# a gold dot on its corner while a free pull is waiting
+	var dot := Panel.new()
+	var ds := MenuKit.box(MenuKit.css("#ffc23d"), 99, [0, 0, 0, 0], MenuKit.BG, 2)
+	ds.shadow_color = Color(MenuKit.css("#ffc23d"), 0.5)
+	ds.shadow_size = 5
+	dot.add_theme_stylebox_override(&"panel", ds)
+	dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	dot.size = Vector2.ONE * (0.5 * _em + 4.0)
+	dot.visible = false
+	_vault.add_child(dot)
+	_vault_dot = dot
+	# (inside the corner: the button already sits on the screen's side margin)
+	_vault.resized.connect(func() -> void: dot.position = Vector2(_vault.size.x - dot.size.x - 0.35 * _em, 0.35 * _em))
 	_career = UiTheme.button("Career", "map", &"Btn")
 	_career.pressed.connect(func() -> void:
 		app.tap("select")
@@ -506,12 +521,28 @@ func _build_actions() -> void:
 	MenuKit.pad_button(_career, 0.6 * _em)
 	sub.add_child(_career)
 	# (replays come later: the shelf isn't ported yet)
+	var small := HBoxContainer.new()
+	small.add_theme_constant_override(&"separation", int(round(0.45 * _em)))
+	small.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sub.add_child(small)
 	var replays := UiTheme.button("Replays", "replay", &"BtnSmall")
 	MenuKit.pad_button(replays, 0.6 * _em, 2.4 * 0.86 * _em)
 	MenuKit.button_text(replays, 0.86 * _em, 700, 1.2 * 0.86 * _em)
+	replays.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	replays.disabled = true
 	_dim(replays)
-	sub.add_child(replays)
+	small.add_child(replays)
+	# (online play is phase 5: the room screen isn't here yet)
+	var online := UiTheme.button("Online", "globe", &"BtnSmall")
+	MenuKit.pad_button(online, 0.6 * _em, 2.4 * 0.86 * _em)
+	MenuKit.button_text(online, 0.86 * _em, 700, 1.2 * 0.86 * _em)
+	online.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	online.disabled = app == null or not app.screens.has("online")
+	_dim(online)
+	online.pressed.connect(func() -> void:
+		app.tap("select")
+		app.go("online"))
+	small.add_child(online)
 	# .btn.primary.big: 1.3em, 750, 3.1em tall
 	_fight = UiTheme.button("Fight", "swords", &"BtnPrimary")
 	var big := 1.3 * _em
@@ -610,6 +641,8 @@ func enter() -> void:
 	# (the other screens are made after this one: whether they're there is known only now)
 	_garage.disabled = not app.screens.has("garage")
 	_career.disabled = not app.screens.has("map")
+	_vault.disabled = not app.screens.has("vault")
+	_sync_vault()
 	_sync_scene_btn()
 	_sync_sound()
 	_sync_notes()
@@ -733,7 +766,16 @@ func _layout() -> void:
 	_right_rise.position = Vector2(size.x - side - rw, size.y - bottom - _right_rise.size.y)
 
 
+## The Skins button's dot: a free pull (or the welcome pull) is waiting.
+func _sync_vault() -> void:
+	_vault_dot.visible = app != null and not _vault.disabled and Gacha.gift_ready(app.skins)
+
+
 func tick(dt: float) -> void:
+	_vault_t -= dt
+	if _vault_t <= 0.0:
+		_vault_t = 1.0
+		_sync_vault()
 	# part pictures the garage hasn't rendered yet: look again now and then
 	if _pic_wait > 0.0:
 		_pic_wait -= dt

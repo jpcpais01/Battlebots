@@ -8,7 +8,7 @@ const G := preload("res://app/garage/gstyle.gd")
 const GridBox := preload("res://app/garage/grid_box.gd")
 const SquareBox := preload("res://app/garage/square_box.gd")
 
-const PAINT_PAGES := [["schemes", "Schemes"], ["primary", "Main"], ["secondary", "Second"], ["accent", "Glow"], ["finish", "Finish"]]
+const PAINT_PAGES := [["skins", "Skins"], ["schemes", "Schemes"], ["primary", "Main"], ["secondary", "Second"], ["accent", "Glow"], ["finish", "Finish"]]
 const PAINT_HINT := {
 	"primary": "Main plating: chest, head, shoulders and shins.",
 	"secondary": "Second plating: the stripes, guards and trim panels.",
@@ -57,14 +57,20 @@ static func _keep_scroll(s) -> void:
 static func render_paint(s) -> void:
 	var paint = s.app.player.paint
 	var sc = TPaint.schemeOf(paint)
-	s.set_title("Paint", "%s · %s · %s frame" % [sc.name_ if sc != null else "Custom", TPaint.FINISHES[paint.finish].name_, TPaint.FRAMES[paint.frame].name_])
+	var worn = Skins.of(s.app.player)
+	if worn != null:
+		s.set_title("Paint", "%s skin · %s" % [worn.name, Skins.RARITY_NAME[int(worn.r)]])
+	else:
+		s.set_title("Paint", "%s · %s · %s frame" % [sc.name_ if sc != null else "Custom", TPaint.FINISHES[paint.finish].name_, TPaint.FRAMES[paint.frame].name_])
 	s.set_focus(null)
 	s.rar.visible = true
-	s.rar.cols = 5
+	s.rar.cols = PAINT_PAGES.size()
 	G.clear(s.rar)
 	for pg in PAINT_PAGES:
 		var page: String = pg[0]
-		var dot = null if page == "schemes" or page == "finish" else G.c(paint[page])
+		var dot = G.c(paint[page]) if page in ["primary", "secondary", "accent"] else null
+		if page == "skins" and worn != null:
+			dot = Skins.swatch(worn)
 		var b: Button = s.rar_button(pg[1], page == s.paint_page, G.CYAN, dot)
 		b.pressed.connect(func() -> void:
 			if s.paint_page == page:
@@ -76,6 +82,11 @@ static func render_paint(s) -> void:
 	_keep_scroll(s)
 	G.clear(s.list)
 	var page: String = s.paint_page
+	if page == "skins":
+		_skins(s, worn)
+		return
+	if worn != null and page != "accent":
+		hint(s, "The %s skin covers the plating: these colours show again once it comes off (Skins)." % worn.name)
 	if page == "schemes":
 		hint(s, "Pick a ready-made paint job, then fine-tune any colour, the finish or the frame.")
 		var grid := GridBox.new(0, 89.6, Vector2(6.4, 6.4))
@@ -121,6 +132,47 @@ static func render_paint(s) -> void:
 		custom.tooltip_text = "Custom colour"
 		custom.pressed.connect(func() -> void: _pick_colour(s, page))
 		grid.add_child(custom)
+
+
+## The Skins page: the skins won in the vault, to wear (tap one: it paints on), the plain paint to
+## go back to, and the way into the Skin Vault.
+static func _skins(s, worn) -> void:
+	var gs: Dictionary = s.app.skins
+	var have: Array = Skins.LIST.filter(func(k) -> bool: return Gacha.owns(gs, k.id))
+	have.sort_custom(func(a, b) -> bool: return int(a.r) > int(b.r))
+	var vault := UiTheme.button("Open the Skin Vault", "crate", &"BtnPrimary" if Gacha.gift_ready(gs) or have.is_empty() else &"Btn")
+	vault.name = "Vault"
+	vault.pressed.connect(func() -> void:
+		s.tap("select")
+		s.app.go("vault"))
+	if Gacha.gift_ready(gs):
+		vault.text = "A free pull is waiting: Skin Vault"
+	s.list.add_child(G.margin(vault, 0, 3.2, 0, 3.2))
+	if have.is_empty():
+		hint(s, "Skins are special paints won in the Skin Vault: Common patterns, Rare exotic finishes and animated Epic skins that move as you fight.")
+		return
+	var n := Gacha.owned_counts(gs)
+	hint(s, "%d of %d skins · %d Epic, %d Rare, %d Common. Tap one to wear it." % [have.size(), Skins.LIST.size(), n[2], n[1], n[0]])
+	var grid := GridBox.new(0, 92, Vector2(6.4, 6.4))
+	s.list.add_child(grid)
+	var fresh: Array = gs.get("fresh", [])
+	for k in [null] + have:
+		var c := SkinCard.new(k, 88, 124)
+		var on: bool = (k == null and worn == null) or (k != null and worn != null and k.id == worn.id)
+		c.worn.visible = on
+		if k != null and fresh.has(k.id):
+			c.set_badge("NEW")
+		var id: String = k.id if k != null else ""
+		c.pressed.connect(func() -> void:
+			if on:
+				return
+			s.tap("select")
+			s.app.wear_skin(id)
+			s.refresh_garage())
+		var cell := CenterContainer.new()
+		cell.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		cell.add_child(c)
+		grid.add_child(cell)
 
 
 ## .psec: a small caps heading in the Finish page.

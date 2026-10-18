@@ -41,7 +41,16 @@ static func write(key: String, v: Variant) -> void:
 
 ## The player's bot, repaired (removed parts, an old palette).
 static func load_player():
-	return TSaves.sanitizeBot(read("player"))
+	var raw = read("player")
+	return keep_skin(TSaves.sanitizeBot(raw), raw)
+
+
+## The web's sanitizer only knows the web's keys: the skin a bot wears (render/skins/skins.gd,
+## Android only) is carried over from the raw save when it's one this build knows.
+static func keep_skin(bot, raw):
+	if raw is Dictionary and Skins.get_skin(raw.get("skin")) != null:
+		bot.skin = raw.skin
+	return bot
 
 
 static func save_player(p) -> void:
@@ -66,7 +75,7 @@ static func load_saves() -> Array:
 	var raw = read("saves", [])
 	if not raw is Array:
 		return []
-	return (raw as Array).slice(0, int(TSaves.MAX_SAVES)).map(TSaves.sanitizeBot)
+	return (raw as Array).slice(0, int(TSaves.MAX_SAVES)).map(func(b): return keep_skin(TSaves.sanitizeBot(b), b))
 
 
 static func save_saves(s: Array) -> void:
