@@ -51,7 +51,7 @@ float lum3(vec3 c) {
 
 // a colour read off the frame, kept from smearing (broken pixels, blinding glows)
 vec3 safe(vec3 c, float top) {
-	return c.r + c.g + c.b < 1e4 ? min(c, vec3(top)) : vec3(0.0);
+	return finite3(c) ? clamp(c, vec3(0.0), vec3(top)) : vec3(0.0);
 }
 
 void fragment() {
@@ -326,6 +326,13 @@ void fragment() {
 		refl = vec4(0.0);
 	}
 	// what was there, shaded, under the reflection's share; the bounce and the reflection on top
-	ALBEDO = mapAlbedo(add + refl.rgb);
-	ALPHA = 1.0 - keep * (1.0 - refl.a);
+	// (whatever went wrong above, what leaves here is real: at worst the map as it was drawn)
+	vec3 o = add + refl.rgb;
+	float a = 1.0 - keep * (1.0 - refl.a);
+	if (!(finite3(o) && finite(a))) {
+		o = vec3(0.0);
+		a = 0.0;
+	}
+	ALBEDO = mapAlbedo(max(o, vec3(0.0)));
+	ALPHA = clamp(a, 0.0, 1.0);
 }

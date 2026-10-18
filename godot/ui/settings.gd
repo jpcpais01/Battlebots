@@ -305,7 +305,7 @@ func _apply_quality() -> void:
 	var t: Dictionary = TIERS[tier()]
 	var vp := get_viewport() if is_inside_tree() else null
 	if vp != null:
-		vp.msaa_3d = t.msaa
+		_apply_aa(vp)
 		vp.anisotropic_filtering_level = t.aniso
 		vp.positional_shadow_atlas_size = t.atlas
 		# one shadowed light (the key spot): give it a whole quadrant, not a quarter of one
@@ -338,8 +338,25 @@ func place_changed() -> void:
 	_apply_rt()
 
 
+## The 3D edges' smoothing: the tier's multisampling, or with ray tracing on, FXAA instead. The
+## trace reads the frame and its depth halfway through drawing it; with multisampling the phone has
+## to store all four samples of every pixel, resolve them and load them back for the rest of the
+## frame, and that round trip is the most likely thing that broke on João's Adreno 840 (robots torn
+## into shards, black holes in the beach's bushes, blocks of white in the shade, flicker in fights,
+## all only with ray tracing on). Without it the trace reads plain copies, and the frame costs far less memory
+## traffic.
+func _apply_aa(vp: Viewport) -> void:
+	var t: Dictionary = TIERS[tier()]
+	var traced := rt_mode() != "off"
+	vp.msaa_3d = Viewport.MSAA_DISABLED if traced else t.msaa
+	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if traced and t.msaa != Viewport.MSAA_DISABLED else Viewport.SCREEN_SPACE_AA_DISABLED
+
+
 func _apply_rt() -> void:
 	var m := rt_mode()
+	var vp := get_viewport() if is_inside_tree() else null
+	if vp != null:
+		_apply_aa(vp)
 	if ray != null:
 		ray.set_key(key)
 		ray.set_mode(m)

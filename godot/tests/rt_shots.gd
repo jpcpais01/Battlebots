@@ -62,6 +62,8 @@ func _process(_dt: float) -> bool:
 		_check(not _fight._env.ssao_enabled, "light leaves Godot's SSAO off")
 		# (a light with a size rebuilds the shaders of all it lights: Light keeps Off's builds)
 		_check(_fight._key.light_size == 0.0, "light keeps the key hard")
+		var vp := get_root()
+		_check(vp.msaa_3d == Viewport.MSAA_DISABLED and vp.screen_space_aa == Viewport.SCREEN_SPACE_AA_FXAA, "light swaps multisampling for FXAA")
 	if _n == 18:
 		get_root().get_texture().get_image().save_png(_dir + "/light.png")
 		s.set_rt("heavy")
@@ -72,6 +74,7 @@ func _process(_dt: float) -> bool:
 		s.set_rt("off")
 		_check(not FileAccess.file_exists(Settings.renderer_path), "off takes the renderer file away")
 		_check(not _fight.ray.visible and _fight._key.light_size == 0.0, "off hides the quad, hard key")
+		_check(get_root().msaa_3d != Viewport.MSAA_DISABLED and get_root().screen_space_aa == Viewport.SCREEN_SPACE_AA_DISABLED, "off brings the tier's multisampling back")
 		var cfg2 := ConfigFile.new()
 		cfg2.load(Settings.path)
 		_check(cfg2.get_value("graphics", "rt", "") == "off", "the pick is saved")

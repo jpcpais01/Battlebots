@@ -100,6 +100,23 @@ vec3 view_normal(ivec2 c, vec3 p, ivec2 size, mat4 ip) {
 	return dot(n, p) > 0.0 ? -n : n;
 }
 
+// Is x a real number? Checked on its bits, which no driver's fast maths can reason away (some
+// treat a NaN as never there and let it through a comparison; max and min with one differ
+// between GPUs).
+bool finite(float x) {
+	return (floatBitsToUint(x) & 0x7f800000u) != 0x7f800000u;
+}
+
+bool finite3(vec3 v) {
+	return finite(v.x) && finite(v.y) && finite(v.z);
+}
+
+// a colour read from the frame, safe to add up: broken pixels count as black, blinding ones are
+// capped (rt.ts COPY)
+vec3 safe_col(vec3 c) {
+	return finite3(c) ? clamp(c, vec3(0.0), vec3(24.0)) : vec3(0.0);
+}
+
 // how alike two view depths are, for averaging across a quad (rt.ts BLUR)
 float alike(float z, float zn) {
 	return max(0.0, 1.0 - abs(zn - z) / (0.03 * -z + 0.02));
