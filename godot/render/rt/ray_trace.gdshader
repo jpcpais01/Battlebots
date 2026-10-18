@@ -99,17 +99,28 @@ void fragment() {
 			if (suv.x < 0.0 || suv.y < 0.0 || suv.x >= 1.0 || suv.y >= 1.0) {
 				continue;
 			}
-			vec3 v = pos_at(suv, size, ip) - p;
+			// (the sky, or a depth that rebuilds to no real point, crowds nothing)
+			ivec2 sp = uv_px(suv, size);
+			float sd = depth_px(sp, size);
+			if (is_sky(sd)) {
+				continue;
+			}
+			vec3 v = view_pos(px_uv(sp, size), sd, ip) - p;
 			float vv = dot(v, v);
+			if (!finite(vv) || vv >= r2) {
+				continue;
+			}
 			float cosv = dot(v, n) * inversesqrt(vv + 1e-4);
 			// nearer neighbours count fully, ones at the edge of the radius fade out, ones beyond don't
-			float h = max(0.0, cosv - 0.08) * max(0.0, 1.0 - vv / r2);
+			float h = clamp(cosv - 0.08, 0.0, 1.0) * (1.0 - vv / r2);
+			if (!finite(h)) {
+				continue;
+			}
 			occ += h;
 			// (a mip a level finer than the web's: its copy was already half the screen)
 			float lod = clamp(log2(rad * 0.5 + 1.0) + 0.5, 0.0, 5.0);
-			vec3 c = textureLod(screen_tex, suv, lod).rgb;
-			// keep broken pixels and blinding glows from smearing (rt.ts COPY)
-			bounce += (c.r + c.g + c.b < 1e4 ? min(c, vec3(24.0)) : vec3(0.0)) * h;
+			// keep broken pixels and blinding glows from smearing
+			bounce += safe_col(textureLod(screen_tex, suv, lod).rgb) * h;
 		}
 	}
 	float ao = clamp(1.0 - occ * 1.8 / float(SAMPLES), 0.0, 1.0);
@@ -137,6 +148,9 @@ void fragment() {
 					break;
 				}
 				float dz = z_at(suv, size, ip) - s.z;
+				if (!finite(dz)) {
+					continue;
+				}
 				// something solid sits between this point and the light (but not far behind it)
 				float w = smoothstep(0.008, 0.03, dz) * (1.0 - smoothstep(0.18, 0.26, dz));
 				if (w > block) {
@@ -230,6 +244,9 @@ void fragment() {
 				float f = (float(i) + off) * step_f;
 				float rz = 1.0 / mix(iz_a, iz_b, f);
 				float dz = z_at(mix(uv_a, uv_b, f), size, ip) - rz;
+				if (!finite(dz)) {
+					continue;
+				}
 				// passed behind a surface, but not one far in front of the ray (a robot's back
 				// standing in front of where the ray goes behind it)
 				float prev_z = 1.0 / mix(iz_a, iz_b, max(f - step_f, 0.0));
@@ -263,8 +280,7 @@ void fragment() {
 		float found = edge.x * edge.y * (1.0 - smoothstep(MAX_DIST * 0.6, MAX_DIST, th));
 		// gloss blurs with distance: the further the ray travels, the wider its cone
 		float lod = clamp(log2(1.0 + rough * th * 8.0) + rough * 2.0 + 1.0, 0.0, 6.0);
-		vec3 c = textureLod(screen_tex, huv, lod).rgb;
-		c = c.r + c.g + c.b < 1e4 ? min(c, vec3(24.0)) : vec3(0.0);
+		vec3 c = safe_col(textureLod(screen_tex, huv, lod).rgb);
 		refl = vec4(c * found * fres * k, found * k);
 	}
 
@@ -272,6 +288,15 @@ void fragment() {
 	float wt = sky ? 0.0 : 1.0;
 	vec4 lw = vec4(bounce, mix(1.0, ao, amounts.x) * mix(1.0, shade, amounts.z * 0.85)) * wt;
 	vec4 rf = refl * rw;
+	// (a broken result is dropped here, before the quad shares it: through the derivatives one
+	// pixel's NaN would take its three neighbours with it)
+	if (!(finite3(lw.rgb) && finite(lw.a))) {
+		lw = vec4(0.0, 0.0, 0.0, wt);
+	}
+	if (!(finite3(rf.rgb) && finite(rf.a))) {
+		rf = vec4(0.0);
+		rw = 0.0;
+	}
 	vec4 lw_x = DFDX(lw);
 	vec4 rf_x = DFDX(rf);
 	float wt_x = DFDX(wt);
@@ -292,7 +317,7 @@ void fragment() {
 	vec3 refl_c = rw > 1e-4 ? rf.rgb / rw : vec3(0.0);
 
 	// glowing screens, lamps and LEDs give light rather than take shade (rt.ts RT_COMPOSITE)
-	vec3 col = textureLod(screen_tex, uv0, 0.0).rgb;
+	vec3 col = safe_col(textureLod(screen_tex, uv0, 0.0).rgb);
 	float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
 	float keep = mix(1.0, light.a, 1.0 - smoothstep(1.2, 3.0, lum));
 	vec3 add = light.rgb * amounts.y + refl_c;
@@ -300,6 +325,12 @@ void fragment() {
 		keep = 1.0;
 		add = vec3(0.0);
 	}
-	ALBEDO = add;
-	ALPHA = 1.0 - keep;
+	// whatever went wrong above, what leaves here is a real colour and a real coverage: at worst
+	// this pixel is left as the scene drew it
+	if (!(finite3(add) && finite(keep))) {
+		add = vec3(0.0);
+		keep = 1.0;
+	}
+	ALBEDO = clamp(add, vec3(0.0), vec3(24.0));
+	ALPHA = clamp(1.0 - keep, 0.0, 1.0);
 }
