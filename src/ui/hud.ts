@@ -7,6 +7,7 @@ import { COACH_COOLDOWN, COACH_KINDS, COACH_LABEL, COACH_TIME, type CoachKind } 
 import { MOVES, type MoveId } from '../sim/moves';
 import { J } from '../sim/body';
 import { ITEM_BY_ID } from '../game/items';
+import { RefCount } from '../game/refCount';
 import type { Paint } from '../game/paint';
 import { button, el, esc } from './dom';
 import { ABILITY_ICON, ICON, PASSIVE_ICON, SLOT_ICON } from './icons';
@@ -140,9 +141,8 @@ export class Hud {
   private refName: HTMLElement;
   private refState: HTMLElement;
   private refKd: HTMLElement[];
-  /** Fighter being counted, when the count started, the number shown, and when they rose (0 = still down). */
-  private ref: { f: Fighter; at: number; n: number; upAt: number } | null = null;
-  private kdSeen = [0, 0];
+  /** The ten count (the referee drone keeps one of its own, fed the same events). */
+  private tally = new RefCount();
   private kdEls: HTMLElement[] = [];
   private finishing = false;
   private pendingFinish: { kind: FinishKind; winner: Fighter; reason: LossReason | null } | null = null;
@@ -220,9 +220,7 @@ export class Hud {
     this.lastCount = -1;
     this.visorBy = -1;
     this.visor.classList.remove('on');
-    this.ref = null;
     this.refEl.className = 'refcount';
-    this.kdSeen = [0, 0];
     this.finishing = false;
     this.pendingFinish = null;
     this.finishEl.className = 'finish';
@@ -237,10 +235,8 @@ export class Hud {
     this.build(match);
     // a replay may be attached mid-fight, after a seek
     if (match.phase === 'intro') this.showVs(match);
-    for (const f of match.fighters) {
-      this.kdSeen[f.index] = f.knockdowns;
-      if (f.knockdowns) this.markKnockdowns(f);
-    }
+    this.tally.begin(match);
+    for (const f of match.fighters) if (f.knockdowns) this.markKnockdowns(f);
     const tape = this.game.tape;
     if (!replay || !tape) this.closeReplayBar();
     else if (this.rbar?.tape !== tape) {
@@ -703,17 +699,16 @@ export class Hud {
         const d = h.defender;
         // the finishing blow also reports a knockdown, after 'ko': the finisher already covers it
         if (m.phase !== 'fight' || d.state === 'ko') break;
-        if (d.knockdowns <= this.kdSeen[d.index]) {
+        if (!this.tally.knockdown(m, d)) {
           // a leg torn off puts it down too: the RIPPED OFF callout already says why
           if (h.tore >= 0) break;
           // a sweep, a shove or a takedown puts them down but doesn't count toward the TKO
           this.callout(h.move.kind === 'grab' ? 'TAKEDOWN!' : h.move.path === 'push' ? 'SHOVED DOWN!' : 'SWEPT!', 'small cyan', 900);
           break;
         }
-        this.kdSeen[d.index] = d.knockdowns;
         this.markKnockdowns(d);
         this.callout('KNOCKDOWN!', 'red');
-        this.startCount(d, m.time);
+        this.startCount(d);
         break;
       }
       case 'stagger':
@@ -794,8 +789,7 @@ export class Hud {
   }
 
   // ----------------------------------------------------------------- referee count
-  private startCount(f: Fighter, at: number) {
-    this.ref = { f, at, n: 0, upAt: 0 };
+  private startCount(f: Fighter) {
     this.refEl.className = `refcount on ${f.index ? 'p2' : 'p1'}`;
     this.refName.textContent = f.name;
     this.refState.textContent = 'is down';
@@ -806,34 +800,23 @@ export class Hud {
   }
 
   private updateCount(m: Match) {
-    const r = this.ref;
-    if (!r) return;
-    if (r.upAt) {
-      if (m.time - r.upAt > 1) this.endCount();
-      return;
-    }
-    // a try that gives out is still on the canvas: the count goes on
-    if (r.f.state === 'down' || (r.f.state === 'getup' && r.f.getupFail)) {
-      const t = m.time - r.at;
-      const n = t < 0.35 ? 0 : Math.min(10, 1 + Math.floor(t - 0.35));
-      if (n > r.n) {
-        r.n = n;
-        this.refNum.textContent = String(n);
-        this.restart(this.refNum, 'pop');
-        this.refTicks.forEach((tk, k) => tk.classList.toggle('on', k < n));
-        this.game.sfx?.ui('tap');
-      }
-    } else if (r.f.state === 'getup' || r.f.state === 'fight' || r.f.state === 'ready') {
-      r.upAt = m.time;
+    const e = this.tally.update(m);
+    if (e === 'tick') {
+      const n = this.tally.cur!.n;
+      this.refNum.textContent = String(n);
+      this.restart(this.refNum, 'pop');
+      this.refTicks.forEach((tk, k) => tk.classList.toggle('on', k < n));
+      this.game.sfx?.ui('tap');
+    } else if (e === 'up') {
       this.refEl.classList.add('up');
       this.refNum.textContent = 'UP';
       this.restart(this.refNum, 'pop');
       this.refState.textContent = 'beats the count';
-    } else this.endCount();
+    } else if (e === 'end') this.refEl.classList.remove('on');
   }
 
   private endCount() {
-    this.ref = null;
+    this.tally.end();
     this.refEl.classList.remove('on');
   }
 

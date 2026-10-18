@@ -16,6 +16,17 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-18 00:00",
+    title: "The referee comes to the web",
+    notes: [
+      "The referee drone from the Android app now runs every fight on the web too: it presents both robots, counts down 3-2-1 on its face and chops the air for FIGHT!",
+      "It watches each exchange from the side, flinches at big hits, moves in to break up clinches, and counts a downed robot with the same number as the count on screen.",
+      "At a knockout it waves the fight off with K.O. on its face, then raises the winner's hand with a happy spin.",
+      "On the web too, every Rare and Epic part is unlocked for now: fit anything from any maker in the garage. The career still pays out as usual.",
+      "The home screen now shows which build of the game you're on, next to What's new.",
+    ],
+  },
+  {
     hour: "2026-10-17 23:00",
     title: "Every part unlocked",
     notes: [

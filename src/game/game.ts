@@ -5,6 +5,7 @@ import { Fx, type Trail } from '../render/fx';
 import { Director } from '../render/director';
 import { ClearView } from '../render/clearView';
 import { Drones } from '../render/drones';
+import { Referee } from '../render/referee';
 import { Stretcher, rideEnd } from '../render/stretcher';
 import { CrowdMood } from '../audio/crowd';
 import { BotModel } from '../render/botModel';
@@ -276,6 +277,8 @@ export class Game {
   readonly steam = new Steam();
   /** Broadcast camera drones flying the shots (render only). */
   private drones = new Drones();
+  /** The referee drone that runs the fight from inside the ropes (render only). */
+  private referee = new Referee();
   /** The loser's hover stretcher ride out after the fight (render only). */
   private stretcher = new Stretcher();
   private focus = new THREE.Vector3(0, 1.1, 0);
@@ -305,6 +308,7 @@ export class Game {
     this.stage.scene.add(this.steam.group);
     this.stage.scene.add(this.drones.group);
     this.clearView.apply(this.drones.group);
+    this.stage.scene.add(this.referee.group);
     this.stage.scene.add(this.stretcher.group);
     this.tagParts();
     this.director = new Director(this.stage.camera);
@@ -341,7 +345,7 @@ export class Game {
     const bot = this.showcase?.model;
     const shown = bot ? [bot.root] : [];
     if (p === 'arena') {
-      const roots: THREE.Object3D[] = [this.arena.group, this.arena.venue.group, this.fx.group, this.debris.group, this.oil.group, this.steam.group, this.drones.group, this.stretcher.group];
+      const roots: THREE.Object3D[] = [this.arena.group, this.arena.venue.group, this.fx.group, this.debris.group, this.oil.group, this.steam.group, this.drones.group, this.referee.group, this.stretcher.group];
       return { roots: roots.concat(shown), extras: bot?.pieceProxies() ?? [] };
     }
     if (p === 'garage' && this.garage) return { roots: [this.garage.group, this.fx.group, ...shown], extras: [] };
@@ -459,6 +463,7 @@ export class Game {
     p.tag(this.oil.group, 'effects');
     p.tag(this.steam.group, 'effects');
     p.tag(this.drones.group, 'effects');
+    p.tag(this.referee.group, 'effects');
     // the floor's contact-shadow map is drawn for the ring canvas
     p.tag(contactAO.mapMesh, 'ring');
     p.tag(this.stretcher.group, 'bots');
@@ -489,6 +494,7 @@ export class Game {
     this.arena.group.visible = inArena;
     this.arena.venue.group.visible = inArena;
     this.drones.group.visible = inArena;
+    this.referee.group.visible = inArena;
     this.director.far = inArena ? this.arena.venue.far : 120;
     if (this.showcase) this.showcase.model.root.visible = p !== 'home' && p !== 'map';
     const inMap = p === 'map' && !!this.world;
@@ -1088,12 +1094,14 @@ export class Game {
         }
       }
       this.director.cue(type, data);
+      this.referee.event(type, data, this.match!, true);
       this.cb.onMatchEvent?.(type, data);
       return;
     }
     const fx = this.fx;
     const sfx = this.sfx;
     this.director.cue(type, data);
+    this.referee.event(type, data, this.match!);
     sfx?.crowdEvent(type, data);
     sfx?.booth.event(type, data);
     this.crowdMood.event(type, data);
@@ -1506,6 +1514,9 @@ export class Game {
     if (m && this.director.mode === 'match') this.focus.addVectors(this.chests[0], this.chests[1]).multiplyScalar(0.5);
     else this.focus.set(0, 1.1, 0);
     this.drones.update(dt, this.stage.camera, this.director.cuts, this.director.mode, this.focus, pov >= 0);
+    // the referee flies with the fight's own time (its slow motion, the player's speed)
+    const fought = m && this.models.length === 2 && this.director.mode === 'match' ? m : null;
+    this.referee.update(still ? 0 : fought ? dt * this.speed * fought.pace : dt, this.stage.camera, fought, this.models);
     perf.lap('camera');
     this.sfx?.crowdTick(dt, crowdState);
     this.sfx?.booth.tick(dt, this.crowdMood.excite, !!m && !this.paused);
