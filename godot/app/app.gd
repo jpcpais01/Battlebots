@@ -25,6 +25,8 @@ const PLACE := {"garage": "garage", "map": "map", "vault": "garage"}
 signal screen_changed(id: String)
 ## The player's bot, record or career changed (a fit, a buy, a fight's pay): redraw them.
 signal changed
+## Credits a one-time gift paid at this launch, still to be shown.
+var _gift := 0.0
 
 var game: Game
 ## The screens' layer (under the pause menu, over the fight HUD).
@@ -85,6 +87,10 @@ func _setup() -> void:
 	_rng = TMath.Rng.new(float(randi()))
 	player = Store.load_player()
 	record = Store.load_record()
+	# a one-time gift (career.ts GIFTS) paid just now: saved at once, shown once home is up
+	_gift = TCareer.takeGifted()
+	if _gift > 0.0:
+		Store.save_record(record)
 	saves = Store.load_saves()
 	skins = Gacha.load_state()
 	# a skin the vault no longer counts as owned comes off (a save from another phone)
@@ -137,6 +143,63 @@ func _setup() -> void:
 	go(first if first != "" else "home")
 	if boot != null:
 		await boot.step("home")
+	if _gift > 0.0:
+		get_tree().create_timer(1.4).timeout.connect(_gift_banner)
+
+## The one-time gift's moment (app.ts giftBanner): a gold banner with the credits, tap to close.
+func _gift_banner() -> void:
+	var em := UiTheme.EM
+	var gold := Color(1.0, 0.824, 0.29)
+	var b := MenuKit.bare_button(0.97)
+	b.add_theme_stylebox_override(&"normal", MenuKit.box(Color(0.1, 0.075, 0.03, 0.94), em * 1.2, [em * 2.2, em * 1.0, em * 2.2, em * 1.1], Color(1.0, 0.824, 0.29, 0.55), 1))
+	for st in [&"hover", &"pressed", &"hover_pressed", &"disabled", &"focus"]:
+		b.add_theme_stylebox_override(st, b.get_theme_stylebox(&"normal"))
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_theme_constant_override(&"separation", int(em * 0.3))
+	var k := MenuKit.label("A GIFT FOR YOU", em * 0.78, 700, Color(1.0, 0.902, 0.627), int(em * 0.14))
+	k.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(k)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override(&"separation", int(em * 0.3))
+	row.add_child(MenuKit.icon("coin", em * 2.2, gold))
+	var amount := MenuKit.label("+" + TCareer.credits(_gift), em * 2.6, 800, gold)
+	MenuKit.text_shadow(amount, 0.7)
+	row.add_child(amount)
+	col.add_child(row)
+	var line := MenuKit.label("credits for the Skin Vault. Have fun pulling!", em * 0.92, 500, Color(1, 1, 1, 0.85))
+	line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(line)
+	b.add_child(col)
+	col.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_gift = 0.0
+	ui.add_child(b)
+	# centred a little above the middle; it pops in, waits, and floats off (or goes on a tap)
+	await get_tree().process_frame
+	b.size = b.get_combined_minimum_size().max(col.get_combined_minimum_size() + Vector2(em * 4.4, em * 2.1))
+	b.position = (ui.get_viewport().get_visible_rect().size - b.size) * Vector2(0.5, 0.38)
+	b.pivot_offset = b.size * 0.5
+	b.scale = Vector2(0.6, 0.6)
+	b.modulate.a = 0.0
+	var tw := b.create_tween().set_parallel()
+	tw.tween_property(b, "scale", Vector2.ONE, 0.7).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(b, "modulate:a", 1.0, 0.3)
+	var gone := func() -> void:
+		if not is_instance_valid(b) or b.disabled:
+			return
+		b.disabled = true
+		var out := b.create_tween().set_parallel()
+		out.tween_property(b, "modulate:a", 0.0, 0.45)
+		out.tween_property(b, "position:y", b.position.y - em * 2.0, 0.45)
+		out.chain().tween_callback(b.queue_free)
+	b.pressed.connect(func() -> void:
+		tap("tap")
+		gone.call())
+	get_tree().create_timer(5.2).timeout.connect(gone)
+	changed.emit()
 
 func _process(dt: float) -> void:
 	_clock += dt

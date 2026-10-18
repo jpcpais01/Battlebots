@@ -2,6 +2,7 @@
 class_name TCareer
 extends RefCounted
 
+static var GIFTS: Array
 const START_CREDITS: float = 250.0
 const SHOP_EVERY: float = 3.0
 const SHOP_SIZE: float = 6.0
@@ -22,13 +23,13 @@ static func freshSeed() -> float:
 
 static func sanitizeCareer(raw, events):
 	if ((not JS.truthy(raw)) or (JS.typeof_(raw) != "object")):
-		return TCareer.newCareer(events)
+		return TCareer.payGifts(TCareer.newCareer(events))
 	var r = raw
 	var _hITEM_BY_ID: Dictionary = TItems.ITEM_BY_ID
 	var ids = func(v): return ((JS.set_from(JS.filter(v, func(id, _a1 = null, _a2 = null): return ((JS.typeof_(id) == "string") and _hITEM_BY_ID.has(id)))).keys() if (v is Array) else []))
 	var owned: Array = JS.filter(ids.call(r.get("owned")), func(id_2: String, _a1 = null, _a2 = null): return (TCatalogue.rarityOf(_hITEM_BY_ID.get(id_2)) > 0.0))
 	var s = ((r.get("shop") if (JS.truthy(r.get("shop")) and (JS.typeof_(r.get("shop")) == "object")) else {}))
-	return {
+	return TCareer.payGifts({
 	"credits": TCareer.whole(r.get("credits")),
 	"fame": TCareer.whole(r.get("fame")),
 	"owned": owned,
@@ -39,8 +40,24 @@ static func sanitizeCareer(raw, events):
 	"sold": ids.call(s.get("sold"))
 },
 	"earned": TCareer.whole(r.get("earned")),
-	"found": TCareer.whole(r.get("found"))
-}
+	"found": TCareer.whole(r.get("found")),
+	"gifts": (JS.filter(r.get("gifts"), func(id_4, _a1 = null, _a2 = null): return (JS.typeof_(id_4) == "string")) if (r.get("gifts") is Array) else [])
+})
+static var gifted: float
+
+static func takeGifted() -> float:
+	var n: float = TCareer.gifted
+	TCareer.gifted = 0.0
+	return n
+
+static func payGifts(c):
+	var _hGIFTS: Array = TCareer.GIFTS
+	for g in _hGIFTS:
+		if (not JS.includes(c.gifts, g.id)):
+			c.gifts.append(g.id)
+			c.credits += g.credits
+			TCareer.gifted += g.credits
+	return c
 static var born
 
 static func isNewCareer(c) -> bool:
@@ -70,7 +87,8 @@ static func newCareer(events):
 	"fresh": [],
 	"shop": {"seed_": (JS.ushr(((randf() * DM.pow(2.0, 32.0))), 0.0)), "left": TCareer.SHOP_EVERY, "sold": []},
 	"earned": (credits - TCareer.START_CREDITS),
-	"found": 0.0
+	"found": 0.0,
+	"gifts": []
 }
 	TCareer.born = c
 	return c
@@ -259,6 +277,7 @@ static func credits(n: float) -> String:
 	return JS.to_locale(JS.round(n))
 
 static func __init_module() -> void:
+	TCareer.GIFTS = [{"id": "vault-100k", "credits": 100000.0}]
 	TCareer.PRICE = [0.0, 450.0, 1500.0, 4000.0, 9000.0]
 	TCareer.SCRAP = [0.0, 120.0, 400.0, 1000.0, 2000.0]
 	TCareer.RANKS = [
@@ -270,4 +289,5 @@ static func __init_module() -> void:
 	{"name_": "Champion", "fame": 1300.0},
 	{"name_": "Legend", "fame": 2400.0}
 ]
+	TCareer.gifted = 0.0
 	TCareer.born = null

@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-18 04:00",
+    title: "100,000 credits for everyone",
+    notes: [
+      "Everyone gets a one-time gift of 100,000 credits to spend in the Skin Vault (or the Parts Market). It arrives the next time you open the game, on the web and on Android, and only once per player, even across devices.",
+    ],
+  },
+  {
     hour: "2026-10-18 03:00",
     title: "Smoother fights on Android",
     notes: [

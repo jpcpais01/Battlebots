@@ -44,7 +44,7 @@ import { MAX_REPLAYS, ReplayShelf, isSaved, outdated, type SavedReplay } from '.
 import { Account, PASSWORD_MIN, USERNAME_MAX, type SyncState } from '../net/account';
 import { WALK_ONS, walkOnFor } from '../audio/walkOn';
 import { EVENT_BY_ID, defenceOf, progressOf, rival, type EventDef } from '../game/events';
-import { adoptWorn, credits, fitOwned, isNewCareer, markSeen, owns, settle, stock, type Reward } from '../game/career';
+import { adoptWorn, credits, fitOwned, isNewCareer, markSeen, owns, settle, stock, takeGifted, type Reward } from '../game/career';
 import { equipped } from '../game/catalogue';
 import { coins, marketView, rewardView, trophyView, type CareerHost } from './careerUi';
 import { MapScreen } from './mapScreen';
@@ -195,6 +195,9 @@ export class App {
   private booted = false;
   /** The saved login has caught up with the cloud at launch (or failed to). */
   synced: Promise<void> = Promise.resolve();
+  /** Credits a one-time gift paid at this launch, still to be shown (0 once the banner is up). */
+  private gift = 0;
+  private giftShown = false;
 
   constructor(private game: Game, private quality: Quality) {
     this.ui = document.getElementById('ui')!;
@@ -206,6 +209,9 @@ export class App {
       game.sfx?.addName(v.name, clips);
     }
     this.record = loadRecord();
+    // a one-time gift (career.ts GIFTS) paid just now: saved at once, so it lands in the cloud too
+    this.gift = takeGifted();
+    if (this.gift) saveRecord(this.record);
     // a career just started keeps the parts already worn; after that, parts the player hasn't
     // earned come off (the Common version goes on in their place)
     if (isNewCareer(this.record.career)) {
@@ -368,6 +374,7 @@ export class App {
     if (this.homePlace !== 'arena') game.homeScene(this.homePlace);
     this.go('home');
     this.booted = true;
+    if (this.gift) setTimeout(() => this.giftBanner(), 1400);
     this.synced = this.account.start();
   }
 
@@ -1884,6 +1891,12 @@ export class App {
     checkWorn(record.skins, bot);
     this.player = bot;
     this.record = record;
+    // the cloud copy may be the one that just got the gift (it is paid once per career, wherever)
+    const gift = takeGifted();
+    if (gift && !this.giftShown && !this.gift) {
+      this.gift = gift;
+      setTimeout(() => this.giftBanner(), 600);
+    }
     if (isNewCareer(record.career)) adoptWorn(record.career, [bot]);
     if (!UNLOCK_ALL) fitOwned(bot, record.career);
     savePlayer(bot);
@@ -1894,6 +1907,26 @@ export class App {
     this.refreshHome();
     if (this.current === 'garage') this.refreshGarage();
     if (this.current === 'vault') this.vault.refresh();
+  }
+
+  /** The one-time gift's moment: a gold banner with the credits, over whatever is on screen. */
+  private giftBanner() {
+    if (!this.gift || this.giftShown) return;
+    this.giftShown = true;
+    const b = el('button', 'gift-banner', `<span class="gb-kicker">A gift for you</span><span class="gb-amount">${coins(this.gift, true)}</span><span class="gb-line">credits for the Skin Vault. Have fun pulling!</span>`, this.ui);
+    this.gift = 0;
+    const done = () => {
+      b.classList.add('out');
+      setTimeout(() => b.remove(), 450);
+    };
+    b.onclick = () => {
+      this.tap('tap');
+      done();
+    };
+    setTimeout(done, 5200);
+    this.refreshHome();
+    this.careerBtn?.classList.add('cash-pop');
+    setTimeout(() => this.careerBtn?.classList.remove('cash-pop'), 1600);
   }
 
   private refreshAccount() {
