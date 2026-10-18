@@ -13,6 +13,7 @@
     "src/sim/match.ts": "TMatch",
     "src/sim/math.ts": "TMath",
     "src/sim/moves.ts": "TMoves",
+    "src/sim/tag.ts": "TTag",
     "src/game/items.ts": "TItems",
     "src/game/loadout.ts": "TLoadout",
     "src/game/paint.ts": "TPaint",

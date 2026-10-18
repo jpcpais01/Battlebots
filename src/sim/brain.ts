@@ -101,7 +101,8 @@ export interface BrainEvent {
 
 export class Brain {
   readonly me: Fighter;
-  readonly opp: Fighter;
+  /** Who I'm fighting (a tag team's fresh partner coming in takes over: see retarget). */
+  opp: Fighter;
   readonly rng: Rng;
   readonly traits: Traits;
 
@@ -223,6 +224,11 @@ export class Brain {
   onEvent: ((e: BrainEvent) => void) | null = null;
   /** The opponent's brain (so it can learn whether my feints draw reactions). */
   rival: Brain | null = null;
+  /**
+   * Tag team: heading for my corner to tag my partner in (src/sim/tag.ts sets it): where to
+   * get to. I still fight my way there, guard up, but the feet go for the corner.
+   */
+  corner: Vector3 | null = null;
   time = 0;
 
   constructor(me: Fighter, opp: Fighter, rng: Rng) {
@@ -289,6 +295,32 @@ export class Brain {
     t.grappling = clamp(grab[style] + (st.stability - 1) * 0.9 + power * 0.3 + r.range(-0.18, 0.18), 0.05, 0.95);
     t.plumPref = clamp(r.range(0, 1) + (f.kickAbility === 'flyingKnee' ? 0.3 : 0) - (st.stability - 1) * 0.6, 0, 1);
     return t;
+  }
+
+  /**
+   * A tag team's new opponent has climbed in: watch them from now on, and forget what I'd
+   * learned of the last one's habits (their range, their shots, how they defend).
+   */
+  retarget(opp: Fighter) {
+    this.opp = opp;
+    for (const o of this.buf) opp.observe(o, this.time);
+    this.filled = PERCEPTION_BUFFER;
+    copyObs(this.buf[0], this.perceived);
+    this.predPos.copy(opp.root);
+    this.pending = null;
+    this.activeResp = null;
+    this.oppAvgHit = ema(45);
+    this.oppAttackRate = ema(0.6);
+    this.oppAttackRange = ema(1.15);
+    this.oppBody = ema(0.4);
+    this.oppMoveCount.clear();
+    this.counterRate = ema(0.3);
+    this.feintReact = ema(0.45);
+    this.sprawlRate = ema(0.3);
+    this.defRate = { head: ema(0.45), body: ema(0.35), legs: ema(0.3) };
+    this.oppStill = 0;
+    this.standoff = 0;
+    this.lastFeint = null;
   }
 
   // ------------------------------------------------------------------ helpers
@@ -508,6 +540,7 @@ export class Brain {
     const d = this.perceivedDist();
     if (
       !this.inBurst &&
+      !this.corner &&
       this.tempo >= this.trigger &&
       this.time > this.entryUntil + 0.25 &&
       d > this.myPunchRange() * 0.92 &&
@@ -1092,9 +1125,21 @@ export class Brain {
       vz += (-me.root.z / r) * ropeK * 0.7;
       if (ropeK > 0.5 && this.plan !== 'pressure') this.circleDir = this.chooseCircleDir();
     }
+    const cn = this.corner;
+    if (cn) {
+      // off to the corner to tag out: straight there, slowing onto the spot
+      const cx = cn.x - me.root.x, cz = cn.z - me.root.z;
+      const cd = DM.hypot(cx, cz);
+      const go = Math.min(1, cd * 1.6 + 0.2);
+      vx = cd > 1e-4 ? (cx / cd) * go : 0;
+      vz = cd > 1e-4 ? (cz / cd) * go : 0;
+      speed = st.moveSpeed * 0.95;
+      bounce *= 0.5;
+      urgent = cd > 0.12;
+    }
     const len = DM.hypot(vx, vz);
     const need = Math.min(1, len);
-    if (need > 0.9 || ropeK > 0.85) urgent = true;
+    if (need > 0.9 || (ropeK > 0.85 && !cn)) urgent = true;
 
     // footwork comes in moves: push off, a step or two, settle, go again. Each move is
     // unhurried (a shuffle at walking pace, not a scurry), the settles are real pauses.
@@ -1176,6 +1221,8 @@ export class Brain {
     // shell up over a head that is about to come off
     if (inThreat && me.parts.cond[P.Head] < LOOSE + 0.1 && this.plan !== 'swarm') mode = 'high';
     if (this.time < this.coverUntil && inThreat) mode = 'high';
+    // making for the corner to tag out: hands up all the way there
+    if (this.corner) mode = 'high';
     // told to defend: guard up whenever they're close, shaped to where they've been hitting
     // (a high guard alone just sends everything to the body)
     if (this.fx.guard && inThreat && !me.strike) mode = this.oppBody.v > 0.5 ? 'body' : 'high';

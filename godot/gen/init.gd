@@ -23,6 +23,7 @@ static func run() -> void:
 	TBrain.__init_module()
 	TFinisher.__init_module()
 	TGreet.__init_module()
+	TTag.__init_module()
 	TMatch.__init_module()
 	TPaint.__init_module()
 	TLoadout.__init_module()
@@ -36,7 +37,7 @@ static func run() -> void:
 
 ## Names the translation renamed (a JavaScript name that is a GDScript keyword or builtin),
 ## and so the dictionary keys the translated code reads and writes in their place.
-const RENAMED := {"_": "_u", "clamp": "clamp_", "clear": "clear_", "cos": "cos_", "floor": "floor_", "int": "int_", "keys": "keys_", "len": "len_", "lerp": "lerp_", "load": "load_", "match": "match_", "max": "max_", "min": "min_", "name": "name_", "range": "range_", "round": "round_", "seed": "seed_", "set": "set_", "sign": "sign_", "size": "size_", "smoothstep": "smoothstep_", "tr": "tr_"}
+const RENAMED := {"_": "_u", "call": "call_", "clamp": "clamp_", "clear": "clear_", "cos": "cos_", "floor": "floor_", "int": "int_", "keys": "keys_", "len": "len_", "lerp": "lerp_", "load": "load_", "match": "match_", "max": "max_", "min": "min_", "name": "name_", "range": "range_", "round": "round_", "seed": "seed_", "set": "set_", "sign": "sign_", "size": "size_", "smoothstep": "smoothstep_", "tr": "tr_"}
 static var _unrenamed := {}
 
 

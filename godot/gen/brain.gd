@@ -99,6 +99,7 @@ class Brain extends RefCounted:
 	var sprawlRate
 	var onEvent
 	var rival: TBrain.Brain
+	var corner: V3
 	var time: float
 	var fx:
 		get:
@@ -192,6 +193,7 @@ class Brain extends RefCounted:
 		self.sprawlRate = TBrain.ema(0.3)
 		self.onEvent = null
 		self.rival = null
+		self.corner = null
 		self.time = 0.0
 		self.me = me
 		self.opp = opp
@@ -267,6 +269,31 @@ class Brain extends RefCounted:
 		t.grappling = TMath.clamp_((((grab.get(style) + (((st.stability - 1.0)) * 0.9)) + (power * 0.3)) + r.range_(-0.18, 0.18)), 0.05, 0.95)
 		t.plumPref = TMath.clamp_(((r.range_(0.0, 1.0) + ((0.3 if (f.kickAbility == "flyingKnee") else 0.0))) - (((st.stability - 1.0)) * 0.6)), 0.0, 1.0)
 		return t
+	
+	func retarget(opp: TFighter.Fighter) -> void:
+		self.opp = opp
+		for o in buf:
+			opp.observe(o, time)
+		self.filled = TBrain.PERCEPTION_BUFFER
+		TBrain.copyObs(buf[0.0], perceived)
+		var __v1: V3 = opp.root
+		predPos.x = __v1.x
+		predPos.y = __v1.y
+		predPos.z = __v1.z
+		self.pending = null
+		self.activeResp = null
+		self.oppAvgHit = TBrain.ema(45.0)
+		self.oppAttackRate = TBrain.ema(0.6)
+		self.oppAttackRange = TBrain.ema(1.15)
+		self.oppBody = TBrain.ema(0.4)
+		oppMoveCount.clear()
+		self.counterRate = TBrain.ema(0.3)
+		self.feintReact = TBrain.ema(0.45)
+		self.sprawlRate = TBrain.ema(0.3)
+		self.defRate = {"head": TBrain.ema(0.45), "body": TBrain.ema(0.35), "legs": TBrain.ema(0.3)}
+		self.oppStill = 0.0
+		self.standoff = 0.0
+		self.lastFeint = null
 	
 	func setCoach(kind: String, until: float) -> void:
 		self.coach = kind
@@ -452,7 +479,7 @@ class Brain extends RefCounted:
 		if (considerAttack(chain) or chain):
 			return
 		var d: float = perceivedDist()
-		if ((((((((not inBurst) and (tempo >= trigger)) and (time > (entryUntil + 0.25))) and (d > (myPunchRange() * 0.92))) and (d < 3.4)) and (p.state == "fight")) and (plan != "retreat")) and (plan != "wait")):
+		if (((((((((not inBurst) and (not (corner != null))) and (tempo >= trigger)) and (time > (entryUntil + 0.25))) and (d > (myPunchRange() * 0.92))) and (d < 3.4)) and (p.state == "fight")) and (plan != "retreat")) and (plan != "wait")):
 			startEntry(d)
 	
 	func planInvalid() -> bool:
@@ -940,9 +967,20 @@ class Brain extends RefCounted:
 			vz += (((((-me.root.z) / r)) * ropeK) * 0.7)
 			if ((ropeK > 0.5) and (plan != "pressure")):
 				self.circleDir = chooseCircleDir()
+		var cn: V3 = corner
+		if (cn != null):
+			var cx: float = (cn.x - me.root.x)
+			var cz: float = (cn.z - me.root.z)
+			var cd: float = DM.hypot(cx, cz)
+			var go: float = minf(1.0, ((cd * 1.6) + 0.2))
+			vx = ((((cx / cd)) * go) if (cd > 0.0001) else 0.0)
+			vz = ((((cz / cd)) * go) if (cd > 0.0001) else 0.0)
+			speed = (st.moveSpeed * 0.95)
+			bounce *= 0.5
+			urgent = (cd > 0.12)
 		var len_: float = DM.hypot(vx, vz)
 		var need: float = minf(1.0, len_)
-		if ((need > 0.9) or (ropeK > 0.85)):
+		if ((need > 0.9) or ((ropeK > 0.85) and (not (cn != null)))):
 			urgent = true
 		if urgent:
 			self.gaitMoving = true
@@ -1021,6 +1059,8 @@ class Brain extends RefCounted:
 		if ((inThreat and (me.parts.cond[0.0] < (TDamage.LOOSE + 0.1))) and (plan != "swarm")):
 			mode = "high"
 		if ((time < coverUntil) and inThreat):
+			mode = "high"
+		if (corner != null):
 			mode = "high"
 		if ((fx.guard and inThreat) and (not (me.strike != null))):
 			mode = ("body" if (oppBody.v > 0.5) else "high")

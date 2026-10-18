@@ -216,8 +216,10 @@ class Fighter extends RefCounted:
 	var _gk
 	var knockdowns: float
 	var parts: TDamage.Parts
+	var wearSeen: Array
 	var hopAt: float
 	var intentVel: V3
+	var sprint: float
 	var clinched: bool
 	var guardMode: String
 	var guardDrop: float
@@ -402,8 +404,10 @@ class Fighter extends RefCounted:
 	"elbow": 0.0
 }
 		self.knockdowns = 0.0
+		self.wearSeen = JS.fill(JS.filled(TDamage.PART_COUNT, 0.0), -1.0)
 		self.hopAt = -10.0
 		self.intentVel = V3.new()
+		self.sprint = 1.0
 		self.clinched = false
 		self.guardMode = "normal"
 		self.guardDrop = 0.0
@@ -1251,7 +1255,7 @@ class Fighter extends RefCounted:
 		if ((state == "down") or (state == "ko")):
 			return
 		var legs: float = parts.mobility()
-		var maxSpd: float = ((st.moveSpeed * ((1.0 + (overdrive * 0.5)))) * legs)
+		var maxSpd: float = (((st.moveSpeed * ((1.0 + (overdrive * 0.5)))) * legs) * sprint)
 		if (staminaRatio < 0.2):
 			maxSpd *= 0.8
 		var accel: float = ((8.0 * st.agility) * legs)

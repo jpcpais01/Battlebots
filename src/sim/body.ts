@@ -139,6 +139,11 @@ export class Body {
   grounded = new Uint8Array(JOINT_COUNT);
   /** Particles that have gone over the top rope and are outside the ring. */
   readonly outside = new Uint8Array(JOINT_COUNT);
+  /**
+   * The ropes let this body through (a tag team partner waiting on the apron, or stepping
+   * through the ropes): they neither catch it nor keep it out. Everything else still holds.
+   */
+  ropeFree = false;
   /** Particles of torn-off parts: they no longer follow the rig or hold on to the body. */
   readonly cut = new Uint8Array(JOINT_COUNT);
   /** Collision radius of each particle (RADII scaled by the frame size). */
@@ -341,7 +346,10 @@ export class Body {
       // above the top rope a body sails clean over them
       const past = oct - ROPE_LINE;
       const below = p.y < ROPE_TOP + r;
-      if (!this.outside[i]) {
+      if (this.ropeFree) {
+        // (passing through them: nothing to catch it, nothing it went over)
+        this.outside[i] = 0;
+      } else if (!this.outside[i]) {
         if (below) {
           // elastic: they give as a body leans or is thrown into them, and spring it
           // back in (moving pos but not prev turns the push into velocity)

@@ -6,11 +6,12 @@ import { Fighter, rangeScale, resetUids, type StrikeAction } from './fighter';
 import { Showman } from './emote';
 import { Greeting } from './greet';
 import { ENTRY, hatchXZ, PRESENT } from './entrance';
-import { FINISH_AT, FINISH_SELF, FINISHER_NAME, FinisherRun, pickFinisher } from './finisher';
+import { FINISH_AT, FINISH_SELF, FINISHER_NAME, FinisherRun, pickFinisher, pickTagFinisher, TAG_FINISHER_NAME } from './finisher';
+import { TAG_TIME, TagMember, TagTeam } from './tag';
 import { fallAway, Grapple, grappleStrength, type GrappleBlow, type GrappleHost, type Tie } from './grapple';
 import { MOVES, type MoveDef, type Zone } from './moves';
 import { clamp, closestOnSegment, lerp, Rng, smoothstep } from './math';
-import { armPart, CUT_JOINTS, legPart, LOOSE, P, PART_COUNT, type LossReason } from './damage';
+import { armPart, CUT_JOINTS, legPart, LOOSE, P, type LossReason } from './damage';
 import { computeBuild } from '../game/items';
 import type { BotSpec } from '../game/loadout';
 import { perf } from '../perf';
@@ -73,6 +74,8 @@ export interface FinisherInfo {
   opp: Fighter;
   id: string;
   name: string;
+  /** Tag team: the partner who came in to hold the victim (a double team), or null. */
+  partner: Fighter | null;
 }
 
 /** A part torn off a robot. */
@@ -114,7 +117,14 @@ const _c = new Vector3();
 const _p = new Vector3();
 const _d = new Vector3();
 
+/** A tag team match's partners: the second bot of each side (see tag.ts). */
+export interface TagPartners {
+  a: BotSpec;
+  b: BotSpec;
+}
+
 export class Match {
+  /** The two bots fighting (in a tag team match, each side's legal bot: tag.ts swaps them). */
   readonly fighters: [Fighter, Fighter];
   readonly brains: [Brain, Brain];
   /** Celebrations and taunts. */
@@ -126,7 +136,9 @@ export class Match {
   frame = 0;
   phaseTime = 0;
   phase: MatchPhase = 'intro';
-  clock = ROUND_TIME;
+  /** Length of the fight (s): ROUND_TIME, or TAG_TIME for a tag team match. */
+  readonly roundTime: number;
+  clock: number;
   /** Seconds left of the current impact's slow-down (see pace). */
   hitstop = 0;
   /** What hitstop started at for the current impact. */
@@ -137,8 +149,6 @@ export class Match {
   result: FinishKind | 'Decision' | 'Draw' | null = null;
   /** For a 'Dismantled' finish: what was lost. */
   lossReason: LossReason | null = null;
-  /** Wear level already announced per fighter and part (see WearInfo). */
-  private wearSeen = [new Int8Array(PART_COUNT).fill(-1), new Int8Array(PART_COUNT).fill(-1)];
   private listeners: MatchListener[] = [];
   private ropeCooldown = [0, 0];
   /** The finisher being performed (the clock stops and both brains wait). */
@@ -171,11 +181,17 @@ export class Match {
 
   /** The seed it was started from (the end-of-fight show picks from it too). */
   readonly seed: number;
+  /** A tag team match (two bots a side): its partners, tags and eliminations. Null one-on-one. */
+  readonly tag: TagTeam | null = null;
+  /** Tag calls waiting for their step (the player's TAG button: see queueTag). */
+  private tagQueue: { side: number; frame: number }[] = [];
 
-  constructor(a: BotSpec, b: BotSpec, seed: number) {
+  constructor(a: BotSpec, b: BotSpec, seed: number, partners: TagPartners | null = null) {
     this.seed = seed >>> 0;
     this.rng = new Rng(seed);
     this.specs = [a, b];
+    this.roundTime = partners ? TAG_TIME : ROUND_TIME;
+    this.clock = this.roundTime;
     resetUids();
     const fa = new Fighter(0, a.name, computeBuild(a.loadout, a.size), new Rng(this.rng.next() * 4294967296));
     const fb = new Fighter(1, b.name, computeBuild(b.loadout, b.size), new Rng(this.rng.next() * 4294967296));
@@ -188,7 +204,26 @@ export class Match {
     bb.rival = ba;
     this.brains = [ba, bb];
     this.shows = [new Showman(fa, fb, ba, a.emotes), new Showman(fb, fa, bb, b.emotes)];
-    for (const f of this.fighters) {
+    const all = [fa, fb];
+    if (partners) {
+      // (drawn after everything a one-on-one fight draws, so those stay as they were)
+      const pa = new Fighter(0, partners.a.name, computeBuild(partners.a.loadout, partners.a.size), new Rng(this.rng.next() * 4294967296));
+      const pb = new Fighter(1, partners.b.name, computeBuild(partners.b.loadout, partners.b.size), new Rng(this.rng.next() * 4294967296));
+      pa.opp = fb;
+      pb.opp = fa;
+      const bpa = new Brain(pa, fb, new Rng(this.rng.next() * 4294967296));
+      const bpb = new Brain(pb, fa, new Rng(this.rng.next() * 4294967296));
+      bpa.onEvent = bpb.onEvent = (e: BrainEvent) => this.emit('brain', e);
+      const members = [
+        new TagMember(fa, ba, this.shows[0], a, 0, 0),
+        new TagMember(pa, bpa, new Showman(pa, fb, bpa, partners.a.emotes), partners.a, 0, 1),
+        new TagMember(fb, bb, this.shows[1], b, 1, 0),
+        new TagMember(pb, bpb, new Showman(pb, fa, bpb, partners.b.emotes), partners.b, 1, 1),
+      ];
+      all.push(pa, pb);
+      this.tag = new TagTeam(this, members, (this.rng.next() * 4294967296) >>> 0);
+    }
+    for (const f of all) {
       f.hooks = {
         time: 0,
         emit: (ev, data) => this.onFighterEvent(ev, data),
@@ -201,6 +236,21 @@ export class Match {
     fb.place(new Vector3(bx, 0, bz), DM.atan2(ax - bx, az - bz));
   }
 
+  /** Tag team: is this bot celebrating (an elimination it scored, or its team's win from the apron)? */
+  cheers(f: Fighter) {
+    return this.tag !== null && this.tag.cheers(f);
+  }
+
+  /**
+   * Tag team: the player's TAG button for side `side`, applied at the start of step `frame`
+   * (as queueCoach). Whether a tag happens is decided then: the bot makes for its corner
+   * if its partner is ready.
+   */
+  queueTag(side: number, frame = this.frame) {
+    this.tagQueue.push({ side, frame: Math.max(frame, this.frame) });
+    this.tagQueue.sort((a, b) => a.frame - b.frame || a.side - b.side);
+  }
+
   /** The fighter being presented in the intro (-1 once it is over). */
   get presenting(): number {
     return this.phase !== 'intro' ? -1 : this.phaseTime < PRESENT ? 0 : 1;
@@ -208,7 +258,7 @@ export class Match {
 
   /** Seconds of fighting so far. */
   get fightTime() {
-    return ROUND_TIME - this.clock;
+    return this.roundTime - this.clock;
   }
 
   on(fn: MatchListener) {
@@ -219,6 +269,7 @@ export class Match {
   }
 
   emit(type: string, data?: unknown) {
+    if (this.tag) this.tag.onEvent(type, data as HitInfo);
     for (const l of this.listeners) l(type, data);
   }
 
@@ -255,13 +306,13 @@ export class Match {
 
   /** Can this side's corner make a call right now? */
   coachReady(side: number) {
-    return this.phase === 'fight' && !this.fin && !this.winner && this.time >= this.coachReadyAt[side] && !this.coachPending(side);
+    return this.phase === 'fight' && !this.fin && !this.winner && !(this.tag && this.tag.paused) && this.time >= this.coachReadyAt[side] && !this.coachPending(side);
   }
 
   private applyCoach() {
     while (this.coachQueue.length && this.coachQueue[0].frame <= this.frame) {
       const c = this.coachQueue.shift()!;
-      if (this.phase !== 'fight' || this.winner || this.time < this.coachReadyAt[c.side]) continue;
+      if (this.phase !== 'fight' || this.winner || (this.tag && this.tag.paused) || this.time < this.coachReadyAt[c.side]) continue;
       this.coachReadyAt[c.side] = this.time + COACH_COOLDOWN;
       this.brains[c.side].setCoach(c.kind, this.time + COACH_TIME);
       this.coachLog.push({ ...c, frame: this.frame });
@@ -284,6 +335,8 @@ export class Match {
   step(dt = SIM_DT) {
     if (this.frame === this.replayCut) this.skipIntro();
     if (this.coachQueue.length) this.applyCoach();
+    const tag = this.tag;
+    while (tag && this.tagQueue.length && this.tagQueue[0].frame <= this.frame) tag.asked[this.tagQueue.shift()!.side] = true;
     this.frame++;
     // an impact dips the renderer's clock (pace) rather than freezing the fight, which on screen
     // read as a stutter: the fight carries on through it in slow motion
@@ -293,6 +346,7 @@ export class Match {
     for (const f of this.fighters) if (f.hooks) f.hooks.time = this.time;
     this.ropeCooldown[0] -= dt;
     this.ropeCooldown[1] -= dt;
+    if (tag) tag.begin(dt);
 
     switch (this.phase) {
       case 'intro':
@@ -327,8 +381,8 @@ export class Match {
         }
         break;
       case 'fight': {
-        // a finisher stops the clock until it has played out
-        if (this.fin) break;
+        // a finisher stops the clock until it has played out (and a tag team's elimination)
+        if (this.fin || (tag && tag.paused)) break;
         this.clock = Math.max(0, this.clock - dt);
         // counted out: the referee reaches ten (the HUD count shows 10 at 9.35 s)
         for (const f of this.fighters) this.checkRingOut(f);
@@ -345,6 +399,8 @@ export class Match {
         if (this.phaseTime > 0.45 && this.winner && this.winner.state !== 'win' && !this.winner.isDown) {
           this.winner.setState('win');
           this.winner.action = null;
+          // its tag team partner climbs in to join the celebration
+          if (tag) tag.celebrate(this.winner.index);
         }
         if (this.phaseTime > 4.2) {
           this.slowmo = 1;
@@ -361,12 +417,12 @@ export class Match {
       const g = this.grapple && this.grapple.live ? this.grapple : null;
       for (const br of this.brains) br.grip = g && g.involves(br.me) ? g : null;
       const t0 = perf.now();
-      this.brains[0].update(dt, this.time);
-      this.brains[1].update(dt, this.time);
+      if (!tag || !tag.brainOff(0)) this.brains[0].update(dt, this.time);
+      if (!tag || !tag.brainOff(1)) this.brains[1].update(dt, this.time);
       perf.add('ai', t0);
     }
-    this.shows[0].update(dt, this);
-    this.shows[1].update(dt, this);
+    if (!tag || !tag.showOff(0)) this.shows[0].update(dt, this);
+    if (!tag || !tag.showOff(1)) this.shows[1].update(dt, this);
     const g = this.grapple;
     if (g) {
       g.update(dt);
@@ -379,6 +435,8 @@ export class Match {
     }
     this.fighters[0].update(dt);
     this.fighters[1].update(dt);
+    // the partners and anyone on their way in or out (a tag swaps the fighters here)
+    if (tag) tag.update(dt);
     this.separate();
     // nothing of the finisher's passes through the one it is finishing
     if (fin) fin.settle();
@@ -386,7 +444,7 @@ export class Match {
       fin.end();
       this.fin = null;
       this.ko(fin.att, fin.def, fin.final === 'decap' ? 'Dismantled' : 'KO');
-    } else if (this.phase === 'fight' && !fin) {
+    } else if (this.phase === 'fight' && !fin && !(tag && tag.paused)) {
       this.checkStrike(this.fighters[0], this.fighters[1]);
       this.checkStrike(this.fighters[1], this.fighters[0]);
     }
@@ -400,7 +458,8 @@ export class Match {
     // the ropes: once a standing fighter's armour reaches them they stretch up to
     // ROPE_STRETCH, pushing back harder the deeper the fighter sinks in
     for (const f of this.fighters) {
-      if (f.isDown) continue;
+      // (a tag team partner coming in through the ropes passes them)
+      if (f.isDown || f.body.ropeFree) continue;
       const side = ropeSide(f.root.x, f.root.z);
       const nx = SIDE_NX[side], nz = SIDE_NZ[side];
       const pen = f.root.x * nx + f.root.z * nz - (ROPE_LINE - ROPE_REACH * f.size);
@@ -745,7 +804,10 @@ export class Match {
     }
     // its own stream, so fights without a finisher draw the same numbers as before
     const rng = new Rng((Math.floor(this.time * 120) * 2654435761 + (att.index + 1) * 97 + 13) >>> 0);
-    const id = pickFinisher(rng, this.specs[att.index].emotes?.finish, this.brains[att.index].traits.style);
+    // tag team: mostly a double team, if the partner is on the apron and close enough to get there
+    const tag = this.tag;
+    const tagged = tag !== null && tag.assistReady(att.index, def) && rng.chance(0.85);
+    const id = tagged ? pickTagFinisher(rng) : pickFinisher(rng, this.specs[att.index].emotes?.finish, this.brains[att.index].traits.style);
     this.countOut = null;
     const fin = new FinisherRun(id, att, def, {
       emit: (t, d) => {
@@ -760,8 +822,10 @@ export class Match {
     s.hasHit = true;
     s.result = 'hit';
     att.finishStrike(s);
-    const info: FinisherInfo = { f: att, opp: def, id, name: FINISHER_NAME[id] ?? 'Finisher' };
+    const partner = tagged ? tag!.partnerOf(att.index).f : null;
+    const info: FinisherInfo = { f: att, opp: def, id, name: (tagged ? TAG_FINISHER_NAME[id] : FINISHER_NAME[id]) ?? 'Finisher', partner };
     this.emit('finisher', info);
+    if (tagged) tag!.startAssist(att.index, fin);
     fin.opener(point, zone, s.move.id);
   }
 
@@ -1102,7 +1166,7 @@ export class Match {
   private wearCheck(f: Fighter, part: number) {
     const c = f.parts.cond[part];
     const level = c <= 0 ? 2 : c < LOOSE ? 1 : c < 0.7 ? 0 : -1;
-    const seen = this.wearSeen[f.index];
+    const seen = f.wearSeen;
     if (level > seen[part]) {
       seen[part] = level;
       const info: WearInfo = { f, part, level: level as 0 | 1 | 2 };
@@ -1165,6 +1229,12 @@ export class Match {
   private ko(winner: Fighter, loser: Fighter, kind: FinishKind) {
     if (this.phase !== 'fight') return;
     this.grapple?.release();
+    // tag team: a knockout with the loser's partner still standing eliminates it, and the fight goes on
+    if (this.tag && this.tag.eliminate(winner, loser, kind, kind === 'Dismantled' ? this.lossReason : null)) {
+      this.countOut = null;
+      this.lossReason = null;
+      return;
+    }
     this.winner = winner;
     this.result = kind;
     if (loser.state !== 'ko') {
@@ -1180,7 +1250,10 @@ export class Match {
   private decision() {
     this.grapple?.release();
     const [a, b] = this.fighters;
-    const ra = a.hpRatio, rb = b.hpRatio;
+    // (a tag team on both its bots' health together)
+    const tag = this.tag;
+    const ra = tag ? tag.teamHp(0) : a.hpRatio, rb = tag ? tag.teamHp(1) : b.hpRatio;
+    if (tag) tag.end();
     if (Math.abs(ra - rb) < 0.005) {
       this.result = 'Draw';
       this.winner = null;
@@ -1202,6 +1275,8 @@ export class Match {
 
   // ---------------------------------------------------------------- fighter events
   private onFighterEvent(ev: string, data: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    // a tag team's bots outside the fight only make footsteps
+    if (this.tag && ev !== 'step' && !this.tag.isLegal(data.f)) return;
     if (ev === 'strikeEnd') {
       const f: Fighter = data.f;
       const s: StrikeAction = data.s;

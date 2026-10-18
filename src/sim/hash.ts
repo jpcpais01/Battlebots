@@ -46,5 +46,24 @@ export function matchHash(m: Match): number {
     int(b.coach ? b.coach.charCodeAt(0) + b.coach.length : 0);
     num(b.coachUntil);
   }
+  // a tag team's partners, wherever they are, and who is legal
+  const tag = m.tag;
+  if (tag) {
+    int(tag.rng.state);
+    int(tag.legal[0] * 4 + tag.legal[1]);
+    int(tag.paused ? 1 : 0);
+    for (const mb of tag.members) {
+      int(mb.status.charCodeAt(0) + mb.status.length * 31 + (mb.out ? 1000 : 0) + mb.spot * 2000);
+      const f = mb.f;
+      num(f.hp);
+      num(f.root.x);
+      num(f.root.z);
+      for (const p of f.body.pos) {
+        num(p.x);
+        num(p.y);
+        num(p.z);
+      }
+    }
+  }
   return h >>> 0;
 }
