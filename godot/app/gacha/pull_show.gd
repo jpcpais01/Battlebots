@@ -43,6 +43,10 @@ var _card_box := Control.new()
 var _flip_tw: Tween
 var _buttons: Control = null
 var _detail: Control = null
+## Where each card sits once dealt (they float a little about it once all are up).
+var _home: Array[Vector2] = []
+## Seconds since the last card turned (the floating eases in), -1 before.
+var _float_t := -1.0
 
 
 func _init(app_: App, results_: Array, sound_: GachaSound) -> void:
@@ -151,6 +155,12 @@ func _process(dt: float) -> void:
 	if _flash_a > 0.0:
 		_flash_a = maxf(0.0, _flash_a - dt * 2.4)
 		_flash.color.a = _flash_a * _flash_a
+	if _float_t >= 0.0:
+		_float_t += dt
+		var k := smoothstep(0.6, 1.6, _float_t)
+		for i in _cards.size():
+			if i < _home.size():
+				_cards[i].position.y = _home[i].y + sin(_float_t * 1.7 + i * 0.9) * 2.5 * k
 
 
 func _on_beat(what: String, data) -> void:
@@ -333,6 +343,7 @@ func _deal() -> void:
 		c.modulate.a = 0.0
 		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var target := Vector2(x0 + (i % 5) * (cw + gap), y0 + (i / 5) * (ch + gap))
+		_home.append(target)
 		_card_box.add_child(c)
 		_cards.append(c)
 		var tw := c.create_tween().set_parallel()
@@ -346,7 +357,13 @@ func _deal() -> void:
 		c.pressed.connect(func() -> void: _open_card(idx))
 	_flip_tw = create_tween()
 	_flip_tw.tween_interval(0.45 + results.size() * 0.05)
-	for i in results.size():
+	# turned over from the Commons up, so the best is always the last one to land
+	var order := range(results.size())
+	order.sort_custom(func(a: int, b: int) -> bool:
+		var ta := int(results[a].skin.r)
+		var tb := int(results[b].skin.r)
+		return ta < tb or (ta == tb and a < b))
+	for i in order:
 		var t := int(results[i].skin.r)
 		if t == Skins.EPIC:
 			var c := _cards[i]
@@ -358,7 +375,7 @@ func _deal() -> void:
 				tr.tween_property(c, "rotation", 0.0, 0.05))
 			_flip_tw.tween_method(func(v: float) -> void: c.set_glow(v), 1.0, 2.6, 0.45)
 		_flip_tw.tween_callback(_flip.bind(i))
-		_flip_tw.tween_interval(0.12 if t == Skins.COMMON else 0.26)
+		_flip_tw.tween_interval(0.12 if t == Skins.COMMON else (0.3 if t == Skins.RARE else 0.5))
 	_flip_tw.tween_callback(_dealt)
 
 
@@ -379,6 +396,11 @@ func _flip(i: int) -> void:
 			c.set_badge("+%d" % int(r.shards), Color(1, 1, 1, 0.16), UiTheme.TEXT))
 	tw.tween_property(c, "scale:x", 1.0, 0.12).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	if t >= Skins.RARE:
+		tw.tween_callback(func() -> void:
+			if i < _home.size():
+				_card_box.add_child(CardSparks.new(Rect2(_home[i], c.size), Skins.RARITY_COL[t], t))
+			c.orb.set_halo(1.6)
+			c.orb.create_tween().tween_method(c.orb.set_halo, 1.6, 0.35 + 0.3 * t, 0.7))
 		tw.tween_property(c, "scale", Vector2(1.12, 1.12), 0.1)
 		tw.tween_property(c, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	sound.play("flip", 0.55)
@@ -400,11 +422,13 @@ func _dealt() -> void:
 		_cards[i].mouse_filter = Control.MOUSE_FILTER_STOP
 	_bars_to(false)
 	_pip_row.create_tween().tween_property(_pip_row, "modulate:a", 0.0, 0.3)
+	_float_t = 0.0
 	var vs := size
 	var box := Control.new()
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_card_box.add_child(box)
+	_summary(box, vs)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override(&"separation", 12)
 	if again_text != "":
@@ -427,6 +451,35 @@ func _dealt() -> void:
 	_buttons = box
 	box.modulate.a = 0.0
 	box.create_tween().tween_property(box, "modulate:a", 1.0, 0.3)
+
+
+## What the ten came to, over the cards: a chip per rarity drawn (best first) and how many are new.
+func _summary(box: Control, vs: Vector2) -> void:
+	var n := [0, 0, 0]
+	var fresh := 0
+	for r in results:
+		n[int(r.skin.r)] += 1
+		fresh += 1 if r.new else 0
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override(&"separation", 8)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var fs := maxf(11.0, vs.y * 0.019)
+	for t in [Skins.EPIC, Skins.RARE, Skins.COMMON]:
+		if n[t] == 0:
+			continue
+		var c: Color = Skins.RARITY_COL[t]
+		var chip := MenuKit.pill(MenuKit.box(Color(c, 0.16), 999, [fs * 0.8, fs * 0.25, fs * 0.8, fs * 0.25], Color(c, 0.7), 1))
+		chip.get_node("Row").add_child(MenuKit.label("%d %s" % [n[t], String(Skins.RARITY_NAME[t]).to_upper()], fs, 800, c.lerp(Color.WHITE, 0.25), 1))
+		row.add_child(chip)
+	if fresh > 0:
+		var chip := MenuKit.pill(MenuKit.box(MenuKit.AMBER, 999, [fs * 0.8, fs * 0.25, fs * 0.8, fs * 0.25]))
+		chip.get_node("Row").add_child(MenuKit.label("%d NEW" % fresh, fs, 800, UiTheme.INK, 1))
+		row.add_child(chip)
+	box.add_child(row)
+	var rs := row.get_combined_minimum_size()
+	row.size = rs
+	var top := _home[0].y if _home.size() > 0 else vs.y * 0.12
+	row.position = Vector2((vs.x - rs.x) * 0.5, maxf(4.0, (top - rs.y) * 0.5 - 4.0))
 
 
 func _open_card(i: int) -> void:

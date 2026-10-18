@@ -18,6 +18,10 @@
 //   7 thin film (chameleon, oil slick), 8 scales, 9 marble, 10 hex plating, 11 ice, 12 circuit,
 //   13 lava, 14 nebula, 15 storm, 16 synthwave grid, 17 aurora, 18 data rain, 19 liquid metal
 
+// Locals in here must not share a name with a uniform of a shader that includes this
+// (skin_orb.gdshader has halo, phase, spin, veil, radius, metres): Godot reads the name as the
+// uniform, and on Vulkan the whole shader fails to compile (the vault's cards went white).
+
 // the one kind compiled in, or -1 for all of them
 #ifdef SKIN_FIXED
 #define SK_ONLY SKIN_FIXED
@@ -217,8 +221,8 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		// thin film: the colour slides round c1 -> c2 -> c3 with the viewing angle (chameleon,
 		// oil slick), swirled a little over the part
 		float swirl = sk_fbm(q * 2.2) * 1.6 + sk_noise(q * 6.0) * 0.25;
-		float phase = graze * 0.9 + swirl + nw.y * 0.25 + sec * 0.33;
-		vec3 film = sk_loop3(c1.rgb, c2.rgb, c3.rgb, phase);
+		float fph = graze * 0.9 + swirl + nw.y * 0.25 + sec * 0.33;
+		vec3 film = sk_loop3(c1.rgb, c2.rgb, c3.rgb, fph);
 		o.albedo = mix(c0.rgb, film, 0.25 + 0.6 * graze * graze + 0.15 * graze);
 	}
 #endif
@@ -334,12 +338,12 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		float gap = cl.y - cl.x;
 		float crack = 1.0 - smoothstep(0.0, 0.1 + fw * 0.5, gap);
 		float pulse = 0.75 + 0.25 * sin(t * sp * 2.2 + sk_noise(q * 1.3) * 6.28);
-		float halo = 1.0 - smoothstep(0.0, 0.22, gap);
-		float heat = crack * pulse + halo * halo * 0.22 * pulse;
+		float rim_k = 1.0 - smoothstep(0.0, 0.22, gap);
+		float heat = crack * pulse + rim_k * rim_k * 0.22 * pulse;
 		vec3 molten = mix(c1.rgb, c2.rgb, smoothstep(0.55, 1.0, heat));
 		float crust = sk_fbm(wq * 3.0);
 		o.albedo = mix(c0.rgb * (0.35 + crust * 0.6), molten * 0.3, crack);
-		o.emit = c1.rgb * halo * 0.25;
+		o.emit = c1.rgb * rim_k * 0.25;
 		o.rough = mix(0.9, 0.5, crack);
 		o.metal = 0.0;
 		o.emit += molten * heat * (1.9 - sec * 0.5) + c3.rgb * smoothstep(0.6, 1.0, sk_noise(q * 2.0 + flow * 3.0)) * crack * 1.5;

@@ -52,8 +52,19 @@ void fragment() {
 				float rays = pow(0.5 + 0.5 * sin(ang * 10.0 + TIME * (0.4 + tier * 0.4) + seed), 5.0);
 				fill += c * rays * exp(-er * 3.0) * 0.18 * tier;
 			}
-			// the bottom band carries the name
-			fill = mix(fill, vec3(0.02, 0.025, 0.035), smoothstep(0.66, 0.7, uv.y) * 0.8);
+			if (tier > 0.5) {
+				// holo foil: a faint rainbow that shifts with the card's slant and time
+				float f = uv.x * 1.3 - uv.y * 0.9 + TIME * 0.12 + seed;
+				vec3 foil = 0.5 + 0.5 * cos(6.2831853 * (f + vec3(0.0, 0.33, 0.67)));
+				float lines = 0.6 + 0.4 * sin((uv.x + uv.y) * 90.0);
+				fill += foil * lines * 0.035 * tier * (1.0 - smoothstep(0.6, 0.7, uv.y));
+			}
+			// the bottom band carries the name, warmed by the rarity's colour
+			float band_k = smoothstep(0.66, 0.7, uv.y);
+			vec3 band = vec3(0.02, 0.025, 0.035) + c * 0.05 * (1.0 + tier) * (1.0 - smoothstep(0.7, 1.0, uv.y));
+			fill = mix(fill, band, band_k * 0.85);
+			// a thin rule in the rarity's colour where the band starts
+			fill += c * 0.5 * (1.0 - smoothstep(0.0, 0.004, abs(uv.y - 0.68))) * smoothstep(0.08, 0.2, uv.x) * smoothstep(0.92, 0.8, uv.x);
 			if (tier > 1.5) {
 				// a shine sliding across
 				float s = fract(TIME * 0.35 + seed * 0.1);
