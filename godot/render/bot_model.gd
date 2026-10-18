@@ -493,13 +493,22 @@ func _begin_core(f, look_at) -> void:
 
 ## Resolve limb contacts (own armour and, if given, the opponent's), then place the limbs and
 ## draw (botModel.ts end).
-func end(f, time: float, opp: BotModel = null) -> void:
-	_solve_contacts(f, opp, time)
+## `solved`: `solve` already ran this frame.
+func end(f, time: float, opp: BotModel = null, solved := false) -> void:
+	if not solved:
+		_solve_contacts(f, opp, time)
 	_pose_limbs(f)
 	for b in _hidden:
 		_scl[b] = Vector3.ZERO
 	_effects(f, time)
 	_upload()
+
+
+## The limb contact pass on its own (the dear part of `end`). It writes only this robot's limb
+## joints and reads the hulls both robots placed in `begin`, so the fight runs both robots' passes
+## at once, one on a worker thread, then calls `end(..., true)` for each.
+func solve(f, time: float, opp: BotModel = null) -> void:
+	_solve_contacts(f, opp, time)
 
 
 ## Collapse the head and neck while the camera looks out of them (the director's bot's-eye

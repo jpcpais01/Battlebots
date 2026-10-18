@@ -3,6 +3,10 @@
 // VERTEX iPos (the seat), UV the quad corner (x -0.5..0.5, y 0..1), CUSTOM0 iData (scale, column,
 // seed, flags), CUSTOM1 iShirt (rgb, skin index/255), CUSTOM2 iHair (rgb, pants index/255),
 // CUSTOM3 iAccent (rgb).
+// Fans in the bowl's seats also draw their seat's moulded back (venue.ts, the seat-back block)
+// inside their own quad: each pixel's view ray is cast onto the real shell's plane, so the shell
+// sits exactly where the old 8-triangle geometry did (tools/bake/seat_backs.ts took that out of
+// the stands and packed each seat into iData.w).
 shader_type spatial;
 render_mode unshaded, cull_disabled, world_vertex_coords;
 #include "res://render/venue/common.gdshaderinc"
@@ -33,6 +37,17 @@ varying vec3 v_hair;
 varying vec3 v_skin;
 varying vec3 v_pants;
 varying vec3 v_accent;
+// the figure's cell coordinates (atlas x 0..1, height 0..1) and its tight bounds in this pose
+varying vec2 v_cell;
+varying flat vec4 v_bb;
+// the seat back: shell coordinates in metres as a projective pair (xy / z), and its lit colour
+varying vec3 v_seat;
+varying flat vec3 v_seat_c;
+
+// venue.ts: the two tiers' seat colours (linear), the bowl's straight runs (bowl.ts AX - RC, AZ - RC)
+const vec3 SEAT_LOW = vec3(0.10224, 0.011881, 0.015996);
+const vec3 SEAT_UP = vec3(0.012286, 0.025187, 0.072272);
+const vec2 BOWL_RUN = vec2(6.0, 3.0);
 
 float h1(float n) { return fract(sin(n) * 43758.5453); }
 
@@ -40,11 +55,13 @@ void vertex() {
 	vec3 ipos = VERTEX;
 	vec4 idata = CUSTOM0;
 	float seed = idata.z;
-	float flags = idata.w;
+	// bits: 1 mirrored, 2 empty seat, 4 floor staff, 8 walker; 16 and up: the seat it sits in
+	int packed = int(round(idata.w));
+	float flags = float(packed & 15);
 	bool empty = mod(flags, 4.0) >= 2.0;
 	// floor staff never sit or join the wave; some walk up and down their patch
 	bool staff = mod(flags, 8.0) >= 4.0;
-	bool walker = flags >= 8.0;
+	bool walker = flags > 7.5;
 	bool calm = idata.y > 29.5 && idata.y < 32.5;
 	float flip = mod(flags, 2.0) > 0.5 ? -1.0 : 1.0;
 	float exc = fract(seed * 7.13);
@@ -120,19 +137,81 @@ void vertex() {
 	if (empty) pose = 0.0;
 
 	// cylindrical billboard; fans differ a little in build as well as height
-	vec3 to_cam = CAMERA_POSITION_WORLD - base;
+	vec3 cam = CAMERA_POSITION_WORLD;
+	vec3 to_cam = cam - base;
 	vec3 fwd = normalize(vec3(to_cam.x, 0.0, to_cam.z));
 	vec3 right = vec3(fwd.z, 0.0, -fwd.x);
 	float s = idata.x;
 	float wide = empty ? 1.0 : 0.9 + 0.2 * h1(seed * 17.1);
-	// the quad only spans the figure in this pose (gx across, -0.5..0.5; gy up, 0..1)
+	float fw = SPR_W * s * wide, fh = SPR_H * s;
+	// the figure in this pose spans gx -0.5..0.5 across (mirrored or not) and gy 0..1 up its cell:
+	// in metres on the billboard, x = gx * fw + sway * gy and y = gy * fh + lift
 	vec4 bb = texelFetch(bounds, ivec2(int(idata.y + 0.5), int(pose + 0.5)), 0);
-	float qx = UV.x, qy = UV.y;
-	float gx = flip > 0.0 ? mix(bb.x, bb.y, qx + 0.5) - 0.5 : mix(0.5 - bb.y, 0.5 - bb.x, qx + 0.5);
-	float gy = mix(bb.z, bb.w, qy);
-	vec3 p = base + right * (gx * SPR_W * s * wide + sway * gy) + vec3(0.0, gy * SPR_H * s + lift, 0.0);
+	float gx0 = flip > 0.0 ? bb.x - 0.5 : 0.5 - bb.y;
+	float gx1 = flip > 0.0 ? bb.y - 0.5 : 0.5 - bb.x;
+	vec2 lo = vec2(gx0 * fw + min(sway * bb.z, sway * bb.w), bb.z * fh + lift);
+	vec2 hi = vec2(gx1 * fw + max(sway * bb.z, sway * bb.w), bb.w * fh + lift);
 
+	// the seat back (venue.ts): 0.5 m wide on a 0.5 m quad from 0.36 m above the seat, set back
+	// 0.32 of the row's depth, leaning 6 cm out at the top, facing the ring
+	v_seat = vec3(0.0, 0.0, -1.0);
+	v_seat_c = vec3(0.0);
+	vec3 sb = vec3(0.0);
+	vec3 tn = vec3(0.0);
+	vec3 nrm = vec3(0.0);
+	float k = -1.0;
+	if (packed >= 16) {
+		int code = (packed >> 4) - 1;
+		int shade = code / 1681;
+		int jz = (code - shade * 1681) / 41;
+		int jx = code - shade * 1681 - jz * 41;
+		vec3 st = ipos + vec3(float(jx - 20), 0.0, float(jz - 20)) * 0.002;
+		// out from the bowl's rounded-rectangle outline (bowl.ts outline: corners round (6, 3))
+		vec2 sn = normalize(st.xz - clamp(st.xz, -BOWL_RUN, BOWL_RUN));
+		bool upper = st.y > 9.0;
+		sb = vec3(st.x, st.y + 0.36, st.z) + vec3(sn.x, 0.0, sn.y) * (upper ? 0.272 : 0.288);
+		tn = vec3(-sn.y, 0.0, sn.x);
+		// the shell's plane (across, and up with its lean); the normal points away from the ring,
+		// and only its front is drawn, as before
+		nrm = vec3(sn.x * 0.5, -0.06, sn.y * 0.5);
+		k = dot(sb - cam, nrm);
+		if (k > 0.0) {
+			// grow the quad over the shell's corners as seen from here (projected onto the billboard)
+			vec3 lean = vec3(sn.x, 0.0, sn.y) * 0.12;
+			float dc = dot(base - cam, -fwd);
+			for (int c = 0; c < 4; c++) {
+				float cu = (c & 1) == 0 ? -0.21 : 0.21;
+				float cv = c < 2 ? 0.0 : 0.5;
+				vec3 q = sb + tn * cu + vec3(0.0, cv, 0.0) + lean * cv - cam;
+				float dq = dot(q, -fwd);
+				if (dq > 0.05) {
+					vec3 on = cam + q * (dc / dq) - base;
+					vec2 sxy = vec2(dot(on, right), on.y);
+					lo = min(lo, sxy - 0.02);
+					hi = max(hi, sxy + 0.02);
+				}
+			}
+			float ty = clamp(st.y / 20.0, 0.0, 1.0);
+			float kk = (1.0 - sqrt(ty) * 0.5) * (0.85 + 0.3 * float(shade) / 100.0);
+			v_seat_c = (upper ? SEAT_UP : SEAT_LOW) * kk * house_light(sb + vec3(0.0, 0.25, 0.0));
+		}
+	}
+	vec2 xy = mix(lo, hi, vec2(UV.x + 0.5, UV.y));
+	vec3 p = base + right * xy.x + vec3(0.0, xy.y, 0.0);
+	if (k > 0.0) {
+		// where this corner's view ray meets the shell's plane, in shell metres (across, up), as a
+		// numerator and denominator so the GPU interpolates it exactly across the quad
+		vec3 d = p - cam;
+		float den = dot(d, nrm);
+		vec3 o = cam - sb;
+		v_seat = vec3(dot(d, tn) * k + dot(o, tn) * den, d.y * k + o.y * den, den);
+	}
+
+	float gy = (xy.y - lift) / fh;
+	float gx = (xy.x - sway * gy) / fw;
 	float lx = gx * flip + 0.5;
+	v_cell = vec2(lx, gy);
+	v_bb = bb;
 	// the ring is the key light: the side of each fan turned towards it is brighter
 	vec2 to_ring = -ipos.xz / max(1.0, length(ipos.xz));
 	float side = dot(right.xz, to_ring) * gx * 2.0;
@@ -162,16 +241,39 @@ void vertex() {
 }
 
 void fragment() {
+	// the fan, only inside the figure's bounds (the quad can be bigger: it also holds the seat back)
 	vec4 t = texture(atlas, v_uv.xy);
 	// sharpen the mip-blurred edge
-	float a = (t.a - 0.5) / max(fwidth(t.a), 1e-4) + 0.5;
-	if (a < 0.5) discard;
+	float a = clamp((t.a - 0.5) / max(fwidth(t.a), 1e-4) + 0.5, 0.0, 1.0);
+	if (any(lessThan(v_cell, v_bb.xz)) || any(greaterThan(v_cell, v_bb.yw))) a = 0.0;
 	float ly = v_uv.z;
 	vec3 c = mix(ly > 0.60 ? v_hair : v_pants, v_shirt, t.g);
 	c = mix(c, v_skin, t.b * (1.0 - smoothstep(0.5, 0.95, t.g)));
 	c = mix(c, v_accent, smoothstep(0.5, 0.95, min(t.g, t.b)));
 	// drawn shading, the ring's side light, and the row in front shading legs and bellies
 	c *= t.r * (1.0 + 0.45 * v_uv.w) * mix(0.5, 1.0, smoothstep(0.25, 0.62, ly));
+	// the seat back behind them: a shell 0.41 m across from 1.5 to 48.5 cm up its quad, its top
+	// corners rounded (venue.ts SEAT_PTS), lighter at the top edge and in the middle (seatShade)
+	vec2 sh = v_seat.xy / v_seat.z;
+	vec2 px = fwidth(sh);
+	if (a < 1.0 && v_seat.z > 0.0) {
+		vec2 q = abs(sh - vec2(0.0, 0.25));
+		float r = sh.y > 0.25 ? 0.109 : 0.0;
+		vec2 e = q - vec2(0.203, 0.235) + r;
+		float sd = length(max(e, 0.0)) + min(max(e.x, e.y), 0.0) - r;
+		float cov = clamp(0.5 - sd / max(max(px.x, px.y), 1e-5), 0.0, 1.0);
+		float u = sh.x * 2.0 + 0.5, y = (1.0 - sh.y * 2.0) * 64.0;
+		float tone = y < 16.0 ? 255.0 - 47.0 * (y / 16.0) : 208.0 - 86.0 * ((y - 16.0) / 48.0);
+		float side = 1.0 - 0.35 * min(1.0, abs(u * 64.0 - 32.0) / 26.0);
+		float g = clamp(tone * side / 255.0, 0.0, 1.0);
+		g = g <= 0.04045 ? g / 12.92 : pow((g + 0.055) / 1.055, 2.4);
+		// the fan stands in front: their edge blends over the shell
+		c = mix(v_seat_c * g, c, a);
+		a += cov * (1.0 - a);
+	}
+	// (alpha-to-coverage would smooth these edges, but Godot draws it in the sorted alpha pass,
+	// after the stands: kept in the opaque pass, the fans hide the stands' pixels behind them)
+	if (a < 0.5) discard;
 	ALBEDO = c;
 	FOG = bb_fog(VERTEX);
 }

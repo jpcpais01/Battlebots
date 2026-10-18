@@ -13,12 +13,12 @@ static func rollRarity(rng: TMath.Rng, tier: float = 0.35) -> float:
 	var w: Array = [(1.0 - (tier * 0.6)), 0.75, (0.42 + (tier * 0.3)), (0.2 + (tier * 0.3)), (0.07 + (tier * 0.2))].slice(0.0, (TItems.MAX_RARITY + 1.0))
 	var sum: float = JS.reduce(w, func(a: float, b: float, _a2 = null, _a3 = null): return (a + b), 0.0)
 	var r: float = (rng.next() * sum)
-	var i: float = 0.0
+	var i: int = 0
 	while (i < float(w.size())):
 		r -= w[i]
 		if (r <= 0.0):
-			return i
-		i += 1.0
+			return float(i)
+		i += 1
 	return 0.0
 
 static func randomLoadout(rng: TMath.Rng, tier: float = 0.35):

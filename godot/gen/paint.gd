@@ -53,7 +53,7 @@ static func rgb(c: float) -> Array:
 static func dist(a: float, b: float) -> float:
 	var x: Array = TPaint.rgb(a)
 	var y: Array = TPaint.rgb(b)
-	return JS.math_hypot((x[0.0] - y[0.0]), (x[1.0] - y[1.0]), (x[2.0] - y[2.0]))
+	return JS.math_hypot((x[0] - y[0]), (x[1] - y[1]), (x[2] - y[2]))
 
 static func paintsContrast(a, b) -> bool:
 	return (minf(minf(TPaint.dist(a.primary, b.primary), (TPaint.dist(a.secondary, b.primary) * 1.4)), (TPaint.dist(a.primary, b.secondary) * 1.4)) > 150.0)
@@ -61,7 +61,7 @@ static func paintsContrast(a, b) -> bool:
 static func contrastingPaint(mine, rng = null):
 	var _hSCHEMES: Array = TPaint.SCHEMES
 	var ok: Array = JS.filter(_hSCHEMES, func(s, _a1 = null, _a2 = null): return ((not TPaint.samePaint(s.paint, mine)) and TPaint.paintsContrast(s.paint, mine)))
-	var pick = (((rng.pick(ok) if (rng != null) else ok[0.0])) if (float(ok.size()) != 0.0) else _hSCHEMES[fmod(((JS.index_of(_hSCHEMES, JS.nullish(TPaint.schemeOf(mine), _hSCHEMES[0.0])) + 5.0)), float(_hSCHEMES.size()))])
+	var pick = (((rng.pick(ok) if (rng != null) else ok[0])) if (float(ok.size()) != 0.0) else _hSCHEMES[fmod(((JS.index_of(_hSCHEMES, JS.nullish(TPaint.schemeOf(mine), _hSCHEMES[0])) + 5.0)), float(_hSCHEMES.size()))])
 	return JS.merge([pick.paint])
 
 static func __init_module() -> void:
@@ -169,4 +169,4 @@ static func __init_module() -> void:
 	TPaint.sch("Chrome", 13028564.0, 3817548.0, 7337983.0, 5.0, 2.0),
 	TPaint.sch("Emerald", 1074746.0, 13738820.0, 8257456.0, 4.0, 3.0)
 ]
-	TPaint.DEFAULT_PAINT = JS.merge([TPaint.SCHEMES[0.0].paint])
+	TPaint.DEFAULT_PAINT = JS.merge([TPaint.SCHEMES[0].paint])

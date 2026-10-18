@@ -40,13 +40,13 @@ static func defenceOf(rec, e) -> float:
 
 static func rivalGear(e, round_: float, defence: float = 0.0) -> float:
 	var t: float = ((round_ / ((float(e.rivals.size()) - 1.0))) if (float(e.rivals.size()) > 1.0) else 1.0)
-	return maxf(0.0, minf(TItems.MAX_RARITY, ((e.gear[0.0] + (((e.gear[1.0] - e.gear[0.0])) * t)) + (defence / 3.0))))
+	return maxf(0.0, minf(TItems.MAX_RARITY, ((e.gear[0] + (((e.gear[1] - e.gear[0])) * t)) + (defence / 3.0))))
 
 static func rarities(level: float, rng: TMath.Rng):
 	var _hSLOTS: Array = TItems.SLOTS
 	var points: float = JS.round((level * float(_hSLOTS.size())))
 	var base: float = floorf((points / float(_hSLOTS.size())))
-	var order: Array = JS.sort(JS.map(_hSLOTS, func(s: String, _a1 = null, _a2 = null): return [s, rng.next()]), func(a: Array, b: Array): return (a[1.0] - b[1.0]))
+	var order: Array = JS.sort(JS.map(_hSLOTS, func(s: String, _a1 = null, _a2 = null): return [s, rng.next()]), func(a: Array, b: Array): return (a[1] - b[1]))
 	var out = {}
 	var __f1 = func(__p0: Array, i: float, _a2 = null):
 		var slot: String = __p0[0]
@@ -65,7 +65,7 @@ static func rival(e, round_: float, player, defence: float = 0.0):
 	var __f1 = func(__p0: Array, _a1 = null, _a2 = null):
 		var s_2: String = __p0[0]
 		return s_2
-	var mine: Dictionary = JS.set_from(JS.map(JS.sort(JS.map(_hSLOTS, func(s: String, _a1 = null, _a2 = null): return [s, rng.next()]), func(a: Array, b: Array): return (a[1.0] - b[1.0])).slice(0.0, own), __f1))
+	var mine: Dictionary = JS.set_from(JS.map(JS.sort(JS.map(_hSLOTS, func(s: String, _a1 = null, _a2 = null): return [s, rng.next()]), func(a: Array, b: Array): return (a[1] - b[1])).slice(0.0, own), __f1))
 	var others: Array = JS.filter(TItems.COMPANIES, func(c, _a1 = null, _a2 = null): return ((c.id != co.id) and (not (c.get("needsFull") == true))))
 	var tier = TEvents.rarities(TEvents.rivalGear(e, round_, defence), rng)
 	var loadout = {}

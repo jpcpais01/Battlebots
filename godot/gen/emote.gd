@@ -78,12 +78,12 @@ static var BASE
 
 static func writeArm(o: PackedFloat32Array, k: float, d, w: float) -> void:
 	var i: float = (TEmote.EC.ARM + (k * TEmote.ARM_N))
-	o[i] = d.at[0.0]
-	o[(i + 1.0)] = d.at[1.0]
-	o[(i + 2.0)] = d.at[2.0]
-	o[(i + 3.0)] = d.pole[0.0]
-	o[(i + 4.0)] = d.pole[1.0]
-	o[(i + 5.0)] = d.pole[2.0]
+	o[i] = d.at[0]
+	o[(i + 1.0)] = d.at[1]
+	o[(i + 2.0)] = d.at[2]
+	o[(i + 3.0)] = d.pole[0]
+	o[(i + 4.0)] = d.pole[1]
+	o[(i + 5.0)] = d.pole[2]
 	o[(i + 6.0)] = (d.get("roll") if d.get("roll") != null else 0.0)
 	o[(i + 7.0)] = w
 
@@ -101,21 +101,21 @@ static func S(d, parent = null) -> PackedFloat32Array:
 	o[_hEC.TWIST] = m.get("twist")
 	o[_hEC.HIP] = m.get("hip")
 	JS.typed_set(o, m.get("head"), _hEC.HEAD)
-	o[_hEC.PELVIS] = m.get("pelvis")[0.0]
-	o[(_hEC.PELVIS + 1.0)] = m.get("pelvis")[1.0]
+	o[_hEC.PELVIS] = m.get("pelvis")[0]
+	o[(_hEC.PELVIS + 1.0)] = m.get("pelvis")[1]
 	TEmote.writeArm(o, 0.0, m.get("a"), m.get("aw"))
 	TEmote.writeArm(o, 1.0, m.get("b"), m.get("bw"))
 	var st: Array = (m.get("stance") if m.get("stance") != null else TEmote.FIGHT)
-	var k: float = 0.0
+	var k: int = 0
 	while (k < 2.0):
-		var f = JS.merge([_hBASE.get("fa"), ((m.get("fa") if (k == 0.0) else m.get("fb")))])
-		var i: float = (_hEC.FOOT + (k * TEmote.FOOT_N))
-		o[i] = st[(k * 2.0)]
-		o[(i + 1.0)] = st[((k * 2.0) + 1.0)]
+		var f = JS.merge([_hBASE.get("fa"), ((m.get("fa") if (float(k) == 0.0) else m.get("fb")))])
+		var i: float = (_hEC.FOOT + (float(k) * TEmote.FOOT_N))
+		o[i] = st[(float(k) * 2.0)]
+		o[(i + 1.0)] = st[((float(k) * 2.0) + 1.0)]
 		JS.typed_set(o, f.get("off"), (i + 2.0))
 		o[(i + 5.0)] = f.get("knee")
 		o[(i + 6.0)] = f.get("w")
-		k += 1.0
+		k += 1
 	o[_hEC.LIFT] = 0.0
 	o[_hEC.HEEL] = m.get("heel")
 	o[_hEC.STANCE] = (1.0 if (m.get("stance") != null) else 0.0)
@@ -130,50 +130,50 @@ static func punchy(u: float) -> float:
 
 static func mix(o: PackedFloat32Array, a: PackedFloat32Array, b: PackedFloat32Array, u: float) -> void:
 	var _hEC = TEmote.EC
-	var i: float = 0.0
+	var i: int = 0
 	while (i < _hEC.N):
 		o[i] = (a[i] + (((b[i] - a[i])) * u))
-		i += 1.0
+		i += 1
 
 static func keys_(o: PackedFloat32Array, t: float, K: Array) -> void:
-	if (t <= K[0.0][0.0]):
-		JS.typed_set(o, K[0.0][1.0])
+	if (t <= K[0][0]):
+		JS.typed_set(o, K[0][1])
 		return
 	var _hEC = TEmote.EC
-	var i: float = 0.0
+	var i: int = 0
 	while (i < (float(K.size()) - 1.0)):
-		var b: Array = K[(i + 1.0)]
-		if (t < b[0.0]):
+		var b: Array = K[(float(i) + 1.0)]
+		if (t < b[0]):
 			var a: Array = K[i]
-			var h: float = (b[0.0] - a[0.0])
-			var u: float = (((t - a[0.0])) / h)
-			if (JS.idx(b, 2.0) != null):
-				TEmote.mix(o, a[1.0], b[1.0], (b[2.0]).call(u))
+			var h: float = (b[0] - a[0])
+			var u: float = (((t - a[0])) / h)
+			if (JS.idx(b, 2) != null):
+				TEmote.mix(o, a[1], b[1], (b[2]).call(u))
 				return
-			var p = (K[(i - 1.0)] if ((i > 0.0) and (not (JS.idx(a, 2.0) != null))) else null)
-			var n = (K[(i + 2.0)] if (((i + 2.0) < float(K.size())) and (not (JS.idx(K[(i + 2.0)], 2.0) != null))) else null)
-			var A: PackedFloat32Array = a[1.0]
-			var B: PackedFloat32Array = b[1.0]
-			var c: float = 0.0
+			var p = (K[(float(i) - 1.0)] if ((i > 0.0) and (not (JS.idx(a, 2) != null))) else null)
+			var n = (K[(float(i) + 2.0)] if (((float(i) + 2.0) < float(K.size())) and (not (JS.idx(K[(float(i) + 2.0)], 2) != null))) else null)
+			var A: PackedFloat32Array = a[1]
+			var B: PackedFloat32Array = b[1]
+			var c: int = 0
 			while (c < _hEC.N):
-				var m0: float = (TMath.keySlope(p[1.0][c], A[c], B[c], (a[0.0] - p[0.0]), h) if (p != null) else 0.0)
-				var m1: float = (TMath.keySlope(A[c], B[c], n[1.0][c], h, (n[0.0] - b[0.0])) if (n != null) else 0.0)
+				var m0: float = (TMath.keySlope(p[1][c], A[c], B[c], (a[0] - p[0]), h) if (p != null) else 0.0)
+				var m1: float = (TMath.keySlope(A[c], B[c], n[1][c], h, (n[0] - b[0])) if (n != null) else 0.0)
 				o[c] = ((A[c] + (((B[c] - A[c])) * TMath.minJerk(u))) if ((m0 == 0.0) and (m1 == 0.0)) else TMath.hermite(A[c], B[c], m0, m1, h, u))
-				c += 1.0
+				c += 1
 			return
-		i += 1.0
-	JS.typed_set(o, K[(float(K.size()) - 1.0)][1.0])
+		i += 1
+	JS.typed_set(o, K[(float(K.size()) - 1.0)][1])
 
 static func armTo(o: PackedFloat32Array, k: float, d, u: float) -> void:
 	if (u <= 0.0):
 		return
 	var i: float = (TEmote.EC.ARM + (k * TEmote.ARM_N))
-	o[i] += (((d.at[0.0] - o[i])) * u)
-	o[(i + 1.0)] += (((d.at[1.0] - o[(i + 1.0)])) * u)
-	o[(i + 2.0)] += (((d.at[2.0] - o[(i + 2.0)])) * u)
-	o[(i + 3.0)] += (((d.pole[0.0] - o[(i + 3.0)])) * u)
-	o[(i + 4.0)] += (((d.pole[1.0] - o[(i + 4.0)])) * u)
-	o[(i + 5.0)] += (((d.pole[2.0] - o[(i + 5.0)])) * u)
+	o[i] += (((d.at[0] - o[i])) * u)
+	o[(i + 1.0)] += (((d.at[1] - o[(i + 1.0)])) * u)
+	o[(i + 2.0)] += (((d.at[2] - o[(i + 2.0)])) * u)
+	o[(i + 3.0)] += (((d.pole[0] - o[(i + 3.0)])) * u)
+	o[(i + 4.0)] += (((d.pole[1] - o[(i + 4.0)])) * u)
+	o[(i + 5.0)] += (((d.pole[2] - o[(i + 5.0)])) * u)
 	o[(i + 6.0)] += (((((d.get("roll") if d.get("roll") != null else 0.0)) - o[(i + 6.0)])) * u)
 
 static func armI(k: float) -> float:
@@ -303,7 +303,7 @@ static func pickWeighted(rng: TMath.Rng, items: Array):
 		r -= maxf(0.0, w_2)
 		if (r <= 0.0):
 			return it
-	return items[0.0][0.0]
+	return items[0][0]
 
 static func celebrationWeights(r) -> Array:
 	var s: String = r.style
@@ -328,15 +328,15 @@ static func celebrationWeights(r) -> Array:
 ]
 
 static func only(w: Array, picks) -> Array:
-	var out: Array = JS.filter(w, func(e: Array, _a1 = null, _a2 = null): return ((e[1.0] >= 0.0) and ((not (picks != null)) or picks.has(e[0.0]))))
+	var out: Array = JS.filter(w, func(e: Array, _a1 = null, _a2 = null): return ((e[1] >= 0.0) and ((not (picks != null)) or picks.has(e[0]))))
 	if (not (picks != null)):
 		return out
 	var top: float = 0.0
 	for e_2: Array in out:
-		top = maxf(top, e_2[1.0])
+		top = maxf(top, e_2[1])
 	var floor_: float = ((top * 0.35) if (top > 0.0) else 1.0)
 	for e_3: Array in out:
-		e_3[1.0] = maxf(e_3[1.0], floor_)
+		e_3[1.0] = maxf(e_3[1], floor_)
 	return out
 
 static func encoreWeights(r, last) -> Array:
@@ -349,7 +349,7 @@ static func encoreWeights(r, last) -> Array:
 	[TEmote.flex, TEmote.aff(r.style, {"Brawler": 1.0}, 0.2)]
 ]
 	for e: Array in w:
-		if (is_same(e[0.0], last)):
+		if (is_same(e[0], last)):
 			e[1.0] = 0.0
 	return w
 
@@ -366,7 +366,7 @@ static func tauntWeights(r, room: float) -> Array:
 	[TEmote.strut, (r.showboat + TEmote.aff(s, {"Out-fighter": 0.4}, 0.0))]
 ]
 	for e: Array in w:
-		if (((e[0.0].get("min_") if e[0.0].get("min_") != null else 0.0)) > room):
+		if (((e[0].get("min_") if e[0].get("min_") != null else 0.0)) > room):
 			e[1.0] = -1.0
 	return w
 
@@ -558,7 +558,7 @@ class Showman extends RefCounted:
 					if (not wins.has(s_2)):
 						w.append([s_2, 0.5])
 			for e: Array in w:
-				if (is_same(e[0.0], last)):
+				if (is_same(e[0], last)):
 					e[1.0] = 0.0
 		return w
 	
@@ -574,7 +574,7 @@ class Showman extends RefCounted:
 		if (not (float(w.size()) != 0.0)):
 			return
 		for e: Array in w:
-			if (is_same(e[0.0], lastTaunt)):
+			if (is_same(e[0], lastTaunt)):
 				e[1.0] *= 0.2
 		var spec = TEmote.pickWeighted(rng, w)
 		self.lastTaunt = spec
@@ -913,15 +913,15 @@ static func __init_module() -> void:
 		var __f7 = func(o_4: PackedFloat32Array, c_4: TEmote.Ctx):
 			var t_4: float = c_4.t
 			TEmote.keys_(o_4, t_4, K_4)
-			var h: float = 0.0
+			var h: int = 0
 			while (h < float(hits.size())):
-				var k: float = JS.band(h, 1.0)
+				var k: float = JS.band(float(h), 1.0)
 				var p_2: float = TEmote.pulse(t_4, (hits[h] - 0.1), 0.1, 0.14)
 				TEmote.armTo(o_4, k, TEmote.CHEST, p_2)
 				o_4[TEmote.EC.TWIST] += (((-0.12 if (k == 0.0) else 0.12)) * p_2)
 				o_4[TEmote.EC.CROUCH] += (0.025 * p_2)
 				c_4.beat(hits[h], 0.22)
-				h += 1.0
+				h += 1
 			c_4.gaze = ("sky" if ((t_4 > 1.45) and (t_4 < 2.5)) else "ahead")
 			c_4.beat(1.58, 1.0, 0.08)
 		return {"id": "chestPound", "len_": 3.4, "sample": __f7}
@@ -1053,17 +1053,17 @@ static func __init_module() -> void:
 		var __f22 = func(o_11: PackedFloat32Array, c_11: TEmote.Ctx):
 			var t_11: float = c_11.t
 			TEmote.keys_(o_11, t_11, K_11)
-			var i: float = 0.0
+			var i: int = 0
 			while (i < 4.0):
-				var t0_2: float = (0.5 + (i * 0.68))
-				var k_3: float = JS.band(i, 1.0)
+				var t0_2: float = (0.5 + (float(i) * 0.68))
+				var k_3: float = JS.band(float(i), 1.0)
 				var p_7: float = TEmote.pulse(t_11, t0_2, 0.12, 0.34)
 				TEmote.armTo(o_11, k_3, TEmote.PULL, p_7)
 				TEmote.armTo(o_11, (1.0 - k_3), TEmote.SKY, ((((1.0 - p_7)) * ((1.0 if ((i > 0.0) or (k_3 == 1.0)) else 0.0))) * TEmote.win(t_11, 0.4, 3.2, 0.25)))
 				o_11[TEmote.EC.CROUCH] += (0.05 * p_7)
 				o_11[TEmote.EC.TWIST] += (((0.1 if (k_3 == 0.0) else -0.1)) * p_7)
 				c_11.beat(t0_2, 0.25)
-				i += 1.0
+				i += 1
 			c_11.gaze = "crowd"
 		return {"id": "fistPumps", "len_": 3.4, "sample": __f22}
 	TEmote.fistPumps = (__f23).call()
@@ -1175,13 +1175,13 @@ static func __init_module() -> void:
 			var go: float = (TEmote.win(t_17, 0.4, 1.5, 0.12) + TEmote.win(t_17, 2.7, 3.7, 0.12))
 			var ph: float = (((((t_17 - 0.4)) * PI) * 2.0) * 3.4)
 			var s: float = DM.sin(ph)
-			var k_4: float = 0.0
+			var k_4: int = 0
 			while (k_4 < 2.0):
-				var i_2: float = ((TEmote.EC.FOOT + (k_4 * TEmote.FOOT_N)))
-				o_17[(i_2 + 3.0)] = ((0.03 * absf(DM.sin((ph + ((k_4 * PI) * 0.5))))) * go)
-				o_17[(i_2 + 4.0)] = ((((s if (k_4 == 0.0) else (-s))) * 0.1) * go)
+				var i_2: float = ((TEmote.EC.FOOT + ((float(k_4)) * TEmote.FOOT_N)))
+				o_17[(i_2 + 3.0)] = ((0.03 * absf(DM.sin((ph + ((float(k_4) * PI) * 0.5))))) * go)
+				o_17[(i_2 + 4.0)] = ((((s if (float(k_4) == 0.0) else (-s))) * 0.1) * go)
 				o_17[(i_2 + 6.0)] = go
-				k_4 += 1.0
+				k_4 += 1
 			o_17[TEmote.EC.TWIST] += ((s * 0.12) * go)
 			o_17[TEmote.EC.HEAD] += ((s * 0.02) * go)
 			o_17[(((TEmote.EC.ARM + (0.0 * TEmote.ARM_N))) + 2.0)] += ((s * 0.08) * go)
@@ -1207,10 +1207,10 @@ static func __init_module() -> void:
 			TEmote.armTo(o_18, 0.0, TEmote.ROOF_HI, p_9)
 			TEmote.armTo(o_18, 1.0, TEmote.ROOF_HI, p_9)
 			o_18[TEmote.EC.CROUCH] += ((0.04 * ((1.0 - p_9))) * live)
-			var i_3: float = 0.0
+			var i_3: int = 0
 			while (i_3 < 6.0):
-				c_18.beat((0.55 + (((i_3 + 0.5)) / 1.7)), 0.25)
-				i_3 += 1.0
+				c_18.beat((0.55 + (((float(i_3) + 0.5)) / 1.7)), 0.25)
+				i_3 += 1
 			c_18.face = ("crowd" if (t_18 < (c_18.T - 0.75)) else "opp")
 			c_18.turn = 3.0
 			c_18.gaze = ("crowd" if (t_18 < (c_18.T - 0.75)) else "opp")
@@ -1424,10 +1424,10 @@ static func __init_module() -> void:
 			TEmote.armTo(o_25, 0.0, PUMP, p_11)
 			TEmote.armTo(o_25, 1.0, PUMP, p_11)
 			o_25[TEmote.EC.CROUCH] += (0.04 * p_11)
-			var i_4: float = 0.0
+			var i_4: int = 0
 			while (i_4 < 2.0):
-				c_25.beat(((A_4 - 0.15) + (((i_4 + 0.5)) / 1.7)), 0.35)
-				i_4 += 1.0
+				c_25.beat(((A_4 - 0.15) + (((float(i_4) + 0.5)) / 1.7)), 0.35)
+				i_4 += 1
 			var turned: bool = ((t_24 > (A_4 + 0.9)) and (t_24 < (A_4 + 2.1)))
 			c_25.face = ("crowd" if turned else "opp")
 			c_25.turn = 3.0
