@@ -8,7 +8,7 @@
 ## colours and spots stay where they were. All of them to one error as it looks from the ring
 ## (metres of error over metres from where the cameras fly): the least error that brings the
 ## whole scene within the budget. Far instanced things (the city's trees seen from Skydeck 88)
-## also thin out where each one is smaller on screen than a few times that error, a hashed few
+## also thin out where each one is only a few pixels on screen, a hashed few
 ## at a time, so the far ones fade in number rather than stop at a line.
 ## The last argument is what is drawn along with the scene (the ring round an event venue), so
 ## both together fit the budget.
@@ -22,12 +22,20 @@ const LENS := Vector3(0.0, 1.5, 0.0)
 const LENS_R := 4.0
 ## Nearer than this (metres) counts as this near.
 const NEAR := 1.5
+## The most error (over distance) it may take to fit the budget: beyond this, things start to
+## look different from the ring (the ring and tunnels are kept exact regardless). A place that
+## can't fit within it is left over budget, and says so.
+const MAX_ERROR := 0.016
+## Vertex colours this close (1 / COLOR_STEPS of their square root, roughly as the eye sees
+## shades) may merge when simplifying.
+const COLOR_STEPS := 32.0
 ## Runs of fewer triangles are left as they are.
 const MIN_TRIS := 16
 ## Instanced things with fewer instances are never thinned out.
 const THIN_MIN := 64
-## An instance is thinned out where its radius on screen is below this many times the error.
-const THIN_K := 40.0
+## An instance is thinned out where its radius on screen is below this (radians: about 8 pixels
+## across a phone's 50 degree view), the smaller the fewer.
+const THIN_RADIUS := 0.006
 ## Shader kinds (venue_materials.gd) that draw their mesh where it stands: translated venue GLSL,
 ## the tunnels' LED strips and boards.
 const RIGID_KINDS := ["glsl", "tunnel_led", "led", "led_ads"]
@@ -71,6 +79,9 @@ var _lens_set := PackedVector3Array()
 
 var _frames := 0
 var _t0 := 0
+## Which faces some lens sees, per geometry/group: the slow part, kept between runs in
+## BB_SLIM_CACHE (a directory) to try other budgets or settings on the same bake.
+var _seen_cache := {}
 ## BB_SLIM_OBJECT: how far away the object is judged from (0: a place, seen from the ring).
 var _object := 0.0
 
@@ -130,11 +141,21 @@ func _main() -> void:
 		if not _rigid(n):
 			rigid[g] = false
 	_lens = _lens_hull() if _object <= 0.0 else PackedVector3Array()
+	var cache_path := ""
+	if OS.has_environment("BB_SLIM_CACHE"):
+		cache_path = OS.get_environment("BB_SLIM_CACHE").path_join(path.get_file() + ".seen")
+		if FileAccess.file_exists(cache_path):
+			_seen_cache = bytes_to_var(FileAccess.get_file_as_bytes(cache_path))
 	var runs: Array[Run] = []
 	var full := 0
 	for g in users:
 		var tris := _tris(g) * _copies(users[g])
 		full += tris
+		if users[g].all(func(i): return _static_inst(nodes[i])):
+			# (a yard of containers: the ones hidden in the stacks go)
+			for i in users[g]:
+				runs.append(_occluded_run(g, i))
+			continue
 		if not rigid[g]:
 			if _kind(users[g][0]) == "crowd" and (_scene.json.geometries[g].groups as Array).size() <= 1:
 				runs.append(_crowd_run(g))
@@ -150,11 +171,11 @@ func _main() -> void:
 			print("  at %4.1f mm/m: %d" % [e * 1000.0, _total(runs, e) + fixed + extra])
 	# the least error (over distance) that fits
 	var lo := 1e-6
-	var hi := 1.0
+	var hi := MAX_ERROR
 	if _total(runs, lo) + fixed + extra <= budget:
 		hi = lo
 	elif _total(runs, hi) + fixed + extra > budget:
-		print("slim_scene: can't reach the budget (%d at most error)" % (_total(runs, hi) + fixed + extra))
+		print("slim_scene: OVER BUDGET: %d at the most error that still looks the same (%.0f mm per metre)" % [_total(runs, hi) + fixed + extra, MAX_ERROR * 1000.0])
 		lo = hi
 	else:
 		for k in 40:
@@ -181,6 +202,9 @@ func _main() -> void:
 		ks.sort_custom(func(a, b): return rows[a][1] > rows[b][1])
 		for k in ks.slice(0, 25):
 			print("  %-8s %6d -> %6d  (%.1f m)" % [k, rows[k][0], rows[k][1], rows[k][2]])
+	if cache_path != "":
+		var fc := FileAccess.open(cache_path, FileAccess.WRITE)
+		fc.store_buffer(var_to_bytes(_seen_cache))
 	_write(path + ".slim", runs, tau)
 	print("slim_scene: done in %.1f s (%d faces no lens sees)" % [(Time.get_ticks_msec() - t0) / 1000.0, _hidden])
 
@@ -215,6 +239,94 @@ func _copies(list: Array) -> int:
 static func _near(box: AABB) -> float:
 	var p := LENS.clamp(box.position, box.end)
 	return maxf(p.distance_to(LENS) - LENS_R, NEAR)
+
+
+## Instanced and standing still, drawn whole and solid, but marked as moved on the GPU only so its
+## spread-out instances aren't culled by one box (three's InstancedMesh): harbor's containers.
+func _static_inst(n: Dictionary) -> bool:
+	if not n.has("instanceMatrix") or n.get("frustumCulled", true) or _animated(n.get("name", "")):
+		return false
+	if int(n.instanceMatrix.count) < THIN_MIN or not _solid(n):
+		return false
+	for mid in n.materials:
+		var kind = _scene.json.materials[int(mid)].get("kind")
+		if kind != null and kind != "" and kind != "glsl":
+			return false
+	return true
+
+
+## Node i's instances, placed in the world.
+func _inst_xforms(i: int) -> Array[Transform3D]:
+	var n: Dictionary = _scene.json.nodes[i]
+	var f := _scene.floats(int(n.instanceMatrix.buffer))
+	var out: Array[Transform3D] = []
+	for k in int(n.instanceMatrix.count):
+		var o := k * 16
+		out.append(_world[i] * Transform3D(Basis(Vector3(f[o], f[o + 1], f[o + 2]), Vector3(f[o + 4], f[o + 5], f[o + 6]), Vector3(f[o + 8], f[o + 9], f[o + 10])), Vector3(f[o + 12], f[o + 13], f[o + 14])))
+	return out
+
+
+## The instances of node i that some lens can see a face of (its box's faces, sampled at the
+## middle and near the corners); the others, deep in the stacks, go.
+var _occl := {}
+
+
+func _occluded_run(g: int, i: int) -> Run:
+	var geo: Dictionary = _scene.json.geometries[g]
+	var pos := _vec3(geo.attributes.position)
+	var box := AABB(pos[0], Vector3.ZERO)
+	for p in pos:
+		box = box.expand(p)
+	var c := box.get_center()
+	var h := box.size * 0.5
+	var keep := PackedInt32Array()
+	var xs := _inst_xforms(i)
+	var ck := "inst/%d" % i
+	var cached: PackedInt32Array = _seen_cache.get(ck, PackedInt32Array([-1]))
+	if cached.size() == 0 or cached[0] != -1:
+		keep = cached
+	else:
+		for k in xs.size():
+			var t := xs[k]
+			var seen := false
+			for ax in 3:
+				for sg in [-1.0, 1.0]:
+					var nl := Vector3.ZERO
+					nl[ax] = sg
+					var n := (t.basis * nl).normalized()
+					var mid := t * (c + nl * h)
+					# facing away from every lens: never seen
+					var d := n.dot(mid) - BACK_MARGIN
+					var any := false
+					for p in _lens:
+						if n.dot(p) > d:
+							any = true
+							break
+					if not any:
+						continue
+					var u := Vector3.ZERO
+					var v := Vector3.ZERO
+					u[(ax + 1) % 3] = h[(ax + 1) % 3] * 0.8
+					v[(ax + 2) % 3] = h[(ax + 2) % 3] * 0.8
+					for q in [Vector3.ZERO, u + v, u - v, -u + v, -u - v]:
+						if _sees(t * (c + nl * h + q), n, false, _lens_set):
+							seen = true
+							break
+					if seen:
+						break
+				if seen:
+					break
+			if seen:
+				keep.append(k)
+		_seen_cache[ck] = keep
+	_occl[i] = [xs.size(), keep]
+	print("slim_scene: node %d: %d of %d instances can be seen" % [i, keep.size(), xs.size()])
+	var r := Run.new()
+	r.geo = g
+	r.src = _tris(g)
+	r.copies = keep.size()
+	r.levels = [[0.0, _scene.buffer(int(geo.index.buffer)).to_int32_array()]]
+	return r
 
 
 ## Whether any of these nodes is the ring's (under RING_NODE).
@@ -347,7 +459,11 @@ func _runs(g: int, list: Array) -> Array[Run]:
 		r.src = as_is.size() / 3
 		if inst.is_empty() and copies == 1:
 			var side := int(_scene.json.materials[int(_scene.json.nodes[list[0]].materials[mini(int(gr[2]), _scene.json.nodes[list[0]].materials.size() - 1)])].side)
-			var seen := _facing(slice, pos, place, side)
+			var ck := "%d/%d" % [g, gi]
+			var seen: PackedByteArray = _seen_cache.get(ck, PackedByteArray())
+			if seen.is_empty():
+				seen = _facing(slice, pos, place, side)
+				_seen_cache[ck] = seen
 			slice = _keep(slice, seen)
 			as_is = _keep(as_is, seen)
 		r.levels = [[0.0, as_is]]
@@ -403,14 +519,23 @@ func _occluders() -> void:
 	var nodes: Array = _scene.json.nodes
 	for i in nodes.size():
 		var n: Dictionary = nodes[i]
-		if not n.has("geometry") or n.has("instanceMatrix") or n.get("primitive", "triangles") != "triangles" or not n.get("visible", true):
-			continue
-		if not _rigid(n) or not _solid(n):
+		if not n.has("geometry") or n.get("primitive", "triangles") != "triangles" or not n.get("visible", true):
 			continue
 		var geo: Dictionary = _scene.json.geometries[int(n.geometry)]
 		var pos := _vec3(geo.attributes.position)
+		var index := _scene.buffer(int(geo.index.buffer)).to_int32_array()
+		if n.has("instanceMatrix"):
+			# instanced: only what stands still and is never thinned out (container yards)
+			if not _static_inst(n):
+				continue
+			for t in _inst_xforms(i):
+				for k in index:
+					tris.append(t * pos[k])
+			continue
+		if not _rigid(n) or not _solid(n):
+			continue
 		var w := _world[i]
-		for k in _scene.buffer(int(geo.index.buffer)).to_int32_array():
+		for k in index:
 			tris.append(w * pos[k])
 	var shape := ConcavePolygonShape3D.new()
 	shape.backface_collision = true
@@ -583,6 +708,12 @@ func _weld(attrs: Dictionary, n: int, index: PackedInt32Array) -> PackedInt32Arr
 			continue
 		var a: Dictionary = attrs[name]
 		var f := _scene.buffer(int(a.buffer)).to_float32_array()
+		if name == "color":
+			# colours within a shade of each other count as one (the bakes jitter each face's
+			# colour a little: welded exactly, every face would stand alone and nothing could go)
+			f = f.duplicate()
+			for k in f.size():
+				f[k] = roundf(sqrt(maxf(f[k], 0.0)) * COLOR_STEPS)
 		if f.size() >= n * int(a.itemSize):
 			cols.append([f, int(a.itemSize)])
 	_nor = _vec3(attrs.normal) if attrs.has("normal") else PackedVector3Array()
@@ -686,7 +817,7 @@ static func _pick(r: Run, tau: float) -> PackedInt32Array:
 ## Whether instance k (screen radius `size`) stays at `tau`: always where it is big enough on
 ## screen, else with a chance that falls with its size (hashed, so the same ones every time).
 static func _keeps(k: int, size: float, tau: float) -> bool:
-	var p := size / (THIN_K * tau)
+	var p := size / THIN_RADIUS
 	if p >= 1.0:
 		return true
 	var hsh := float(hash(k * 7919 + 13) % 10007) / 10007.0
@@ -763,6 +894,9 @@ func _write(out_path: String, runs: Array[Run], tau: float) -> void:
 				keep.append(k)
 		if keep.size() < sizes.size():
 			lists.append([i, sizes.size(), keep])
+	for i in _occl:
+		if _occl[i][1].size() < _occl[i][0]:
+			lists.append([i, _occl[i][0], _occl[i][1]])
 	body.put_u32(lists.size())
 	for e in lists:
 		body.put_u32(e[0])
