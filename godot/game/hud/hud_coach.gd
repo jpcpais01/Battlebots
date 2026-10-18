@@ -130,6 +130,14 @@ func tick(dt: float) -> void:
 		b.show_state(_ready, b.kind == _active, b.kind == _tapped, _cd, _left, dt)
 
 
+## Where the row of calls sits (laid out in tick; empty before), for HudTag's TAG button beside it.
+func bar_rect() -> Rect2:
+	if _btns.is_empty() or _btns[0].size.x <= 0.0:
+		return Rect2()
+	var last := _btns[_btns.size() - 1]
+	return Rect2(_btns[0].position, Vector2(last.position.x + last.size.x - _btns[0].position.x, last.size.y))
+
+
 ## style.css .coach-bar: a centred row, 0.4em apart, max(10px, the gesture bar) off the bottom.
 ## Each button: 0.84em type, 3.1em tall, at least 6.6em wide, 1.1em padding each side.
 func _layout() -> void:

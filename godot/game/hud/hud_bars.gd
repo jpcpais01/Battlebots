@@ -9,6 +9,8 @@ extends HudPart
 
 ## Match time the chip segment holds after the last hit before it drains (hud.ts CHIP_HOLD).
 const CHIP_HOLD := 0.75
+## A tag team's bot just in: its bar fills up from empty over this long (s), with a flash.
+const FILL_IN := 0.65
 ## style.css .hp: the slanted cut on the clock side and the small chamfer under the outer end (em).
 const CUT := 0.75
 const CHAMFER := 0.45
@@ -112,6 +114,8 @@ class Bot:
 	var low := false
 	var dead := false
 	var low_t0 := 0.0
+	## Tagged in at this time: the bar fills up from empty (FILL_IN), no chip behind it.
+	var fill_t0 := -10.0
 	## hpHit / hpHeal: the flash (start, starting opacity, length, green or white) and the shake.
 	var flash_t := -10.0
 	var flash_a := 0.0
@@ -434,48 +438,7 @@ func start(m_) -> void:
 	_clock = ""
 	_hurry = false
 	for i in 2:
-		var f = m_.fighters[i]
-		var spec = m_.specs[i]
-		var b := Bot.new()
-		b.index = i
-		b.right = i == 1
-		b.name_ = str(spec.name_)
-		b.rating = "PWR %d" % int(f.build.rating)
-		var cols := HudKit.bar_colors(spec.paint)
-		b.c1 = cols[0]
-		b.c2 = cols[1]
-		# the fist and kick abilities, then the core's passive (hud.ts build addAb)
-		var fa := str(f.build.fistAbility)
-		var ka := str(f.build.kickAbility)
-		b.moves = [fa, ka]
-		b.icons = [_icon_name("ab:" + fa, "slot:fist"), _icon_name("ab:" + ka, "slot:kick")]
-		for id in b.moves:
-			var cdv = TMoves.MOVES[id].get("cooldown")
-			b.cd_max.append(float(cdv) if cdv != null else 1.0)
-		var core = TItems.ITEM_BY_ID.get(spec.loadout.core.id)
-		b.icons.append(_icon_name("pa:" + str(core.passive.id), "slot:core") if core != null else "slot:core")
-		b.hp = maxf(0.0, f.hpRatio)
-		b.shown = b.hp
-		b.chip_v = b.hp
-		b.hp_prev = f.hp
-		b.max_hp = f.build.stats.maxHp
-		b.num = roundi(f.hp)
-		b.kd = int(f.knockdowns)
-		b.kd_on = b.kd > 0
-		# (a replay seek starts with the damage already done)
-		var cond: PackedFloat32Array = f.parts.cond
-		for p in PARTS:
-			var c := cond[p]
-			b.cond.append(c)
-			b.off.append(false)
-			b.loose.append(c < 1.0 and _is_loose(p, c))
-			b.loose_t.append(_now)
-			b.hit_t.append(-100.0)
-			b.col_from.append(cond_color(c))
-			b.col_to.append(cond_color(c))
-			b.col_t.append(-100.0)
-			b.xr_anim.append(true)
-		_bots.append(b)
+		_bots.append(_make_bot(i, m_.fighters[i], m_.specs[i]))
 		_icon_tex[i] = []
 	# (the scan lines' tile is made once, here rather than on the fight's first frame)
 	_stripes("scan", Vector2(0, -1), 3.0, 0.0, 1.0, Color(150 / 255.0, 225 / 255.0, 1.0, 0.07))
@@ -484,6 +447,69 @@ func start(m_) -> void:
 	_all = true
 	for s in _sweeps:
 		s.visible = true
+
+
+## Robot `i`'s bars for fighter `f` built from `spec`: its name, paint, abilities, health and parts.
+func _make_bot(i: int, f, spec) -> Bot:
+	var b := Bot.new()
+	b.index = i
+	b.right = i == 1
+	b.name_ = str(spec.name_)
+	b.rating = "PWR %d" % int(f.build.rating)
+	var cols := HudKit.bar_colors(spec.paint)
+	b.c1 = cols[0]
+	b.c2 = cols[1]
+	# the fist and kick abilities, then the core's passive (hud.ts build addAb)
+	var fa := str(f.build.fistAbility)
+	var ka := str(f.build.kickAbility)
+	b.moves = [fa, ka]
+	b.icons = [_icon_name("ab:" + fa, "slot:fist"), _icon_name("ab:" + ka, "slot:kick")]
+	for id in b.moves:
+		var cdv = TMoves.MOVES[id].get("cooldown")
+		b.cd_max.append(float(cdv) if cdv != null else 1.0)
+	var core = TItems.ITEM_BY_ID.get(spec.loadout.core.id)
+	b.icons.append(_icon_name("pa:" + str(core.passive.id), "slot:core") if core != null else "slot:core")
+	b.hp = maxf(0.0, f.hpRatio)
+	b.shown = b.hp
+	b.chip_v = b.hp
+	b.hp_prev = f.hp
+	b.max_hp = f.build.stats.maxHp
+	b.num = roundi(f.hp)
+	b.kd = int(f.knockdowns)
+	b.kd_on = b.kd > 0
+	# (a replay seek starts with the damage already done)
+	var cond: PackedFloat32Array = f.parts.cond
+	for p in PARTS:
+		var c := cond[p]
+		b.cond.append(c)
+		b.off.append(false)
+		b.loose.append(c < 1.0 and _is_loose(p, c))
+		b.loose_t.append(_now)
+		b.hit_t.append(-100.0)
+		b.col_from.append(cond_color(c))
+		b.col_to.append(cond_color(c))
+		b.col_t.append(-100.0)
+		b.xr_anim.append(true)
+	return b
+
+
+## A tag: side `i`'s column is the new bot's from now on (its name, paint, abilities and parts),
+## its bar filling up from empty with a flash as it comes in.
+func swap(i: int, m_) -> void:
+	if _bots.size() < 2:
+		return
+	var b := _make_bot(i, m_.fighters[i], m_.specs[i])
+	b.fill_t0 = _now
+	b.shown = 0.0
+	b.chip_v = 0.0
+	b.flash_t = _now
+	b.flash_a = 0.75
+	b.flash_dur = 0.55
+	b.flash_heal = false
+	_bots[i] = b
+	ready_on[i] = false
+	# (relaid out: the icons, the panel's top edge in its colours, every piece redrawn)
+	_em = 0.0
 
 
 func stop() -> void:
@@ -933,6 +959,16 @@ func _flow(b: Bot) -> void:
 ## chip, holds while the hits keep coming, then drains, slowly at first and faster as it goes, the
 ## flurry's total showing by the name until it's gone. Healing pulls the chip along.
 func _bar_motion(b: Bot, dt: float) -> void:
+	var ft := _now - b.fill_t0
+	if ft < FILL_IN:
+		# just tagged in: filling up, nothing lost
+		b.shown = b.hp * HudKit.ease(ft / FILL_IN)
+		b.chip_v = b.shown
+		b.chip_vel = 0.0
+		b.num = maxi(0, ceili(b.shown * b.max_hp - 0.01))
+		b.low = false
+		b.dead = false
+		return
 	b.shown += (b.hp - b.shown) * minf(1.0, dt * 22.0)
 	if b.hp >= b.chip_v:
 		b.chip_v = b.hp
@@ -1268,6 +1304,26 @@ func _tile(poly: PackedVector2Array, tile: Dictionary, origin: Vector2, k: float
 ## The left edge of a robot's column.
 func _x0(b: Bot) -> float:
 	return side() if not b.right else size.x - side() - _bar_w
+
+
+## Tag team: the room in robot `i`'s ability row past its three icons, 0.6em clear of them, at most
+## `want` wide (HudTag's partner chip sits there): empty before the first layout.
+func team_slot(i: int, want: float) -> Rect2:
+	if i >= _bots.size() or _em < 2.0:
+		return Rect2()
+	var b := _bots[i]
+	var s := 2.05 * _em
+	var used := 3.0 * s + 2.0 * 0.35 * _em + 0.6 * _em
+	var w := minf(want, _bar_w - used - CUT * _em)
+	if w <= 0.0:
+		return Rect2()
+	var x := _x0(b) + used if not b.right else _x0(b) + _bar_w - used - w
+	return Rect2(x, b.y_ab, w, s)
+
+
+## The em the top was last laid out in (0 before the first layout).
+func layout_em() -> float:
+	return _em
 
 
 ## The clock (.timer; .hud.finished hides it: the docked K.O. takes its spot).

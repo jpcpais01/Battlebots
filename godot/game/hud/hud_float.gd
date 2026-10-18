@@ -39,6 +39,12 @@ func stop() -> void:
 	queue_redraw()
 
 
+## A tag: the bot coming in has health of its own (no "+N" for the difference).
+func swap(i: int, mm) -> void:
+	_hp_prev[i] = float(mm.fighters[i].hp)
+	_heal_acc[i] = 0.0
+
+
 ## hud.ts update: health coming back (siphon) pops up green once 12 or more has come back.
 func capture(mm) -> void:
 	for i in 2:
