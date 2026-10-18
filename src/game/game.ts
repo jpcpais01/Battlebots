@@ -661,6 +661,16 @@ export class Game {
     this.garage?.pulse();
   }
 
+  /** The bot on show paints its skin on with a sweep up from its feet, over `was` (the skin it had, if any). */
+  paintOn(was?: string) {
+    this.showcase?.model.paintOn(was);
+  }
+
+  /** The bot on show right now (the player's, or one on trial). */
+  get shown(): BotSpec | null {
+    return this.shownSpec;
+  }
+
   /** Pictures of the real robot parts for the garage cards. */
   get thumbs(): PartThumbs {
     return (this._thumbs ??= new PartThumbs(this.stage.renderer, this.stage.scene.environment));
@@ -702,7 +712,7 @@ export class Game {
         if (ev === 'step') this.sfx?.step(0);
       },
     };
-    const model = new BotModel(spec.loadout, spec.paint, spec.size);
+    const model = new BotModel(spec.loadout, spec.paint, spec.size, spec.skin);
     this.probe.tag(model.root, 'bots');
     this.stage.scene.add(model.root);
     model.root.visible = this.place !== 'home' && this.place !== 'map';
@@ -877,7 +887,7 @@ export class Game {
     this.showBot(null);
     const m = new Match(a, b, seed);
     this.match = m;
-    this.models = [new BotModel(a.loadout, a.paint, a.size), new BotModel(b.loadout, b.paint, b.size)];
+    this.models = [new BotModel(a.loadout, a.paint, a.size, a.skin), new BotModel(b.loadout, b.paint, b.size, b.skin)];
     // each corner's entrance is lit in its bot's colours, to its own walk-on music
     this.arena.corners.setAccents(a.paint.accent, b.paint.accent);
     this.arena.corners.onCue = (i, cue) => {

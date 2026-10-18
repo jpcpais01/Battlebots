@@ -5,6 +5,8 @@ import { EMOTE_KIND, MAX_PICKS, type EmoteKind } from '../sim/emote';
 import { WALK_ON_NAME } from './walkOns';
 import { sanitizeEvents, type EventsRecord } from './events';
 import { sanitizeCareer, type CareerState } from './career';
+import { sanitizeSkins, type SkinState } from './gacha';
+import { SKIN_BY_ID } from './skins';
 
 /** What a save holds, made safe wherever it came from (this device, the cloud, another player). */
 
@@ -18,6 +20,8 @@ export interface Record_ {
   events: EventsRecord;
   /** Career mode: credits, fame, the parts earned and the Parts Market's shelf. */
   career: CareerState;
+  /** The Skin Vault: the skins won, the shards, the pity and the free pull (game/gacha.ts). */
+  skins: SkinState;
 }
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
@@ -48,6 +52,8 @@ export function sanitizeBot(raw: unknown): BotSpec {
   const win = picks('win'), taunt = picks('taunt'), finish = picks('finish'), entrance = picks('entrance');
   if (win.length || taunt.length || finish.length || entrance.length) out.emotes = { win, taunt, finish, entrance };
   if (typeof p.walkOn === 'string' && WALK_ON_NAME[p.walkOn]) out.walkOn = p.walkOn;
+  // (whether this player owns it is the App's business: a peer's skin is theirs)
+  if (typeof p.skin === 'string' && SKIN_BY_ID.has(p.skin)) out.skin = p.skin;
   return out;
 }
 
@@ -56,7 +62,7 @@ export function sanitizeRecord(raw: unknown): Record_ {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<Record<keyof Record_, unknown>>;
   const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0);
   const events = sanitizeEvents(r.events);
-  return { wins: n(r.wins), losses: n(r.losses), draws: n(r.draws), streak: n(r.streak), best: n(r.best), events, career: sanitizeCareer(r.career, events) };
+  return { wins: n(r.wins), losses: n(r.losses), draws: n(r.draws), streak: n(r.streak), best: n(r.best), events, career: sanitizeCareer(r.career, events), skins: sanitizeSkins(r.skins) };
 }
 
 /** Saved loadouts: whole bots (name, parts, paint, emotes) the player can switch between. */

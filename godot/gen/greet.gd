@@ -42,8 +42,8 @@ class Greeting extends RefCounted:
 			drop = 0.55
 			if ((d < (TGreet.BUMP_D + 0.4)) or (t > 4.5)):
 				self.bumpAt = t
-				m.shows[0.0].bump()
-				m.shows[1.0].bump()
+				m.shows[0].bump()
+				m.shows[1].bump()
 		else:
 			var s: float = (t - bumpAt)
 			var s0: float = (prev - bumpAt)

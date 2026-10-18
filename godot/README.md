@@ -22,6 +22,13 @@ THREE_MODULE=node_modules/three/build/three.module.js \
 godot --headless --path godot -s res://tools/bake/bake_lite.gd   # the simplified armour the app draws
 ```
 
+After re-baking the arena (`node godot/tools/bake/web/run.mjs venue`, with `serve.mjs` running),
+move its seat backs into the crowd shader (59k fewer triangles in the stands, same look):
+
+```sh
+node --experimental-transform-types --no-warnings godot/tools/bake/seat_backs.ts
+```
+
 Then check the translated sim still matches the web one step for step (any difference is a bug):
 
 ```sh
@@ -35,7 +42,8 @@ diff /tmp/ts.txt /tmp/gd.txt
 
 The translator also writes the sim for speed without changing a single result: module tables and
 scratch vectors are read into locals once per function, Vector3 calls are written out as field
-maths, and one-line maths helpers are written in place. `tests/sim_steps.gd` times every step of
+maths, one-line maths helpers are written in place, and counting loops (`for (let i = 0; ...; i++)`)
+and constant indices use GDScript ints, which index arrays faster than floats. `tests/sim_steps.gd` times every step of
 five fights; `tests/perf_hitches.gd` plays real-time fights and prints any slow frame by part
 (`BB_SIM_SLOW=<us>` makes each sim step that much slower, to see what a slow phone gets).
 

@@ -81,35 +81,35 @@ class Body extends RefCounted:
 		self.post2 = JS.f64(TBody.JOINT_COUNT)
 		self.size_ = size_
 		self.radii = JS.map(TBody.RADII, func(r: float, _a1 = null, _a2 = null): return (r * size_))
-		var i: float = 0.0
+		var i: int = 0
 		while (i < TBody.JOINT_COUNT):
 			var c: float = ((TBody.ROPE_LINE - radii[i]) - 0.000001)
 			var p: float = (((TBody.RING_CORNER - TBody.POST_R) - radii[i]) - 0.000001)
 			clear2[i] = (c * c)
 			post2[i] = (p * p)
-			i += 1.0
-		var i_2: float = 0.0
+			i += 1
+		var i_2: int = 0
 		while (i_2 < TBody.JOINT_COUNT):
 			pos.append(restPose[i_2].clone())
 			prev.append(restPose[i_2].clone())
 			last.append(restPose[i_2].clone())
 			target.append(restPose[i_2].clone())
 			invMass[i_2] = (1.0 / TBody.MASS[i_2])
-			i_2 += 1.0
-		var c_2: float = 0.0
+			i_2 += 1
+		var c_2: int = 0
 		while (c_2 < TBody.CONSTRAINT_COUNT):
 			rest[c_2] = restPose[TBody.CONSTRAINT_A[c_2]].distanceTo(restPose[TBody.CONSTRAINT_B[c_2]])
-			c_2 += 1.0
+			c_2 += 1
 	
 	func restBetween(a: float, b: float) -> float:
 		var _hCONSTRAINT_COUNT: float = TBody.CONSTRAINT_COUNT
 		var _hCONSTRAINT_A: Array = TBody.CONSTRAINT_A
 		var _hCONSTRAINT_B: Array = TBody.CONSTRAINT_B
-		var c: float = 0.0
+		var c: int = 0
 		while (c < _hCONSTRAINT_COUNT):
 			if (((_hCONSTRAINT_A[c] == a) and (_hCONSTRAINT_B[c] == b)) or ((_hCONSTRAINT_A[c] == b) and (_hCONSTRAINT_B[c] == a))):
 				return rest[c]
-			c += 1.0
+			c += 1
 		return -1.0
 	
 	func sever(joints: Array) -> void:
@@ -117,7 +117,7 @@ class Body extends RefCounted:
 			cut[j] = 1.0
 	
 	func teleport(pose: Array) -> void:
-		var i: float = 0.0
+		var i: int = 0
 		while (i < TBody.JOINT_COUNT):
 			var __v1: V3 = pos[i]
 			var __v2: V3 = pose[i]
@@ -139,7 +139,7 @@ class Body extends RefCounted:
 			__v7.x = __v8.x
 			__v7.y = __v8.y
 			__v7.z = __v8.z
-			i += 1.0
+			i += 1
 	
 	func addVelocity(i: float, v: V3, dt: float) -> void:
 		var __v1: V3 = prev[i]
@@ -149,14 +149,14 @@ class Body extends RefCounted:
 		__v1.z += v.z * __v2
 	
 	func addVelocityAll(v: V3, dt: float, scale: float = 1.0) -> void:
-		var i: float = 0.0
+		var i: int = 0
 		while (i < TBody.JOINT_COUNT):
 			var __v1: V3 = prev[i]
 			var __v2: float = ((-dt) * scale)
 			__v1.x += v.x * __v2
 			__v1.y += v.y * __v2
 			__v1.z += v.z * __v2
-			i += 1.0
+			i += 1
 	
 	func velocity(i: float, dt: float, out: V3) -> V3:
 		return out.subVectors(pos[i], prev[i]).multiplyScalar((1.0 / dt))
@@ -167,7 +167,7 @@ class Body extends RefCounted:
 		out.z = 0.0
 		var m: float = 0.0
 		var _hMASS: Array = TBody.MASS
-		var i: float = 0.0
+		var i: int = 0
 		while (i < TBody.JOINT_COUNT):
 			var __v1: V3 = pos[i]
 			var __v2: float = _hMASS[i]
@@ -175,7 +175,7 @@ class Body extends RefCounted:
 			out.y += __v1.y * __v2
 			out.z += __v1.z * __v2
 			m += _hMASS[i]
-			i += 1.0
+			i += 1
 		return out.multiplyScalar((1.0 / m))
 	
 	func step(dt: float) -> void:
@@ -184,7 +184,7 @@ class Body extends RefCounted:
 		var damping: float = (0.992 if ragdoll else (0.94 + (0.04 * ((1.0 - tone)))))
 		var g: float = ((-9.81 * dt) * dt)
 		var _hFOLLOW: Array = TBody.FOLLOW
-		var i: float = 0.0
+		var i: int = 0
 		while (i < TBody.JOINT_COUNT):
 			var p: V3 = self.pos[i]
 			var q: V3 = prev[i]
@@ -208,7 +208,7 @@ class Body extends RefCounted:
 				p.y += (((t.y - p.y)) * k)
 				p.z += (((t.z - p.z)) * k)
 			loose[i] += (((1.0 - loose[i])) * minf(1.0, (dt * 7.0)))
-			i += 1.0
+			i += 1
 		var iterations: float = (6.0 if ragdoll else 3.0)
 		var count: float = (TBody.CONSTRAINT_COUNT if ragdoll else TBody.BONE_COUNT)
 		var pos: Array = self.pos
@@ -218,14 +218,14 @@ class Body extends RefCounted:
 		var _hCONSTRAINT_A: Array = TBody.CONSTRAINT_A
 		var _hCONSTRAINT_B: Array = TBody.CONSTRAINT_B
 		var _hCONSTRAINT_STIFF: Array = TBody.CONSTRAINT_STIFF
-		var it: float = 0.0
+		var it: int = 0
 		while (it < iterations):
-			var c: float = 0.0
+			var c: int = 0
 			while (c < count):
 				var a: float = _hCONSTRAINT_A[c]
 				var b: float = _hCONSTRAINT_B[c]
 				if (cut[a] != cut[b]):
-					c += 1.0
+					c += 1
 					continue
 				var pa: V3 = pos[a]
 				var pb: V3 = pos[b]
@@ -234,7 +234,7 @@ class Body extends RefCounted:
 				var dz: float = (pb.z - pa.z)
 				var d: float = sqrt((((dx * dx) + (dy * dy)) + (dz * dz)))
 				if (d < 0.000001):
-					c += 1.0
+					c += 1
 					continue
 				var wa: float = invMass[a]
 				var wb: float = invMass[b]
@@ -247,11 +247,11 @@ class Body extends RefCounted:
 				pb.x += (dx * kb)
 				pb.y += (dy * kb)
 				pb.z += (dz * kb)
-				c += 1.0
+				c += 1
 			if ragdoll:
 				hinges()
 			collideWorld()
-			it += 1.0
+			it += 1
 	
 	func hinges() -> void:
 		var _h_a: V3 = TBody._a
@@ -311,7 +311,7 @@ class Body extends RefCounted:
 		var _hCANVAS_EDGE: float = TBody.CANVAS_EDGE
 		var _hBASE_EDGE: float = TBody.BASE_EDGE
 		var _hROPE_LINE: float = TBody.ROPE_LINE
-		var i: float = 0.0
+		var i: int = 0
 		while (i < TBody.JOINT_COUNT):
 			var p: V3 = pos[i]
 			var q: V3 = prev[i]
@@ -325,7 +325,7 @@ class Body extends RefCounted:
 					q.z += (((p.z - q.z)) * f)
 				else:
 					grounded[i] = 0.0
-				i += 1.0
+				i += 1
 				continue
 			var side: float = (fmod((((fmod(JS.round((DM.atan2((p.z), (p.x)) / ((PI / 4.0)))), 8.0)) + 8.0)), 8.0))
 			var nx: float = _hSIDE_NX[side]
@@ -398,7 +398,7 @@ class Body extends RefCounted:
 					var uz: float = ((cz / dc) if (dc > 0.00001) else (-DM.sin(c)))
 					p.x += (ux * ((lim - dc)))
 					p.z += (uz * ((lim - dc)))
-			i += 1.0
+			i += 1
 
 static func __init_module() -> void:
 	TBody.RADII = [0.2, 0.22, 0.1, 0.17, 0.13, 0.09, 0.12, 0.13, 0.09, 0.12, 0.11, 0.09, 0.08, 0.11, 0.09, 0.08]
@@ -426,8 +426,8 @@ static func __init_module() -> void:
 	[14.0, 15.0]
 ]
 	TBody.BRACES = [[4.0, 10.0], [7.0, 13.0], [4.0, 13.0], [7.0, 10.0], [2.0, 0.0], [1.0, 10.0], [1.0, 13.0], [1.0, 3.0], [4.0, 3.0], [7.0, 3.0]]
-	TBody.CONSTRAINT_A = JS.map((TBody.BONES.duplicate() + TBody.BRACES.duplicate()), func(c: Array, _a1 = null, _a2 = null): return c[0.0])
-	TBody.CONSTRAINT_B = JS.map((TBody.BONES.duplicate() + TBody.BRACES.duplicate()), func(c_2: Array, _a1 = null, _a2 = null): return c_2[1.0])
+	TBody.CONSTRAINT_A = JS.map((TBody.BONES.duplicate() + TBody.BRACES.duplicate()), func(c: Array, _a1 = null, _a2 = null): return c[0])
+	TBody.CONSTRAINT_B = JS.map((TBody.BONES.duplicate() + TBody.BRACES.duplicate()), func(c_2: Array, _a1 = null, _a2 = null): return c_2[1])
 	TBody.CONSTRAINT_STIFF = (JS.map(TBody.BONES, func(_a0 = null, _a1 = null, _a2 = null): return 1.0).duplicate() + JS.map(TBody.BRACES, func(_a0 = null, _a1 = null, _a2 = null): return 0.6).duplicate())
 	TBody.BONE_COUNT = float(TBody.BONES.size())
 	TBody.CONSTRAINT_COUNT = (float(TBody.BONES.size()) + float(TBody.BRACES.size()))

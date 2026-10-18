@@ -76,7 +76,7 @@ export class Actor {
     };
     this.show = new Showman(this.live, this.target, null);
     this.puppet.size = this.live.size;
-    this.model = new BotModel(spec.loadout, spec.paint, spec.size);
+    this.model = new BotModel(spec.loadout, spec.paint, spec.size, spec.skin);
   }
 
   get size() {

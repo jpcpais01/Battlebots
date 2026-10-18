@@ -198,10 +198,10 @@ class Brain extends RefCounted:
 		self.me = me
 		self.opp = opp
 		self.rng = rng
-		var i: float = 0.0
+		var i: int = 0
 		while (i < TBrain.PERCEPTION_BUFFER):
 			buf.append(TFighter.makeObservation())
-			i += 1.0
+			i += 1
 		self.traits = rollTraits()
 		self.baseRangeBias = traits.rangeBias
 		self.reactionNow = me.build.stats.reaction
@@ -275,7 +275,7 @@ class Brain extends RefCounted:
 		for o in buf:
 			opp.observe(o, time)
 		self.filled = TBrain.PERCEPTION_BUFFER
-		TBrain.copyObs(buf[0.0], perceived)
+		TBrain.copyObs(buf[0], perceived)
 		var __v1: V3 = opp.root
 		predPos.x = __v1.x
 		predPos.y = __v1.y
@@ -517,10 +517,10 @@ class Brain extends RefCounted:
 	(5.0 if (p.state == "down") else -5.0)
 ]
 		var cp: Array = fx.plan
-		var i: float = 0.0
+		var i: int = 0
 		while (i < 6.0):
 			u[i] += cp[i]
-			i += 1.0
+			i += 1
 		var cur: float = JS.index_of(kinds, plan)
 		u[cur] += 0.25
 		var pick: float = TMath.softmaxPick(u, (0.18 + (t.creativity * 0.6)), rng)
@@ -546,7 +546,7 @@ class Brain extends RefCounted:
 		return (circleDir if rng.chance(0.65) else (-circleDir))
 	
 	func recentTaken() -> float:
-		return ((((bandTaken[0.0] + bandTaken[1.0]) + bandTaken[2.0])) / me.build.stats.maxHp)
+		return ((((bandTaken[0] + bandTaken[1]) + bandTaken[2])) / me.build.stats.maxHp)
 	
 	func bandScore(b: float) -> float:
 		var d: float = bandDealt[b]
@@ -627,8 +627,8 @@ class Brain extends RefCounted:
 		var shot: bool = (m.path == "shoot")
 		var speed: float = me.strikeSpeed(m)
 		var dImpact: float = (d - (closing * ((m.windup / speed))))
-		var lo: float = m.range_[0.0]
-		var hi: float = (1.85 if shot else (m.range_[1.0] + (m.lunge * 0.5)))
+		var lo: float = m.range_[0]
+		var hi: float = (1.85 if shot else (m.range_[1] + (m.lunge * 0.5)))
 		var pReach: float = (((1.0 / ((1.0 + DM.exp((-((((hi - dImpact)) / 0.06)))))))) * ((1.0 / ((1.0 + DM.exp((-((((dImpact - lo)) / 0.06)))))))))
 		if (pReach < 0.08):
 			return -100.0
@@ -652,7 +652,7 @@ class Brain extends RefCounted:
 			v = (pReach * gain_2)
 			risk = (counterRate.v * 12.0)
 		var cost: float = ((m.stamina * ((1.25 - me.staminaRatio))) * 0.7)
-		var mv = moveVal.get((m.id + m.zones[0.0]))
+		var mv = moveVal.get((m.id + m.zones[0]))
 		var learned: float = (((((mv.v - 0.45)) * 22.0) * minf(1.0, (mv.n / 3.0))) if (mv != null) else 0.0)
 		var noise: float = (rng.gauss() * ((2.0 + (t.creativity * 10.0))))
 		var again: float = (-6.0 if ((me.lastAction != null) and (me.lastAction.move.id == m.id)) else 0.0)
@@ -804,13 +804,13 @@ class Brain extends RefCounted:
 			return comboGoal
 		var r: float = (((((traits.comboAppetite + (oppRocked * 0.4)) + ((0.15 if (time < stayUntil) else 0.0))) + ((0.25 if (time < returnFireUntil) else 0.0))) + fx.combo) - (tired * 0.4))
 		var w: Array = [maxf(0.3, (1.3 - r)), 1.0, (0.15 + (r * 0.7)), (0.03 + (r * 0.3))]
-		var x: float = (rng.next() * ((((w[0.0] + w[1.0]) + w[2.0]) + w[3.0])))
-		var i: float = 0.0
+		var x: float = (rng.next() * ((((w[0] + w[1]) + w[2]) + w[3])))
+		var i: int = 0
 		while (i < 4.0):
 			x -= w[i]
 			if (x <= 0.0):
-				return (i + 1.0)
-			i += 1.0
+				return (float(i) + 1.0)
+			i += 1
 		return 2.0
 	
 	func endBurst(choose: bool = true) -> void:
@@ -841,10 +841,10 @@ class Brain extends RefCounted:
 	(((0.15 + (cau * 0.3)) + (((1.0 - t.footwork)) * 0.3)) + (tired * 0.4))
 ]
 		var ca: Array = fx.after
-		var i: float = 0.0
+		var i: int = 0
 		while (i < 4.0):
 			u[i] += ca[i]
-			i += 1.0
+			i += 1
 		var k: String = kinds[TMath.softmaxPick(u, 0.3, rng)]
 		var now: float = time
 		self.stayUntil = 0.0
@@ -1040,7 +1040,7 @@ class Brain extends RefCounted:
 		return (((-1.0 if (((lat * 0.8)) < -1.0) else (1.0 if (((lat * 0.8)) > 1.0) else ((lat * 0.8))))))
 	
 	func myPunchRange() -> float:
-		return ((TMoves.MOVES.cross.range_[1.0] + me.build.stats.reach) - 0.05)
+		return ((TMoves.MOVES.cross.range_[1] + me.build.stats.reach) - 0.05)
 	
 	func updateGuard() -> void:
 		var me: TFighter.Fighter = self.me
@@ -1166,7 +1166,7 @@ class Brain extends RefCounted:
 					continue
 				var u: float = grabUtility(m, d, closing, oppCommitted, oppRocked, agg, cau)
 				if (u > -50.0):
-					opts.append({"id": id, "zone": m.zones[0.0], "u": u, "feint": false})
+					opts.append({"id": id, "zone": m.zones[0], "u": u, "feint": false})
 				continue
 			for zone: String in m.zones:
 				var u_2: float = attackUtility(m, zone, d, closing, oppCommitted, oppRocked, agg, cau, last, punish, st.reach)
@@ -1175,7 +1175,7 @@ class Brain extends RefCounted:
 		if (((((((not chain) and (d > 1.2)) and (d < 2.0)) and (p.state == "fight")) and (me.cooldownLeft("shoot") <= 0.0)) and (traits.grappling > 0.3)) and me.canThrow(_hMOVES.shoot)):
 			var u_3: float = (((((traits.feintiness * traits.grappling) * feintReact.v) * 30.0) - 6.0) + (rng.gauss() * 4.0))
 			opts.append({"id": "shoot", "zone": "legs", "u": u_3, "feint": true})
-		if (((((not chain) and (traits.feintiness > 0.05)) and (d < (_hMOVES.jab.range_[1.0] + 0.25))) and (d > 0.7)) and (p.state == "fight")):
+		if (((((not chain) and (traits.feintiness > 0.05)) and (d < (_hMOVES.jab.range_[1] + 0.25))) and (d > 0.7)) and (p.state == "fight")):
 			var u_4: float = ((((traits.feintiness * feintReact.v) * 30.0) - 4.0) + (rng.gauss() * 4.0))
 			opts.append({"id": ("jab" if rng.chance(0.6) else "cross"), "zone": "head", "u": u_4, "feint": true})
 		if (float(opts.size()) == 0.0):
@@ -1269,8 +1269,8 @@ class Brain extends RefCounted:
 		var lunge: float = (m.lunge * ((1.0 + me.passive("pistonDrive"))))
 		var dImpact: float = ((d - (closing * tImpact)) - (lunge * 0.6))
 		var extra: float = (reach if (m.kind == "punch") else 0.0)
-		var lo: float = m.range_[0.0]
-		var hi: float = (m.range_[1.0] + extra)
+		var lo: float = m.range_[0]
+		var hi: float = (m.range_[1] + extra)
 		var pReach: float = (((1.0 / ((1.0 + DM.exp((-((((hi - dImpact)) / 0.06)))))))) * ((1.0 / ((1.0 + DM.exp((-((((dImpact - lo)) / 0.06)))))))))
 		if (pReach < 0.08):
 			return -100.0
@@ -1406,7 +1406,7 @@ class Brain extends RefCounted:
 		var dw: float = DM.hypot((opp.root.x - me.root.x), (opp.root.z - me.root.z))
 		var d: float = (dw / k)
 		var lunge: float = (move.lunge * 1.1)
-		var inRange: bool = (dw < (((((move.range_[1.0] + (lunge * 0.8)) + 0.2) + ((opp.build.stats.reach if (move.kind == "punch") else 0.0)))) * ok))
+		var inRange: bool = (dw < (((((move.range_[1] + (lunge * 0.8)) + 0.2) + ((opp.build.stats.reach if (move.kind == "punch") else 0.0)))) * ok))
 		if (not inRange):
 			self.punishUntil = ((time + maxf(0.0, timeLeft)) + (move.recovery * 0.9))
 			return
@@ -1459,7 +1459,7 @@ class Brain extends RefCounted:
 					v *= (1.15 - (trade * 0.75))
 			if (r == "counter"):
 				v *= ((0.5 + agg) + (anger * 0.4))
-			if ((r == "counter") and (d > (_hMOVES.jab.range_[1.0] + me.build.stats.reach))):
+			if ((r == "counter") and (d > (_hMOVES.jab.range_[1] + me.build.stats.reach))):
 				v *= 0.2
 			if ((r == "block") and (move.get("guardBreak") == true)):
 				v *= 0.4
@@ -1472,7 +1472,7 @@ class Brain extends RefCounted:
 			if (r == "backstep"):
 				if (TBody.ropeGap(me.root.x, me.root.z) < 0.6):
 					v *= 0.3
-				v *= TMath.clamp_((((d - move.range_[0.0])) / 0.5), 0.3, 1.3)
+				v *= TMath.clamp_((((d - move.range_[0])) / 0.5), 0.3, 1.3)
 			if (r == "absorb"):
 				v += (tired * 0.2)
 			var t = traits
@@ -1573,11 +1573,11 @@ class Brain extends RefCounted:
 	
 	func tick(dt: float) -> void:
 		var k: float = DM.exp(((-dt) / 36.0))
-		var i: float = 0.0
+		var i: int = 0
 		while (i < 3.0):
 			bandDealt[i] *= k
 			bandTaken[i] *= k
-			i += 1.0
+			i += 1
 		if ((lastFeint != null) and ((time - lastFeint.t) > 0.6)):
 			TBrain.learn(feintReact, 0.0, 0.2)
 			self.lastFeint = null
@@ -1593,7 +1593,7 @@ class Brain extends RefCounted:
 			e = TBrain.ema(0.45)
 			moveVal[key] = (e)
 		var d: float = (me.distTo(opp) / k)
-		var inRange: bool = (d < (s.move.range_[1.0] + 0.15))
+		var inRange: bool = (d < (s.move.range_[1] + 0.15))
 		var score: float = 0.0
 		if (s.result == "hit"):
 			score = (0.7 + minf(0.3, (damage / 200.0)))

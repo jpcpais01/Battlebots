@@ -28,7 +28,15 @@ export interface CareerState {
   earned: number;
   /** Lifetime parts won (crates and salvage). */
   found: number;
+  /** The one-time gifts already handed over (GIFTS ids), so none is ever paid twice. */
+  gifts: string[];
 }
+
+/**
+ * One-time credit gifts for every player, paid on the next launch. The ids travel with the
+ * career (and so with the cloud save), so a gift paid on one device is never paid again on another.
+ */
+export const GIFTS = [{ id: 'vault-100k', credits: 100000 }];
 
 /** Credits a new career starts with. */
 const START_CREDITS = 250;
@@ -63,12 +71,12 @@ const freshSeed = () => (Math.random() * 2 ** 32) >>> 0;
  * before career mode starts one, with back pay for the titles already won on the map.
  */
 export function sanitizeCareer(raw: unknown, events: EventsRecord): CareerState {
-  if (!raw || typeof raw !== 'object') return newCareer(events);
+  if (!raw || typeof raw !== 'object') return payGifts(newCareer(events));
   const r = raw as Partial<Record<keyof CareerState, unknown>>;
   const ids = (v: unknown) => (Array.isArray(v) ? [...new Set(v.filter((id): id is string => typeof id === 'string' && ITEM_BY_ID.has(id)))] : []);
   const owned = ids(r.owned).filter((id) => rarityOf(ITEM_BY_ID.get(id)!) > 0);
   const s = (r.shop && typeof r.shop === 'object' ? r.shop : {}) as Partial<Record<keyof CareerState['shop'], unknown>>;
-  return {
+  return payGifts({
     credits: whole(r.credits),
     fame: whole(r.fame),
     owned,
@@ -76,7 +84,26 @@ export function sanitizeCareer(raw: unknown, events: EventsRecord): CareerState 
     shop: { seed: whole(s.seed) >>> 0, left: Math.min(SHOP_EVERY, whole(s.left)), sold: ids(s.sold) },
     earned: whole(r.earned),
     found: whole(r.found),
-  };
+    gifts: Array.isArray(r.gifts) ? r.gifts.filter((id): id is string => typeof id === 'string') : [],
+  });
+}
+
+/** Credits from gifts paid by the last payGifts that paid any (the launch shows them once). */
+let gifted = 0;
+export function takeGifted() {
+  const n = gifted;
+  gifted = 0;
+  return n;
+}
+
+function payGifts(c: CareerState): CareerState {
+  for (const g of GIFTS)
+    if (!c.gifts.includes(g.id)) {
+      c.gifts.push(g.id);
+      c.credits += g.credits;
+      gifted += g.credits;
+    }
+  return c;
 }
 
 /** The career made last, from a save that had none (not saved: it only matters at launch). */
@@ -101,7 +128,7 @@ function newCareer(events: EventsRecord): CareerState {
     credits += t * titleBonus(e, 0);
     fame += t * titleFame(e);
   }
-  const c: CareerState = { credits, fame, owned: [], fresh: [], shop: { seed: freshSeed(), left: SHOP_EVERY, sold: [] }, earned: credits - START_CREDITS, found: 0 };
+  const c: CareerState = { credits, fame, owned: [], fresh: [], shop: { seed: freshSeed(), left: SHOP_EVERY, sold: [] }, earned: credits - START_CREDITS, found: 0, gifts: [] };
   born = c;
   return c;
 }

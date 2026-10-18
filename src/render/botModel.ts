@@ -34,6 +34,8 @@ import { contactAO } from './ao';
 import { contactStats, Hull, LimbSettle, partRadius, samplePB, solveLimb, tally, type PlacedHull } from './contact';
 import { damageDepthMaterial, damageUniforms, patchDamage, patchDamageGlow, DENTS, MARKS, MARK_OIL, MARK_SOCKET, type DamageUniforms } from './damageLook';
 import { P, PART_COUNT } from '../sim/damage';
+import { skinById, type SkinDef } from '../game/skins';
+import { applySkin, patchSkin, skinGlow, skinUniforms, type SkinUniforms } from './skins';
 
 /**
  * What posing a model reads from a fighter besides its joints. A real Fighter is one; so is a
@@ -107,6 +109,8 @@ const SOCKET_AT: Partial<Record<number, [B, number]>> = {
   [P.ThighR]: [B.Pelvis, J.HipR],
   [P.ShinR]: [B.ThighR, J.KneeR],
 };
+/** How long a new skin takes to paint on, feet to head (s). */
+const SWEEP = 1.15;
 /** Mark slots kept for wrenched sockets; the rest cycle through oil splashes. */
 const SOCKET_SLOTS = 4;
 
@@ -253,10 +257,11 @@ export function botGlows(paint: Paint, coreLook: number, rarity: number): Record
 }
 
 /** Standard PBR material reading colour, metalness and roughness per vertex. */
-function makeOpaqueMaterial(dmg: DamageUniforms) {
+function makeOpaqueMaterial(dmg: DamageUniforms, skin: SkinUniforms) {
   let m = patchDamage(vertexPBR(new THREE.MeshStandardMaterial(), 'bot-opaque'), dmg);
   // brushed grain, patchy sheen and a faint ripple in the plating, where the GPU can spare it
   if (RenderSettings.quality === 'high') m = patchSurfaceDetail(m);
+  m = patchSkin(m, skin);
   // limbs, torsos and the opponent shade each other; legs and feet darken towards the canvas
   return rigid(contactAO.patch(m, { spheres: true, strength: 1.8, ground: { y: 0, height: 0.5, k: 0.5 }, direct: 0.6 }));
 }
@@ -332,11 +337,21 @@ export class BotModel {
   private dentTime = -1;
   /** Brightens the accent and core lights (the home scenes flare them when the robot gets the call). */
   glowBoost = 1;
+  /** The skin worn (game/skins.ts; null for the plain paint), its uniforms and the paint's own glow under it. */
+  readonly skin: SkinDef | null;
+  private readonly skinU: SkinUniforms = skinUniforms();
+  private readonly paintGlow: THREE.Color;
+  /** A new skin painting on (paintOn): seconds into the sweep (-1: none), and the clock it last ran at. */
+  private wipeT = -1;
+  private wipeLast = -1;
 
-  constructor(loadout: Loadout, paint: Paint, size = 1) {
+  constructor(loadout: Loadout, paint: Paint, size = 1, skin?: string) {
     this.loadout = loadout;
     this.paint = paint;
     this.size = size;
+    this.skin = skinById(skin);
+    applySkin(this.skinU, this.skin, 0);
+    this.paintGlow = new THREE.Color(paint.accent);
     const look = (slot: Slot) => ITEM_BY_ID.get(loadout[slot].id)!.look;
     const sb = new SkinBuilder(botSurfaces(paint), STRETCHED);
     const sbAdd = sb.add.bind(sb);
@@ -421,12 +436,12 @@ export class BotModel {
     const { opaque, emissive, opaqueLod, emissiveLod } = sb.build();
 
     const coreItem = ITEM_BY_ID.get(loadout.core.id)!;
-    this.baseGlow = new THREE.Color(paint.accent).multiplyScalar(RenderSettings.glow(3.4));
+    this.baseGlow = skinGlow(this.skin, this.paintGlow, 0, new THREE.Color()).multiplyScalar(RenderSettings.glow(3.4));
     this.baseCore = new THREE.Color(coreColor(coreItem.look)).multiplyScalar(RenderSettings.glow(3.2));
     this.cols = [this.baseGlow.clone(), this.baseCore.clone()];
     for (const slot of SLOTS) this.cols.push(new THREE.Color(RARITIES[loadout[slot].rarity].glow).multiplyScalar(RenderSettings.glow(3)));
 
-    this.opaque = new THREE.SkinnedMesh(opaque, makeOpaqueMaterial(this.dmg));
+    this.opaque = new THREE.SkinnedMesh(opaque, makeOpaqueMaterial(this.dmg, this.skinU));
     this.emissive = new THREE.SkinnedMesh(emissive, patchDamageGlow(makeEmissiveMaterial(this.cols), this.dmg));
     for (const mesh of [this.opaque, this.emissive]) {
       mesh.bind(skeleton, new THREE.Matrix4());
@@ -743,6 +758,9 @@ export class BotModel {
       this.shieldMesh.rotation.y = time * 0.5;
       sm.uniforms.uAlpha.value *= 0.9 + Math.sin(time * 9) * 0.05 + 0.05;
     }
+    // a skin's own glow lives with it (lava pulsing, arcs flickering, a neon grid cycling)
+    if (this.skin && this.skin.glow >= 0) skinGlow(this.skin, this.paintGlow, time, this.baseGlow).multiplyScalar(RenderSettings.glow(3.4));
+    this.sweep(time);
     // overdrive: glow runs hot
     const od = f.overdrive > 0 ? 0.5 + 0.5 * Math.sin(time * 14) : 0;
     this.cols[CH_GLOW].copy(this.baseGlow).lerp(_hotScaled(), od * 0.6).multiplyScalar(this.glowBoost);
@@ -1030,6 +1048,39 @@ export class BotModel {
     this.dmg.uGrime.value = Math.min(1, Math.max(0, v));
   }
 
+  // ------------------------------------------------------------------ skins
+
+  /**
+   * Paint this robot's skin on with a sweep of light from its feet up, `was` (a skin id, or none
+   * for the plain paint) giving way above the line as it climbs (the garage and the vault, when a
+   * skin goes on).
+   */
+  paintOn(was?: string) {
+    applySkin(this.skinU, skinById(was), 1);
+    const g = skinGlow(this.skin, this.paintGlow, 0, new THREE.Color());
+    this.skinU.uSkinBand.value.set(g.r, g.g, g.b).multiplyScalar(2.2).addScalar(0.4);
+    this.skinU.uSkinWipe.value = -0.1;
+    this.wipeT = 0;
+    this.wipeLast = -1;
+  }
+
+  private sweep(time: number) {
+    if (this.wipeT < 0) return;
+    const dt = this.wipeLast < 0 ? 0 : Math.min(0.1, Math.max(0, time - this.wipeLast));
+    this.wipeLast = time;
+    this.wipeT += dt;
+    const k = this.wipeT / SWEEP;
+    if (k >= 1) {
+      this.wipeT = -1;
+      this.skinU.uSkinWipe.value = 100;
+      applySkin(this.skinU, null, 1);
+      return;
+    }
+    // eased: quick off the feet, slowing over the head
+    const e = 1 - (1 - k) * (1 - k);
+    this.skinU.uSkinWipe.value = -0.1 + e * 2.35 * this.size;
+  }
+
   /** Copy the triangles skinned to `bones` out into a standalone geometry around their centre. */
   private extract(src: THREE.BufferGeometry, bones: Set<number>, opaque: boolean) {
     const si = src.attributes.skinIndex as THREE.BufferAttribute;
@@ -1087,7 +1138,7 @@ export class BotModel {
     geo.setAttribute('dpos', new THREE.BufferAttribute(dpos, 3));
     geo.setAttribute('dbone', new THREE.BufferAttribute(dbone, 1));
     geo.setAttribute('dq', new THREE.BufferAttribute(dq, 4));
-    for (const name of opaque ? ['color', 'mr', 'part'] : ['ech', 'part']) {
+    for (const name of opaque ? ['color', 'mr', 'skey', 'part'] : ['ech', 'part']) {
       const a = src.attributes[name] as THREE.BufferAttribute;
       const w = a.itemSize;
       const arr = new Float32Array(idx.length * w);

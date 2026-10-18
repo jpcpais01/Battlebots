@@ -6,6 +6,10 @@
 ## Settings picks the mode: "light" runs all of it on the phone's usual renderer (Mobile);
 ## "heavy" runs the app on Forward+, where Godot's own SSAO and SSIL take over the occlusion and
 ## the bounce, and this keeps only the contact shadows and the floor reflections.
+##
+## On the world map the same quad draws map_trace.gdshader instead, scaled to a city seen from
+## hundreds of metres up (the map's unlit shaders get nothing from Forward+'s effects, so Heavy
+## runs it too, with more samples).
 class_name RayTrace
 extends MeshInstance3D
 
@@ -27,10 +31,15 @@ const AMOUNTS := {
 	"light": Vector4(0.85, 0.45, 1.0, 1.0),
 	"heavy": Vector4(0.0, 0.0, 1.0, 1.0),
 }
+## The same on the map, and its samples per pixel and steps along a reflection per mode.
+const MAP_AMOUNTS := Vector4(0.9, 0.35, 1.0, 1.0)
+const MAP_QUALITY := {"light": Vector2i(4, 10), "heavy": Vector2i(6, 16)}
 
 ## "off", "light" or "heavy" (Settings.rt_mode).
 var mode := "off"
 var _mat := ShaderMaterial.new()
+var _map_mat := ShaderMaterial.new()
+var _map_ready := false
 var _place := "arena"
 var _arena_id := "grand"
 
@@ -46,6 +55,8 @@ func _init() -> void:
 	# first of the transparent pass: it reads the opaque scene, and what's see-through draws over it
 	_mat.render_priority = Material.RENDER_PRIORITY_MIN
 	material_override = _mat
+	_map_mat.shader = preload("res://render/rt/map_trace.gdshader")
+	_map_mat.render_priority = Material.RENDER_PRIORITY_MIN
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	gi_mode = GeometryInstance3D.GI_MODE_DISABLED
 	ignore_occlusion_culling = true
@@ -63,7 +74,7 @@ func set_mode(m: String) -> void:
 	_sync()
 
 
-## The world's place (Game.set_place): the map has none of it, and only the arena has the
+## The world's place (Game.set_place): the map has its own trace, and only the arena has the
 ## canvas, the key light and the venue's floor.
 func set_place(p: String) -> void:
 	_place = p
@@ -76,8 +87,40 @@ func set_arena(id: String) -> void:
 	_sync()
 
 
+## Is the map's trace the one in force (the world is on the map)?
+func on_map() -> bool:
+	return _place == "map"
+
+
+## The world map's shared textures and sizes, once it's built (WorldMap._finish): the clouds'
+## noise, the sun's shadow height map, the sea's depth map and its half size.
+func set_map(noise: Texture2D, shadow: Texture2D, sea_depth: Texture2D, sea_half: float) -> void:
+	_map_mat.set_shader_parameter("uNoise", noise)
+	_map_mat.set_shader_parameter("uShadow", shadow)
+	_map_mat.set_shader_parameter("uDepth", sea_depth)
+	_map_mat.set_shader_parameter("uFine", sea_half)
+	_map_ready = true
+	_sync()
+
+
+## The map camera's distance from what it looks at (m): the light pass's radius, the sun rays'
+## length and the reflections' reach follow it, so the city looks the same at every zoom.
+func set_map_view(dist: float) -> void:
+	_map_mat.set_shader_parameter("reach", Vector3(clampf(dist * 0.045, 6.0, 80.0), clampf(dist * 0.05, 8.0, 100.0), clampf(dist * 2.0, 300.0, 4000.0)))
+
+
 func _sync() -> void:
-	visible = mode != "off" and _place != "map"
+	if _place == "map":
+		visible = mode != "off" and _map_ready
+		material_override = _map_mat
+		if visible:
+			var qk: Vector2i = MAP_QUALITY.get(mode, MAP_QUALITY.light)
+			_map_mat.set_shader_parameter("amounts", MAP_AMOUNTS)
+			_map_mat.set_shader_parameter("samples", qk.x)
+			_map_mat.set_shader_parameter("steps", qk.y)
+		return
+	material_override = _mat
+	visible = mode != "off"
 	if not visible:
 		return
 	var arena := _place == "arena"

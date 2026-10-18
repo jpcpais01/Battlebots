@@ -17,6 +17,36 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-18 04:00",
+	"title": "100,000 credits for everyone",
+	"notes": [
+	"Android: Ray tracing now lights the world map too. Streets darken at the foot of the towers, sunlit walls warm the roads, and trees, cranes and the Ferris wheel cast their own shadows.",
+	"Android: with Ray tracing on, the bay reflects the cranes, the piers and the city's lights in its waves, and after dark the downtown streets turn wet, holding the shop lights and neon.",
+	"Everyone gets a one-time gift of 100,000 credits to spend in the Skin Vault (or the Parts Market). It arrives the next time you open the game, on the web and on Android, and only once per player, even across devices."
+]
+},
+	{
+	"hour": "2026-10-18 03:00",
+	"title": "Smoother fights on Android",
+	"notes": [
+	"You can now have the commentators voice up to 5 bot names a day instead of 1. The garage button shows how many you have left.",
+	"Android: the arena's stands draw with less than half the triangles they did. Every seat back is now painted by the crowd itself, and they look just the same.",
+	"Android: both robots work out where their arms and legs meet armour at the same time, which takes a chunk off every frame in a clinch.",
+	"Android: the fight itself runs a little faster on your phone, with exactly the same results as before."
+]
+},
+	{
+	"hour": "2026-10-18 02:00",
+	"title": "The Skin Vault comes to the web",
+	"notes": [
+	"The Skin Vault from the Android app is open on the web: tap the new Skins button on the home screen to win skins that cover your robot's plating, from 13 Common patterns and 8 Rare exotic finishes to 7 animated Epics.",
+	"Every pull drops a capsule that charges up and bursts open, teasing violet for a Rare and gold for an Epic. A 10-pull deals ten cards and turns them over one by one.",
+	"Pulls cost career credits: 100, or 900 for ten with a Rare or better inside. A free pull comes back every 4 hours, and your first visit has a free 10-pull waiting.",
+	"The odds are in the vault: Epic 4%, Rare 21%, Common 75%, an Epic within 50 pulls, and a featured Epic each day. Duplicates turn into shards that buy the skin you want.",
+	"Wear skins from the vault or the garage's new Skins page under Paint, and each one paints on with a sweep of light. Opponents show up in skins too, and title finals in an Epic one."
+]
+},
+	{
 	"hour": "2026-10-18 01:00",
 	"title": "The Skin Vault",
 	"notes": [

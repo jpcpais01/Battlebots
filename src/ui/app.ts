@@ -39,18 +39,22 @@ import { forceUpdate } from '../update';
 import { OnlineScreen } from './online';
 import type { OnlineSession } from '../net/session';
 import { loadPlayer, loadQuality, loadRecord, loadSaves, loadZoom, MAX_SAVES, savePlayer, saveSaves, saveQuality, saveRecord, saveZoom, setOnSaved, type Record_, type Zoom } from './store';
-import { bytesOf, canVoiceToday, isVoiced, voicedNames, voiceName } from '../audio/nameVoice';
+import { bytesOf, canVoiceToday, isVoiced, voicedNames, voiceName, voicesLeftToday } from '../audio/nameVoice';
 import { MAX_REPLAYS, ReplayShelf, isSaved, outdated, type SavedReplay } from './replays';
 import { Account, PASSWORD_MIN, USERNAME_MAX, type SyncState } from '../net/account';
 import { WALK_ONS, walkOnFor } from '../audio/walkOn';
 import { EVENT_BY_ID, defenceOf, progressOf, rival, type EventDef } from '../game/events';
-import { adoptWorn, credits, fitOwned, isNewCareer, markSeen, owns, settle, stock, type Reward } from '../game/career';
+import { adoptWorn, credits, fitOwned, isNewCareer, markSeen, owns, settle, stock, takeGifted, type Reward } from '../game/career';
 import { equipped } from '../game/catalogue';
 import { coins, marketView, rewardView, trophyView, type CareerHost } from './careerUi';
 import { MapScreen } from './mapScreen';
+import { byShowOrder, checkWorn, giftReady, opponentSkin, ownsSkin, rivalSkin } from '../game/gacha';
+import { SKIN_RARITY_COL, SKIN_RARITY_NAME, SKINS, skinOf, skinSwatch } from '../game/skins';
+import { SkinCard, VaultScreen } from './vault';
 
-type PaintPage = 'schemes' | 'primary' | 'secondary' | 'accent' | 'finish';
+type PaintPage = 'skins' | 'schemes' | 'primary' | 'secondary' | 'accent' | 'finish';
 const PAINT_PAGES: [PaintPage, string][] = [
+  ['skins', 'Skins'],
   ['schemes', 'Schemes'],
   ['primary', 'Main'],
   ['secondary', 'Second'],
@@ -63,7 +67,7 @@ const PAINT_HINT: Record<'primary' | 'secondary' | 'accent', string> = {
   accent: 'Glow: visor, lights and trim, and the trail of your strikes.',
 };
 
-type ScreenId = 'home' | 'garage' | 'fight' | 'online' | 'map';
+type ScreenId = 'home' | 'garage' | 'fight' | 'online' | 'map' | 'vault';
 
 /** Where the home screen happens: an animated place, or the arena as before. */
 type HomePlace = 'beach' | 'gym' | 'lounge' | 'arena';
@@ -116,7 +120,7 @@ export class App {
   private tab: 'part' | 'emotes' | 'paint' | 'size' = 'part';
   private emoteKind: EmoteKind = 'win';
   /** Which page of the Paint tab is showing. */
-  private paintPage: PaintPage = 'schemes';
+  private paintPage: PaintPage = 'skins';
   private garageEls: {
     name: HTMLElement;
     voice: HTMLButtonElement;
@@ -177,6 +181,10 @@ export class App {
   private accountView: (() => void) | null = null;
   /** The world map screen. */
   private map: MapScreen;
+  /** The Skin Vault (skins won with career credits), and the home button with a dot while a free pull waits. */
+  private vault: VaultScreen;
+  private skinsBtn: HTMLButtonElement | null = null;
+  private giftT = 0;
   /** The fight on screen is a round of a map event: which event, which round, which title defence. */
   private eventRun: { id: string; round: number; defence: number } | null = null;
   /** What career mode needs from the app (the market, the trophy room, the results). */
@@ -187,6 +195,9 @@ export class App {
   private booted = false;
   /** The saved login has caught up with the cloud at launch (or failed to). */
   synced: Promise<void> = Promise.resolve();
+  /** Credits a one-time gift paid at this launch, still to be shown (0 once the banner is up). */
+  private gift = 0;
+  private giftShown = false;
 
   constructor(private game: Game, private quality: Quality) {
     this.ui = document.getElementById('ui')!;
@@ -198,6 +209,9 @@ export class App {
       game.sfx?.addName(v.name, clips);
     }
     this.record = loadRecord();
+    // a one-time gift (career.ts GIFTS) paid just now: saved at once, so it lands in the cloud too
+    this.gift = takeGifted();
+    if (this.gift) saveRecord(this.record);
     // a career just started keeps the parts already worn; after that, parts the player hasn't
     // earned come off (the Common version goes on in their place)
     if (isNewCareer(this.record.career)) {
@@ -282,17 +296,33 @@ export class App {
       back: () => this.go('home'),
       fight: (e) => this.fightEvent(e),
     });
+    this.vault = new VaultScreen({
+      game,
+      record: () => this.record,
+      player: () => this.player,
+      tap: (k) => this.tap(k),
+      save: () => {
+        saveRecord(this.record);
+        this.syncSkinsBtn();
+      },
+      wear: (id) => this.wearSkin(id),
+      show: (spec) => this.game.showBot(spec ?? this.player),
+      modal: (title, fill) => this.openModal(title, fill),
+      home: () => this.go('home'),
+    });
     this.screens = {
       home: this.buildHome(),
       garage: this.buildGarage(),
       fight: this.hud.root,
       online: this.online.root,
       map: this.map.root,
+      vault: this.vault.root,
     };
     this.ui.appendChild(this.screens.home);
     this.ui.appendChild(this.screens.garage);
     this.ui.appendChild(this.screens.online);
     this.ui.appendChild(this.screens.map);
+    this.ui.appendChild(this.screens.vault);
     el('div', 'rotate', `<div>${ICON.rotate}<p>Turn your phone sideways<span class="muted">Battlebots plays in landscape</span></p></div>`, this.ui);
     this.fade = el('div', 'scene-fade');
     this.ui.prepend(this.fade);
@@ -304,7 +334,10 @@ export class App {
       }
       else if (this.current === 'garage') this.garageTick(dt);
       else if (this.current === 'map') this.map.tick();
-      else this.homeTick(dt);
+      else if (this.current === 'vault') {
+        this.garageTick(dt);
+        this.vault.tick(dt);
+      } else this.homeTick(dt);
     };
     game.cb.onMatchEvent = (type, data) => {
       // a replay stops on its own last step, with its controls up
@@ -341,6 +374,7 @@ export class App {
     if (this.homePlace !== 'arena') game.homeScene(this.homePlace);
     this.go('home');
     this.booted = true;
+    if (this.gift) setTimeout(() => this.giftBanner(), 1400);
     this.synced = this.account.start();
   }
 
@@ -369,6 +403,8 @@ export class App {
   // ------------------------------------------------------------ navigation
   private go(id: ScreenId) {
     if (id !== 'garage') this.dropTrial(false);
+    const fromVault = this.current === 'vault' && id !== 'vault';
+    if (fromVault) this.vault.exit();
     this.endLeaving();
     this.current = id;
     for (const [k, s] of Object.entries(this.screens)) s.classList.toggle('show', k === id);
@@ -388,12 +424,21 @@ export class App {
       this.refreshHome();
     } else if (id === 'garage') {
       this.focus = null;
+      // (a skin tried on in the vault comes off)
+      if (fromVault) this.game.showBot(this.player);
       this.refreshGarage();
+    } else if (id === 'vault') {
+      // the bot as saved on the lift (no part on trial), with its name board
+      this.game.endMatch();
+      this.game.sparring(false);
+      this.game.showBot(this.player);
+      this.game.garageBot(this.player.name, computeBuild(this.player.loadout).rating, this.player.paint);
+      this.vault.enter();
     }
     if (id === 'map') this.map.show();
     else this.map.hide();
     // the garage, the map and the home scenes are their own places: switching to or from one dips through black
-    const place: Place = id === 'garage' ? 'garage' : id === 'map' ? 'map' : id === 'home' && this.sceneHome() ? 'home' : 'arena';
+    const place: Place = id === 'garage' || id === 'vault' ? 'garage' : id === 'map' ? 'map' : id === 'home' && this.sceneHome() ? 'home' : 'arena';
     clearTimeout(this.placeTimer);
     const apply = () => {
       const moved = this.game.place !== place;
@@ -444,6 +489,17 @@ export class App {
       this.spin.idle = 0;
       this.setFocus(null);
       // the arena crowd is far away from the workshop
+      this.game.sfx?.ambience(0.04);
+    } else if (id === 'vault') {
+      // the workshop again, the bot standing to the right of the vault's panel
+      d.mode = 'garage';
+      d.garageYaw = 0.45;
+      d.shiftX = -0.24;
+      this.spin.vel = 0;
+      this.spin.idle = 0;
+      const z = this.player.size ?? 1;
+      d.garageTarget.set(OVERVIEW[0] * z, OVERVIEW[1] * z, OVERVIEW[2] * z);
+      d.garageDist = OVERVIEW[3] * z;
       this.game.sfx?.ambience(0.04);
     } else {
       d.shiftX = 0;
@@ -522,15 +578,19 @@ export class App {
       this.tap('select');
       this.go('garage');
     }, sub);
-    button('btn', `${ICON.globe}Online`, () => {
+    this.skinsBtn = button('btn', `${ICON.paint}Skins`, () => {
       this.tap('select');
-      this.go('online');
+      this.go('vault');
     }, sub);
     this.careerBtn = button('btn wide map-btn', '', () => {
       this.tap('select');
       this.go('map');
     }, sub);
-    button('btn small wide', `${ICON.replay}Replays`, () => this.replaysMenu(), sub);
+    button('btn small', `${ICON.globe}Online`, () => {
+      this.tap('select');
+      this.go('online');
+    }, sub);
+    button('btn small', `${ICON.replay}Replays`, () => this.replaysMenu(), sub);
     button('btn primary big', `${ICON.swords}Fight`, () => this.fight(), right);
     return s;
   }
@@ -601,6 +661,16 @@ export class App {
     const stat = (n: number, label: string) => `<span><b>${n}</b>${label}</span>`;
     this.homeRecord!.innerHTML = stat(r.wins, 'Wins') + stat(r.losses, 'Losses') + (r.draws ? stat(r.draws, 'Draws') : '') + (r.streak > 1 ? stat(r.streak, 'Streak') : '');
     if (this.careerBtn) this.careerBtn.innerHTML = `${ICON.map}Career<span class="career-cash">${coins(r.career.credits)}</span>`;
+    this.syncSkinsBtn();
+  }
+
+  /** The Skins button's gold dot: a free pull (or the welcome 10-pull) is waiting in the vault. */
+  private syncSkinsBtn() {
+    const b = this.skinsBtn;
+    if (!b) return;
+    const gift = giftReady(this.record.skins);
+    b.classList.toggle('gift', gift);
+    b.title = gift ? 'Skin Vault: a free pull is waiting' : 'Skin Vault';
   }
 
   private toggleSound() {
@@ -647,7 +717,7 @@ export class App {
     button('btn small', `${ICON.dice}Random`, () => {
       this.tap('select');
       const b = randomBot(this.rng, this.rng.range(0.2, 0.8));
-      this.player = { ...b, name: this.player.name, emotes: this.player.emotes, walkOn: this.player.walkOn };
+      this.player = { ...b, name: this.player.name, emotes: this.player.emotes, walkOn: this.player.walkOn, skin: this.player.skin };
       // (only parts the player has: the rest roll back to Common)
       this.fitOwned(this.player);
       this.commitPlayer();
@@ -714,7 +784,7 @@ export class App {
     const done = isVoiced(this.player.name);
     const busy = b.classList.contains('busy');
     b.classList.toggle('done', done);
-    b.innerHTML = busy ? `${ICON.mic}<span>Recording…</span>` : done ? `${ICON.sound}<span>Hear name</span>` : `${ICON.mic}<span>${canVoiceToday() ? 'Voice name' : 'Voice name tomorrow'}</span>`;
+    b.innerHTML = busy ? `${ICON.mic}<span>Recording…</span>` : done ? `${ICON.sound}<span>Hear name</span>` : `${ICON.mic}<span>${canVoiceToday() ? `Voice name (${voicesLeftToday()} left)` : 'Voice name tomorrow'}</span>`;
     b.disabled = busy || (!done && !canVoiceToday());
   }
 
@@ -931,13 +1001,16 @@ export class App {
     const g = this.garageEls!;
     const paint = this.player.paint;
     const sc = schemeOf(paint);
-    g.title.innerHTML = `<b>Paint</b><span>${sc ? esc(sc.name) : 'Custom'} · ${FINISHES[paint.finish].name} · ${FRAMES[paint.frame].name} frame</span>`;
+    const worn = skinOf(this.player);
+    g.title.innerHTML = worn
+      ? `<b>Paint</b><span>${esc(worn.name)} skin · <i style="color:${SKIN_RARITY_COL[worn.r]}">${SKIN_RARITY_NAME[worn.r]}</i></span>`
+      : `<b>Paint</b><span>${sc ? esc(sc.name) : 'Custom'} · ${FINISHES[paint.finish].name} · ${FRAMES[paint.frame].name} frame</span>`;
     this.setFocus(null);
 
     g.rar.className = 'rarities pages';
     g.rar.innerHTML = '';
     for (const [page, label] of PAINT_PAGES) {
-      const dot = page === 'schemes' || page === 'finish' ? '' : `<i style="background:${hexColor(paint[page])}"></i>`;
+      const dot = page === 'skins' ? `<i style="background:${worn ? skinSwatch(worn) : hexColor(paint.primary)}"></i>` : page === 'schemes' || page === 'finish' ? '' : `<i style="background:${hexColor(paint[page])}"></i>`;
       const b = button(`rar${page === this.paintPage ? ' on' : ''}`, `${dot}${label}`, () => {
         if (this.paintPage === page) return;
         this.tap();
@@ -951,7 +1024,10 @@ export class App {
     const scroll = g.items.scrollTop;
     g.items.innerHTML = '';
     const page = this.paintPage;
-    if (page === 'schemes') {
+    // a skin covers the plating: the paint's colours show again with it off
+    if (worn && page !== 'skins' && page !== 'accent') el('div', 'emote-hint', `Your ${esc(worn.name)} skin covers the plating. Take it off on the Skins page to see these colours on it.`, g.items);
+    if (page === 'skins') this.renderSkins(g.items);
+    else if (page === 'schemes') {
       el('div', 'emote-hint', 'Pick a ready-made paint job, then fine-tune any colour, the finish or the frame.', g.items);
       const grid = el('div', 'pgrid schemes', '', g.items);
       for (const s of SCHEMES) {
@@ -1018,6 +1094,54 @@ export class App {
       });
     }
     g.items.scrollTop = scroll;
+  }
+
+  /** The Paint tab's Skins page: the skins the player owns as cards (tap to wear one), and the way to the vault. */
+  private renderSkins(into: HTMLElement) {
+    const sg = this.record.skins;
+    const gift = giftReady(sg);
+    const box = el('div', 'paint-skins', '', into);
+    button(`btn${gift ? ' primary gift' : ''} paint-vault`, gift ? `${ICON.star}A free pull is waiting: Skin Vault` : `${ICON.star}Skin Vault`, () => {
+      this.tap('select');
+      this.go('vault');
+    }, box);
+    const owned = SKINS.filter((sk) => ownsSkin(sg, sk.id));
+    el(
+      'div',
+      'paint-skin-hint',
+      owned.length
+        ? `A skin covers the plating with its own look. You have ${owned.length} of ${SKINS.length}: win more in the Skin Vault. Skins are only paint, they never change how a bot fights.`
+        : 'Skins cover the plating with patterns, exotic finishes and living Epic looks. Win them in the Skin Vault with career credits (your first ten pulls are free).',
+      box,
+    );
+    const grid = el('div', 'vault-grid', '', box);
+    const worn = skinOf(this.player);
+    for (const sk of [null, ...byShowOrder(sg, owned)]) {
+      const c = new SkinCard(sk, { fps: 20 });
+      if (sk && sg.fresh.includes(sk.id)) c.setBadge('NEW');
+      c.setWorn(sk ? worn?.id === sk.id : !worn);
+      c.el.addEventListener('click', () => {
+        if ((sk?.id ?? '') === (worn?.id ?? '')) return;
+        this.tap('select');
+        this.game.sfx?.gacha('paint', 0.7);
+        this.wearSkin(sk ? sk.id : '');
+      });
+      grid.appendChild(c.el);
+    }
+  }
+
+  /** Put a skin the player owns on their bot ('' for the plain paint), painted on with a sweep of light. */
+  private wearSkin(id: string) {
+    const prev = this.player.skin;
+    if ((prev ?? '') === id) return;
+    if (id) this.player.skin = id;
+    else delete this.player.skin;
+    const g = this.record.skins;
+    g.fresh = g.fresh.filter((f) => f !== id);
+    saveRecord(this.record);
+    this.commitPlayer();
+    this.game.paintOn(prev);
+    this.game.garagePulse();
   }
 
   /** The Size tab: build the frame up to 120% or down to 80%, with what it trades shown live. */
@@ -1298,7 +1422,7 @@ export class App {
       const now = performance.now();
       const d = (e.clientX - lastX) * 0.012;
       const dir = this.game.director;
-      if (this.current === 'garage') dir.garageYaw -= d;
+      if (this.current === 'garage' || this.current === 'vault') dir.garageYaw -= d;
       else {
         dir.menuTurn -= d;
         dir.menuLive = true;
@@ -1339,6 +1463,12 @@ export class App {
 
   /** Home screen: coast after a swipe, then glide back to the slow showcase orbit. */
   private homeTick(dt: number) {
+    // the free pull comes back while the home screen is up
+    this.giftT -= dt;
+    if (this.giftT <= 0 && this.current === 'home') {
+      this.giftT = 1;
+      this.syncSkinsBtn();
+    }
     const s = this.spin;
     const d = this.game.director;
     if (s.dragging || !d.menuLive || this.leaving) return;
@@ -1369,6 +1499,9 @@ export class App {
       }
     }
     best!.paint = contrastingPaint(this.player.paint, this.rng);
+    // now and then one wears a skin (only paint: picked outside the fight's own dice)
+    const skin = opponentSkin(Math.random);
+    if (skin) best!.skin = skin;
     return best!;
   }
 
@@ -1433,6 +1566,9 @@ export class App {
     const defence = defenceOf(this.record.events, e);
     this.eventRun = { id: e.id, round, defence };
     this.opponent = rival(e, round, this.player, defence);
+    // the final's rival wears an Epic skin, the semi-final's a Rare
+    const skin = rivalSkin(e.id, round, e.rivals.length);
+    if (skin) this.opponent.skin = skin;
     this.tap('start');
     void enterLandscape();
     // the venue is put up first (the first time, its code comes down too), so the walkout is in it
@@ -1663,7 +1799,7 @@ export class App {
           reset.textContent = 'Tap again to reset';
           return;
         }
-        this.record = { wins: 0, losses: 0, draws: 0, streak: 0, best: 0, events: this.record.events, career: this.record.career };
+        this.record = { wins: 0, losses: 0, draws: 0, streak: 0, best: 0, events: this.record.events, career: this.record.career, skins: this.record.skins };
         saveRecord(this.record);
         this.refreshHome();
         reset.classList.remove('armed');
@@ -1749,8 +1885,18 @@ export class App {
   // ------------------------------------------------------------ account
   /** The account's saved bot and record arrived from the cloud: they replace this device's. */
   private adoptCloud(bot: BotSpec, record: Record_) {
+    // a save from before skins has none: the skins won on this device stay
+    const sk = record.skins;
+    if (!sk.welcome && !sk.pulls && !Object.keys(sk.owned).length) record.skins = this.record.skins;
+    checkWorn(record.skins, bot);
     this.player = bot;
     this.record = record;
+    // the cloud copy may be the one that just got the gift (it is paid once per career, wherever)
+    const gift = takeGifted();
+    if (gift && !this.giftShown && !this.gift) {
+      this.gift = gift;
+      setTimeout(() => this.giftBanner(), 600);
+    }
     if (isNewCareer(record.career)) adoptWorn(record.career, [bot]);
     if (!UNLOCK_ALL) fitOwned(bot, record.career);
     savePlayer(bot);
@@ -1760,6 +1906,27 @@ export class App {
     if (this.current !== 'fight') this.game.showBot(bot);
     this.refreshHome();
     if (this.current === 'garage') this.refreshGarage();
+    if (this.current === 'vault') this.vault.refresh();
+  }
+
+  /** The one-time gift's moment: a gold banner with the credits, over whatever is on screen. */
+  private giftBanner() {
+    if (!this.gift || this.giftShown) return;
+    this.giftShown = true;
+    const b = el('button', 'gift-banner', `<span class="gb-kicker">A gift for you</span><span class="gb-amount">${coins(this.gift, true)}</span><span class="gb-line">credits for the Skin Vault. Have fun pulling!</span>`, this.ui);
+    this.gift = 0;
+    const done = () => {
+      b.classList.add('out');
+      setTimeout(() => b.remove(), 450);
+    };
+    b.onclick = () => {
+      this.tap('tap');
+      done();
+    };
+    setTimeout(done, 5200);
+    this.refreshHome();
+    this.careerBtn?.classList.add('cash-pop');
+    setTimeout(() => this.careerBtn?.classList.remove('cash-pop'), 1600);
   }
 
   private refreshAccount() {
@@ -2111,7 +2278,9 @@ export class App {
 
   /** Parts the player may not fit come off the bot, the Common version going on: whether anything changed. Nothing does while UNLOCK_ALL is on. */
   private fitOwned(bot: BotSpec) {
-    return !UNLOCK_ALL && fitOwned(bot, this.record.career);
+    const parts = !UNLOCK_ALL && fitOwned(bot, this.record.career);
+    // (and a skin it isn't the player's comes off)
+    return checkWorn(this.record.skins, bot) || parts;
   }
 
   private lockText(item: ItemDef) {

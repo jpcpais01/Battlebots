@@ -1,0 +1,842 @@
+/* ------------------------------------------------------------ the Skin Vault */
+/* the panel on the left, the bot on the workshop lift on the right */
+.screen.vault {
+  --vw: min(47vw, 38em);
+}
+.vault-top {
+  position: absolute;
+  left: var(--pad);
+  top: var(--top);
+  display: flex;
+  align-items: center;
+  gap: 0.9em;
+}
+.vault-title {
+  font-family: var(--broadcast);
+  font-size: 1.25em;
+  letter-spacing: 0.12em;
+  background: linear-gradient(100deg, #8cb8f2, #c79bff 45%, #ffc23d);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 10px rgba(176, 107, 255, 0.35));
+}
+.vault-wallet {
+  position: absolute;
+  right: var(--padr);
+  top: var(--top);
+  display: flex;
+  gap: 0.45em;
+  font-size: 0.92em;
+}
+.vault-wallet .cr-chip {
+  background: rgba(12, 15, 23, 0.62);
+  gap: 0.3em;
+  font-variant-numeric: tabular-nums;
+}
+.vault-wallet .shards svg {
+  width: 1.1em;
+  height: 1.1em;
+  color: #c79bff;
+}
+.vault-wallet .shards b {
+  font-weight: 750;
+}
+.vault-panel {
+  position: absolute;
+  left: var(--pad);
+  top: calc(var(--top) + 3.3em);
+  bottom: var(--bottom);
+  width: var(--vw);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55em;
+  padding: 0.6em;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--rad-l);
+  box-shadow: var(--shadow);
+}
+.vault-tabs {
+  flex: none;
+}
+.vault-tabs .muted {
+  font-size: 0.85em;
+  margin-left: 0.25em;
+}
+.vault-tabs button.on .muted {
+  color: rgba(10, 13, 20, 0.55);
+}
+.vault-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55em;
+  overflow-y: auto;
+  scrollbar-width: none;
+  pointer-events: auto;
+}
+.vault-body::-webkit-scrollbar {
+  display: none;
+}
+
+/* today's featured Epic */
+.vault-feat {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.8em;
+  padding: 0.55em 0.8em 0.55em 0.4em;
+  border-radius: var(--rad);
+  background: radial-gradient(circle at 12% 50%, color-mix(in srgb, var(--fc) 26%, transparent), transparent 55%), linear-gradient(100deg, color-mix(in srgb, var(--fc) 10%, rgba(255, 255, 255, 0.03)), rgba(255, 255, 255, 0.02));
+  border: 1px solid color-mix(in srgb, var(--fc) 35%, transparent);
+  position: relative;
+  overflow: hidden;
+}
+.vault-feat::after {
+  /* a slow gleam across it */
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 40%, rgba(255, 230, 170, 0.12) 50%, transparent 60%);
+  background-size: 300% 100%;
+  animation: vault-gleam 5s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes vault-gleam {
+  0% {
+    background-position: 120% 0;
+  }
+  60%,
+  100% {
+    background-position: -120% 0;
+  }
+}
+.skin-orb {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.vault-feat .feat-orb {
+  flex: none;
+  width: 5.6em;
+  height: 5.6em;
+}
+.vf-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12em;
+}
+.vf-kicker {
+  font-size: 0.66em;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fc);
+}
+.vf-name {
+  font-family: var(--broadcast);
+  font-size: 1.2em;
+  line-height: 1.1;
+}
+.vf-blurb {
+  font-size: 0.8em;
+  color: var(--text-2);
+  line-height: 1.3;
+}
+.vf-clock,
+.vf-own {
+  font-size: 0.72em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.vf-own.yes {
+  color: var(--green);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+}
+.vf-own svg {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+/* the rates */
+.vault-rates {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.9em;
+  font-size: 0.8em;
+  font-weight: 650;
+  color: var(--text-2);
+  padding: 0 0.3em;
+}
+.vault-rates .rate {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  white-space: nowrap;
+}
+.vault-rates .rate i {
+  width: 0.62em;
+  height: 0.62em;
+  border-radius: 50%;
+  background: var(--rc);
+  box-shadow: 0 0 8px var(--rc);
+}
+.vault-rates .btn {
+  margin-left: auto;
+  min-height: 2em;
+  padding: 0.3em 0.9em;
+  font-size: 0.92em;
+}
+
+/* how close the Epic pity is */
+.vault-pity {
+  flex: none;
+  padding: 0 0.3em;
+}
+.vp-text {
+  font-size: 0.78em;
+  color: var(--muted);
+  margin-bottom: 0.35em;
+}
+.vp-text b {
+  color: #ffd98a;
+  font-weight: 750;
+}
+.vp-bar {
+  height: 0.38em;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+.vp-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #b06bff, #ffc23d);
+  box-shadow: 0 0 10px rgba(255, 194, 61, 0.6);
+  transition: width 0.6s var(--ease);
+}
+
+/* the capsule, hovering over its pool of light */
+.vault-stage {
+  flex: 1 0 7em;
+  position: relative;
+  min-height: 7em;
+}
+.vs-pool {
+  position: absolute;
+  left: 50%;
+  bottom: 2%;
+  width: min(100%, 22em);
+  height: 26%;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--pool, rgba(140, 184, 242, 0.5)), transparent);
+  filter: blur(4px);
+  pointer-events: none;
+}
+.vs-cap {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  height: 92%;
+  aspect-ratio: 0.75;
+  translate: -50% 0;
+  border-radius: 40%;
+  will-change: transform;
+}
+.vs-cap:focus-visible {
+  box-shadow: none;
+}
+.vault-capsule {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.vault-free {
+  flex: none;
+  align-self: stretch;
+  animation: vault-free-glow 1.8s ease-in-out infinite;
+}
+.vault-free svg {
+  color: #c48a00;
+}
+@keyframes vault-free-glow {
+  50% {
+    box-shadow: 0 0 0 2px rgba(255, 194, 61, 0.7), 0 0 26px rgba(255, 194, 61, 0.5);
+  }
+}
+.vault-free-text {
+  flex: none;
+  text-align: center;
+  font-size: 0.76em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  margin-top: -0.2em;
+}
+.vault-pulls {
+  flex: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5em;
+}
+.vault-pull {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15em;
+  min-height: 4.2em;
+  padding: 0.5em;
+  border-radius: var(--rad);
+  background: linear-gradient(180deg, rgba(140, 184, 242, 0.16), rgba(140, 184, 242, 0.05));
+  border: 1px solid rgba(140, 184, 242, 0.35);
+  transition: transform 0.18s var(--ease), box-shadow 0.18s ease, opacity 0.18s ease;
+}
+.vault-pull.ten {
+  background: linear-gradient(180deg, rgba(255, 194, 61, 0.22), rgba(176, 107, 255, 0.12));
+  border-color: rgba(255, 194, 61, 0.5);
+}
+.vault-pull b {
+  font-family: var(--broadcast);
+  font-weight: 400;
+  font-size: 1.1em;
+  letter-spacing: 0.04em;
+}
+.vault-pull .cr-coins {
+  font-size: 0.86em;
+}
+.vault-pull small {
+  font-size: 0.66em;
+  color: #ffd98a;
+  letter-spacing: 0.04em;
+}
+.vault-pull:active {
+  transform: scale(0.95);
+}
+.vault-pull.short {
+  opacity: 0.55;
+}
+@media (hover: hover) {
+  .vault-pull:hover {
+    box-shadow: var(--ring);
+  }
+}
+
+/* the collection */
+.vault-filter {
+  flex: none;
+}
+.vault-filter button span {
+  opacity: 0.6;
+  font-size: 0.86em;
+}
+.vault-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(5.6em, 1fr));
+  gap: 0.5em;
+  align-content: start;
+  padding: 0.15em;
+}
+.vault-strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  padding: 0.5em 0.6em 0.5em 0.8em;
+  border-radius: var(--rad);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+}
+.vs-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1em;
+}
+.vs-text b {
+  font-weight: 750;
+}
+.vs-text span {
+  font-size: 0.76em;
+  color: var(--muted);
+  line-height: 1.3;
+}
+.vault-wearing {
+  position: absolute;
+  right: var(--padr);
+  bottom: var(--bottom);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  height: 2.6em;
+  padding: 0 1.1em 0 0.85em;
+  border-radius: 999px;
+  font-size: 0.86em;
+  font-weight: 650;
+  background: rgba(12, 15, 23, 0.62);
+  border: 1px solid color-mix(in srgb, var(--rc, transparent) 60%, var(--line));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--rc, transparent) 30%, transparent);
+}
+.vault-wearing svg {
+  width: 1.1em;
+  height: 1.1em;
+}
+.vault-toast {
+  position: absolute;
+  left: calc(var(--pad) + var(--vw) + 1em);
+  right: var(--padr);
+  top: 78%;
+  text-align: center;
+  font-weight: 700;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
+  opacity: 0;
+  pointer-events: none;
+}
+.vault-toast.on {
+  animation: vault-toast 2.4s var(--ease) both;
+}
+@keyframes vault-toast {
+  0% {
+    opacity: 0;
+    transform: translateY(0.6em);
+  }
+  12%,
+  75% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.vault-rules {
+  width: min(34em, 100%);
+}
+.vault-rule-list {
+  margin: 0;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55em;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+/* ------------------------------------------------------------ a skin as a card */
+.skin-card {
+  --rc: #9aa6b8;
+  --glow: 0;
+  position: relative;
+  display: block;
+  /* 0.72 wide to 1 tall, from the width (aspect-ratio alone lets a scrolling grid squash the rows) */
+  height: 0;
+  padding: 139% 0 0;
+  border-radius: 0.8em;
+  overflow: hidden;
+  isolation: isolate;
+  text-align: center;
+  background: radial-gradient(circle at 50% 36%, color-mix(in srgb, var(--rc) 22%, transparent), transparent 66%), linear-gradient(180deg, #161b26, #0b0e15);
+  border: 1px solid color-mix(in srgb, var(--rc) 45%, transparent);
+  box-shadow: 0 0 calc(4px + var(--glow) * 18px) color-mix(in srgb, var(--rc) calc(20% + var(--glow) * 40%), transparent), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: transform 0.18s var(--ease), box-shadow 0.3s ease, opacity 0.2s ease;
+}
+.skin-card:active {
+  transform: scale(0.95);
+}
+/* Rare and Epic: slow light rays behind the swatch */
+.skin-card[data-tier='1']::before,
+.skin-card[data-tier='2']::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 36%;
+  width: 180%;
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  z-index: -1;
+  background: repeating-conic-gradient(color-mix(in srgb, var(--rc) 22%, transparent) 0 8deg, transparent 8deg 24deg);
+  -webkit-mask: radial-gradient(closest-side, #000 15%, transparent 70%);
+  mask: radial-gradient(closest-side, #000 15%, transparent 70%);
+  animation: sc-rays 16s linear infinite;
+  animation-delay: var(--seed, 0s);
+}
+@keyframes sc-rays {
+  to {
+    rotate: 360deg;
+  }
+}
+/* Epic: a gleam crossing it now and then */
+.skin-card[data-tier='2']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 38%, rgba(255, 236, 190, 0.28) 50%, transparent 62%);
+  background-size: 300% 100%;
+  animation: vault-gleam 4.2s ease-in-out infinite;
+  animation-delay: var(--seed, 0s);
+  pointer-events: none;
+}
+.sc-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.35em 0.3em 0.5em;
+}
+.sc-face .skin-orb {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+.sc-name {
+  font-size: 0.74em;
+  font-weight: 750;
+  line-height: 1.15;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sc-tier {
+  font-size: 0.58em;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--rc);
+}
+.skin-card.plain .sc-tier {
+  color: var(--muted);
+}
+.skin-card.veiled {
+  background: linear-gradient(180deg, #121620, #0a0c12);
+  border-color: color-mix(in srgb, var(--rc) 22%, transparent);
+}
+.skin-card.veiled::before {
+  opacity: 0.35;
+}
+.skin-card.veiled .sc-name {
+  color: var(--muted);
+}
+/* face down: brushed metal with the vault's emblem, its edge glowing what's under */
+.sc-back {
+  position: absolute;
+  inset: 0;
+  display: none;
+  place-items: center;
+  border-radius: inherit;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 3px), linear-gradient(160deg, #2a313f, #141922 55%, #1d2330);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--rc) 80%, transparent), inset 0 0 22px color-mix(in srgb, var(--rc) 55%, transparent);
+}
+.sc-back i {
+  width: 46%;
+  aspect-ratio: 0.75;
+  border-radius: 40%;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 48%, color-mix(in srgb, var(--rc) 70%, transparent) 50%, transparent 52%);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--rc) 45%, transparent);
+}
+.skin-card.down .sc-back {
+  display: grid;
+}
+.skin-card.down .sc-face,
+.skin-card.down .sc-badge,
+.skin-card.down .sc-worn {
+  visibility: hidden;
+}
+.skin-card.down::before,
+.skin-card.down::after {
+  display: none;
+}
+.skin-card.tremble {
+  animation: sc-tremble 0.07s linear infinite alternate;
+  box-shadow: 0 0 30px color-mix(in srgb, var(--rc) 75%, transparent);
+}
+@keyframes sc-tremble {
+  from {
+    transform: translate(-1.5px, 1px) rotate(-1deg);
+  }
+  to {
+    transform: translate(1.5px, -1px) rotate(1deg);
+  }
+}
+.sc-badge {
+  position: absolute;
+  top: 0.35em;
+  right: 0.35em;
+  display: none;
+  align-items: center;
+  gap: 0.2em;
+  padding: 0.15em 0.45em;
+  border-radius: 999px;
+  font-size: 0.58em;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+.sc-badge.on {
+  display: inline-flex;
+}
+.sc-badge.new {
+  color: #1a1000;
+  background: #ffc23d;
+  box-shadow: 0 0 10px rgba(255, 194, 61, 0.6);
+}
+.sc-badge.glass {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--line);
+}
+.sc-badge.shards {
+  color: #e2ccff;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(199, 155, 255, 0.35);
+}
+.sc-badge svg {
+  width: 1.1em;
+  height: 1.1em;
+}
+.sc-worn {
+  position: absolute;
+  top: 0.35em;
+  left: 0.35em;
+  width: 1.35em;
+  height: 1.35em;
+  display: none;
+  place-items: center;
+  border-radius: 50%;
+  color: #0a0d14;
+  background: #fff;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+}
+.sc-worn svg {
+  width: 0.9em;
+  height: 0.9em;
+}
+.skin-card.worn {
+  border-color: #fff;
+}
+.skin-card.worn .sc-worn {
+  display: grid;
+}
+.skin-card.picked {
+  box-shadow: var(--ring);
+}
+
+/* ------------------------------------------------------------ a pull, played out */
+.pull-show {
+  position: fixed;
+  inset: 0;
+  /* (behind the stage, so its shake never shows the game at an edge) */
+  background: #03040a;
+  z-index: 60;
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  color: var(--text);
+  font-size: var(--fs);
+  animation: ps-in 0.25s ease both;
+}
+@keyframes ps-in {
+  from {
+    opacity: 0;
+  }
+}
+.ps-stage,
+.ps-ui {
+  position: absolute;
+  inset: 0;
+}
+.ps-gl,
+.ps-fx {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.ps-gl {
+  /* without WebGL: the fall into darkness at least */
+  background: rgba(3, 4, 8, 0.85);
+}
+.ps-hint,
+.ps-hint2 {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--bottom) + 0.5em);
+  text-align: center;
+  font-size: 0.78em;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  animation: ps-blink 1.6s ease-in-out infinite;
+}
+.ps-hint2 {
+  position: static;
+  margin-bottom: 0.6em;
+}
+@keyframes ps-blink {
+  50% {
+    opacity: 0.45;
+  }
+}
+.ps-reveal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2em;
+  padding: var(--top) var(--padr) var(--bottom) var(--pad);
+  text-align: center;
+}
+.ps-reveal.detail {
+  background: rgba(3, 4, 8, 0.82);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.pr-word {
+  font-family: var(--broadcast);
+  font-size: 1.5em;
+  letter-spacing: 0.3em;
+  padding-left: 0.3em;
+  background: linear-gradient(180deg, #fff, var(--rc));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 14px color-mix(in srgb, var(--rc) 70%, transparent));
+}
+.pr-orb {
+  position: relative;
+  width: min(42vh, 60vw);
+  height: min(42vh, 60vw);
+}
+.pr-tag {
+  position: absolute;
+  right: 4%;
+  bottom: 12%;
+  padding: 0.3em 0.75em;
+  border-radius: 0.4em;
+  font-family: var(--broadcast);
+  font-size: 0.8em;
+  letter-spacing: 0.08em;
+  color: #e2ccff;
+  background: rgba(10, 6, 20, 0.75);
+  border: 1px solid rgba(199, 155, 255, 0.5);
+}
+.pr-tag.new {
+  color: #1a1000;
+  background: #ffc23d;
+  border-color: #fff3c4;
+  box-shadow: 0 0 22px rgba(255, 194, 61, 0.7);
+}
+.pr-name {
+  font-family: var(--broadcast);
+  font-size: 2.1em;
+  line-height: 1.1;
+  text-shadow: 0 0 24px color-mix(in srgb, var(--rc) 60%, transparent), 0 3px 12px rgba(0, 0, 0, 0.6);
+}
+.pr-blurb {
+  max-width: 30em;
+  color: var(--text-2);
+  font-size: 0.92em;
+}
+.pr-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6em;
+  margin-top: 0.8em;
+}
+.ps-cards .skin-card.dealt {
+  position: absolute;
+  font-size: calc(var(--cw) / 7.2);
+  padding: 0;
+  pointer-events: none;
+}
+.ps-cards .skin-card.dealt.open {
+  pointer-events: auto;
+}
+.ps-foot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: var(--bottom);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.ps-foot .pr-buttons {
+  margin-top: 0;
+}
+
+/* ------------------------------------------------------------ Skins on home and in the garage */
+.home-btn-dot,
+.btn.gift {
+  position: relative;
+}
+.btn.gift::after {
+  content: '';
+  position: absolute;
+  top: -0.1em;
+  right: -0.1em;
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 50%;
+  background: #ffc23d;
+  box-shadow: 0 0 0 2px var(--bg), 0 0 10px #ffc23d;
+  animation: vault-dot 1.6s ease-in-out infinite;
+}
+@keyframes vault-dot {
+  50% {
+    transform: scale(1.25);
+  }
+}
+.paint-skins {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+}
+.paint-skins .vault-grid {
+  flex: none;
+  padding: 0;
+}
+.paint-vault {
+  align-self: stretch;
+}
+.paint-vault.gift {
+  box-shadow: 0 0 0 2px rgba(255, 194, 61, 0.6), 0 0 22px rgba(255, 194, 61, 0.35);
+}
+.paint-skin-hint {
+  font-size: 0.78em;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+/* phones held sideways: a little tighter */
+@media (max-height: 460px) {
+  .vault-feat .feat-orb {
+    width: 4.4em;
+    height: 4.4em;
+  }
+  .vf-blurb {
+    display: none;
+  }
+  .vault-pull {
+    min-height: 3.5em;
+  }
+  .vault-stage {
+    flex-basis: 6em;
+    min-height: 6em;
+  }
+}

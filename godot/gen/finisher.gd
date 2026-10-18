@@ -97,10 +97,10 @@ static func pinned(o: PackedFloat32Array, c: TFinisher.FinCtx, to: PackedFloat32
 	TEmote.keys_(o, c.t, [[0.0, TFinisher.V_REEL], [0.3, _hV_DAZED], [99.0, _hV_DAZED]])
 	var k: float = c.pin
 	var _hEC = TEmote.EC
-	var i: float = 0.0
+	var i: int = 0
 	while (i < _hEC.N):
 		o[i] += (((to[i] - o[i])) * k)
-		i += 1.0
+		i += 1
 	o[_hEC.TWIST] += ((DM.sin((c.rt * 5.3)) * 0.08) * k)
 	o[_hEC.ROLL] += ((DM.sin(((c.rt * 4.1) + 1.0)) * 0.05) * k)
 	TFinisher.sway(o, c.rt, (1.0 - (0.7 * k)))
@@ -142,7 +142,7 @@ static func pickFinisher(rng: TMath.Rng, picks, style: String) -> String:
 		r -= x_2
 		if (r <= 0.0):
 			return id_2
-	return w[0.0][0.0]
+	return w[0][0]
 static var _a: V3
 static var _b: V3
 static var _c: V3
@@ -233,10 +233,10 @@ class FinisherRun extends RefCounted:
 		self.host = host
 		self.preview = preview
 		var blows: float = float(spec.steps.size())
-		var k: float = 0.0
+		var k: int = 0
 		while (k < blows):
 			c.hits.append(INF)
-			k += 1.0
+			k += 1
 		var __t2 = spec.steps[(blows - 1.0)].blow.get("final")
 		self.final = (__t2 if __t2 != null else "launch")
 		self.glowJoint = (6.0 if (att.rearSide == "L") else 9.0)
@@ -447,7 +447,7 @@ class FinisherRun extends RefCounted:
 			__v5.x += _h_g.x
 			__v5.y += _h_g.y
 			__v5.z += _h_g.z
-			var i: float = 0.0
+			var i: int = 0
 			while (i < float(b.pos.size())):
 				var __v6: V3 = b.pos[i]
 				__v6.x += _h_g.x
@@ -457,7 +457,7 @@ class FinisherRun extends RefCounted:
 				__v7.x += _h_g.x
 				__v7.y += _h_g.y
 				__v7.z += _h_g.z
-				i += 1.0
+				i += 1
 	
 	func deeper(acc: V3, d: V3) -> void:
 		if (absf(d.x) > absf(acc.x)):
@@ -564,12 +564,12 @@ class FinisherRun extends RefCounted:
 			return out
 		var b: Array = def.body.pos
 		var _h_g: V3 = TFinisher._g
-		var i: float = 1.0
+		var i: int = 1
 		while (i <= 8.0):
-			_h_g.copy(b[3.0]).lerp(b[1.0], (i / 8.0))
+			_h_g.copy(b[3.0]).lerp(b[1.0], (float(i) / 8.0))
 			if (_h_g.y <= top):
 				return out.copy(_h_g)
-			i += 1.0
+			i += 1
 		return out.copy(b[1.0])
 	
 	func touch(zone: String, j: float, out: V3, trunk: bool = true) -> bool:
@@ -582,9 +582,9 @@ class FinisherRun extends RefCounted:
 		var to: V3 = att.body.pos[j]
 		var _h_f: V3 = TFinisher._f
 		var _h_c: V3 = TFinisher._c
-		var k: float = 1.0
+		var k: int = 1
 		while (k <= 4.0):
-			var __v1: float = (k / 4.0)
+			var __v1: float = (float(k) / 4.0)
 			_h_f.x = from.x + (to.x - from.x) * __v1
 			_h_f.y = from.y + (to.y - from.y) * __v1
 			_h_f.z = from.z + (to.z - from.z) * __v1
@@ -602,19 +602,19 @@ class FinisherRun extends RefCounted:
 						TMath.closestOnSegment(_h_f, b[u], b[v], _h_c)
 						if (_h_c.distanceTo(_h_f) < (r + (TFinisher.R_LEG * z))):
 							return onSurface(_h_c, _h_f, (TFinisher.R_LEG * z), out)
-				k += 1.0
+				k += 1
 				continue
 			if ((not (def.body.cut[3.0] != 0.0)) and (_h_f.distanceTo(b[3.0]) < (r + (TFinisher.R_HEAD * z)))):
 				return onSurface(b[3.0], _h_f, (TFinisher.R_HEAD * z), out)
 			if (_h_f.distanceTo(b[2.0]) < (r + (TFinisher.R_NECK * z))):
 				return onSurface(b[2.0], _h_f, (TFinisher.R_NECK * z), out)
 			if (not trunk):
-				k += 1.0
+				k += 1
 				continue
 			TMath.closestOnSegment(_h_f, b[0.0], b[1.0], _h_c)
 			if (_h_c.distanceTo(_h_f) < (r + (TFinisher.R_TRUNK * z))):
 				return onSurface(_h_c, _h_f, (TFinisher.R_TRUNK * z), out)
-			k += 1.0
+			k += 1
 		return false
 	
 	func stopAt(j: float) -> void:
@@ -987,7 +987,7 @@ class FinisherRun extends RefCounted:
 			_h_c.x = __v6
 			_h_c.y = 0.0
 			_h_c.z = __v7
-			var j_4: float = 0.0
+			var j_4: int = 0
 			while (j_4 < 16.0):
 				var upper: bool = (j_4 <= 9.0)
 				_h_d.x = _h_b.x
@@ -1002,8 +1002,8 @@ class FinisherRun extends RefCounted:
 				_h_d.y += _h_c.y * __v9
 				_h_d.z += _h_c.z * __v9
 				_h_d.y = (((3.4 if upper else 2.4)) * k)
-				body.addVelocity(j_4, _h_d, dt)
-				j_4 += 1.0
+				body.addVelocity(float(j_4), _h_d, dt)
+				j_4 += 1
 		elif kind == "blast":
 			_h_b.x = dir.x
 			_h_b.y = dir.y
@@ -1014,7 +1014,7 @@ class FinisherRun extends RefCounted:
 			_h_b.x *= __v11
 			_h_b.y *= __v11
 			_h_b.z *= __v11
-			var j_5: float = 0.0
+			var j_5: int = 0
 			while (j_5 < 16.0):
 				var upper_2: bool = (j_5 <= 9.0)
 				_h_d.x = _h_b.x
@@ -1025,8 +1025,8 @@ class FinisherRun extends RefCounted:
 				_h_d.y *= __v12
 				_h_d.z *= __v12
 				_h_d.y = (((2.8 if upper_2 else 3.4)) * k)
-				body.addVelocity(j_5, _h_d, dt)
-				j_5 += 1.0
+				body.addVelocity(float(j_5), _h_d, dt)
+				j_5 += 1
 		elif kind == "decap":
 			var socket: float = def.parts.detach(0.0)
 			host.wear.call(def, socket)
@@ -1228,10 +1228,10 @@ static func __init_module() -> void:
 			TEmote.keys_(o_4, t_4, [[0.0, TFinisher.V_REEL], [0.3, TFinisher.V_DAZED], [99.0, TFinisher.V_DAZED]])
 			if (s_2 >= 0.0):
 				var k: float = (TMath.minJerk(TMath.clamp01((((s_2 - 0.0)) / 0.22))))
-				var i: float = 0.0
+				var i: int = 0
 				while (i < TEmote.EC.N):
 					o_4[i] += (((TFinisher.V_FOLD[i] - o_4[i])) * k)
-					i += 1.0
+					i += 1
 				o_4[TEmote.EC.PITCH] += ((DM.sin((s_2 * 3.1)) * 0.05) + (0.04 * TEmote.pulse(s_2, 0.0, 0.08, 0.3)))
 			TFinisher.sway(o_4, c_4.rt, 0.6)
 			c_4.vgaze = "down"
@@ -1293,10 +1293,10 @@ static func __init_module() -> void:
 			TEmote.keys_(o_6, t_6, [[0.0, TFinisher.V_REEL], [0.3, TFinisher.V_DAZED], [99.0, TFinisher.V_DAZED]])
 			if (s_4 >= 0.0):
 				var k_2: float = ((TMath.minJerk(TMath.clamp01((((s_4 - 0.0)) / 0.2)))) * ((1.0 - (0.35 * (TMath.minJerk(TMath.clamp01((((s_4 - 0.6)) / 0.6))))))))
-				var i_2: float = 0.0
+				var i_2: int = 0
 				while (i_2 < TEmote.EC.N):
 					o_6[i_2] += (((TFinisher.V_BENT[i_2] - o_6[i_2])) * k_2)
-					i_2 += 1.0
+					i_2 += 1
 			TFinisher.sway(o_6, c_6.rt, 0.8)
 			c_6.vgaze = ("down" if ((s_4 > 0.0) and (s_4 < 0.7)) else "opp")
 			c_6.vtone = 0.7
@@ -1381,15 +1381,15 @@ static func __init_module() -> void:
 			var t_8: float = c_8.t
 			TEmote.keys_(o_8, t_8, [[0.0, TFinisher.V_REEL], [0.3, TFinisher.V_DAZED], [99.0, TFinisher.V_DAZED]])
 			var last: float = -1.0
-			var k_3: float = 0.0
+			var k_3: int = 0
 			while (k_3 < float(shots.size())):
-				if c_8.landed(k_3):
-					last = k_3
-				k_3 += 1.0
+				if c_8.landed(float(k_3)):
+					last = float(k_3)
+				k_3 += 1
 			if (last >= 0.0):
 				var s_6: float = c_8.since(last)
 				var p: float = TEmote.pulse(s_6, 0.0, 0.05, 0.16)
-				o_8[TEmote.EC.PITCH] -= (((0.22 if (shots[last][1.0] == "head") else -0.2)) * p)
+				o_8[TEmote.EC.PITCH] -= (((0.22 if (shots[last][1] == "head") else -0.2)) * p)
 				o_8[TEmote.EC.ROLL] += (((0.12 if (JS.band(last, 1.0) != 0.0) else -0.12)) * p)
 				o_8[TEmote.EC.TWIST] += (((0.18 if (JS.band(last, 1.0) != 0.0) else -0.18)) * p)
 				TEmote.armTo(o_8, 0.0, TEmote.arm([0.45, -0.2, 0.0], [0.5, -0.3, -1.0], 0.3), (0.6 * (TMath.minJerk(TMath.clamp01((((t_8 - 0.2)) / 0.5))))))
@@ -1442,10 +1442,10 @@ static func __init_module() -> void:
 			if (s_8 >= 0.0):
 				var k_4: float = (TMath.minJerk(TMath.clamp01((((s_8 - 0.05)) / 0.38))))
 				TEmote.keys_(TFinisher._s, s_8, [[0.0, TFinisher.V_KNEES], [0.6, TFinisher.V_KNEES], [1.2, TFinisher.V_KNEES_SLUMP], [99.0, TFinisher.V_KNEES_SLUMP]])
-				var i_4: float = 0.0
+				var i_4: int = 0
 				while (i_4 < TEmote.EC.N):
 					o_10[i_4] += (((TFinisher._s[i_4] - o_10[i_4])) * k_4)
-					i_4 += 1.0
+					i_4 += 1
 			TFinisher.sway(o_10, c_10.rt, 0.5)
 			c_10.vgaze = "down"
 			c_10.vtone = 0.85
@@ -1627,13 +1627,13 @@ static func __init_module() -> void:
 				c_13.slow = (0.22 if (s_11 < 0.5) else 0.3)
 		var __f21 = func(o_14: PackedFloat32Array, c_14: TFinisher.FinCtx):
 			TFinisher.pinned(o_14, c_14, TFinisher.V_NELSON)
-			var k_5: float = 0.0
+			var k_5: int = 0
 			while (k_5 < 2.0):
-				var s_12: float = c_14.since(k_5)
+				var s_12: float = c_14.since(float(k_5))
 				if (s_12 >= 0.0):
-					o_14[TEmote.EC.PITCH] += (((-0.18 if (k_5 != 0.0) else 0.2)) * TEmote.pulse(s_12, 0.0, 0.05, 0.3))
-					o_14[TEmote.EC.TWIST] += (((0.22 if (k_5 != 0.0) else -0.22)) * TEmote.pulse(s_12, 0.0, 0.05, 0.3))
-				k_5 += 1.0
+					o_14[TEmote.EC.PITCH] += (((-0.18 if (float(k_5) != 0.0) else 0.2)) * TEmote.pulse(s_12, 0.0, 0.05, 0.3))
+					o_14[TEmote.EC.TWIST] += (((0.22 if (float(k_5) != 0.0) else -0.22)) * TEmote.pulse(s_12, 0.0, 0.05, 0.3))
+				k_5 += 1
 			c_14.vgaze = "opp"
 			c_14.vtone = 0.72
 		return {
@@ -1737,10 +1737,10 @@ static func __init_module() -> void:
 			c_15.gaze = ("down" if ((t_13 > (L0_4 + 0.2)) and (t_13 < (SLAM_2 + 0.6))) else "opp")
 		var __f24 = func(o_16: PackedFloat32Array, c_16: TFinisher.FinCtx):
 			var fold: float = (TMath.minJerk(TMath.clamp01(((((c_16.t) - ((H_3 + 0.05)))) / 0.4))))
-			var i_5: float = 0.0
+			var i_5: int = 0
 			while (i_5 < TEmote.EC.N):
 				TFinisher._s[i_5] = (TFinisher.V_NELSON[i_5] + (((TFinisher.V_NELSON_FOLD[i_5] - TFinisher.V_NELSON[i_5])) * fold))
-				i_5 += 1.0
+				i_5 += 1
 			TFinisher.pinned(o_16, c_16, TFinisher._s)
 			c_16.vgaze = "down"
 			c_16.vtone = 0.75

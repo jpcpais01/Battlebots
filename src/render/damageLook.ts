@@ -253,6 +253,8 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
         `#include <emissivemap_fragment>
         float sockW = 0.0;
         float oil = 0.0;
+        // how much of the paint is still there (a skin's own light goes where it goes)
+        float dmgPaintK = 1.0;
         if (vBone >= 0.0) {
           for (int k = 0; k < ${MARKS}; k++) {
             float kind = uMarkB[k].y;
@@ -281,6 +283,7 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
           float bare = smoothstep(0.55, 0.62, vDent * 0.75 + flake * 0.5);
           diffuseColor.rgb *= 1.0 - vDent * 0.28;
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.3, 0.31, 0.33) * (0.75 + flake * 0.5), bare);
+          dmgPaintK *= 1.0 - bare;
           metalnessFactor = mix(metalnessFactor, 0.95, bare);
           roughnessFactor = mix(roughnessFactor, 0.32 + flake * 0.3, bare);
           // and a rim of crazed paint around the bare patch
@@ -300,17 +303,20 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
           // paint chips off to bare, scuffed steel, ragged at the edges
           float chip = smoothstep(0.58 - vis * 0.22, 0.63 - vis * 0.22, spread);
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.27, 0.28, 0.3) * (0.7 + edge * 0.5), chip);
+          dmgPaintK *= 1.0 - chip;
           metalnessFactor = mix(metalnessFactor, 0.95, chip);
           roughnessFactor = mix(roughnessFactor, 0.4 + edge * 0.3, chip);
           // soot and scorch bloom out of the worst spots
           float sT = 0.66 - vis * 0.18 - heavy * 0.12;
           float scorch = smoothstep(sT, sT + 0.06, spot * 0.85 + edge * 0.2) * (0.35 + vis * 0.65);
           diffuseColor.rgb *= mix(1.0, 0.1, scorch);
+          dmgPaintK *= 1.0 - scorch * 0.8;
           roughnessFactor = mix(roughnessFactor, 0.85, scorch);
           // a wrecked part's plating tears open onto dark, burnt innards
           float hT = 0.68 - heavy * 0.26;
           float hole = smoothstep(hT, hT + 0.02, spread) * step(0.02, heavy);
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.03, 0.026, 0.024), hole);
+          dmgPaintK *= 1.0 - hole;
           metalnessFactor = mix(metalnessFactor, 0.5, hole);
           roughnessFactor = mix(roughnessFactor, 0.9, hole);
           // split plates crack along glowing seams, and the innards smoulder
@@ -338,7 +344,8 @@ export function patchDamage(mat: THREE.MeshStandardMaterial, u: DamageUniforms) 
           float swirl = dmgNoise(vDmgP * 7.0 + 5.0) * 1.4 + graze * 1.8;
           vec3 film = 0.5 + 0.5 * cos(6.2831 * (vec3(0.0, 0.33, 0.67) + swirl));
           totalEmissiveRadiance += film * (0.012 + graze * graze * 0.06) * oil;
-        }`,
+        }
+        // <skin-emit>`,
       );
   };
   mat.customProgramCacheKey = () => `${prevKey()}-dmg2`;

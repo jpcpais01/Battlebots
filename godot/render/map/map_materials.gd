@@ -78,6 +78,11 @@ func make(rec: Dictionary, node: Dictionary, scene: BakedScene) -> Array:
 	return [_cache[key], k[1], k[2] if k.size() > 2 else 0.0]
 
 
+## The clouds' noise and the sun's shadow height map every map shader samples.
+func shared_textures() -> Array[Texture2D]:
+	return [_noise, _shadow]
+
+
 ## A texture of the bake, as the web samples it. The shadow height map is half floats, which
 ## BakedScene doesn't read.
 func texture(scene: BakedScene, id: int) -> Texture2D:

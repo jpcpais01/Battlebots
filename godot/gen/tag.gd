@@ -43,13 +43,13 @@ static func shiftBody(f: TFighter.Fighter, dx: float, dz: float) -> void:
 	f.root.x += dx
 	f.root.z += dz
 	var b: TBody.Body = f.body
-	var i: float = 0.0
+	var i: int = 0
 	while (i < float(b.pos.size())):
 		b.pos[i].x += dx
 		b.pos[i].z += dz
 		b.prev[i].x += dx
 		b.prev[i].z += dz
-		i += 1.0
+		i += 1
 
 static func behindPoint(def: TFighter.Fighter, size_: float, out: V3) -> V3:
 	var fy: float = def.faceYaw
@@ -241,22 +241,22 @@ class TagTeam extends RefCounted:
 				mb.f.hooks.time = m.time
 		if (((m.phase != "fight") or paused) or ended):
 			return
-		var side: float = 0.0
+		var side: int = 0
 		while (side < 2.0):
-			var L: TTag.TagMember = legalOf(side)
+			var L: TTag.TagMember = legalOf(float(side))
 			if (L.status == "legal"):
 				L.stint += dt
 			if (run[side] >= 0.0):
-				running(side, dt)
+				running(float(side), dt)
 			elif asked[side]:
 				asked[side] = false
-				if (canTag(side) and isFree(L.f)):
-					startRun(side)
+				if (canTag(float(side)) and isFree(L.f)):
+					startRun(float(side))
 			elif (m.time >= thinkAt[side]):
 				thinkAt[side] = (m.time + TTag.THINK)
-				if (((canTag(side) and isFree(L.f)) and (m.time >= retryAt[side])) and wantsTag(side)):
-					startRun(side)
-			side += 1.0
+				if (((canTag(float(side)) and isFree(L.f)) and (m.time >= retryAt[side])) and wantsTag(float(side))):
+					startRun(float(side))
+			side += 1
 	
 	func isFree(f: TFighter.Fighter) -> bool:
 		var m: TMatch.Match = self.m
@@ -360,10 +360,10 @@ class TagTeam extends RefCounted:
 	func poseTo(ch: PackedFloat32Array, to: PackedFloat32Array, dt: float) -> void:
 		var k: float = (1.0 - DM.exp((-10.0 * dt)))
 		var _hEC = TEmote.EC
-		var i: float = 0.0
+		var i: int = 0
 		while (i < _hEC.N):
 			ch[i] += (((to[i] - ch[i])) * k)
-			i += 1.0
+			i += 1
 		ch[(((TEmote.EC.ARM + (0.0 * TEmote.ARM_N))) + 7.0)] = 0.0
 		ch[(((TEmote.EC.ARM + (1.0 * TEmote.ARM_N))) + 7.0)] = 0.0
 	
@@ -539,7 +539,7 @@ class TagTeam extends RefCounted:
 	func walking(mb: TTag.TagMember, dt: float) -> void:
 		var f: TFighter.Fighter = mb.f
 		var party: bool = (mb.status == "party")
-		if ((party and (float(mb.path.size()) == 1.0)) and (DM.hypot((mb.path[0.0].x - f.root.x), (mb.path[0.0].z - f.root.z)) < 0.7)):
+		if ((party and (float(mb.path.size()) == 1.0)) and (DM.hypot((mb.path[0].x - f.root.x), (mb.path[0].z - f.root.z)) < 0.7)):
 			mb.path.clear()
 		var arrived: bool = follow(mb, (1.0 if party else 0.8))
 		var gap: float = TBody.ropeGap(f.root.x, f.root.z)
@@ -562,7 +562,7 @@ class TagTeam extends RefCounted:
 	func follow(mb: TTag.TagMember, pace: float) -> bool:
 		var f: TFighter.Fighter = mb.f
 		while (float(mb.path.size()) != 0.0):
-			var p: V3 = mb.path[0.0]
+			var p: V3 = mb.path[0]
 			var d: float = DM.hypot((p.x - f.root.x), (p.z - f.root.z))
 			if (d > ((0.3 if (float(mb.path.size()) > 1.0) else 0.12))):
 				break
@@ -573,7 +573,7 @@ class TagTeam extends RefCounted:
 			__v1.y = 0.0
 			__v1.z = 0.0
 			return true
-		var p_2: V3 = mb.path[0.0]
+		var p_2: V3 = mb.path[0]
 		var dx: float = (p_2.x - f.root.x)
 		var dz: float = (p_2.z - f.root.z)
 		var d_2: float = DM.hypot(dx, dz)
@@ -603,10 +603,10 @@ class TagTeam extends RefCounted:
 		TEmote.resolveSides(mb.auth, mb.raw, mirror)
 		var k: float = (1.0 - DM.exp((-8.0 * dt)))
 		var _hEC = TEmote.EC
-		var i: float = 0.0
+		var i: int = 0
 		while (i < _hEC.N):
 			P.ch[i] += (((mb.raw[i] - P.ch[i])) * k)
-			i += 1.0
+			i += 1
 		P.w += (((mb.wantW - P.w)) * ((1.0 - DM.exp((-6.0 * dt)))))
 		var f: TFighter.Fighter = mb.f
 		P.ch[_hEC.CROUCH] += (DM.sin(((mb.t * 2.4) + (mb.side * 2.0))) * 0.006)
@@ -835,9 +835,9 @@ class TagTeam extends RefCounted:
 		var ch: V3 = def.body.pos[1.0]
 		var _h_w: V3 = TTag._w
 		def.right(_h_w)
-		var s: float = 0.0
+		var s: int = 0
 		while (s < 2.0):
-			var sx: float = (-1.0 if (s == 0.0) else 1.0)
+			var sx: float = (-1.0 if (float(s) == 0.0) else 1.0)
 			var __v8: V3 = P.grip[s]
 			var __v9: float = ((nk.x - ((fx * 0.1) * def.size_)) + ((_h_w.x * sx) * 0.05))
 			var __v10: float = (((nk.y) + ((((ch.y) - (nk.y))) * 0.25)))
@@ -846,7 +846,7 @@ class TagTeam extends RefCounted:
 			__v8.y = __v10
 			__v8.z = __v11
 			P.gripW[s] = mb.hold
-			s += 1.0
+			s += 1
 		fin.pin = mb.hold
 		if ((mb.hold > 0.85) and fin.holding):
 			fin.holding = false
