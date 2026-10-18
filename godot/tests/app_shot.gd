@@ -1,7 +1,8 @@
 ## A screenshot of the app on one of its screens, as a phone shows it, and a check that no control
 ## comes within the 3% side margins (FightHud.side_margin).
 ##   godot/tools/shots/shot.sh res://tests/app_shot.gd <out.png> [screen] [seconds] [script]
-## screen: home (default), garage, map, fight or results (a fight run to its end). seconds: how
+## screen: home (default), garage, map, tagteam, fight or results (a fight run to its end), tagfight
+## or tagresults (the same for a tag team fight from the team sheet). seconds: how
 ## long the screen runs before the picture. script: an optional res:// path of a script with a
 ## static `prepare(app: App)` (await-able) run before the wait, for setting a screen up (a tab, a
 ## modal). The save is a fresh one each time (user://save is cleared). The PNG is written
@@ -68,9 +69,15 @@ func _margins() -> void:
 func _run() -> void:
 	await _hold(0.5, 8)
 	match _screen:
-		"fight", "results":
-			app.fight()
-			if _screen == "results":
+		"fight", "results", "tagfight", "tagresults":
+			if _screen.begins_with("tag"):
+				# (a tag team fight from the team sheet)
+				app.go("tagteam")
+				await _hold(0.3, 3)
+				app.screens.tagteam.fight()
+			else:
+				app.fight()
+			if _screen.ends_with("results"):
 				await _hold(0.3, 3)
 				app.game._sync()
 				var mt = app.game.m

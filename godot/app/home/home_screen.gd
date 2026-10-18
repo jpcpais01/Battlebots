@@ -39,6 +39,8 @@ var _meta := HFlowContainer.new()
 var _tiles: Array[PartTile] = []
 var _record := HBoxContainer.new()
 var _career: Button
+## Tag Team: two bots a side (app/tagteam).
+var _tag: Button
 var _garage: Button
 var _cash: Label
 var _fight: Button
@@ -520,6 +522,26 @@ func _build_actions() -> void:
 	_add_cash(_career)
 	MenuKit.pad_button(_career, 0.6 * _em)
 	sub.add_child(_career)
+	# two bots a side: the team sheet (app/tagteam)
+	_tag = UiTheme.button("Tag Team", "", &"Btn")
+	_tag.name = "TagTeam"
+	var tic := _tag.find_child("Icon", true, false) as TextureRect
+	tic.texture = CareerKit.svg(TagTeamScreen.TEAM_SVG, 19)
+	tic.visible = true
+	_tag.pressed.connect(func() -> void:
+		app.tap("select")
+		app.go("tagteam"))
+	var fs := 0.68 * _em
+	var badge := MenuKit.pill(MenuKit.box(Color(UiTheme.CYAN, 0.16), 999, [0.5 * fs, 0.1 * fs, 0.5 * fs, 0.1 * fs], Color(UiTheme.CYAN, 0.5), 1), 0)
+	badge.get_node("Row").add_child(MenuKit.label("2 v 2", fs, 800, MenuKit.css("#bdf3ff")))
+	var bm := MarginContainer.new()
+	bm.add_theme_constant_override(&"margin_left", int(round(0.3 * _em)))
+	bm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bm.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	bm.add_child(badge)
+	(_tag.get_child(0) as HBoxContainer).add_child(bm)
+	MenuKit.pad_button(_tag, 0.6 * _em)
+	sub.add_child(_tag)
 	# (replays come later: the shelf isn't ported yet)
 	var small := HBoxContainer.new()
 	small.add_theme_constant_override(&"separation", int(round(0.45 * _em)))
@@ -642,6 +664,7 @@ func enter() -> void:
 	_garage.disabled = not app.screens.has("garage")
 	_career.disabled = not app.screens.has("map")
 	_vault.disabled = not app.screens.has("vault")
+	_tag.disabled = not app.screens.has("tagteam")
 	_sync_vault()
 	_sync_scene_btn()
 	_sync_sound()

@@ -61,12 +61,16 @@ func _init() -> void:
 
 
 ## Build the card for a finished fight. `info`: {m, me, winner, won, draw, kind, event} with event
-## null or {e, round, title, reward} (App._show_results).
+## null or {e, round, title, reward} (App._show_results); a tag team fight adds teams (the teams'
+## names, ours first).
 func show_results(info_: Dictionary) -> void:
 	info = info_
 	var m = info.m
-	var a = m.fighters[0]
-	var b = m.fighters[1]
+	var tag: bool = m.tag != null
+	var teams: Array = info.get("teams", ["", ""])
+	# (a tag team fight: each team's numbers together, under its name)
+	var a = team_stats(m, 0, teams[0]) if tag else m.fighters[0]
+	var b = team_stats(m, 1, teams[1]) if tag else m.fighters[1]
 	var ev = info.get("event")
 	var won: bool = info.won
 	var draw: bool = info.draw
@@ -74,15 +78,22 @@ func show_results(info_: Dictionary) -> void:
 	var kind = info.kind
 	var title: bool = ev != null and ev.title
 	var verdict := ("CUP WINNER" if ev.e.kind == "cup" else "CHAMPION") if title else "DRAW" if draw else "VICTORY" if won else "DEFEAT"
+	if tag and not draw:
+		verdict = "TEAM " + verdict
 	var kicker := ""
 	if ev != null:
 		var n: int = ev.e.rivals.size()
 		var rd := int(ev.round)
 		kicker = "%s · %s" % [ev.e.name_, "Final" if rd == n - 1 else "Round %d of %d" % [rd + 1, n]]
+	elif tag:
+		kicker = "Tag team · %d seconds" % roundi(float(m.fightTime))
 	else:
 		kicker = "%d seconds" % roundi(float(m.fightTime))
 	var how := {"Decision": "on points", "TKO": "by TKO", "KO": "by knockout", "Dismantled": "by tearing it apart"}.get(str(kind) if kind != null else "", "")
 	var who := "Split down the middle" if draw else "[color=#ffffff][b]%s[/b][/color] wins %s" % [_esc(m.fighters[winner].name_), how]
+	if tag and not draw:
+		var team: String = teams[winner] if String(teams[winner]) != "" else "%s's team" % m.fighters[winner].name_
+		who = "[color=#ffffff][b]%s[/b][/color] win it %s, [b]%s[/b] landing the last blow" % [_esc(team), how, _esc(m.fighters[winner].name_)]
 	var ca := bar_colors(m.specs[0].paint)[0]
 	var cb := bar_colors(m.specs[1].paint)[0]
 
@@ -115,6 +126,9 @@ func show_results(info_: Dictionary) -> void:
 	head.add_child(w)
 	_col.add_child(head)
 
+	# a tag team fight: both teams' bots, how each came out of it, and the tags
+	if tag:
+		_col.add_child(_roster(m, teams))
 	# the stats, side by side
 	_col.add_child(_stats(a, b, ca, cb))
 
@@ -154,17 +168,31 @@ func _actions(ev, won: bool, draw: bool) -> Control:
 			var label := "Fight again" if draw else ("%s: %s" % ["Final" if next == n - 1 else "Round %d" % (next + 1), e.rivals[next].name_]) if won else "Start over"
 			primary = _btn(label, "swords", &"BtnPrimary", func() -> void: app.fight_event(e))
 			row.add_child(_btn("Map", "map", &"Btn", _to_map))
+	elif info.m.tag != null:
+		# tag team again: new rivals, the same ones, or back to the team sheet
+		primary = _btn("Next fight", "swords", &"BtnPrimary", func() -> void: app.tag_fight(false))
+		row.add_child(_btn("Rematch", "refresh", &"Btn", func() -> void: app.tag_fight(true)))
 	else:
 		primary = _btn("Next fight", "swords", &"BtnPrimary", func() -> void: app.fight(false))
 		row.add_child(_btn("Rematch", "refresh", &"Btn", func() -> void: app.fight(true)))
 	primary.name = "Primary"
 	box.add_child(primary)
-	var garage := _btn("Garage", "wrench", &"Btn", func() -> void:
-		app.tap("select")
-		app.close_results()
-		app.go("garage"))
-	garage.disabled = not app.screens.has("garage")
-	row.add_child(garage)
+	if info.m.tag != null and app.screens.has("tagteam"):
+		var team := _btn("Team", "", &"Btn", func() -> void:
+			app.tap("select")
+			app.close_results()
+			app.go("tagteam"))
+		var ic := team.find_child("Icon", true, false) as TextureRect
+		ic.texture = CareerKit.svg(TagTeamScreen.TEAM_SVG, 19)
+		ic.visible = true
+		row.add_child(team)
+	else:
+		var garage := _btn("Garage", "wrench", &"Btn", func() -> void:
+			app.tap("select")
+			app.close_results()
+			app.go("garage"))
+		garage.disabled = not app.screens.has("garage")
+		row.add_child(garage)
 	var home := _btn("Home", "home", &"BtnSmall", func() -> void:
 		app.tap("back")
 		app.close_results()
@@ -311,6 +339,73 @@ func _stats(a, b, ca: Color, cb: Color) -> Control:
 	for l in mids:
 		l.custom_minimum_size.x = mid
 	return t
+
+
+## A tag team's numbers together, shaped as a fighter's for _stats ({name_, stats}): the sums, and
+## the biggest single shot either landed.
+static func team_stats(m, side: int, team: String) -> Dictionary:
+	var st := {"dealt": 0.0, "landed": 0.0, "thrown": 0.0, "blocked": 0.0, "dodged": 0.0, "knockdowns": 0.0, "takedowns": 0.0, "biggest": 0.0}
+	var names := []
+	for mb in m.tag.members:
+		if int(mb.side) != side:
+			continue
+		names.append(String(mb.f.name_))
+		var fs = mb.f.stats
+		for k in st:
+			st[k] = maxf(st[k], float(fs[k])) if k == "biggest" else st[k] + float(fs[k])
+	return {"name_": team if team != "" else " & ".join(names), "stats": st}
+
+
+## The two teams' bots (.tag-roster): each bot's colour, its name, how it came out of the fight
+## (still standing with its health left, or knocked out of the match), and each team's tags.
+func _roster(m, teams: Array) -> Control:
+	var fs := 0.86 * EM
+	var grid := HBoxContainer.new()
+	grid.name = "Roster"
+	grid.add_theme_constant_override(&"separation", int(round(0.9 * EM)))
+	for side in 2:
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override(&"separation", int(round(0.3 * EM)))
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var right := side == 1
+		var head := MenuKit.label(("%d tag%s" % [int(m.tag.tags[side]), "" if int(m.tag.tags[side]) == 1 else "s"]).to_upper(), 0.7 * EM, 700, UiTheme.MUTED, int(round(0.7 * EM * 0.14)))
+		head.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT if right else HORIZONTAL_ALIGNMENT_LEFT
+		col.add_child(head)
+		for mb in m.tag.members:
+			if int(mb.side) != side:
+				continue
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override(&"separation", int(round(0.45 * EM)))
+			if right:
+				row.alignment = BoxContainer.ALIGNMENT_END
+			var dot := Panel.new()
+			var c := bar_colors(mb.spec.paint)[0]
+			var ds := MenuKit.box(c if not mb.out else Color(c, 0.35), 99)
+			dot.add_theme_stylebox_override(&"panel", ds)
+			dot.custom_minimum_size = Vector2.ONE * round(0.6 * EM)
+			dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			var text := VBoxContainer.new()
+			text.add_theme_constant_override(&"separation", 0)
+			text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			var nl := MenuKit.label(String(mb.f.name_), fs, 750, UiTheme.MUTED if mb.out else UiTheme.TEXT)
+			# (out of the match, or the last bot standing for the losers when it ended inside the distance)
+			var last: bool = m.winner != null and str(m.result) != "Decision" and mb.f == m.fighters[1 - int(m.winner.index)]
+			var down: bool = mb.out or last or float(mb.f.hp) <= 0.0
+			var how := "Knocked out" if down else "%d%% left" % roundi(float(mb.f.hpRatio) * 100.0)
+			var sl := MenuKit.label(how, 0.74 * EM, 600, UiTheme.RED if down else UiTheme.TEXT_2)
+			for l in [nl, sl]:
+				l.custom_minimum_size.y = 0
+				l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+				l.clip_text = true
+				l.custom_minimum_size.x = 30
+				if right:
+					l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+				text.add_child(l)
+			for n: Control in ([text, dot] if right else [dot, text]):
+				row.add_child(n)
+			col.add_child(row)
+		grid.add_child(col)
+	return grid
 
 
 ## parseFloat of a stat ("3/10" is 3, "–" is NaN).

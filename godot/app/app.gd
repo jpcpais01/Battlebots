@@ -14,6 +14,7 @@ const SCREENS := {
 	"garage": "res://app/garage/garage_screen.gd",
 	"map": "res://app/career/map_screen.gd",
 	"vault": "res://app/gacha/vault_screen.gd",
+	"tagteam": "res://app/tagteam/tag_team_screen.gd",
 }
 ## The results card (app.ts showResults), a ResultsView.
 const RESULTS := "res://app/results/results_view.gd"
@@ -51,6 +52,10 @@ var opponent = null
 var event_run = null
 ## The last fight against the AI, enough to play it again (app.ts lastFight: a, b, seed, arena).
 var last_fight = null
+## The tag team the player last sent out, and who it faced: {partner, rivals: [their starter, their
+## partner], names: [ours, theirs]} (null before the first tag team fight). The results' Next fight
+## and Rematch play tag team again from it.
+var tag_setup = null
 ## Where the home screen happens (app.ts homePlace): "beach", "gym", "lounge" (animated scenes, the
 ## world's "home" place) or "arena".
 ## The app always opens on the beach (João); the scene pill switches it for the session.
@@ -179,7 +184,7 @@ func go(id: String) -> void:
 	current = id
 	if id != "fight":
 		game.end_match()
-		if id == "home" or id == "map":
+		if id == "home" or id == "map" or id == "tagteam":
 			game.show_bot(player)
 	var place: String = PLACE.get(id, "arena")
 	if id == "home" and home_place != "arena":
@@ -224,6 +229,11 @@ func _camera(id: String) -> void:
 			d.shift_x = 0.27
 			# the arena crowd is far away from the workshop
 			game.crowd_audio.ambience(0.04)
+		"tagteam":
+			# the ring behind the team sheet, the house filling up and the camera orbiting
+			d.mode = "menu"
+			d.shift_x = 0.0
+			game.crowd_audio.ambience(0.4)
 		"vault":
 			# the same lift, the bot on the right of the vault's panel
 			d.mode = "garage"
@@ -367,6 +377,54 @@ func start_fight(same_opponent: bool) -> void:
 	go("fight")
 
 
+## A tag team match (the Tag Team screen): the player's bot and `partner` against `rivals` ([their
+## starter, their partner]), two a side in the indoor arena. `names` are the teams' names, [ours,
+## theirs], for the results.
+func start_tag_fight(partner, rivals: Array, names := ["", ""]) -> void:
+	close_results()
+	event_run = null
+	tag_setup = {"partner": partner.duplicate(true), "rivals": [rivals[0].duplicate(true), rivals[1].duplicate(true)], "names": names}
+	opponent = rivals[0]
+	if "rival_intro" in game.hud:
+		game.hud.rival_intro = null
+	# (the replay shelf is one on one: a tag team fight isn't kept for it)
+	last_fight = null
+	if game.has_method("set_arena"):
+		game.set_arena("grand")
+	game.start_match(player, rivals[0], float(randi()), {"a": partner, "b": rivals[1]})
+	go("fight")
+
+
+## The results' Next fight (new rivals) or Rematch (the same ones) after a tag team fight.
+func tag_fight(same_rivals: bool) -> void:
+	if tag_setup == null:
+		fight(same_rivals)
+		return
+	tap("start")
+	var rivals: Array = tag_setup.rivals
+	var names: Array = tag_setup.names
+	if not same_rivals:
+		rivals = TagTeamKit.make_rivals(self, tag_setup.partner, _rng)
+		names = [names[0], TagTeamKit.team_name(_rng)]
+	start_tag_fight(tag_setup.partner, rivals, names)
+
+
+## Whether the fight on screen (or just over) is a tag team match.
+func is_tag() -> bool:
+	return game.m != null and game.m.tag != null
+
+
+## Count a tag team fight on its own tally as well as the record's ({wins, losses, draws}, a
+## preference: the record's sanitizer keeps only its own keys).
+func tag_tally(won: bool, draw: bool) -> void:
+	var t = Store.pref("tagRecord", {})
+	if not t is Dictionary:
+		t = {}
+	var k := "draws" if draw else "wins" if won else "losses"
+	t[k] = int(t.get(k, 0)) + 1
+	Store.set_pref("tagRecord", t)
+
+
 ## The next round of a map event: its rival for that round, then into the arena (app.ts fightEvent).
 func fight_event(e) -> void:
 	var round_: float = TEvents.progressOf(record.events, e.id).run
@@ -414,10 +472,14 @@ func _drop_skip() -> void:
 
 ## Pause menu Forfeit (app.ts pause): a loss, and walking out of an event's round ends the run.
 func _on_forfeit() -> void:
+	var tag := is_tag()
 	if game.m != null and game.m.phase != "end":
 		tally(false, false)
+		if tag:
+			tag_tally(false, false)
 		event_result(false, false, null, true)
-	go("map" if event_run != null and screens.has("map") else "home")
+	# (out of a tag team fight, back to the team sheet)
+	go("map" if event_run != null and screens.has("map") else "tagteam" if tag and screens.has("tagteam") else "home")
 
 
 ## Count a fight against the AI (app.ts tally).
@@ -477,7 +539,12 @@ func _show_results() -> void:
 	var kind = m.result
 	var ev = event_result(won, draw, kind) if event_run != null else null
 	tally(won, draw)
+	if m.tag != null:
+		tag_tally(won, draw)
 	var info := {"m": m, "me": 0, "winner": winner, "won": won, "draw": draw, "kind": kind, "event": ev}
+	# a tag team fight's team names (ours, theirs)
+	if m.tag != null:
+		info["teams"] = tag_setup.names if tag_setup != null else ["", ""]
 	if ResourceLoader.exists(RESULTS):
 		results = load(RESULTS).new()
 		results.app = self
