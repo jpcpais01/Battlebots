@@ -36,7 +36,7 @@ fight cameras go (`tools/bake/lens_points.json`, recorded by `tests/lens_points.
 one you re-baked (the last number is the ring, drawn with every event venue), then check them all:
 
 ```sh
-godot --headless --path godot -s res://tools/bake/slim_scene.gd -- res://assets/venue/arena 49000
+BB_SLIM_MAX=45 godot --headless --path godot -s res://tools/bake/slim_scene.gd -- res://assets/venue/arena 49000
 godot --headless --path godot -s res://tools/bake/slim_scene.gd -- res://assets/venues/island 49500 13218
 BB_SLIM_OBJECT=2.5 godot --headless --path godot -s res://tools/bake/slim_scene.gd -- res://assets/drones/drones 2500
 BB_VENUE_SYNC=1 godot --headless --path godot -s res://tests/tri_budget.gd   # robots, places, drones

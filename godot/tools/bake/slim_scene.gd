@@ -24,7 +24,8 @@ const LENS_R := 4.0
 const NEAR := 1.5
 ## The most error (over distance) it may take to fit the budget: beyond this, things start to
 ## look different from the ring (the ring and tunnels are kept exact regardless). A place that
-## can't fit within it is left over budget, and says so.
+## can't fit within it is left over budget, and says so. BB_SLIM_MAX=<mm per metre> raises it for a
+## place where more doesn't show: the indoor arena's dark stands (checked by eye at 45).
 const MAX_ERROR := 0.016
 ## Vertex colours this close (1 / COLOR_STEPS of their square root, roughly as the eye sees
 ## shades) may merge when simplifying.
@@ -171,11 +172,12 @@ func _main() -> void:
 			print("  at %4.1f mm/m: %d" % [e * 1000.0, _total(runs, e) + fixed + extra])
 	# the least error (over distance) that fits
 	var lo := 1e-6
-	var hi := MAX_ERROR
+	var most := float(OS.get_environment("BB_SLIM_MAX")) / 1000.0 if OS.has_environment("BB_SLIM_MAX") else MAX_ERROR
+	var hi := most
 	if _total(runs, lo) + fixed + extra <= budget:
 		hi = lo
 	elif _total(runs, hi) + fixed + extra > budget:
-		print("slim_scene: OVER BUDGET: %d at the most error that still looks the same (%.0f mm per metre)" % [_total(runs, hi) + fixed + extra, MAX_ERROR * 1000.0])
+		print("slim_scene: OVER BUDGET: %d at the most error that still looks the same (%.0f mm per metre)" % [_total(runs, hi) + fixed + extra, most * 1000.0])
 		lo = hi
 	else:
 		for k in 40:
