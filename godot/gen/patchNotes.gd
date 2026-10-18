@@ -17,6 +17,15 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-18 15:00",
+	"title": "Skin Vault cards fixed",
+	"notes": [
+	"Android: Skin Vault cards show their skins again. On phones every card's swatch had turned into a plain white square.",
+	"Android: a 10-pull turns its cards over from Common up, so your best skin always lands last, and Rare and Epic cards burst into sparks as they flip.",
+	"Android: 10-pull cards have a holo foil shine on Rares and Epics, a name band in their rarity's colour, and a row on top counting your Epics, Rares and new skins."
+]
+},
+	{
 	"hour": "2026-10-18 13:00",
 	"title": "Steady robots with ray tracing",
 	"notes": [
