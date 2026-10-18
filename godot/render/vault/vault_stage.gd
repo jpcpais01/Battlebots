@@ -700,6 +700,8 @@ func play(results: Array, spec) -> void:
 	_reset()
 	_results = results
 	_spec = spec
+	# (the plating shaders for the skins about to go on the robot: compiling while the machine plays)
+	BotModel.warm(results.map(func(r): return r.skin))
 	_tier = int(Gacha.best_of(results).skin.r)
 	_shown_tier = 0
 	_cracked = [false, false]
