@@ -82,9 +82,10 @@ export class SkinCard {
     this.el = el('button', 'skin-card') as HTMLButtonElement;
     this.el.innerHTML = '<span class="sc-face"></span><span class="sc-back"><i></i></span>';
     this.orb = new SkinOrb(skin, { veiled: opts.veiled, fps: opts.fps ?? 24, spin: opts.spin ?? 0.03 });
-    this.el.querySelector('.sc-face')!.appendChild(this.orb.el);
-    this.nameEl = el('b', 'sc-name', '', this.el.querySelector('.sc-face')!);
-    this.tierEl = el('small', 'sc-tier', '', this.el.querySelector('.sc-face')!);
+    const face = this.el.querySelector<HTMLElement>('.sc-face')!;
+    face.appendChild(this.orb.el);
+    this.nameEl = el('b', 'sc-name', '', face);
+    this.tierEl = el('small', 'sc-tier', '', face);
     this.badge = el('span', 'sc-badge', '', this.el);
     el('span', 'sc-worn', ICON.check, this.el);
     this.set(skin, opts.veiled);
