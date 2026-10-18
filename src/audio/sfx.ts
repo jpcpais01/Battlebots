@@ -4,6 +4,7 @@ import { Booth, nameKey, type Clip, type NameCut, type VoiceManifest } from './b
 import { fetchManifest, Voice } from './voice';
 import { renderWalkOn } from './walkOn';
 import { HomeSound, type HomeSoundKind } from './homeSound';
+import { GACHA_RATE, GACHA_SOUNDS, makeGachaSound, type GachaSoundId } from './gachaSound';
 
 const MASTER = 0.7;
 /** The rate sounds made before audio may start are made at (the usual output rate; any other resamples them on play). */
@@ -61,6 +62,9 @@ export class Sfx {
   /** The animated home screen's place: surf and a tune, or the gym's radio. */
   private home: HomeSound | null = null;
   private homeKind: HomeSoundKind | null = null;
+  /** The Skin Vault's synthesized sounds, and the ones playing. */
+  private gachaBank = new Map<GachaSoundId, AudioBuffer>();
+  private gachaLive = new Set<AudioBufferSourceNode>();
   /** Commentary volume: 1 on, 0.5 quiet, 0 off. */
   commentary = 1;
   /** The commentators. Silent until audio starts and the voice list has loaded. */
@@ -741,6 +745,56 @@ export class Sfx {
     this.impact('thud', 0.5, 0.85, 0, 0.12);
     this.tone('sine', 110, 28, 1.0, 0.7);
     this.noise(0.6, 'lowpass', 1200, 0.5, 0.35, 0, 200);
+  }
+
+  /**
+   * One of the Skin Vault's sounds (audio/gachaSound.ts), made the first time it's wanted, at a
+   * gain and playback rate. gachaStop() cuts whatever of them is still playing.
+   */
+  gacha(id: GachaSoundId, gain = 1, rate = 1) {
+    if (!this.ok) return;
+    const ctx = this.ctx!;
+    let b = this.gachaBank.get(id);
+    if (!b) {
+      const d = makeGachaSound(id);
+      b = ctx.createBuffer(1, d.length, GACHA_RATE);
+      b.copyToChannel(d, 0);
+      this.gachaBank.set(id, b);
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = b;
+    src.playbackRate.value = rate;
+    const g = ctx.createGain();
+    g.gain.value = gain;
+    src.connect(g).connect(this.master!);
+    src.start();
+    this.gachaLive.add(src);
+    src.onended = () => this.gachaLive.delete(src);
+  }
+
+  gachaStop() {
+    for (const s of this.gachaLive) {
+      try {
+        s.stop();
+      } catch {
+        /* already done */
+      }
+    }
+    this.gachaLive.clear();
+  }
+
+  /** Make the vault's sounds ahead of a pull, one per call (whether any were left). */
+  gachaWarm() {
+    if (!this.ok) return false;
+    for (const id of GACHA_SOUNDS) {
+      if (this.gachaBank.has(id)) continue;
+      const d = makeGachaSound(id);
+      const b = this.ctx!.createBuffer(1, d.length, GACHA_RATE);
+      b.copyToChannel(d, 0);
+      this.gachaBank.set(id, b);
+      return true;
+    }
+    return false;
   }
 
   ui(kind: 'tap' | 'select' | 'back' | 'start' = 'tap') {

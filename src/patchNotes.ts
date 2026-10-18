@@ -16,6 +16,17 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-18 02:00",
+    title: "The Skin Vault comes to the web",
+    notes: [
+      "The Skin Vault from the Android app is open on the web: tap the new Skins button on the home screen to win skins that cover your robot's plating, from 13 Common patterns and 8 Rare exotic finishes to 7 animated Epics.",
+      "Every pull drops a capsule that charges up and bursts open, teasing violet for a Rare and gold for an Epic. A 10-pull deals ten cards and turns them over one by one.",
+      "Pulls cost career credits: 100, or 900 for ten with a Rare or better inside. A free pull comes back every 4 hours, and your first visit has a free 10-pull waiting.",
+      "The odds are in the vault: Epic 4%, Rare 21%, Common 75%, an Epic within 50 pulls, and a featured Epic each day. Duplicates turn into shards that buy the skin you want.",
+      "Wear skins from the vault or the garage's new Skins page under Paint, and each one paints on with a sweep of light. Opponents show up in skins too, and title finals in an Epic one.",
+    ],
+  },
+  {
     hour: "2026-10-18 01:00",
     title: "The Skin Vault",
     notes: [
