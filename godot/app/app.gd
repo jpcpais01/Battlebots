@@ -104,6 +104,8 @@ func _setup() -> void:
 	# a skin the vault no longer counts as owned comes off (a save from another phone)
 	if Gacha.check_worn(skins, player):
 		Store.save_player(player)
+	# the plating shaders the player's robot needs start compiling now, off the frame
+	BotModel.warm([null, player.get("skin")])
 	for b in saves:
 		Gacha.check_worn(skins, b)
 	# a career just started keeps the parts already worn; after that, parts the player hasn't

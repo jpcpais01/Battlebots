@@ -65,14 +65,43 @@ const LEG_B := Vector3(0, 0.12, -0.08)
 const TOE_OFFSET := Vector3(0, -0.048, 0.072)
 ## How strongly a bone keeps last frame's roll against a weak hint (orient_held).
 const HOLD := 0.15
-## Room in the shader for the contact occlusion's per-bone sphere lists (bot_opaque.gdshader),
+## Room in the shader for the contact occlusion's per-bone sphere lists (bot_opaque.gdshaderinc),
 ## and how far dents and wear may push the plating past its rest bounds, in metres.
 const AO_LIST_MAX := 768
 const AO_MARGIN := 0.12
 const HOT := Color(1, 0.13, 0.05)
 
+## The plating shader that draws any skin (and the sweep of a new one painting on): worn only
+## while a skin paints on. Otherwise a robot wears opaque_shader(its skin's kind).
 const OPAQUE_SHADER := preload("res://render/bot_opaque.gdshader")
 const GLOW_SHADER := preload("res://render/bot_glow.gdshader")
+
+## The plating shaders built for one skin each (kind -> Shader), shared by every robot wearing it.
+static var _fixed := {}
+static var _fixed_lock := Mutex.new()
+
+
+## The plating shader for robots wearing skin `kind` (0: the plain paint), with none of the other
+## skins' code in it (bot/bot_opaque.gdshaderinc). Made on first use; Godot starts compiling it
+## on worker threads as soon as its code is set, so making it early (BotModel.warm) keeps the wait
+## off the frame that first draws it. Safe from any thread.
+static func opaque_shader(kind: int) -> Shader:
+	_fixed_lock.lock()
+	var sh: Shader = _fixed.get(kind)
+	if sh == null:
+		sh = Shader.new()
+		sh.code = "shader_type spatial;\n#define SKIN_FIXED %d\n#include \"res://render/bot/bot_opaque.gdshaderinc\"\n" % kind
+		_fixed[kind] = sh
+	_fixed_lock.unlock()
+	return sh
+
+
+## Start compiling the plating shaders these skins (or spec.skin ids, or null for the plain
+## paint) need, ahead of the robots that wear them.
+static func warm(skins: Array) -> void:
+	for s in skins:
+		var sk = Skins.get_skin(String(s)) if s is String or s is StringName else s
+		opaque_shader(0 if sk == null else int(sk.kind))
 
 var spec
 var size := 1.0
@@ -273,7 +302,7 @@ func _build() -> void:
 
 	_bound_bones()
 	_opaque_mat = ShaderMaterial.new()
-	_opaque_mat.shader = OPAQUE_SHADER
+	_opaque_mat.shader = opaque_shader(0)
 	_glow_mat = ShaderMaterial.new()
 	_glow_mat.shader = GLOW_SHADER
 	_paint_surfaces()
@@ -419,6 +448,7 @@ func _paint_surfaces() -> void:
 	}
 	skin = Skins.of(spec)
 	Skins.apply(_opaque_mat, skin, 0)
+	_opaque_mat.shader = opaque_shader(0 if skin == null else int(skin.kind))
 	var surf := PackedVector4Array()
 	var rough := PackedFloat32Array()
 	for k in BotParts.OPAQUE_KEYS:
@@ -894,6 +924,8 @@ const SWEEP := 1.15
 ## the plain paint) giving way above the line as it climbs (the garage and the vault, when a skin
 ## goes on).
 func paint_on(was) -> void:
+	# (both skins at once, picked per pixel: the shader that can draw any, until the sweep is over)
+	_opaque_mat.shader = OPAQUE_SHADER
 	Skins.apply(_opaque_mat, was, 1)
 	var g := Skins.glow(skin, _paint_glow, 0.0) if skin != null else _paint_glow
 	_opaque_mat.set_shader_parameter("skin_band", Vector3(g.r, g.g, g.b) * 2.2 + Vector3.ONE * 0.4)
@@ -913,6 +945,7 @@ func _sweep(time: float) -> void:
 		_wipe_t = -1.0
 		_opaque_mat.set_shader_parameter("skin_wipe", 100.0)
 		Skins.apply(_opaque_mat, null, 1)
+		_opaque_mat.shader = opaque_shader(0 if skin == null else int(skin.kind))
 		return
 	# eased: quick off the feet, slowing over the head
 	var e := 1.0 - (1.0 - k) * (1.0 - k)
@@ -928,7 +961,7 @@ var grime: float:
 	set(v):
 		_grime = clampf(v, 0.0, 1.0)
 		for m in _mats:
-			if m.shader == OPAQUE_SHADER:
+			if m.shader != GLOW_SHADER:
 				m.set_shader_parameter("grime", _grime)
 
 
@@ -1176,7 +1209,7 @@ func _push_damage(all: bool) -> void:
 		m.set_shader_parameter("dent_at", _dent_at)
 		if all:
 			m.set_shader_parameter("wear", _wear)
-		if m.shader == OPAQUE_SHADER:
+		if m.shader != GLOW_SHADER:
 			m.set_shader_parameter("marks", _marks)
 			m.set_shader_parameter("mark_b", _mark_b)
 			m.set_shader_parameter("mark_count", marks)

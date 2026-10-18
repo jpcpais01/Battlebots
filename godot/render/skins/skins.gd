@@ -95,7 +95,7 @@ static func lin(hex: int) -> Color:
 	return Color.hex((hex << 8) | 0xff).srgb_to_linear()
 
 
-## Write a skin into a shader's skin uniforms (render/bot_opaque.gdshader, the vault's orbs):
+## Write a skin into a shader's skin uniforms (render/bot/bot_opaque.gdshaderinc, the vault's orbs):
 ## `slot` 0 is the one worn, 1 the one a sweep is painting over. null clears the slot.
 static func apply(mat: ShaderMaterial, skin, slot := 0) -> void:
 	var kinds: Vector2i = mat.get_shader_parameter("skin_kind") if mat.get_shader_parameter("skin_kind") != null else Vector2i.ZERO

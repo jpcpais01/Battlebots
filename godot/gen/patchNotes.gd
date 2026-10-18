@@ -17,6 +17,14 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-18 12:00",
+	"title": "Cleaner, lighter robots",
+	"notes": [
+	"Android: fixed robots' paint breaking into blotchy, flickering patches on some phones, and robots looking torn apart on the beach.",
+	"Android: robots cost the GPU less again. Each robot's shader now carries only the skin it wears, so robots without a skin draw exactly as fast as before skins arrived."
+]
+},
+	{
 	"hour": "2026-10-18 05:00",
 	"title": "Titan battles",
 	"notes": [

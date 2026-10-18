@@ -8,12 +8,22 @@
 // pattern is read from the plating's own rest-space coordinates (the bone's frame), so it stays
 // painted on the metal as the robot moves, dents and tears apart.
 //
+// A shader built for one skin defines SKIN_FIXED as its kind (render/bot/bot_opaque.gdshaderinc):
+// the other kinds' code is left out of it altogether.
+//
 // Kinds (render/skins/skins.gd keeps the same numbers):
 //   0 none (the paint as it is)
 //   1 camo, 2 digital camo, 3 stripes (tiger, zebra), 4 bands (hazard, candy), 5 checker,
 //   6 carbon weave,
 //   7 thin film (chameleon, oil slick), 8 scales, 9 marble, 10 hex plating, 11 ice, 12 circuit,
 //   13 lava, 14 nebula, 15 storm, 16 synthwave grid, 17 aurora, 18 data rain, 19 liquid metal
+
+// the one kind compiled in, or -1 for all of them
+#ifdef SKIN_FIXED
+#define SK_ONLY SKIN_FIXED
+#else
+#define SK_ONLY -1
+#endif
 
 struct SkinOut {
 	vec3 albedo;
@@ -116,6 +126,7 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 	float fw = max(length(fwidth(q)), 1e-4);
 	float graze = 1.0 - clamp(dot(nw, vw), 0.0, 1.0);
 
+#if SK_ONLY < 0 || SK_ONLY == 1
 	if (kind == 1) {
 		// camo: three layers of soft blobs over the base colour
 		float a = sk_fbm(q);
@@ -126,7 +137,10 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		o.albedo = mix(o.albedo, c2.rgb, sk_edge(0.58, b, w));
 		o.albedo = mix(o.albedo, c3.rgb, sk_edge(0.66, c, w));
 		o.albedo *= mix(1.0, 0.82, sec);
-	} else if (kind == 2) {
+	}
+#endif
+#if SK_ONLY < 0 || SK_ONLY == 2
+	if (kind == 2) {
 		// digital camo: the camo's blobs sampled on a grid of small squares
 		vec3 g = floor(q * 6.0) / 6.0;
 		vec3 g2 = floor(q * 3.0) / 3.0;
@@ -139,7 +153,10 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		o.albedo = mix(o.albedo, c2.rgb, mix(step(0.68, b), 0.25, fade));
 		o.albedo = mix(o.albedo, c3.rgb, mix(step(0.76, c), 0.1, fade));
 		o.albedo *= mix(1.0, 0.82, sec);
-	} else if (kind == 3) {
+	}
+#endif
+#if SK_ONLY < 0 || SK_ONLY == 3
+	if (kind == 3) {
 		// stripes: warped, tapering bands round the parts (tiger, zebra), fading to c2 underneath
 		float u = dot(q, vec3(0.32, 1.0, 0.18)) + sk_fbm(q * 0.9 + 4.0) * 1.1;
 		float f = fract(u * 1.6);
@@ -149,7 +166,10 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		float stripe = 1.0 - sk_edge(thick, d * (1.0 + 0.5 * sk_noise(q * 5.0)), w);
 		vec3 coat = mix(c0.rgb, c2.rgb, smoothstep(-0.1, -0.8, rn.y) * 0.6 + sec * 0.2);
 		o.albedo = mix(coat, c1.rgb, stripe);
-	} else if (kind == 4) {
+	}
+#endif
+#if SK_ONLY < 0 || SK_ONLY == 4
+	if (kind == 4) {
 		// bands: bold diagonal stripes (hazard, candy), a thin pinstripe of c2 between
 		float u = dot(q, vec3(0.7071, 0.7071, 0.35)) + sec * 0.5;
 		float f = fract(u);
@@ -158,7 +178,10 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		o.albedo = mix(c0.rgb, c1.rgb, band);
 		float pin = (1.0 - sk_edge(0.035, abs(f - 0.5), w)) * c2.a;
 		o.albedo = mix(o.albedo, c2.rgb, pin * (1.0 - smoothstep(0.1, 0.4, fw)));
-	} else if (kind == 5) {
+	}
+#endif
+#if SK_ONLY < 0 || SK_ONLY == 5
+	if (kind == 5) {
 		// checker: a racing flag in solid squares
 		vec3 g = floor(q);
 		float k = mod(g.x + g.y + g.z, 2.0);
@@ -167,7 +190,10 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		o.albedo = mix(c0.rgb, c1.rgb, mix(k, 0.5, smoothstep(0.15, 0.5, fw)));
 		o.albedo *= mix(0.94, 1.0, seam);
 		o.albedo *= mix(1.0, 0.8, sec);
-	} else if (kind == 6) {
+	}
+#endif
+#if SK_ONLY < 0 || SK_ONLY == 6
+	if (kind == 6) {
 		// carbon weave: a 2x2 twill of tows under a deep clear coat
 		vec2 uv = sk_box(q, rn) * 8.0;
 		vec2 g = floor(uv);
@@ -184,14 +210,20 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		o.albedo = mix(c0.rgb, c1.rgb, shade * (0.55 + 0.45 * aniso));
 		o.h = (1.0 - fade) * tow * 0.4;
 		o.albedo *= mix(1.0, 0.8, sec);
-	} else if (kind == 7) {
+	}
+#endif
+#if SK_ONLY < 0 || SK_ONLY == 7
+	if (kind == 7) {
 		// thin film: the colour slides round c1 -> c2 -> c3 with the viewing angle (chameleon,
 		// oil slick), swirled a little over the part
 		float swirl = sk_fbm(q * 2.2) * 1.6 + sk_noise(q * 6.0) * 0.25;
 		float phase = graze * 0.9 + swirl + nw.y * 0.25 + sec * 0.33;
 		vec3 film = sk_loop3(c1.rgb, c2.rgb, c3.rgb, phase);
 		o.albedo = mix(c0.rgb, film, 0.25 + 0.6 * graze * graze + 0.15 * graze);
-	} else if (kind == 8) {
+	}
+#endif
+#if SK_ONLY < 0 || SK_ONLY == 8
+	if (kind == 8) {
 		// scales: rows of overlapping domed scales, each rimmed in c2
 		vec2 uv = sk_box(q, rn) * vec2(4.0, 5.0);
 		float best = 0.72;
@@ -220,7 +252,10 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		o.metal = mix(par.z, 1.0, rim);
 		o.h = sqrt(max(dome, 0.0)) * 0.5;
 		o.albedo *= mix(1.0, 0.8, sec);
-	} else if (kind == 9) {
+	}
+#endif
+#if SK_ONLY < 0 || SK_ONLY == 9
+	if (kind == 9) {
 		// marble: cloudy stone shot through with fine veins of metal (c2, metallic)
 		float w = sk_fbm(q * 0.7) * 5.0 + sk_fbm(q * 2.0 + 5.0);
 		float v = abs(sin(q.x * 1.3 + q.y * 0.6 + w));
@@ -232,7 +267,10 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		o.metal = mix(par.z, 1.0, vein);
 		o.rough = mix(par.w, 0.18, vein);
 		o.albedo *= mix(1.0, 0.85, sec);
-	} else if (kind == 10) {
+	}
+#endif
+#if SK_ONLY < 0 || SK_ONLY == 10
+	if (kind == 10) {
 		// hex plating: bevelled hexagon plates, their seams lit from inside in c2
 		vec3 hx = sk_hex(sk_box(q, rn) * 2.2);
 		float w = fw * 2.2 + 0.01;
@@ -244,7 +282,10 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		o.emit = c2.rgb * seam * (1.0 - smoothstep(0.3, 1.0, fw * 2.2)) * 1.6;
 		o.h = bevel * 0.35;
 		o.albedo *= mix(1.0, 0.8, sec);
-	} else if (kind == 11) {
+	}
+#endif
+#if SK_ONLY < 0 || SK_ONLY == 11
+	if (kind == 11) {
 		// ice: deep blue glass cracked in white, frost gathering at the edges
 		vec2 cl = sk_cells(q * 1.6);
 		float crack = 1.0 - smoothstep(0.0, 0.05 + fw * 2.0, cl.y - cl.x);
@@ -258,7 +299,10 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		o.emit = c3.rgb * (depth * 0.25 + crack * 0.5) * 0.35;
 		o.h = -crack * 0.3;
 		o.albedo *= mix(1.0, 0.85, sec);
-	} else if (kind == 12) {
+	}
+#endif
+#if SK_ONLY < 0 || SK_ONLY == 12
+	if (kind == 12) {
 		// circuit: copper traces and gold pads on a board, a few status LEDs lit
 		vec2 uv = sk_box(q, rn) * 5.0;
 		vec2 g = floor(uv);
@@ -279,7 +323,10 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		o.emit = c3.rgb * led * 3.5 + c1.rgb * trace * 0.06;
 		o.h = (trace + pad) * 0.12;
 		o.albedo *= mix(1.0, 0.85, sec);
-	} else if (kind == 13) {
+	}
+#endif
+#if SK_ONLY < 0 || SK_ONLY == 13
+	if (kind == 13) {
 		// lava: plates of black crust drifting on molten rock that glows through the cracks
 		vec3 flow = vec3(0.0, -t * sp * 0.08, t * sp * 0.03);
 		vec3 wq = q + vec3(sk_noise(q * 0.7 + flow), sk_noise(q * 0.7 + 7.0), sk_noise(q * 0.7 - flow)) * 0.6;
@@ -297,7 +344,10 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		o.metal = 0.0;
 		o.emit += molten * heat * (1.9 - sec * 0.5) + c3.rgb * smoothstep(0.6, 1.0, sk_noise(q * 2.0 + flow * 3.0)) * crack * 1.5;
 		o.h = (1.0 - crack) * 0.35 + crust * 0.1;
-	} else if (kind == 14) {
+	}
+#endif
+#if SK_ONLY < 0 || SK_ONLY == 14
+	if (kind == 14) {
 		// nebula: a window onto deep space, the clouds and stars seen in the plating's reflection
 		vec3 r = reflect(-vw, nw);
 		vec3 d = normalize(r * 2.0 + p * 0.6);
@@ -318,7 +368,10 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		o.metal = 0.0;
 		o.rough = 0.42;
 		o.emit = cloud * (dens * 1.15 + 0.02) * (1.0 - sec * 0.3) + vec3(1.0, 0.97, 0.92) * star * tw * 7.0;
-	} else if (kind == 15) {
+	}
+#endif
+#if SK_ONLY < 0 || SK_ONLY == 15
+	if (kind == 15) {
 		// storm: electric arcs crawling over dark plating, flickering in bursts
 		vec3 m = vec3(0.0, t * sp * 0.9, t * sp * 0.55);
 		float n = sk_noise(q * 1.4 + m + sk_noise(q * 3.0 - m) * 0.8);
@@ -333,7 +386,10 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		o.albedo = c0.rgb * (0.7 + charge * 0.5);
 		o.emit = (c1.rgb * arc * 3.2 + c2.rgb * pow(arc, 3.0) * 5.0) * flick + c1.rgb * smoothstep(0.55, 0.9, charge) * 0.18;
 		o.h = arc * 0.1;
-	} else if (kind == 16) {
+	}
+#endif
+#if SK_ONLY < 0 || SK_ONLY == 16
+	if (kind == 16) {
 		// synthwave: a neon grid scrolling over a sunset, its glow sliding between c1 and c2
 		vec2 uv = sk_box(q, rn) * 3.0 + vec2(0.0, t * sp * 0.6);
 		vec2 g = abs(fract(uv) - 0.5);
@@ -345,7 +401,10 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		float sun = smoothstep(-0.3, 0.6, rn.y + sin(q.x * 0.5) * 0.1);
 		o.albedo = mix(c0.rgb, c3.rgb * 0.5, sun * 0.3);
 		o.emit = neon * (line * 2.8 + glow) + c3.rgb * sun * 0.06;
-	} else if (kind == 17) {
+	}
+#endif
+#if SK_ONLY < 0 || SK_ONLY == 17
+	if (kind == 17) {
 		// aurora: thin ribbons of light folding and drifting over dark plating
 		float x = dot(q, vec3(1.0, 0.0, 0.6)) + sk_fbm(q * 0.45 + vec3(0.0, 0.0, t * sp * 0.1)) * 2.6;
 		float band = 1.0 - abs(fract(x * 1.3 + t * sp * 0.08) - 0.5) * 2.0;
@@ -359,7 +418,10 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		hue = mix(hue, c3.rgb, smoothstep(0.7, 1.0, rays) * ribbon);
 		o.albedo = c0.rgb + hue * ribbon * 0.04;
 		o.emit = hue * (light * 3.2 + ribbon * 0.25) * (1.0 - sec * 0.3);
-	} else if (kind == 18) {
+	}
+#endif
+#if SK_ONLY < 0 || SK_ONLY == 18
+	if (kind == 18) {
 		// data rain: columns of glyphs falling down the plating, each led by a bright head
 		vec2 uv = sk_box(q, rn) * vec2(7.0, 4.0);
 		float col = floor(uv.x);
@@ -383,7 +445,10 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		o.albedo = c0.rgb;
 		o.rough = 0.12;
 		o.emit = (c1.rgb * trail * on * 2.4 + c2.rgb * lead * on * 4.0) * k + c1.rgb * trail * 0.05;
-	} else if (kind == 19) {
+	}
+#endif
+#if SK_ONLY < 0 || SK_ONLY == 19
+	if (kind == 19) {
 		// liquid metal: polished metal under travelling ripples, darker in the troughs
 		vec3 m = vec3(t * sp * 0.7);
 		float h = sin(dot(q, vec3(1.7, 0.6, 0.4)) * 2.0 - m.x * 2.0) * 0.4
@@ -397,5 +462,6 @@ SkinOut skin_eval(int kind, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 par, vec3 p
 		o.emit = c2.rgb * pow(smoothstep(0.55, 0.95, h), 3.0) * 0.6;
 		o.h = h * 3.0;
 	}
+#endif
 	return o;
 }
