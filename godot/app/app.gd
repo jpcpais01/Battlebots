@@ -20,7 +20,7 @@ const SCREENS := {
 const RESULTS := "res://app/results/results_view.gd"
 ## The world's place for each screen (app.ts go: the garage and the map are their own places; the
 ## home screen is the arena unless an animated home scene is picked and ported).
-const PLACE := {"garage": "garage", "map": "map", "vault": "garage"}
+const PLACE := {"garage": "garage", "map": "map", "vault": "vault"}
 
 ## A screen came on (App.go): its id.
 signal screen_changed(id: String)
@@ -298,11 +298,9 @@ func _camera(id: String) -> void:
 			d.shift_x = 0.0
 			game.crowd_audio.ambience(0.4)
 		"vault":
-			# the same lift, the bot on the right of the vault's panel
-			d.mode = "garage"
-			d.garage_yaw = 0.45
-			d.shift_x = -0.24
-			game.crowd_audio.ambience(0.04)
+			# the vault flies its own camera (render/vault/vault_stage.gd), out in space
+			d.mode = "scene"
+			game.crowd_audio.ambience(0.0)
 		_:
 			d.shift_x = 0.0
 			game.crowd_audio.ambience(1.0)
@@ -349,6 +347,8 @@ func wear_skin(id: String) -> void:
 		game.showcase.model.paint_on(prev)
 	if game.place == "garage":
 		game.garage_pulse()
+	elif game.place == "vault":
+		game.get_place("vault").pulse()
 
 
 ## Save the record (after the market, a fit, a fight) and tell the screens.

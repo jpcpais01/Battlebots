@@ -2,8 +2,9 @@ extends SceneTree
 ## The skin vault's rules and its screen headless (app/gacha): the rates over many pulls, the
 ## Epic pity, a Rare in every 10-pull, duplicates turning into shards and shards into a skin, the
 ## state's save and load, a worn skin surviving the bot's save, and the vault screen: the welcome
-## 10-pull, paid pulls taking credits (and refused without them), wearing a skin, the garage's
-## Skins page and an opponent's skin.
+## 10-pull, paid pulls taking credits (and refused without them), the pulls playing out on the
+## vault's own place (render/vault/vault_stage.gd), wearing a skin, the garage's Skins page and an
+## opponent's skin.
 ##   godot --headless --path godot -s res://tests/gacha_flow.gd
 var app: App
 var _fails := 0
@@ -114,19 +115,32 @@ func _screen() -> void:
 	await create_timer(0.6).timeout
 	var v: VaultScreen = app.screens.vault
 	check(app.current == "vault" and v.visible, "the vault opens")
+	var stage := app.game.get_place("vault") as VaultStage
+	check(app.game.place == "vault" and stage != null and stage.visible, "the vault is its own place, out in space")
+	check(app.game.director.mode == "scene" and stage.mode == "idle", "the vault flies its own camera")
 	var credits: float = app.record.career.credits
 	v._free_pull()
 	await _wait(3)
 	check(v.show != null, "the welcome pull plays")
+	check(stage.mode == "ten" and not app.game.showcase.model.visible, "the ten play on the machine, the robot out of the way")
 	check(int(app.skins.pulls) == 10 and app.skins.welcome, "the welcome pull is ten, once")
 	check(float(app.record.career.credits) == credits, "the welcome pull is free")
 	v.show._skip()
 	await _wait(3)
+	check(stage.mode == "orbs" and v.show._cards.size() == 10, "a tap pops them all and deals the cards")
 	v.show._skip()
 	await _wait(3)
+	v.show._open_card(0)
+	await _wait(3)
+	check(stage.mode == "reveal" and app.game.showcase.model.visible and app.game.showcase.model.skin != null and app.game.showcase.model.skin.id == v.show.results[0].skin.id, "a card tapped shows its skin on the robot")
+	check(app.player.get("skin") == null, "only shown, not worn")
+	v.show._close_detail()
+	await _wait(3)
+	check(stage.mode == "orbs", "and back to the ten")
 	v._on_show("done", null, 10)
 	await _wait(3)
 	check(v.show == null, "the show closes")
+	check(stage.mode == "idle" and app.game.showcase.model.visible and app.game.showcase.model.skin == null, "the machine rests, the player's own bot back on the turntable")
 	# the free single pull is waiting too (the clock starts at 0)
 	v._free_pull()
 	await _wait(3)
@@ -141,6 +155,10 @@ func _screen() -> void:
 	v.pull(1)
 	await _wait(3)
 	check(float(app.record.career.credits) == 50.0 and int(app.skins.pulls) == 12, "a pull costs %d credits" % Gacha.PULL_COST)
+	check(stage.mode == "single", "one capsule plays on the machine")
+	v.show._skip()
+	await _wait(3)
+	check(stage.mode == "reveal" and v.show._phase == "reveal", "a tap bursts it and shows the skin on the robot")
 	check(Store.load_record().career.credits == 50.0, "the credits are saved")
 	var got: String = v.show.results[0].skin.id
 	v._on_show("wear", got, 1)
