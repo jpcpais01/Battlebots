@@ -17,6 +17,14 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-18 13:00",
+	"title": "Steady robots with ray tracing",
+	"notes": [
+	"Android: robots no longer flicker in fights with Ray tracing on Light, or vanish for a moment when you switch it on. Light now keeps the key light's shadow edges crisp, which also makes it a little cheaper on the GPU.",
+	"Android: Ray tracing's contact shadows fade in and out smoothly as robots move, instead of blinking."
+]
+},
+	{
 	"hour": "2026-10-18 12:00",
 	"title": "Cleaner, lighter robots",
 	"notes": [

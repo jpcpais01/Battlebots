@@ -60,7 +60,8 @@ func _process(_dt: float) -> bool:
 		_check(_fight.ray.visible and s.rt_mode() == "light", "light shows the quad")
 		_check(not FileAccess.file_exists(Settings.renderer_path), "light writes no renderer file")
 		_check(not _fight._env.ssao_enabled, "light leaves Godot's SSAO off")
-		_check(_fight._key.light_size > 0.0, "light gives the key a size (soft shadows)")
+		# (a light with a size rebuilds the shaders of all it lights: Light keeps Off's builds)
+		_check(_fight._key.light_size == 0.0, "light keeps the key hard")
 	if _n == 18:
 		get_root().get_texture().get_image().save_png(_dir + "/light.png")
 		s.set_rt("heavy")
