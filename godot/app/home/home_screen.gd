@@ -534,17 +534,8 @@ func _build_actions() -> void:
 	_tag.pressed.connect(func() -> void:
 		app.tap("select")
 		app.go("tagteam"))
-	var fs := 0.68 * _em
-	var badge := MenuKit.pill(MenuKit.box(Color(UiTheme.CYAN, 0.16), 999, [0.5 * fs, 0.1 * fs, 0.5 * fs, 0.1 * fs], Color(UiTheme.CYAN, 0.5), 1), 0)
-	badge.get_node("Row").add_child(MenuKit.label("2 v 2", fs, 800, MenuKit.css("#bdf3ff")))
-	var bm := MarginContainer.new()
-	bm.add_theme_constant_override(&"margin_left", int(round(0.3 * _em)))
-	bm.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bm.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	bm.add_child(badge)
-	(_tag.get_child(0) as HBoxContainer).add_child(bm)
 	MenuKit.pad_button(_tag, 0.6 * _em)
-	# tag team and titans side by side
+	# tag team and titans side by side (no room for tag team's "2 v 2" badge: its icon says it)
 	var duo := HBoxContainer.new()
 	duo.add_theme_constant_override(&"separation", int(round(0.45 * _em)))
 	duo.mouse_filter = Control.MOUSE_FILTER_IGNORE
