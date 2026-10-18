@@ -14,6 +14,8 @@ class_name HomeScreen
 extends AppScreen
 
 const PLACES := ["beach", "gym", "lounge", "arena"]
+## The Titans button's icon: a towering robot, a fan at its feet.
+const TITAN_SVG := '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="10" y="2" width="7" height="5" rx="1.2"/><path d="M9 9.5h9M13.5 7v7.5M11 22l2.5-7.5L16 22M9 9.5l-1.2 5M18 9.5l1.2 5"/><circle cx="4.5" cy="17.6" r="1.1"/><path d="M4.5 19.5V22"/></svg>'
 const PLACE_NAME := {"beach": "Beach", "gym": "Gym", "lounge": "Lounge", "arena": "Arena"}
 
 var _em := UiTheme.EM
@@ -41,6 +43,7 @@ var _record := HBoxContainer.new()
 var _career: Button
 ## Tag Team: two bots a side (app/tagteam).
 var _tag: Button
+var _titans: Button
 var _garage: Button
 var _cash: Label
 var _fight: Button
@@ -541,7 +544,26 @@ func _build_actions() -> void:
 	bm.add_child(badge)
 	(_tag.get_child(0) as HBoxContainer).add_child(bm)
 	MenuKit.pad_button(_tag, 0.6 * _em)
-	sub.add_child(_tag)
+	# tag team and titans side by side
+	var duo := HBoxContainer.new()
+	duo.add_theme_constant_override(&"separation", int(round(0.45 * _em)))
+	duo.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sub.add_child(duo)
+	_tag.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	duo.add_child(_tag)
+	# titan battles: 30 m robots in the Titan Colosseum (render/titan)
+	_titans = UiTheme.button("Titans", "", &"Btn")
+	_titans.name = "Titans"
+	var tti := _titans.find_child("Icon", true, false) as TextureRect
+	tti.texture = CareerKit.svg(TITAN_SVG, 19)
+	tti.visible = true
+	_titans.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_titans.pressed.connect(fight.bind(true))
+	MenuKit.pad_button(_titans, 0.6 * _em)
+	duo.add_child(_titans)
+	# (built ahead, so the first titan fight starts straight away)
+	if app != null and app.game != null and app.game.has_method("load_venue"):
+		app.game.load_venue("titan")
 	# (replays come later: the shelf isn't ported yet)
 	var small := HBoxContainer.new()
 	small.add_theme_constant_override(&"separation", int(round(0.45 * _em)))
@@ -603,12 +625,13 @@ func _add_cash(b: Button) -> void:
 
 ## The Fight button (app.ts fight): on an animated home scene the robot gets the call first (the
 ## stage's outro), then a flash of white and the cut to the arena; elsewhere straight in.
-func fight() -> void:
+## The Fight button, or with `titans` the Titans button (a titan battle).
+func fight(titans := false) -> void:
 	if leaving:
 		return
 	var st = app.game.get_place("home") if app.game.place == "home" else null
 	if st == null or not st.has_method("outro"):
-		app.fight()
+		app.fight(false, titans)
 		return
 	app.tap("start")
 	leaving = true
@@ -628,7 +651,7 @@ func fight() -> void:
 			if not leaving:
 				return
 			leaving = false
-			app.fight()))
+			app.fight(false, titans)))
 
 
 ## .scene-fade.white: up in 0.26s, `then` 0.28s in, and away over 0.75s 0.9s later.

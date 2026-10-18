@@ -17,6 +17,17 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-18 05:00",
+	"title": "Titan battles",
+	"notes": [
+	"Android: Titan battles are here. Tap Titans on the home screen and your bot fights as a 30-metre titan against a matched rival, round after round.",
+	"Titans fight on a raised turf deck in the Titan Colosseum, a stone stadium 1.5 km across under a low golden sun, with over two million fans in three tiers waving flags and doing the wave.",
+	"Titans move with real weight: the fight plays slower, every step shakes the ground and kicks up dust, big falls tear up the turf, and their blows sound deep and reach you a beat late from across the field.",
+	"New camera: now and then the broadcast cuts to a fan's view from the stands, over the heads of the cheering people in front. The other cameras film the titans low from the ground so they tower over you.",
+	"The fans, banners, gate towers and big screens take on the two titans' colours, and the ring's ropes are beams of light strung between glowing pylons."
+]
+},
+	{
 	"hour": "2026-10-18 04:00",
 	"title": "The Skin Vault goes to space",
 	"notes": [

@@ -10,7 +10,7 @@ extends Node3D
 
 const MAX_PARTICLES := 700
 ## Smoke puffs and metal flakes (alpha blended, so they can be dark).
-const MAX_SMOKE := 260
+const MAX_SMOKE := 420
 const MAX_FLASHES := 32
 const MAX_ARCS := 16
 const FLAMES := 6
@@ -123,6 +123,17 @@ func _emit(p: Vector3, vx: float, vy: float, vz: float, color: Color, life: floa
 func _emit_smoke(p: Vector3, vx: float, vy: float, vz: float, gray: float, life: float, size: float, grow: float, alpha: float, grav: float, drag: float) -> void:
 	_smoke.put(Vector3(vx, vy, vz), Vector3(clock, life, size), Vector3(drag, grav, 0.0), p, Color(gray, gray, gray * 1.05), Color(grow, alpha, 0, 0))
 	_smoke.expires = maxf(_smoke.expires, clock + life)
+
+
+## A puff of coloured dust or smoke (linear `c`): the titans' footfalls and landings (TitanFx).
+func dust_puff(p: Vector3, v: Vector3, c: Color, life: float, size: float, grow: float, alpha: float, grav := -0.05, drag := 1.6) -> void:
+	_smoke.put(v, Vector3(clock, life, size), Vector3(drag, grav, 0.0), p, c, Color(grow, alpha, 0, 0))
+	_smoke.expires = maxf(_smoke.expires, clock + life)
+
+
+## Small hot or dusty specks thrown from p (TitanFx: clods of turf and grit).
+func specks(p: Vector3, v: Vector3, c: Color, life: float, size: float, drag := 1.0, grav := 9.0) -> void:
+	_emit(p, v.x, v.y, v.z, c, life, size, drag, grav)
 
 
 ## Dark smoke rising from damaged machinery. `heat` 0..1 thickens and darkens it.

@@ -15,6 +15,8 @@ const SCRIPTS := {
 	"grove": "",
 	"falls": "",
 	"rooftop": "res://render/venues/rooftop.gd",
+	# the Android app's own: titan battles' Colosseum, built in code (render/titan)
+	"titan": "res://render/titan/titan_venue.gd",
 }
 
 var game: Game
@@ -48,7 +50,7 @@ func _exit_tree() -> void:
 
 ## Whether `id` has a venue of its own (the Grand Championship is fought indoors).
 static func has_venue(id: String) -> bool:
-	return SCRIPTS.has(id) and FileAccess.file_exists(BAKE_DIR + id + ".json")
+	return SCRIPTS.has(id) and (id == "titan" or FileAccess.file_exists(BAKE_DIR + id + ".json"))
 
 
 ## Whether `id`'s venue is built (or needs none).
@@ -76,6 +78,19 @@ func set_arena(id: String) -> void:
 		_use(null)
 	elif _built.has(id):
 		_use(_built[id])
+	elif id == "titan":
+		# a titan fight can't start in the old ring and change round the titans halfway: the
+		# Colosseum is quick to build, so it is finished now (it is usually built ahead from home)
+		if _tasks.has(id):
+			WorkerThreadPool.wait_for_task_completion(_tasks[id])
+			_tasks.erase(id)
+			_mutex.lock()
+			var v: OutdoorVenue = _done.get(id)
+			_done.erase(id)
+			_mutex.unlock()
+			_finish(id, v)
+		else:
+			_finish(id, _make(id, _crowd_template()))
 	else:
 		load_venue(id)
 
@@ -137,6 +152,7 @@ func _use(v: OutdoorVenue) -> void:
 	if game.ray != null:
 		game.ray.set_arena(v.id if v != null else "grand")
 	FxDebris.outer_ground_y = v.outer if v != null else NAN
+	game.set_titan(v is TitanVenue)
 	if game.place == "arena":
 		_relight()
 

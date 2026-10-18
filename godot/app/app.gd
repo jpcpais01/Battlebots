@@ -52,6 +52,9 @@ const UNLOCK_ALL := true
 var opponent = null
 ## The fight on screen is a round of a map event: {id, round, defence} (app.ts eventRun).
 var event_run = null
+## The fights are titan battles (the home screen's Titans): the bots 30 m tall in the Titan
+## Colosseum. The results' Next fight and Rematch stay titan.
+var titan_run := false
 ## The last fight against the AI, enough to play it again (app.ts lastFight: a, b, seed, arena).
 var last_fight = null
 ## The tag team the player last sent out, and who it faced: {partner, rivals: [their starter, their
@@ -408,9 +411,11 @@ func make_opponent():
 
 ## The Fight button (app.ts fight): a new opponent, or the same one again (a rematch, the next
 ## round of an event).
-func fight(same_opponent := false) -> void:
+## `titans`: a titan battle (render/titan) instead of a fight in the indoor arena.
+func fight(same_opponent := false, titans := false) -> void:
 	if not same_opponent:
 		event_run = null
+	titan_run = titans
 	tap("start")
 	start_fight(same_opponent)
 
@@ -420,9 +425,11 @@ func start_fight(same_opponent: bool) -> void:
 	if not same_opponent or opponent == null:
 		opponent = make_opponent()
 	var seed := float(randi())
-	# an event's rounds are fought in its own venue, everything else indoors
-	var arena := "grand"
+	# an event's rounds are fought in its own venue, titans in the Titan Colosseum, everything
+	# else indoors
+	var arena := "titan" if titan_run else "grand"
 	if event_run != null:
+		titan_run = false
 		arena = TEvents.EVENT_BY_ID[event_run.id].arena
 	# a map event's rival is billed in the intro with its style and taunt (app.ts startFight)
 	var rv = null
@@ -446,6 +453,7 @@ func start_fight(same_opponent: bool) -> void:
 func start_tag_fight(partner, rivals: Array, names := ["", ""]) -> void:
 	close_results()
 	event_run = null
+	titan_run = false
 	tag_setup = {"partner": partner.duplicate(true), "rivals": [rivals[0].duplicate(true), rivals[1].duplicate(true)], "names": names}
 	opponent = rivals[0]
 	if "rival_intro" in game.hud:

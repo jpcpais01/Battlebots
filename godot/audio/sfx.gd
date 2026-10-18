@@ -63,6 +63,16 @@ var _walk_on_streams := {}
 var _pan_scale := 1.0
 
 
+## Titan battles (render/titan): every impact, step and thud plays deeper (a thing fifteen times
+## the size rings lower), and from far away it arrives late (titan_delay, set each frame from the
+## lens's distance to the fight: sound crosses the stadium at 343 m/s).
+var titan := false
+var titan_delay := 0.0
+const TITAN_RATE := 0.62
+# (set while the queue replays a layer that already had the titans' pitch and delay applied)
+var _titan_done := false
+
+
 func _ready() -> void:
 	name = "Sfx"
 	var global: float = ProjectSettings.get_setting("audio/general/2d_panning_strength", 0.5)
@@ -157,6 +167,11 @@ func _play(clip: String, bus: StringName, gain: float, rate := 1.0, pan := 0.0, 
 	var stream: AudioStream = _streams.get(clip)
 	if stream == null:
 		return null
+	if titan and player == null and (bus == FX or bus == HITS) and not _titan_done:
+		rate *= TITAN_RATE
+		if titan_delay > 0.03:
+			_queue.append([_now + titan_delay, clip, bus, gain, rate, pan, true])
+			return null
 	var info: Array = SfxBank.CLIPS[clip]
 	var ears := _ears(pan)
 	var sum := ears.x + ears.y
@@ -231,8 +246,10 @@ func _run_queue() -> void:
 		var rate: float = q[4]
 		var lead := SfxBank.LEAD if str(q[1]).begins_with("imp") else 0.0
 		if wait * rate <= lead:
-			_play(q[1], q[2], q[3], rate, q[5], lead - maxf(0.0, wait) * rate)
 			_queue.remove_at(i)
+			_titan_done = q.size() > 6
+			_play(q[1], q[2], q[3], rate, q[5], lead - maxf(0.0, wait) * rate)
+			_titan_done = false
 		else:
 			i += 1
 

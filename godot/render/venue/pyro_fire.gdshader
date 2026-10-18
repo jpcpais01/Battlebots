@@ -10,6 +10,8 @@ uniform vec4 emit[8];
 uniform float glow = 2.2;
 // bowl.ts FLOOR (uFloor: "floor" is a built-in function here)
 uniform float floor_y = -0.62;
+// the smoke's colour (dark under the indoor rig; the Titan Colosseum's sunlight greys it)
+uniform vec3 smoke = vec3(0.05, 0.05, 0.055);
 
 varying float v_heat;
 varying float v_a;
@@ -81,7 +83,7 @@ void fragment() {
 	float a;
 	if (v_smoke > 0.5) {
 		a = body * v_a * (0.6 + 0.6 * n);
-		c = mix(vec3(0.05, 0.05, 0.055), vec3(0.9, 0.35, 0.08), v_heat) * (0.5 + 0.5 * n) * a;
+		c = mix(smoke, vec3(0.9, 0.35, 0.08), v_heat) * (0.5 + 0.5 * n) * a;
 	} else {
 		// temperature to colour: deep red, orange, yellow, white-hot core
 		float t = clamp(v_heat * (0.55 + 0.75 * body) * (0.75 + 0.5 * n), 0.0, 1.2);

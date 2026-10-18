@@ -173,8 +173,10 @@ func _actions(ev, won: bool, draw: bool) -> Control:
 		primary = _btn("Next fight", "swords", &"BtnPrimary", func() -> void: app.tag_fight(false))
 		row.add_child(_btn("Rematch", "refresh", &"Btn", func() -> void: app.tag_fight(true)))
 	else:
-		primary = _btn("Next fight", "swords", &"BtnPrimary", func() -> void: app.fight(false))
-		row.add_child(_btn("Rematch", "refresh", &"Btn", func() -> void: app.fight(true)))
+		# (after a titan battle, titans again)
+		var titans: bool = app.titan_run
+		primary = _btn("Next fight", "swords", &"BtnPrimary", func() -> void: app.fight(false, titans))
+		row.add_child(_btn("Rematch", "refresh", &"Btn", func() -> void: app.fight(true, titans)))
 	primary.name = "Primary"
 	box.add_child(primary)
 	if info.m.tag != null and app.screens.has("tagteam"):
