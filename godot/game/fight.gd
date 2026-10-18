@@ -32,6 +32,9 @@ var crew: Array[BotModel] = []
 var _legal := PackedInt32Array([0, 2])
 ## A tag team match's own camera moments (tags, eliminations), over the director's.
 var tag_cam := TagCam.new()
+## A tag lights up the corner where the hands met, in the colours of the bot coming in.
+var _tag_light: OmniLight3D
+var _tag_glow := 0.0
 var arena: Arena
 ## Pieces of the world built ahead, off the main thread, while the loading screen shows
 ## (app/boot/boot.gd): "arena" (an Arena), "effects" (a FightFx) and "home:<scene>" (a home
@@ -456,6 +459,8 @@ func end_match() -> void:
 	sfx.walk_on_stop(0.4)
 	_free_models()
 	tag_cam.stop()
+	_tag_glow = 0.0
+	_tag_light.visible = false
 	effects.stop()
 	stretcher.clear()
 	if _gate_on:
@@ -880,6 +885,11 @@ func _arena_event(type: String, data) -> void:
 		"tag":
 			arena.excite(0.9)
 			arena.flash_ropes(0.7)
+			# the corner lights up in the incoming bot's colours (just inside the ropes, overhead)
+			var at := Vector3(float(data.x), 0.0, float(data.z))
+			_tag_light.position = at * (1.0 - 0.7 / maxf(1.0, at.length())) + Vector3(0, 2.3, 0)
+			_tag_light.light_color = _lin(int(m.specs[int(data.side)].paint.accent)).lerp(Color(1, 1, 1), 0.25).linear_to_srgb()
+			_tag_glow = 1.0
 		"eliminated":
 			arena.excite(1.6)
 			arena.strobe(0.7)
@@ -1037,6 +1047,11 @@ func _process(dt: float) -> void:
 	arena.score(dt, {"names": [_mv.fighters[0].name_, _mv.fighters[1].name_], "hp": hp, "clock": _mv.clock, "phase": _mv.phase, "presenting": int(_mv.presenting)})
 	arena.update(dt, _time)
 	arena.corners.update(dt, _time, _mv, effects.fx, false)
+	if _tag_glow > 0.0:
+		_tag_glow = maxf(0.0, _tag_glow - dt / 1.8)
+		var g := _tag_glow * _tag_glow * (3.0 - 2.0 * _tag_glow)
+		_tag_light.light_energy = 14.0 / PI * g
+		_tag_light.visible = g > 0.01
 	# the rim light over each corner swings to that robot's colours while it makes its entrance
 	var h0: Array = TEntrance.hatchXZ(0.0)
 	for j in 2:
@@ -1336,3 +1351,9 @@ func _build_world() -> void:
 		o.position = r[1]
 		add_child(o)
 		_rims.append(o)
+	_tag_light = OmniLight3D.new()
+	_tag_light.omni_range = 5.0
+	_tag_light.omni_attenuation = 1.2
+	_tag_light.light_energy = 0.0
+	_tag_light.visible = false
+	add_child(_tag_light)
