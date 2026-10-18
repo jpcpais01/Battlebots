@@ -207,6 +207,8 @@ export class SkinBuilder {
     const nor: number[] = [];
     const col: number[] = [];
     const mr: number[] = [];
+    // which plating a corner is on, for the skins: 1 the paint, 2 the second paint, 0 the rest
+    const skey: number[] = [];
     const ech: number[] = [];
     const bone: number[] = [];
     const part: number[] = [];
@@ -222,6 +224,7 @@ export class SkinBuilder {
       const nv = w.pos.length / 3;
       nm.getNormalMatrix(m);
       const s = opaque ? this.surfaces[p.e.key as keyof Surfaces] : null;
+      const sk = p.e.key === 'paint' ? 1 : p.e.key === 'paint2' ? 2 : 0;
       const P: number[] = [];
       const N: number[] = [];
       for (let i = 0; i < nv; i++) {
@@ -248,6 +251,7 @@ export class SkinBuilder {
           nor.push(N[i * 3], N[i * 3 + 1], N[i * 3 + 2]);
           col.push(s!.color.r, s!.color.g, s!.color.b);
           mr.push(s!.metal, s!.rough);
+          skey.push(sk);
         } else ech.push(p.ch);
         bone.push(p.bone);
         part.push(p.part);
@@ -265,6 +269,7 @@ export class SkinBuilder {
       geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
       geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
       geo.setAttribute('mr', new THREE.Float32BufferAttribute(mr, 2));
+      geo.setAttribute('skey', new THREE.Float32BufferAttribute(skey, 1));
     } else geo.setAttribute('ech', new THREE.Float32BufferAttribute(ech, 1));
     geo.setAttribute('part', new THREE.Float32BufferAttribute(part, 1));
     const n = bone.length;
