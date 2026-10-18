@@ -523,17 +523,20 @@ func _pose_bench(alpha: float) -> void:
 		bench[side].end(f, _time)
 
 
-## Tag team: a bot outside the fight that the director's shot runs into (it doesn't frame them)
-## steps out of the picture: one right at the lens, or standing between it and the fight.
+## Tag team: a partner waiting on the apron that the director's shot runs into (it doesn't frame
+## them) steps out of the picture: one right at the lens, or standing between it and the fight.
 ## The tag camera's own shots are framed round them, so there they always show.
 func _bench_clear() -> void:
 	var c := cam.global_position
 	var focus := (models[0].joints[1] + models[1].joints[1]) * 0.5
 	var to_f := focus - c
 	var on := OS.get_environment("BB_NOBOTS") == ""
-	for md in bench:
+	var tv = _mv.tag
+	for side in bench.size():
+		var md := bench[side]
 		var show := true
-		if tag_cam.kind == "":
+		# (only one waiting on the apron: one in the ring is part of the fight)
+		if tag_cam.kind == "" and tv.members[tv.bench_of[side]].status == "apron":
 			var p := md.joints[1]
 			var d := c.distance_to(p)
 			var t := (p - c).dot(to_f) / maxf(1e-4, to_f.length_squared())
@@ -727,7 +730,7 @@ func _on_event(type: String, data) -> void:
 	# the HUD's callouts, counts, numbers and banners (hud.ts onEvent)
 	hud.on_event(type, data)
 	referee.on_event(type, data)
-	tag_cam.event(type, data, models, bench)
+	tag_cam.event(type, data, m, crew)
 	_arena_event(type, data)
 	# (the torn-off piece flies before the socket's wrench, as in game.ts tearOff)
 	effects.on_event(type, data)
