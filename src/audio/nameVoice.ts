@@ -1,8 +1,8 @@
 import { nameKey, type NameCut } from './booth';
 
 /**
- * Player-voiced bot names: the booth records the name a player gave their bot (once a
- * day), and the clips live on this device so the caller can shout it in every fight.
+ * Player-voiced bot names: the booth records the name a player gave their bot (up to
+ * five a day), and the clips live on this device so the caller can shout it in every fight.
  */
 export interface VoicedName {
   name: string;
@@ -15,6 +15,8 @@ const KEY = 'bb.nameVoices';
 const DAY = 'bb.nameVoiceDay';
 /** Names kept on the device (oldest go first); each is ~60 KB of audio. */
 const KEEP = 12;
+/** Recordings a player can make each day. */
+export const PER_DAY = 5;
 
 function readAll(): Record<string, VoicedName> {
   try {
@@ -46,14 +48,19 @@ export const isVoiced = (name: string) => !!readAll()[nameKey(name)];
 
 const today = () => new Date().toDateString();
 
-/** The player still has today's recording. */
-export function canVoiceToday() {
+/** Recordings used today. Stored as `<date>|<count>`; an older plain date means one. */
+function usedToday() {
   try {
-    return localStorage.getItem(DAY) !== today();
+    const [day, n] = (localStorage.getItem(DAY) ?? '').split('|');
+    return day === today() ? Number(n ?? 1) || 1 : 0;
   } catch {
-    return true;
+    return 0;
   }
 }
+
+/** Recordings the player has left today. */
+export const voicesLeftToday = () => Math.max(0, PER_DAY - usedToday());
+export const canVoiceToday = () => voicesLeftToday() > 0;
 
 export function bytesOf(b64: string): ArrayBuffer {
   const s = atob(b64);
@@ -62,7 +69,7 @@ export function bytesOf(b64: string): ArrayBuffer {
   return out.buffer;
 }
 
-/** Records the commentators saying this name, keeps it, and uses up today's recording. */
+/** Records the commentators saying this name, keeps it, and uses up one of today's recordings. */
 export async function voiceName(name: string): Promise<VoicedName> {
   const r = await fetch('/api/voice-name', {
     method: 'POST',
@@ -83,7 +90,7 @@ export async function voiceName(name: string): Promise<VoicedName> {
   all[nameKey(name)] = v;
   writeAll(all);
   try {
-    localStorage.setItem(DAY, today());
+    localStorage.setItem(DAY, `${today()}|${usedToday() + 1}`);
   } catch {
     /* ignore */
   }
