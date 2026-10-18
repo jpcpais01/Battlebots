@@ -1,5 +1,5 @@
 ## Ad stills of a bot on the garage lift: one PNG per entry of the config's "shots"
-## ({out, seed, tier, skin, yaw, dist, ty, shift, t, stock}).
+## ({out, seed, tier, skin, yaw, dist, ty, shift, t, stock, emote, pos+look, fov}).
 ##   vk.sh WxH res://tests/ads/ad_garage.gd <config.json>
 extends SceneTree
 
@@ -56,9 +56,26 @@ func _run(args: Array) -> void:
 		d.shift_x = float(s.get("shift", 0.0))
 		d.snap()
 		d.update(0.0, null, 1.0)
+		if s.has("pos"):
+			game.cam.look_at_from_position(Vector3(s.pos[0], s.pos[1], s.pos[2]), Vector3(s.look[0], s.look[1], s.look[2]))
 		if s.has("fov"):
 			game.cam.fov = float(s.fov)
 		ClearView.update(game.cam, [sc.model.joints[1]] as Array[Vector3])
+		if s.has("seq"):
+			var r := Vector2(s.pos[0], s.pos[2]).length()
+			var yaw0 := atan2(float(s.pos[0]), float(s.pos[2]))
+			for i in int(s.seq):
+				if s.has("emote"):
+					sc.update(1.0 / 30.0, t + float(s.get("emote_t", 1.5)) + i / 30.0)
+				var yw := yaw0 + float(s.get("orbit", 0.0)) * i
+				var rr := r * (1.0 - float(s.get("push", 0.0)) * i)
+				game.cam.look_at_from_position(Vector3(sin(yw) * rr, float(s.pos[1]), cos(yw) * rr), Vector3(s.look[0], s.look[1], s.look[2]))
+				game.contact_ao.set_robot(0, sc.model.joints, sc.model.size)
+				game.contact_ao.commit()
+				await process_frame
+				await RenderingServer.frame_post_draw
+				get_root().get_texture().get_image().save_png("%s_%04d.png" % [s.out, i])
+			continue
 		for i in 5:
 			await process_frame
 		await RenderingServer.frame_post_draw

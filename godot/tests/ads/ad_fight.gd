@@ -12,6 +12,7 @@ var stage := "boot"
 var armed := -1
 var saved := 0
 var t0 := 0
+var played := 0
 
 
 func _init() -> void:
@@ -90,6 +91,7 @@ func _start() -> void:
 			C.ff = int(hold[0]) - int(C.get("lead", 30))
 			C.erase("ff_hp")
 	fight.start_match(a, b, seed, partners)
+	rig.cam = fight.cam
 	print("bots: ", a.name_, " vs ", b.name_)
 
 
@@ -101,6 +103,8 @@ func _place_cam() -> void:
 	if C.get("noref", false):
 		fight.referee.visible = false
 	var cc = C.get("cam", "director")
+	if C.has("cams"):
+		cc = C.cams[mini(saved, C.cams.size() - 1)]
 	if C.has("views") and armed >= 0:
 		var v: Dictionary = C.views[mini(saved, C.views.size() - 1)]
 		var vp := Vector3(v.pos[0], v.pos[1], v.pos[2])
@@ -125,15 +129,19 @@ func _place_cam() -> void:
 	ax.y = 0
 	ax = ax.normalized()
 	var side := Vector3(-ax.z, 0, ax.x) * float(cc.get("side", 1.0))
-	var az := deg_to_rad(float(cc.get("az", 0.0)))
+	var az := deg_to_rad(float(cc.get("az", 0.0)) + float(cc.get("orbit", 0.0)) * played)
 	var dir := side * cos(az) + ax * sin(az)
 	var pos := Vector3(tgt.x, 0, tgt.z) + dir * float(cc.get("dist", 4.0))
 	pos.y = float(cc.get("h", 1.2))
 	var look := Vector3(tgt.x, float(cc.get("look_h", tgt.y)), tgt.z)
+	var sm := float(cc.get("smooth", 0.0))
+	if sm > 0.0 and rig.pos != null:
+		pos = (rig.pos as Vector3).lerp(pos, sm)
+		look = (rig.look as Vector3).lerp(look, sm)
 	fight._fixed_cam = [pos, look]
 	rig.pos = pos
 	rig.look = look
-	rig.fov = float(cc.get("fov", 40.0))
+	rig.fov = float(cc.get("fov", 40.0)) + float(cc.get("zoom", 0.0)) * played
 
 
 func _peek(kind: String) -> bool:
@@ -186,6 +194,9 @@ func _process(_dt: float) -> bool:
 			return false
 		"play":
 			_place_cam()
+			played += 1
+			if C.has("clip"):
+				return _clip()
 			var trig: String = C.get("trigger", "hit")
 			if armed < 0:
 				var go := false
@@ -201,6 +212,10 @@ func _process(_dt: float) -> bool:
 						fight.speed = float(C.slow)
 			if armed >= 0:
 				var frames: Array = C.get("frames", [4])
+				if C.has("cams"):
+					frames = []
+					for i in C.cams.size():
+						frames.append(int(C.get("first", 2)) + i * 2)
 				if C.has("views"):
 					frames = []
 					for i in C.views.size():
@@ -218,4 +233,29 @@ func _process(_dt: float) -> bool:
 			if n > int(C.get("max_frames", 400)):
 				print("gave up")
 				return true
+	return false
+
+
+## Clip mode: every frame from the start of play saved as out_0000.png.. (run with --fixed-fps so
+## each frame is the same slice of game time); the trigger only switches to slow motion.
+func _clip() -> bool:
+	var trig: String = C.get("trigger", "hit")
+	if armed < 0:
+		var go := false
+		if trig == "phase":
+			go = fight.m.phase == C.get("phase", "fight") and fight.m.phaseTime >= float(C.get("t", 0.0))
+		elif trig != "none":
+			go = _peek(trig)
+		if go:
+			armed = played
+			print("armed at clip frame ", played)
+			if C.has("slow"):
+				fight.speed = float(C.slow)
+	elif C.has("slow_for") and played - armed == int(C.slow_for):
+		fight.speed = float(C.get("after", C.get("speed", 0.6)))
+	if played > 1:
+		get_root().get_texture().get_image().save_png("%s_%04d.png" % [C.out, played - 2])
+	if played - 2 >= int(C.clip) - 1:
+		print("clip done, armed at ", armed)
+		return true
 	return false
