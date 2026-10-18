@@ -171,8 +171,8 @@ vec4 fan(float seat, float sf, float row, float tier, float yt, vec3 q, bool bac
 	if (back && lod < 2.0) {
 		// close up from behind, a fan stands against the bright plain: their edges catch its light
 		float ea = textureLod(atlas, vec2((col + lx) / COLS, (pose + 1.0 - gy) / POSES), lod + 2.5).a;
-		float rim = 1.0 - smoothstep(0.5, 0.95, ea);
-		c = c * 1.5 + rim * (T_SUN_COL * 0.12 + vec3(0.08, 0.12, 0.05));
+		float rim = 1.0 - smoothstep(0.3, 0.75, ea);
+		c = c * 1.5 + rim * (T_SUN_COL * 0.05 + vec3(0.04, 0.06, 0.025));
 	}
 	// phone cameras going off at the big moments
 	float flash = step(0.9996 - bb_flash * 0.004 - e * 0.0004, t_hash(seed * 77.7 + floor(t_ * 9.0) * 0.311));
@@ -198,7 +198,7 @@ vec4 crowd_far(float sf, float row, float tier, vec3 q, float w, vec3 light) {
 	c = mix(c, vec3(0.36, 0.22, 0.15), 0.16);
 	// a grain finer than the blotches, fading with distance before it can shimmer
 	float g = t_hash2(floor(vec2(sf, row * 3.0)));
-	c *= 1.0 + (g - 0.5) * 0.5 * smoothstep(0.3, 1.0, 1.0 / w);
+	c *= 1.0 + (g - 0.5) * 0.3 * smoothstep(0.3, 1.0, 1.0 / w);
 	vec4 f = vec4(c * light, 0.85);
 	// the aisles' stairs: stone, as much of the pixel as they cover
 	float m = mod(sf, SECTION);
@@ -310,7 +310,7 @@ void fragment() {
 		// a fan's height in pixels here: from a few pixels down, the pixel shows what the patch of
 		// crowd it covers averages to rather than whichever single fan it happens to hit
 		float fan_px = SPR_H / max(tc * pix, 1e-6);
-		float kf = 1.0 - smoothstep(1.5, 4.0, fan_px);
+		float kf = 1.0 - smoothstep(2.5, 6.0, fan_px);
 		vec4 f = vec4(0.0);
 		if (kf < 0.999) {
 			f = fan(si, sf, j, tier, yt, q, !outward, lod, light, side);
