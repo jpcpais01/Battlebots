@@ -4,7 +4,7 @@
  * the server (set ELEVENLABS_API_KEY in the project's environment variables).
  *
  * POST { name } -> { clips: { call, hype, scream, ccall } } as base64 mp3.
- * The once-a-day limit is the client's for now (src/audio/nameVoice.ts).
+ * The five-a-day limit is the client's for now (src/audio/nameVoice.ts).
  */
 
 // the booth's voices, as in scripts/voice/voices.json

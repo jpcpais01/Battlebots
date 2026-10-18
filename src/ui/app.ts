@@ -39,7 +39,7 @@ import { forceUpdate } from '../update';
 import { OnlineScreen } from './online';
 import type { OnlineSession } from '../net/session';
 import { loadPlayer, loadQuality, loadRecord, loadSaves, loadZoom, MAX_SAVES, savePlayer, saveSaves, saveQuality, saveRecord, saveZoom, setOnSaved, type Record_, type Zoom } from './store';
-import { bytesOf, canVoiceToday, isVoiced, voicedNames, voiceName } from '../audio/nameVoice';
+import { bytesOf, canVoiceToday, isVoiced, voicedNames, voiceName, voicesLeftToday } from '../audio/nameVoice';
 import { MAX_REPLAYS, ReplayShelf, isSaved, outdated, type SavedReplay } from './replays';
 import { Account, PASSWORD_MIN, USERNAME_MAX, type SyncState } from '../net/account';
 import { WALK_ONS, walkOnFor } from '../audio/walkOn';
@@ -777,7 +777,7 @@ export class App {
     const done = isVoiced(this.player.name);
     const busy = b.classList.contains('busy');
     b.classList.toggle('done', done);
-    b.innerHTML = busy ? `${ICON.mic}<span>Recording…</span>` : done ? `${ICON.sound}<span>Hear name</span>` : `${ICON.mic}<span>${canVoiceToday() ? 'Voice name' : 'Voice name tomorrow'}</span>`;
+    b.innerHTML = busy ? `${ICON.mic}<span>Recording…</span>` : done ? `${ICON.sound}<span>Hear name</span>` : `${ICON.mic}<span>${canVoiceToday() ? `Voice name (${voicesLeftToday()} left)` : 'Voice name tomorrow'}</span>`;
     b.disabled = busy || (!done && !canVoiceToday());
   }
 

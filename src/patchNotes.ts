@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: "2026-10-18 03:00",
     title: "Smoother fights on Android",
     notes: [
+      "You can now have the commentators voice up to 5 bot names a day instead of 1. The garage button shows how many you have left.",
       "Android: the arena's stands draw with less than half the triangles they did. Every seat back is now painted by the crowd itself, and they look just the same.",
       "Android: both robots work out where their arms and legs meet armour at the same time, which takes a chunk off every frame in a clinch.",
       "Android: the fight itself runs a little faster on your phone, with exactly the same results as before.",
