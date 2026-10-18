@@ -87,6 +87,14 @@ func start(mm) -> void:
 	visible = false
 
 
+## A tag: the bot's-eye visor of side `i` is the new bot's.
+func swap(i: int, mm) -> void:
+	if i < _names.size():
+		var spec = mm.specs[i]
+		_names[i] = str(spec.name_).to_upper()
+		_cols[i] = HudKit.bar_colors(spec.paint)[0]
+
+
 func stop() -> void:
 	_by = -1
 	_k = 0.0
