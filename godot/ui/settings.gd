@@ -39,7 +39,11 @@ const HEAVY_ENV := {
 	"ssr_max_steps": 48, "ssr_fade_in": 0.15, "ssr_fade_out": 2.0, "ssr_depth_tolerance": 0.2,
 }
 ## The key spot's size with ray tracing on, for its soft shadows (pcss.ts KEY_SIZE 1.6 m across).
-const KEY_SIZE := {"light": 0.8, "heavy": 0.8}
+## Heavy only: a light with a size gives everything it lights another build of its shader (the
+## soft-shadow one), and on João's Adreno 840 (most likely) the robots' build of it drew them
+## flickering through a fight, and gone for a moment whenever Light was switched on. Light's traced
+## contact shadows already firm up where things touch, so it keeps the shaders Off uses.
+const KEY_SIZE := {"heavy": 0.8}
 
 ## What each quality tier turns on, for Godot's Mobile renderer (the web's tiers in stage.ts,
 ## arena.ts, show.ts and ao.ts, translated):
@@ -351,13 +355,11 @@ func _apply_rt() -> void:
 				env.set(k, HEAVY_ENV[k])
 	if key != null:
 		key.light_size = KEY_SIZE.get(m, 0.0)
-	if m != "off":
-		# soft shadows with a size (PCSS-like): the blocker search needs a filter with taps to spare
-		var soft: int = TIERS[tier()].soft
-		# (Light keeps it to the low filter: the medium one cost a phone 3 ms a frame, João's
-		# Adreno 840, for a penumbra the traced contact shadows already firm up)
-		var want := RenderingServer.SHADOW_QUALITY_SOFT_HIGH if m == "heavy" else RenderingServer.SHADOW_QUALITY_SOFT_LOW
-		RenderingServer.positional_soft_shadow_filter_set_quality(maxi(soft, want))
+	# soft shadows with a size (PCSS-like, Heavy): the blocker search needs a filter with taps to
+	# spare. Anything else keeps the tier's own filter, so switching Light on or off changes no
+	# shader build (a new filter rebuilds every material's, and the robots drew broken meanwhile).
+	var soft: int = TIERS[tier()].soft
+	RenderingServer.positional_soft_shadow_filter_set_quality(maxi(soft, RenderingServer.SHADOW_QUALITY_SOFT_HIGH) if m == "heavy" else soft)
 
 
 ## Heavy asks for Forward+ in the renderer file; anything else takes the file away.

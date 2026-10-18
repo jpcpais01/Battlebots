@@ -116,10 +116,14 @@ void fragment() {
 	bounce /= float(SAMPLES);
 
 	// --- a short ray at the key light: what stands right in its way, closer than its shadow map
-	// sees. Each pixel takes every fourth step; the quad keeps the nearest blocker any of it found.
+	// sees. Each pixel takes every fourth step; the quad keeps the firmest blocker any of it found.
+	// How firmly is a ramp, not a yes or no: a surface that only just passes in front of the ray
+	// (or only just too far behind it to count) blocks a little, so a moving robot's contact
+	// shadows slide rather than blink as its pixels cross the thresholds from frame to frame.
 	vec3 l = vec3(0.0, 1.0, 0.0);
 	bool facing = false;
-	float t_hit = 1e3;
+	float t_hit = CS_LEN;
+	float block = 0.0;
 	if (amounts.z > 0.0 && !sky) {
 		vec3 kv = (VIEW_MATRIX * vec4(key_pos, 1.0)).xyz;
 		l = normalize(kv - p);
@@ -134,20 +138,30 @@ void fragment() {
 				}
 				float dz = z_at(suv, size, ip) - s.z;
 				// something solid sits between this point and the light (but not far behind it)
-				if (dz > 0.015 && dz < 0.25) {
+				float w = smoothstep(0.008, 0.03, dz) * (1.0 - smoothstep(0.18, 0.26, dz));
+				if (w > block) {
+					block = w;
 					t_hit = t;
-					break;
 				}
 			}
 		}
 	}
-	float tn = t_hit + DFDX(t_hit) * sgn.x;
-	t_hit = sx > 0.5 ? min(t_hit, tn) : t_hit;
-	tn = t_hit + DFDY(t_hit) * sgn.y;
-	t_hit = sy > 0.5 ? min(t_hit, tn) : t_hit;
+	// (the neighbours' answers, read before any of this pixel's own is replaced)
+	float bx = block + DFDX(block) * sgn.x;
+	float tx = t_hit + DFDX(t_hit) * sgn.x;
+	if (sx > 0.5 && bx > block) {
+		block = bx;
+		t_hit = tx;
+	}
+	float by = block + DFDY(block) * sgn.y;
+	float ty = t_hit + DFDY(t_hit) * sgn.y;
+	if (sy > 0.5 && by > block) {
+		block = by;
+		t_hit = ty;
+	}
 	float shade = 1.0;
 	if (facing) {
-		float lit = t_hit < 1e2 ? mix(0.12, 0.55, t_hit / CS_LEN) : 1.0;
+		float lit = mix(1.0, mix(0.12, 0.55, clamp(t_hit / CS_LEN, 0.0, 1.0)), block);
 		// a stretch shorter than a pixel says nothing
 		shade = mix(1.0, lit, clamp(length(project(p + l * CS_LEN, pm) - uv0) * float(size.y) * 0.25, 0.0, 1.0));
 	}
