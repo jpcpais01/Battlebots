@@ -1,6 +1,7 @@
 ## A frame of the world map in the game scene, posed by the map's own camera, to put next to the
 ## web's (tools/bake/web/worldmap_shot.ts with the same at/d/time/night):
 ##   shot.sh res://tests/worldmap_shot.gd <out.png> [x,z] [dist] [time] [night 0/1] [glow 0/1]
+## BB_RT=light (or heavy) turns the Ray tracing setting's map trace on (render/rt/map_trace.gdshader).
 ## The PNG comes back sRGB already (the map shaders encode for this renderer): no srgb.py.
 extends SceneTree
 
@@ -46,6 +47,14 @@ func _process(_dt: float) -> bool:
 		_game.set_place("map")
 		_game.director.mode = "scene"
 		_game.director.snap()
+		if OS.get_environment("BB_RT") != "":
+			# (not saved: set as the setting would be, then put in force)
+			_game.settings.rt = OS.get_environment("BB_RT")
+			_game.settings.place_changed()
+			# BB_RT_K="ao,bounce,sun,refl": only some of it, to look at one part alone
+			var k := OS.get_environment("BB_RT_K").split(",")
+			if k.size() == 4:
+				_game.ray._map_mat.set_shader_parameter("amounts", Vector4(float(k[0]), float(k[1]), float(k[2]), float(k[3])))
 	if _w != null:
 		_w.cam.set_(Vector3(_at.x, maxf(0.0, _w.ground_at(_at.x, _at.y)), _at.y), _d)
 		# (the map's clock: the game's runs on from here)

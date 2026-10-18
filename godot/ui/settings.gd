@@ -329,13 +329,20 @@ func _apply_quality() -> void:
 	_apply_rt()
 
 
+## The world moved to another place (Game.set_place): the map runs Heavy its own way.
+func place_changed() -> void:
+	_apply_rt()
+
+
 func _apply_rt() -> void:
 	var m := rt_mode()
 	if ray != null:
 		ray.set_key(key)
 		ray.set_mode(m)
 	if env != null:
-		var heavy := m == "heavy"
+		# (the world map's shaders are unlit, so Godot's own occlusion, bounce and reflections
+		# would only cost there: the map's own trace does Heavy's work, ray_trace.gd)
+		var heavy := m == "heavy" and not (ray != null and ray.on_map())
 		env.ssao_enabled = heavy
 		env.ssil_enabled = heavy
 		env.ssr_enabled = heavy

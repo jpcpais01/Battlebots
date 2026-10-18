@@ -19,6 +19,8 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: "2026-10-18 04:00",
     title: "100,000 credits for everyone",
     notes: [
+      "Android: Ray tracing now lights the world map too. Streets darken at the foot of the towers, sunlit walls warm the roads, and trees, cranes and the Ferris wheel cast their own shadows.",
+      "Android: with Ray tracing on, the bay reflects the cranes, the piers and the city's lights in its waves, and after dark the downtown streets turn wet, holding the shop lights and neon.",
       "Everyone gets a one-time gift of 100,000 credits to spend in the Skin Vault (or the Parts Market). It arrives the next time you open the game, on the web and on Android, and only once per player, even across devices.",
     ],
   },
