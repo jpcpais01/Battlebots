@@ -2,7 +2,7 @@
 ## (game/hud/*): the bot's-eye visor, the floating numbers, the big calls (the countdown, callouts,
 ## the referee's count, the end-of-fight word, the finisher's banner), the health bars with their
 ## condition panels, the buttons (pause, zoom, speed) and the coach's calls, then the intro over
-## them all.
+## them all. A tag team match adds the partners' chips, the TAG button and its banners (HudTag).
 ## The sim steps on a worker thread while the frame draws: the parts take what they show from the
 ## match in capture() and on_event() (main thread, sim idle) and draw from their copies.
 class_name FightHud
@@ -19,7 +19,8 @@ var calls := HudCalls.new()
 var bars := HudBars.new()
 var controls := HudControls.new()
 var coach := HudCoach.new()
-var parts: Array[HudPart] = [visor, floats, calls, bars, controls, coach]
+var team := HudTag.new()
+var parts: Array[HudPart] = [visor, floats, calls, bars, controls, coach, team]
 var _intro := IntroView.new()
 ## The Game this HUD is in (director, sfx, speed, cam), or a stand-in with the same fields in tests.
 var game: Node
@@ -32,6 +33,11 @@ var finished := false
 ## The coach call the player tapped, waiting for the next sim step (hud.ts onCoach). The Game takes
 ## it with take_coach() once the sim is idle.
 var coach_tap := ""
+## The TAG button was tapped (tag team): the Game takes it with take_tag() once the sim is idle and
+## queues it (Match.queueTag).
+var tag_tap := false
+## Each side's fighter as the parts last saw it: a tag team match swaps them (see HudPart.swap).
+var _fighters := [null, null]
 ## The intro was tapped: skip to the countdown (hud.ts skipIntro; the Game takes it with
 ## take_skip() once the sim is idle).
 var skip_tap := false
@@ -135,6 +141,8 @@ func start(m) -> void:
 	finished = false
 	coach_tap = ""
 	skip_tap = false
+	tag_tap = false
+	_fighters = [m.fighters[0], m.fighters[1]]
 	for p in parts:
 		p.m = m
 		p.start(m)
@@ -151,12 +159,20 @@ func stop() -> void:
 		p.stop()
 		p.m = null
 	coach_tap = ""
+	tag_tap = false
+	_fighters = [null, null]
 
 
 ## What the rest of the frame reads of the match while the sim steps on (the HUD's parts, the
 ## crowd, the scoreboard): copied now, with the sim idle. Each part copies its own share too.
 func capture(m) -> Dictionary:
 	var v := snapshot(m)
+	# a tag: the parts move over to the bot that's in the ring now
+	for i in 2:
+		if m.fighters[i] != _fighters[i]:
+			_fighters[i] = m.fighters[i]
+			for p in parts:
+				p.swap(i, m)
 	for p in parts:
 		p.capture(m)
 	return v
@@ -172,6 +188,13 @@ func on_event(type: String, data) -> void:
 func take_coach() -> String:
 	var k := coach_tap
 	coach_tap = ""
+	return k
+
+
+## The TAG button was tapped since the last sim step (the Game queues it: Match.queueTag).
+func take_tag() -> bool:
+	var k := tag_tap
+	tag_tap = false
 	return k
 
 
@@ -206,7 +229,7 @@ func update_hud(view: Dictionary, can_restart: bool, dt: float) -> void:
 	var target := 1.0 if _phase == "intro" else 0.0
 	_intro_k = move_toward(_intro_k, target, dt / 0.45)
 	var k := _intro_k * _intro_k * (3.0 - 2.0 * _intro_k)
-	for p in [bars, controls, coach] as Array[HudPart]:
+	for p in [bars, controls, coach, team] as Array[HudPart]:
 		p.modulate.a = 1.0 - k
 		p.visible = k < 0.999
 	bars.position.y = -1.5 * em * k
@@ -277,7 +300,11 @@ class IntroView extends Control:
 			var rv = rival if i == 1 else null
 			_specs.append(spec)
 			_names.append(str(spec.name_))
-			_styles.append(str(rv.style if rv != null else m.brains[i].traits.style).to_upper())
+			var style := str(rv.style if rv != null else m.brains[i].traits.style).to_upper()
+			# a tag team match: and who waits on its apron
+			if m.tag != null:
+				style += "  ·  WITH " + str(m.tag.partnerOf(float(i)).f.name_).to_upper()
+			_styles.append(style)
 			_taunts.append(str(rv.taunt) if rv != null else "")
 			# hud.ts showVs: the card, its parts popping in from 0.3s
 			var card := BotCard.make(game, spec, m.fighters[i].build, "r" if i == 1 else "l", "Challenger" if i == 1 else "Your bot", 0.3)

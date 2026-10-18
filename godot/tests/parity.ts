@@ -1,6 +1,6 @@
 /**
  * Prints a state hash after every sim step of one fight, for comparing the Godot sim with the web one.
- *   node --experimental-transform-types --import <register> godot/tests/parity.ts <seed> <steps> [every]
+ *   [TAG=1] node --experimental-transform-types --import <register> godot/tests/parity.ts <seed> <steps> [every]
  * The Godot side is godot/tests/parity.gd; both must print identical lines.
  */
 import { Match } from '../../src/sim/match';
@@ -14,7 +14,9 @@ const every = Number(process.argv[4] ?? 1);
 const rng = new Rng(seed);
 const a = randomBot(rng);
 const b = randomBot(rng);
-const m = new Match(a, b, rng.int(0, 1e9));
+// TAG=1: a tag team match (two more bots, one per side)
+const partners = process.env.TAG === '1' ? { a: randomBot(rng), b: randomBot(rng) } : null;
+const m = new Match(a, b, rng.int(0, 1e9), partners);
 m.skipIntro();
 const out: string[] = [`${a.name} vs ${b.name}`];
 const dumpAt = Number(process.argv[5] ?? -1);

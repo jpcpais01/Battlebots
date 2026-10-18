@@ -20,6 +20,7 @@ class FinCtx extends RefCounted:
 	var vtone: float
 	var gaze: String
 	var vgaze: String
+	var pin: float
 	
 	func _init() -> void:
 		self.t = 0.0
@@ -36,6 +37,7 @@ class FinCtx extends RefCounted:
 		self.vtone = 0.8
 		self.gaze = "opp"
 		self.vgaze = "opp"
+		self.pin = 0.0
 	
 	func reset() -> void:
 		self.aw = 0.0
@@ -85,6 +87,38 @@ static var meteor
 static var cyclone
 static var overdrive
 static var headhunter
+const TAG_HOLD: float = 0.45
+static var V_NELSON: PackedFloat32Array
+static var V_NELSON_FOLD: PackedFloat32Array
+static var A_CALL: PackedFloat32Array
+
+static func pinned(o: PackedFloat32Array, c: TFinisher.FinCtx, to: PackedFloat32Array) -> void:
+	var _hV_DAZED: PackedFloat32Array = TFinisher.V_DAZED
+	TEmote.keys_(o, c.t, [[0.0, TFinisher.V_REEL], [0.3, _hV_DAZED], [99.0, _hV_DAZED]])
+	var k: float = c.pin
+	var _hEC = TEmote.EC
+	var i: int = 0
+	while (i < _hEC.N):
+		o[i] += (((to[i] - o[i])) * k)
+		i += 1
+	o[_hEC.TWIST] += ((DM.sin((c.rt * 5.3)) * 0.08) * k)
+	o[_hEC.ROLL] += ((DM.sin(((c.rt * 4.1) + 1.0)) * 0.05) * k)
+	TFinisher.sway(o, c.rt, (1.0 - (0.7 * k)))
+
+static func calling(o: PackedFloat32Array, c: TFinisher.FinCtx, H: float) -> float:
+	var k: float = TFinisher.hold(c.t, 0.25, H, 0.12)
+	o[(((TEmote.EC.ARM + (0.0 * TEmote.ARM_N))) + 1.0)] += ((DM.sin((c.rt * 9.0)) * 0.05) * k)
+	return k
+static var doomsday
+static var crossfire
+static var hammerdrop
+static var TAG_FINISHERS
+static var TAG_FINISHER_IDS: Array
+static var TAG_FINISHER_NAME
+
+static func pickTagFinisher(rng: TMath.Rng) -> String:
+	var _hTAG_FINISHER_IDS: Array = TFinisher.TAG_FINISHER_IDS
+	return _hTAG_FINISHER_IDS[floorf((rng.next() * float(_hTAG_FINISHER_IDS.size())))]
 static var _s: PackedFloat32Array
 static var FINISHERS
 static var FINISHER_IDS: Array
@@ -118,6 +152,7 @@ static var _g: V3
 static var REACH
 const STALL_MAX: float = 0.35
 const WAIT_MAX: float = 0.3
+const HOLD_MAX: float = 5.0
 const POSE_EARLY: float = 0.22
 const POSE_LATE: float = 0.14
 const R_HEAD: float = 0.17
@@ -155,9 +190,18 @@ class FinisherRun extends RefCounted:
 	var rangeErr: float
 	var stand: V3
 	var standOn: bool
+	var holding: bool
+	var heldFor: float
+	var pin: float
 	var id: String:
 		get:
 			return spec.id
+	var finalAt: float:
+		get:
+			return spec.steps[(float(spec.steps.size()) - 1.0)].at
+	var t: float:
+		get:
+			return c.t
 	var touchAt: V3
 	
 	func _init(id: String, att: TFighter.Fighter, def: TFighter.Fighter, host, preview: bool = false) -> void:
@@ -177,8 +221,13 @@ class FinisherRun extends RefCounted:
 		self.rangeErr = 0.0
 		self.stand = V3.new()
 		self.standOn = false
+		self.holding = false
+		self.heldFor = 0.0
+		self.pin = 0.0
 		self.touchAt = V3.new()
-		self.spec = (TFinisher.FINISHERS.get(id) if TFinisher.FINISHERS.get(id) != null else TFinisher.skyfall)
+		var __t1 = (TFinisher.FINISHERS.get(id) if TFinisher.FINISHERS.get(id) != null else TFinisher.TAG_FINISHERS.get(id))
+		self.spec = (__t1 if __t1 != null else TFinisher.skyfall)
+		self.holding = (((spec.get("hold") if spec.get("hold") != null else -1.0)) >= 0.0)
 		self.att = att
 		self.def = def
 		self.host = host
@@ -188,8 +237,8 @@ class FinisherRun extends RefCounted:
 		while (k < blows):
 			c.hits.append(INF)
 			k += 1
-		var __t1 = spec.steps[(blows - 1.0)].blow.get("final")
-		self.final = (__t1 if __t1 != null else "launch")
+		var __t2 = spec.steps[(blows - 1.0)].blow.get("final")
+		self.final = (__t2 if __t2 != null else "launch")
 		self.glowJoint = (6.0 if (att.rearSide == "L") else 9.0)
 		self.attWas = att.emote
 		self.vicWas = def.emote
@@ -200,25 +249,25 @@ class FinisherRun extends RefCounted:
 		def.action = null
 		def.setState("held")
 		def.stunTime = 0.0
-		var __v2: V3 = def.intentVel
-		__v2.x = 0.0
-		__v2.y = 0.0
-		__v2.z = 0.0
-		def.lift = 0.0
-		var __v3: V3 = att.intentVel
+		var __v3: V3 = def.intentVel
 		__v3.x = 0.0
 		__v3.y = 0.0
 		__v3.z = 0.0
-		var __v4: V3 = vicPose.gaze
-		var __v5: V3 = att.body.pos[3.0]
-		__v4.x = __v5.x
-		__v4.y = __v5.y
-		__v4.z = __v5.z
-		var __v6: V3 = attPose.gaze
-		var __v7: V3 = def.body.pos[3.0]
-		__v6.x = __v7.x
-		__v6.y = __v7.y
-		__v6.z = __v7.z
+		def.lift = 0.0
+		var __v4: V3 = att.intentVel
+		__v4.x = 0.0
+		__v4.y = 0.0
+		__v4.z = 0.0
+		var __v5: V3 = vicPose.gaze
+		var __v6: V3 = att.body.pos[3.0]
+		__v5.x = __v6.x
+		__v5.y = __v6.y
+		__v5.z = __v6.z
+		var __v7: V3 = attPose.gaze
+		var __v8: V3 = def.body.pos[3.0]
+		__v7.x = __v8.x
+		__v7.y = __v8.y
+		__v7.z = __v8.z
 	
 	func opener(point: V3, zone: String, move: String) -> void:
 		var part: float = (0.0 if (zone == "head") else (TDamage.legPart((0.0 if (def.leadSide == "L") else 1.0), 1.0) if (zone == "legs") else 1.0))
@@ -233,8 +282,14 @@ class FinisherRun extends RefCounted:
 		c.prevT = c.t
 		c.rt += dt
 		var due = (steps[next] if (next < float(steps.size())) else null)
+		var H: float = (spec.get("hold") if spec.get("hold") != null else -1.0)
 		if ((((pending != null) and (due != null)) and (due.at <= (c.t + dt))) and (stall < TFinisher.STALL_MAX)):
 			self.stall += dt
+		elif (holding and ((c.t + dt) >= H)):
+			c.t = maxf(c.t, H)
+			self.heldFor += dt
+			if (heldFor > TFinisher.HOLD_MAX):
+				self.holding = false
 		else:
 			c.t += dt
 		var _hMOVES = TMoves.MOVES
@@ -300,6 +355,7 @@ class FinisherRun extends RefCounted:
 				self.posing = null
 				land(ps.k, ps.blow, _h_b, hit)
 		c.reset()
+		c.pin = pin
 		var a: PackedFloat32Array = auth
 		spec.att.call(a, c)
 		a[TEmote.EC.CROUCH] += (DM.sin((c.rt * 2.6)) * 0.006)
@@ -1416,8 +1472,297 @@ static func __init_module() -> void:
 	"vic": __f15
 }
 	TFinisher.headhunter = (__f16).call()
+	TFinisher.V_NELSON = TFinisher.A({
+	"crouch": 0.1,
+	"pitch": -0.12,
+	"head": [0.0, -0.03, 0.07],
+	"a": TEmote.arm([0.15, 0.42, -0.08], [1.0, 0.6, -0.2], 0.3),
+	"b": TEmote.arm([0.15, 0.42, -0.08], [1.0, 0.6, -0.2], 0.3)
+})
+	TFinisher.V_NELSON_FOLD = TFinisher.A({
+	"crouch": 0.2,
+	"pitch": 0.82,
+	"pelvis": [0.0, -0.06],
+	"head": [0.0, -0.05, 0.08],
+	"a": TEmote.arm([0.15, 0.4, -0.04], [1.0, 0.6, -0.1], 0.3),
+	"b": TEmote.arm([0.15, 0.4, -0.04], [1.0, 0.6, -0.1], 0.3)
+})
+	TFinisher.A_CALL = TFinisher.A({
+	"crouch": 0.05,
+	"pitch": -0.1,
+	"twist": 0.18,
+	"head": [0.0, 0.01, -0.02],
+	"a": TEmote.arm([0.3, 0.64, 0.12], [1.0, -0.2, -0.4], -0.4),
+	"b": TFinisher.LEAD_GUARD
+})
+	var __f19 = func():
+		var H: float = TFinisher.TAG_HOLD
+		var load__2: PackedFloat32Array = TFinisher.A({
+	"crouch": 0.3,
+	"pitch": 0.3,
+	"twist": 0.42,
+	"hip": 0.25,
+	"head": [0.0, -0.02, 0.03],
+	"a": TEmote.arm([0.3, -0.44, -0.1], [0.3, -0.2, -1.0], 0.4),
+	"b": TEmote.arm([0.18, 0.24, 0.27], [0.6, -1.0, -0.3], 0.1)
+})
+		var deeper_2: PackedFloat32Array = TFinisher.A({
+	"crouch": 0.36,
+	"pitch": 0.34,
+	"twist": 0.5,
+	"hip": 0.3,
+	"head": [0.0, -0.03, 0.04],
+	"a": TEmote.arm([0.3, -0.48, -0.16], [0.3, -0.2, -1.0], 0.5),
+	"b": TEmote.arm([0.17, 0.22, 0.28], [0.6, -1.0, -0.3], 0.1)
+})
+		var reach_2: PackedFloat32Array = TFinisher.A({
+	"crouch": -0.04,
+	"pitch": -0.22,
+	"twist": -0.32,
+	"a": TEmote.arm([0.2, 0.78, 0.24], [1.0, 0.0, -0.3]),
+	"b": TEmote.arm([0.34, -0.22, 0.2], [0.5, -0.4, -1.0], 0.3),
+	"heel": 0.7
+})
+		var UP: float = (H + 1.25)
+		var __f17 = func(o_11: PackedFloat32Array, c_11: TFinisher.FinCtx):
+			var t_11: float = c_11.t
+			TEmote.keys_(o_11, t_11, [
+	[0.0, TFinisher.A_SET],
+	[0.28, TFinisher.A_CALL, TEmote.punchy],
+	[H, TFinisher.A_CALL],
+	[(H + 0.1), TFinisher.A_SET],
+	[(H + 0.5), TFinisher.A_SET],
+	[(H + 0.75), load__2, TEmote.punchy],
+	[(UP - 0.15), deeper_2],
+	[99.0, deeper_2]
+])
+			var call_: float = TFinisher.calling(o_11, c_11, H)
+			c_11.aw = (call_ if (t_11 < (H + 0.08)) else (1.0 if ((t_11 > (H + 0.45)) and (t_11 < (UP - 0.06))) else 0.0))
+			var ch_2: float = TFinisher.hold(t_11, (H + 0.75), (UP - 0.1), 0.15)
+			o_11[((TEmote.EC.ARM + (0.0 * TEmote.ARM_N)))] += ((DM.sin((c_11.rt * 61.0)) * 0.012) * ch_2)
+			c_11.glow = (TMath.smoothstep_((H + 0.55), (UP - 0.1), t_11) * ((1.0 if (t_11 < (UP + 0.15)) else 0.0)))
+			c_11.range_ = (0.9 if (t_11 < (H + 0.45)) else 0.68)
+			if (t_11 >= (H + 0.45)):
+				c_11.foot = "head"
+			c_11.slow = TMath.lerp_(1.0, 0.5, TFinisher.hold(t_11, (H + 0.8), (UP - 0.08), 0.15))
+			c_11.gaze = "opp"
+			if c_11.landed(1.0):
+				var s_9: float = c_11.since(1.0)
+				TEmote.keys_(o_11, s_9, [[0.0, deeper_2], [0.3, reach_2, TEmote.snap], [99.0, reach_2]])
+				c_11.aw = (TMath.minJerk(TMath.clamp01((((s_9 - 0.12)) / 0.25))))
+				c_11.lift = (0.1 * TEmote.win(s_9, 0.05, 0.6, 0.2))
+				c_11.gaze = "sky"
+				c_11.range_ = 0.0
+				c_11.slow = (0.2 if (s_9 < 0.55) else 0.3)
+		var __f18 = func(o_12: PackedFloat32Array, c_12: TFinisher.FinCtx):
+			TFinisher.pinned(o_12, c_12, TFinisher.V_NELSON)
+			var s_10: float = c_12.since(0.0)
+			if (s_10 >= 0.0):
+				o_12[TEmote.EC.PITCH] += ((0.2 * TEmote.pulse(s_10, 0.0, 0.06, 0.35)) + (0.06 * (TMath.minJerk(TMath.clamp01((((s_10 - 0.0)) / 0.3))))))
+			c_12.vgaze = ("opp" if (c_12.pin > 0.5) else "down")
+			c_12.vtone = 0.75
+		return {
+	"id": "doomsday",
+	"tail": 0.9,
+	"hold": H,
+	"steps": [
+	{
+	"at": (H + 0.12),
+	"strike": "rearHook",
+	"zone": "body",
+	"speed": 1.25,
+	"blow": {"move": "rearHook", "zone": "body", "part": 2.0, "take": 0.35, "kb": 0.05, "jolt": 4.0, "shown": 70.0, "stop": 0.09}
+},
+	{
+	"at": UP,
+	"strike": "rearUpper",
+	"zone": "head",
+	"speed": 1.4,
+	"blow": {"move": "rearUpper", "zone": "head", "part": 0.0, "take": 1.0, "kb": 0.4, "jolt": 9.5, "shown": 210.0, "stop": 0.17, "final": "launch"}
+}
+],
+	"att": __f17,
+	"vic": __f18
+}
+	TFinisher.doomsday = (__f19).call()
+	var __f22 = func():
+		var H_2: float = TFinisher.TAG_HOLD
+		var skip_2: PackedFloat32Array = TFinisher.A({
+	"crouch": 0.12,
+	"pitch": 0.06,
+	"twist": 0.32,
+	"hip": 0.22,
+	"a": TEmote.arm([0.16, 0.26, 0.28], [0.6, -1.0, -0.3], 0.1),
+	"b": TEmote.arm([0.2, 0.32, 0.42], [0.6, -1.0, -0.3], 0.1)
+})
+		var after_3: PackedFloat32Array = TFinisher.A({
+	"crouch": 0.1,
+	"pitch": -0.1,
+	"twist": -0.25,
+	"a": TEmote.arm([0.5, 0.1, 0.1], [0.6, -0.8, -0.4], -0.3),
+	"b": TEmote.arm([0.45, 0.2, 0.25], [0.6, -0.8, -0.4], -0.3)
+})
+		var SPIN_2: float = (H_2 + 1.3)
+		var __f20 = func(o_13: PackedFloat32Array, c_13: TFinisher.FinCtx):
+			var t_12: float = c_13.t
+			TEmote.keys_(o_13, t_12, [
+	[0.0, TFinisher.A_SET],
+	[0.28, TFinisher.A_CALL, TEmote.punchy],
+	[H_2, TFinisher.A_CALL],
+	[(H_2 + 0.1), TFinisher.A_SET],
+	[(H_2 + 0.65), TFinisher.A_SET],
+	[(H_2 + 0.85), skip_2, TEmote.punchy],
+	[99.0, skip_2]
+])
+			var call__2: float = TFinisher.calling(o_13, c_13, H_2)
+			c_13.lift = (0.07 * TEmote.win(t_12, (H_2 + 0.67), (H_2 + 0.97), 0.12))
+			c_13.aw = (call__2 if (t_12 < (H_2 + 0.08)) else (1.0 if ((t_12 > (H_2 + 0.6)) and (t_12 < (SPIN_2 - 0.04))) else 0.0))
+			c_13.range_ = (0.85 if (t_12 < (H_2 + 0.65)) else 1.12)
+			c_13.slow = TMath.lerp_(1.0, 0.6, TFinisher.hold(t_12, (H_2 + 0.95), (SPIN_2 + 0.2), 0.15))
+			if c_13.landed(2.0):
+				var s_11: float = c_13.since(2.0)
+				TEmote.keys_(o_13, s_11, [[0.0, skip_2], [0.35, after_3], [99.0, after_3]])
+				c_13.aw = (TMath.minJerk(TMath.clamp01((((s_11 - 0.25)) / 0.3))))
+				c_13.range_ = 0.0
+				c_13.slow = (0.22 if (s_11 < 0.5) else 0.3)
+		var __f21 = func(o_14: PackedFloat32Array, c_14: TFinisher.FinCtx):
+			TFinisher.pinned(o_14, c_14, TFinisher.V_NELSON)
+			var k_5: int = 0
+			while (k_5 < 2.0):
+				var s_12: float = c_14.since(float(k_5))
+				if (s_12 >= 0.0):
+					o_14[TEmote.EC.PITCH] += (((-0.18 if (float(k_5) != 0.0) else 0.2)) * TEmote.pulse(s_12, 0.0, 0.05, 0.3))
+					o_14[TEmote.EC.TWIST] += (((0.22 if (float(k_5) != 0.0) else -0.22)) * TEmote.pulse(s_12, 0.0, 0.05, 0.3))
+				k_5 += 1
+			c_14.vgaze = "opp"
+			c_14.vtone = 0.72
+		return {
+	"id": "crossfire",
+	"tail": 0.85,
+	"hold": H_2,
+	"steps": [
+	{
+	"at": (H_2 + 0.1),
+	"strike": "leadHook",
+	"zone": "body",
+	"speed": 1.3,
+	"blow": {"move": "leadHook", "zone": "body", "part": 2.0, "take": 0.3, "kb": 0.05, "jolt": 4.0, "shown": 60.0, "stop": 0.08}
+},
+	{
+	"at": (H_2 + 0.4),
+	"strike": "rearHook",
+	"zone": "head",
+	"speed": 1.3,
+	"blow": {"move": "rearHook", "zone": "head", "part": 0.0, "take": 0.35, "kb": 0.1, "jolt": 5.0, "shown": 75.0, "stop": 0.1}
+},
+	{
+	"at": SPIN_2,
+	"strike": "spinKick",
+	"zone": "head",
+	"speed": 1.05,
+	"blow": {"move": "spinKick", "zone": "head", "part": 0.0, "take": 1.0, "kb": 1.5, "jolt": 11.0, "shown": 210.0, "stop": 0.16, "final": "fly"}
+}
+],
+	"att": __f20,
+	"vic": __f21
+}
+	TFinisher.crossfire = (__f22).call()
+	var __f25 = func():
+		var H_3: float = TFinisher.TAG_HOLD
+		var gather_2: PackedFloat32Array = TFinisher.A({
+	"crouch": 0.3,
+	"pitch": 0.26,
+	"twist": 0.1,
+	"a": TEmote.arm([0.3, -0.3, 0.1], [0.4, -0.2, -1.0], 0.5),
+	"b": TEmote.arm([0.3, -0.3, 0.1], [0.4, -0.2, -1.0], 0.5),
+	"heel": 0.2
+})
+		var up_2: PackedFloat32Array = TFinisher.A({
+	"crouch": 0.02,
+	"pitch": -0.3,
+	"head": [0.0, 0.02, -0.04],
+	"a": TEmote.arm([0.05, 0.8, 0.08], [1.0, 0.2, -0.4], -1.0),
+	"b": TEmote.arm([0.05, 0.8, 0.08], [1.0, 0.2, -0.4], -1.0),
+	"heel": 0.7
+})
+		var top_2: PackedFloat32Array = TFinisher.A({
+	"crouch": 0.06,
+	"pitch": -0.36,
+	"head": [0.0, 0.02, -0.05],
+	"a": TEmote.arm([0.05, 0.78, -0.04], [1.0, 0.3, -0.5], -1.0),
+	"b": TEmote.arm([0.05, 0.78, -0.04], [1.0, 0.3, -0.5], -1.0),
+	"heel": 0.7
+})
+		var slam_2: PackedFloat32Array = TFinisher.A({
+	"crouch": 0.32,
+	"pitch": 0.62,
+	"head": [0.0, -0.03, 0.06],
+	"a": TEmote.arm([0.06, -0.06, 0.6], [1.0, -0.3, 0.2], -1.0),
+	"b": TEmote.arm([0.06, -0.06, 0.6], [1.0, -0.3, 0.2], -1.0)
+})
+		var stand_2: PackedFloat32Array = TFinisher.A({
+	"crouch": 0.12,
+	"pitch": 0.1,
+	"a": TEmote.arm([0.5, 0.36, 0.14], [1.0, -0.6, -0.3], -0.4),
+	"b": TEmote.arm([0.5, 0.36, 0.14], [1.0, -0.6, -0.3], -0.4)
+})
+		var L0_4: float = (H_3 + 0.35)
+		var SLAM_2: float = (L0_4 + 0.85)
+		var __f23 = func(o_15: PackedFloat32Array, c_15: TFinisher.FinCtx):
+			var t_13: float = c_15.t
+			TEmote.keys_(o_15, t_13, [
+	[0.0, TFinisher.A_SET],
+	[0.28, TFinisher.A_CALL, TEmote.punchy],
+	[H_3, TFinisher.A_CALL],
+	[(H_3 + 0.1), TFinisher.A_SET],
+	[L0_4, TFinisher.A_SET],
+	[(L0_4 + 0.25), gather_2],
+	[(L0_4 + 0.5), up_2, TEmote.snap],
+	[(L0_4 + 0.72), top_2],
+	[(L0_4 + 0.86), slam_2, TEmote.snap],
+	[(L0_4 + 1.4), slam_2],
+	[(L0_4 + 2.0), stand_2],
+	[99.0, stand_2]
+])
+			var call__3: float = TFinisher.calling(o_15, c_15, H_3)
+			c_15.aw = (call__3 if (t_13 < (H_3 + 0.08)) else (1.0 if (t_13 > (L0_4 - 0.05)) else 0.0))
+			c_15.lift = (0.42 * DM.sin((PI * TMath.clamp01((((t_13 - ((L0_4 + 0.32)))) / 0.56)))))
+			c_15.range_ = (0.8 if (t_13 < L0_4) else 0.7)
+			if (t_13 >= L0_4):
+				c_15.foot = "back"
+			c_15.smash = ((TMath.minJerk(TMath.clamp01((((t_13 - ((L0_4 + 0.7)))) / ((SLAM_2 - ((L0_4 + 0.7)))))))) * (((1.0 - TFinisher.rise(c_15.since(0.0), 0.12, 0.3)) if c_15.landed(0.0) else 1.0)))
+			c_15.slow = TMath.lerp_(1.0, 0.45, TFinisher.hold(t_13, (L0_4 + 0.55), (L0_4 + 0.75), 0.12))
+			if (t_13 > SLAM_2):
+				c_15.slow = (0.22 if (t_13 < (SLAM_2 + 0.5)) else 0.3)
+			c_15.gaze = ("down" if ((t_13 > (L0_4 + 0.2)) and (t_13 < (SLAM_2 + 0.6))) else "opp")
+		var __f24 = func(o_16: PackedFloat32Array, c_16: TFinisher.FinCtx):
+			var fold: float = (TMath.minJerk(TMath.clamp01(((((c_16.t) - ((H_3 + 0.05)))) / 0.4))))
+			var i_5: int = 0
+			while (i_5 < TEmote.EC.N):
+				TFinisher._s[i_5] = (TFinisher.V_NELSON[i_5] + (((TFinisher.V_NELSON_FOLD[i_5] - TFinisher.V_NELSON[i_5])) * fold))
+				i_5 += 1
+			TFinisher.pinned(o_16, c_16, TFinisher._s)
+			c_16.vgaze = "down"
+			c_16.vtone = 0.75
+		return {
+	"id": "hammerdrop",
+	"tail": 0.85,
+	"hold": H_3,
+	"steps": [
+	{
+	"at": SLAM_2,
+	"blow": {"move": "hammer", "zone": "head", "part": 0.0, "take": 1.0, "kb": 0.2, "jolt": 10.0, "shown": 200.0, "stop": 0.17, "final": "slam"}
+}
+],
+	"att": __f23,
+	"vic": __f24
+}
+	TFinisher.hammerdrop = (__f25).call()
+	TFinisher.TAG_FINISHERS = JS.from_entries(JS.map([TFinisher.doomsday, TFinisher.crossfire, TFinisher.hammerdrop], func(s_13, _a1 = null, _a2 = null): return [s_13.id, s_13]))
+	TFinisher.TAG_FINISHER_IDS = ["doomsday", "crossfire", "hammerdrop"]
+	TFinisher.TAG_FINISHER_NAME = {"doomsday": "Doomsday Device", "crossfire": "Crossfire", "hammerdrop": "Hammer Drop"}
 	TFinisher._s = JS.f32(TEmote.EC.N)
-	TFinisher.FINISHERS = JS.from_entries(JS.map([TFinisher.skyfall, TFinisher.meteor, TFinisher.cyclone, TFinisher.overdrive, TFinisher.headhunter], func(s_9, _a1 = null, _a2 = null): return [s_9.id, s_9]))
+	TFinisher.FINISHERS = JS.from_entries(JS.map([TFinisher.skyfall, TFinisher.meteor, TFinisher.cyclone, TFinisher.overdrive, TFinisher.headhunter], func(s_14, _a1 = null, _a2 = null): return [s_14.id, s_14]))
 	TFinisher.FINISHER_IDS = JS.map(JS.filter(TEmote.EMOTE_INFO, func(e, _a1 = null, _a2 = null): return (e.kind == "finish")), func(e_2, _a1 = null, _a2 = null): return e_2.id)
 	TFinisher.FINISHER_NAME = JS.from_entries(JS.map(JS.filter(TEmote.EMOTE_INFO, func(e_3, _a1 = null, _a2 = null): return (e_3.kind == "finish")), func(e_4, _a1 = null, _a2 = null): return [e_4.id, e_4.name_]))
 	TFinisher.STYLE_PICK = {

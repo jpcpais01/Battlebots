@@ -461,6 +461,10 @@ class Showman extends RefCounted:
 				match_.emit("emote", {"f": self.me, "k": k, "shake": shake})
 		c.onBeat = __f2
 	
+	func retarget(opp: TFighter.Fighter) -> void:
+		self.opp = opp
+		self.oppPrev = opp.state
+	
 	func update(dt: float, m: TMatch.Match) -> void:
 		self.match_ = m
 		var me: TFighter.Fighter = self.me
@@ -469,7 +473,7 @@ class Showman extends RefCounted:
 			self.downAt = m.time
 			self.tauntedThisCount = false
 		self.oppPrev = opp.state
-		var winning: bool = ((((m.phase == "ko") or (m.phase == "end")) and (m.winner == me)) and (me.state == "win"))
+		var winning: bool = (((((m.phase == "ko") or (m.phase == "end")) and (m.winner == me)) or m.cheers(me)) and (me.state == "win"))
 		if winning:
 			if (kind != "celebrate"):
 				celebrate(m)

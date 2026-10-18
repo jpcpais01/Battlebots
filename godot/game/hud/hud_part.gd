@@ -6,6 +6,8 @@
 ##   capture(m)      every frame, before this frame's sim steps start (sim idle)
 ##   on_event(t, d)  each sim event, in step order, before capture (sim idle; d's objects are the
 ##                   live sim's: copy anything kept)
+##   swap(side, m)   a tag team match swapped that side's bot in the ring (m.fighters[side] is the
+##                   new one; sim idle, before capture)
 ##   tick(dt)        every frame, after the camera has moved: animate and queue_redraw()
 ##   stop()          the fight's gone from the screen
 class_name HudPart
@@ -32,6 +34,10 @@ func capture(_m) -> void:
 
 
 func on_event(_type: String, _data) -> void:
+	pass
+
+
+func swap(_side: int, _m) -> void:
 	pass
 
 

@@ -104,7 +104,8 @@ class View extends RefCounted:
 		fighters = [ViewFighter.new(), ViewFighter.new()]
 
 	func capture(m) -> void:
-		phase = m.phase
+		# (a tag team match stopped for an elimination is filmed as a knockout)
+		phase = "ko" if m.tag != null and m.tag.paused else m.phase
 		phaseTime = m.phaseTime
 		presenting = m.presenting
 		seed_ = m.seed_

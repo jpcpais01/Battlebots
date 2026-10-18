@@ -85,6 +85,18 @@ func event(type: String, data) -> void:
 		"ko":
 			excite = 1.0
 			_hold = 4.5
+		# a tag team match: the hot tag, a bot knocked out of the match, the double team
+		"tag":
+			_bump(0.5)
+			_hold = maxf(_hold, 1.0)
+		"eliminated":
+			excite = 1.0
+			_hold = maxf(_hold, 3.5)
+		"assist":
+			excite = 1.0
+			_hold = maxf(_hold, 2.5)
+		"tagResume":
+			_bump(0.3)
 		"decision":
 			excite = maxf(excite, 0.8)
 			_hold = 2.0

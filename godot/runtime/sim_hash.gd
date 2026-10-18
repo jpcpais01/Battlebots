@@ -48,4 +48,21 @@ static func of(m) -> int:
 		var coach = b.coach
 		_int(float(coach.unicode_at(0) + coach.length()) if coach != null and coach != "" else 0.0)
 		_num(b.coachUntil)
+	# a tag team's partners, wherever they are, and who is legal
+	var tag = m.tag
+	if tag != null:
+		_int(tag.rng.state)
+		_int(float(tag.legal[0] * 4 + tag.legal[1]))
+		_int(1.0 if tag.paused else 0.0)
+		for mb in tag.members:
+			var s: String = mb.status
+			_int(float(s.unicode_at(0) + s.length() * 31 + (1000 if mb.out else 0)) + mb.spot * 2000.0)
+			var f = mb.f
+			_num(f.hp)
+			_num(f.root.x)
+			_num(f.root.z)
+			for p in f.body.pos:
+				_num(p.x)
+				_num(p.y)
+				_num(p.z)
 	return _h & 0xFFFFFFFF

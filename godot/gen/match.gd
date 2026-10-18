@@ -35,6 +35,7 @@ class Match extends RefCounted:
 	var frame: float
 	var phaseTime: float
 	var phase: String
+	var roundTime: float
 	var clock: float
 	var hitstop: float
 	var hitSpan: float
@@ -42,7 +43,6 @@ class Match extends RefCounted:
 	var winner: TFighter.Fighter
 	var result
 	var lossReason
-	var wearSeen: Array
 	var listeners: Array
 	var ropeCooldown: Array
 	var fin: TFinisher.FinisherRun
@@ -57,29 +57,29 @@ class Match extends RefCounted:
 	var coachLog: Array
 	var coachReadyAt: Array
 	var seed_: float
+	var tag: TTag.TagTeam
+	var tagQueue: Array
 	var presenting: float:
 		get:
 			return (-1.0 if (phase != "intro") else (0.0 if (phaseTime < TEntrance.PRESENT) else 1.0))
 	var fightTime: float:
 		get:
-			return (TMatch.ROUND_TIME - clock)
+			return (roundTime - clock)
 	var pace: float:
 		get:
 			return (slowmo * TMatch.impactPace(hitstop, hitSpan))
 	
-	func _init(a, b, seed_: float) -> void:
+	func _init(a, b, seed_: float, partners = null) -> void:
 		self.time = 0.0
 		self.frame = 0.0
 		self.phaseTime = 0.0
 		self.phase = "intro"
-		self.clock = TMatch.ROUND_TIME
 		self.hitstop = 0.0
 		self.hitSpan = 0.0
 		self.slowmo = 1.0
 		self.winner = null
 		self.result = null
 		self.lossReason = null
-		self.wearSeen = [JS.fill(JS.filled(TDamage.PART_COUNT, 0.0), -1.0), JS.fill(JS.filled(TDamage.PART_COUNT, 0.0), -1.0)]
 		self.listeners = []
 		self.ropeCooldown = [0.0, 0.0]
 		self.fin = null
@@ -97,9 +97,13 @@ class Match extends RefCounted:
 		self.coachQueue = []
 		self.coachLog = []
 		self.coachReadyAt = [0.0, 0.0]
+		self.tag = null
+		self.tagQueue = []
 		self.seed_ = JS.ushr(seed_, 0.0)
 		self.rng = TMath.Rng.new(seed_)
 		self.specs = [a, b]
+		self.roundTime = (TTag.TAG_TIME if (partners != null) else TMatch.ROUND_TIME)
+		self.clock = roundTime
 		TFighter.resetUids()
 		var fa: TFighter.Fighter = TFighter.Fighter.new(0.0, a.name_, TItems.computeBuild(a.loadout, a.get("size_")), TMath.Rng.new((rng.next() * float(4294967296))))
 		var fb: TFighter.Fighter = TFighter.Fighter.new(1.0, b.name_, TItems.computeBuild(b.loadout, b.get("size_")), TMath.Rng.new((rng.next() * float(4294967296))))
@@ -112,10 +116,28 @@ class Match extends RefCounted:
 		bb.rival = ba
 		self.brains = [ba, bb]
 		self.shows = [TEmote.Showman.new(fa, fb, ba, a.get("emotes")), TEmote.Showman.new(fb, fa, bb, b.get("emotes"))]
-		for f: TFighter.Fighter in fighters:
+		var all: Array = [fa, fb]
+		if (partners != null):
+			var pa: TFighter.Fighter = TFighter.Fighter.new(0.0, partners.a.name_, TItems.computeBuild(partners.a.loadout, partners.a.get("size_")), TMath.Rng.new((rng.next() * float(4294967296))))
+			var pb: TFighter.Fighter = TFighter.Fighter.new(1.0, partners.b.name_, TItems.computeBuild(partners.b.loadout, partners.b.get("size_")), TMath.Rng.new((rng.next() * float(4294967296))))
+			pa.opp = fb
+			pb.opp = fa
+			var bpa: TBrain.Brain = TBrain.Brain.new(pa, fb, TMath.Rng.new((rng.next() * float(4294967296))))
+			var bpb: TBrain.Brain = TBrain.Brain.new(pb, fa, TMath.Rng.new((rng.next() * float(4294967296))))
+			bpb.onEvent = func(e): emit("brain", e)
+			bpa.onEvent = bpb.onEvent
+			var members: Array = [
+	TTag.TagMember.new(fa, ba, shows[0], a, 0.0, 0.0),
+	TTag.TagMember.new(pa, bpa, TEmote.Showman.new(pa, fb, bpa, partners.a.get("emotes")), partners.a, 0.0, 1.0),
+	TTag.TagMember.new(fb, bb, shows[1], b, 1.0, 0.0),
+	TTag.TagMember.new(pb, bpb, TEmote.Showman.new(pb, fa, bpb, partners.b.get("emotes")), partners.b, 1.0, 1.0)
+]
+			all.append_array([pa, pb])
+			self.tag = TTag.TagTeam.new(self, members, JS.ushr(((rng.next() * float(4294967296))), 0.0))
+		for f: TFighter.Fighter in all:
 			f.hooks = {"time": 0.0, "emit": func(ev: String, data): onFighterEvent(ev, data)}
 		for br: TBrain.Brain in brains:
-			br.onEvent = func(e): emit("brain", e)
+			br.onEvent = func(e_2): emit("brain", e_2)
 		var __t1 = TEntrance.hatchXZ(0.0)
 		var ax: float = __t1[0]
 		var az: float = __t1[1]
@@ -125,11 +147,25 @@ class Match extends RefCounted:
 		fa.place(V3.new(ax, 0.0, az), DM.atan2((bx - ax), (bz - az)))
 		fb.place(V3.new(bx, 0.0, bz), DM.atan2((ax - bx), (az - bz)))
 	
+	func cheers(f: TFighter.Fighter) -> bool:
+		return ((tag != null) and tag.cheers(f))
+	
+	func queueTag(side: float, frame = null) -> void:
+		if frame == null:
+			frame = self.frame
+		tagQueue.append({"side": side, "frame": maxf(frame, self.frame)})
+		var __f2 = func(a, b):
+			var __t1 = (a.frame - b.frame)
+			return (__t1 if (__t1 != 0.0) else (a.side - b.side))
+		JS.sort(tagQueue, __f2)
+	
 	func on(fn):
 		listeners.append(fn)
 		return func(): self.listeners = JS.filter(listeners, func(l, _a1 = null, _a2 = null): return (not is_same(l, fn)))
 	
 	func emit(type: String, data = null) -> void:
+		if (tag != null):
+			tag.onEvent(type, data)
 		for l in listeners:
 			l.call(type, data)
 	
@@ -159,12 +195,12 @@ class Match extends RefCounted:
 		return JS.some(coachQueue, func(c, _a1 = null, _a2 = null): return (c.side == side))
 	
 	func coachReady(side: float) -> bool:
-		return (((((phase == "fight") and (not (fin != null))) and (not (winner != null))) and (time >= coachReadyAt[side])) and (not coachPending(side)))
+		return ((((((phase == "fight") and (not (fin != null))) and (not (winner != null))) and (not ((tag != null) and tag.paused))) and (time >= coachReadyAt[side])) and (not coachPending(side)))
 	
 	func applyCoach() -> void:
 		while ((float(coachQueue.size()) != 0.0) and (coachQueue[0].frame <= frame)):
 			var c = coachQueue.pop_front()
-			if (((phase != "fight") or (winner != null)) or (time < coachReadyAt[c.side])):
+			if ((((phase != "fight") or (winner != null)) or ((tag != null) and tag.paused)) or (time < coachReadyAt[c.side])):
 				continue
 			coachReadyAt[c.side] = (time + TCoach.COACH_COOLDOWN)
 			brains[c.side].setCoach(c.kind, (time + TCoach.COACH_TIME))
@@ -182,6 +218,9 @@ class Match extends RefCounted:
 			skipIntro()
 		if (float(coachQueue.size()) != 0.0):
 			applyCoach()
+		var tag: TTag.TagTeam = self.tag
+		while (((tag != null) and (float(tagQueue.size()) != 0.0)) and (tagQueue[0].frame <= frame)):
+			tag.asked[tagQueue.pop_front().side] = true
 		self.frame += 1.0
 		if (hitstop > 0.0):
 			self.hitstop = maxf(0.0, (hitstop - dt))
@@ -192,6 +231,8 @@ class Match extends RefCounted:
 				f.hooks.time = time
 		ropeCooldown[0.0] -= dt
 		ropeCooldown[1.0] -= dt
+		if (tag != null):
+			tag.begin(dt)
 		var _hENTRY = TEntrance.ENTRY
 		if phase == "intro":
 			var i: int = 0
@@ -218,7 +259,7 @@ class Match extends RefCounted:
 				emit("engage")
 		elif phase == "fight":
 			while true:
-				if (self.fin != null):
+				if ((self.fin != null) or ((tag != null) and tag.paused)):
 					break
 				self.clock = maxf(0.0, (clock - dt))
 				for f_3: TFighter.Fighter in fighters:
@@ -235,6 +276,8 @@ class Match extends RefCounted:
 			if ((((phaseTime > 0.45) and (winner != null)) and (winner.state != "win")) and (not winner.isDown)):
 				winner.setState("win")
 				winner.action = null
+				if (tag != null):
+					tag.celebrate(winner.index)
 			if (phaseTime > 4.2):
 				self.slowmo = 1.0
 				setPhase("end")
@@ -248,11 +291,15 @@ class Match extends RefCounted:
 			for br: TBrain.Brain in brains:
 				br.grip = (g if ((g != null) and g.involves(br.me)) else null)
 			var t0_2: float = TPerf.now()
-			brains[0].update(dt, time)
-			brains[1].update(dt, time)
+			if ((not (tag != null)) or (not tag.brainOff(0.0))):
+				brains[0].update(dt, time)
+			if ((not (tag != null)) or (not tag.brainOff(1.0))):
+				brains[1].update(dt, time)
 			TPerf.add("ai", t0_2)
-		shows[0].update(dt, self)
-		shows[1].update(dt, self)
+		if ((not (tag != null)) or (not tag.showOff(0.0))):
+			shows[0].update(dt, self)
+		if ((not (tag != null)) or (not tag.showOff(1.0))):
+			shows[1].update(dt, self)
 		var g_2: TGrapple.Grapple = grapple
 		if (g_2 != null):
 			g_2.update(dt)
@@ -264,6 +311,8 @@ class Match extends RefCounted:
 			self.slowmo = fin.slowmo
 		fighters[0].update(dt)
 		fighters[1].update(dt)
+		if (tag != null):
+			tag.update(dt)
 		separate()
 		if (fin != null):
 			fin.settle()
@@ -271,7 +320,7 @@ class Match extends RefCounted:
 			fin.end()
 			self.fin = null
 			ko(fin.att, fin.def, ("Dismantled" if (fin.final == "decap") else "KO"))
-		elif ((phase == "fight") and (not (fin != null))):
+		elif (((phase == "fight") and (not (fin != null))) and (not ((tag != null) and tag.paused))):
 			checkStrike(fighters[0], fighters[1])
 			checkStrike(fighters[1], fighters[0])
 	
@@ -284,7 +333,7 @@ class Match extends RefCounted:
 		var _hSIDE_NZ: Array = TBody.SIDE_NZ
 		var _hROPE_LINE: float = TBody.ROPE_LINE
 		for f: TFighter.Fighter in fighters:
-			if f.isDown:
+			if (f.isDown or f.body.ropeFree):
 				continue
 			var side: float = (fmod((((fmod(JS.round((DM.atan2((f.root.z), (f.root.x)) / ((PI / 4.0)))), 8.0)) + 8.0)), 8.0))
 			var nx: float = _hSIDE_NX[side]
@@ -625,7 +674,9 @@ class Match extends RefCounted:
 			grapple.finish()
 			self.grapple = null
 		var rng: TMath.Rng = TMath.Rng.new(JS.ushr(((((floorf((time * 120.0)) * float(2654435761)) + (((att.index + 1.0)) * 97.0)) + 13.0)), 0.0))
-		var id: String = TFinisher.pickFinisher(rng, (specs[att.index].get("emotes").get("finish") if specs[att.index].get("emotes") != null else null), brains[att.index].traits.style)
+		var tag: TTag.TagTeam = self.tag
+		var tagged: bool = (((tag != null) and tag.assistReady(att.index, def)) and rng.chance(0.85))
+		var id: String = (TFinisher.pickTagFinisher(rng) if tagged else TFinisher.pickFinisher(rng, (specs[att.index].get("emotes").get("finish") if specs[att.index].get("emotes") != null else null), brains[att.index].traits.style))
 		self.countOut = null
 		var __f1 = func(t: String, d):
 			if (t == "detach"):
@@ -636,8 +687,12 @@ class Match extends RefCounted:
 		s.hasHit = true
 		s.result = "hit"
 		att.finishStrike(s)
-		var info = {"f": att, "opp": def, "id": id, "name_": (TFinisher.FINISHER_NAME.get(id) if TFinisher.FINISHER_NAME.get(id) != null else "Finisher")}
+		var partner: TFighter.Fighter = (tag.partnerOf(att.index).f if tagged else null)
+		var __t2 = ((TFinisher.TAG_FINISHER_NAME.get(id) if tagged else TFinisher.FINISHER_NAME.get(id)))
+		var info = {"f": att, "opp": def, "id": id, "name_": (__t2 if __t2 != null else "Finisher"), "partner": partner}
 		emit("finisher", info)
+		if tagged:
+			tag.startAssist(att.index, fin)
 		fin.opener(point, zone, s.move.id)
 	
 	func resolveHit(att: TFighter.Fighter, def: TFighter.Fighter, s, zone: String, blocked: bool, point: V3, blockHand: float, part: float) -> void:
@@ -1011,7 +1066,7 @@ class Match extends RefCounted:
 	func wearCheck(f: TFighter.Fighter, part: float) -> void:
 		var c: float = f.parts.cond[part]
 		var level: float = (2.0 if (c <= 0.0) else (1.0 if (c < TDamage.LOOSE) else (0.0 if (c < 0.7) else -1.0)))
-		var seen: Array = wearSeen[f.index]
+		var seen: Array = f.wearSeen
 		if (level > seen[part]):
 			seen[part] = level
 			var info = {"f": f, "part": part, "level": level}
@@ -1057,6 +1112,10 @@ class Match extends RefCounted:
 			return
 		if grapple != null:
 			grapple.release()
+		if ((tag != null) and tag.eliminate(winner, loser, kind, (lossReason if (kind == "Dismantled") else null))):
+			self.countOut = null
+			self.lossReason = null
+			return
 		self.winner = winner
 		self.result = kind
 		if (loser.state != "ko"):
@@ -1074,8 +1133,11 @@ class Match extends RefCounted:
 		var __t1 = fighters
 		var a: TFighter.Fighter = __t1[0]
 		var b: TFighter.Fighter = __t1[1]
-		var ra: float = a.hpRatio
-		var rb: float = b.hpRatio
+		var tag: TTag.TagTeam = self.tag
+		var ra: float = (tag.teamHp(0.0) if (tag != null) else a.hpRatio)
+		var rb: float = (tag.teamHp(1.0) if (tag != null) else b.hpRatio)
+		if (tag != null):
+			tag.end()
 		if (absf((ra - rb)) < 0.005):
 			self.result = "Draw"
 			self.winner = null
@@ -1096,6 +1158,8 @@ class Match extends RefCounted:
 		emit("decision", {"winner": winner, "result": result})
 	
 	func onFighterEvent(ev: String, data) -> void:
+		if (((tag != null) and (ev != "step")) and (not tag.isLegal(data.f))):
+			return
 		if (ev == "strikeEnd"):
 			var f: TFighter.Fighter = data.f
 			var s = data.s

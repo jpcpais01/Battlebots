@@ -1156,7 +1156,7 @@ const _f = new Vector3();
 export class Showman {
   readonly pose = new EmotePose();
   private readonly me: Fighter;
-  private readonly opp: Fighter;
+  private opp: Fighter;
   private readonly brain: Brain | null;
   /** The player's equipped emotes; null = the fighter picks from everything. */
   private readonly wins: Set<Spec> | null;
@@ -1206,6 +1206,12 @@ export class Showman {
     this.c.onBeat = (k, shake) => this.match?.emit('emote', { f: this.me, k, shake });
   }
 
+  /** A tag team's fresh partner is the one to play to now. */
+  retarget(opp: Fighter) {
+    this.opp = opp;
+    this.oppPrev = opp.state;
+  }
+
   /** Runs after the brains and before the fighters move. */
   update(dt: number, m: Match) {
     this.match = m;
@@ -1216,7 +1222,8 @@ export class Showman {
     }
     this.oppPrev = opp.state;
 
-    const winning = (m.phase === 'ko' || m.phase === 'end') && m.winner === me && me.state === 'win';
+    // (a tag team celebrates a knockout that isn't the end, and the winners' partner joins in at the end)
+    const winning = (((m.phase === 'ko' || m.phase === 'end') && m.winner === me) || m.cheers(me)) && me.state === 'win';
     if (winning) {
       if (this.kind !== 'celebrate') this.celebrate(m);
       else if (this.spec && this.c.t >= this.c.T - 0.45) this.play(pickWeighted(this.rng(m), this.encores(this.read!, this.spec)), 'celebrate', 0);

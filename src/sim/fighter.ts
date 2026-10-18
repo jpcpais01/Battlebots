@@ -1,7 +1,7 @@
 import { Vector3 } from 'three';
 import { Body, FOREARM_L, FOREARM_R, J, JOINT_COUNT, ropeGap, ropeSide, SIDE_NX, SIDE_NZ } from './body';
 import { MOVES, type MoveDef, type MoveId, type Zone } from './moves';
-import { Parts } from './damage';
+import { Parts, PART_COUNT } from './damage';
 import { ITEM_BY_ID, type FighterBuild, type PassiveId } from '../game/items';
 import {
   clamp,
@@ -378,11 +378,15 @@ export class Fighter {
   knockdowns = 0;
   /** Condition of every body part (locational damage). */
   readonly parts: Parts;
+  /** Wear level the match has already announced per part (see Match wearCheck). */
+  readonly wearSeen = new Int8Array(PART_COUNT).fill(-1);
   /** On one leg: when the last hop landed (the next waits until it has its balance back). */
   private hopAt = -10;
 
   // brain-controlled intent
   intentVel = new Vector3();
+  /** Top speed multiplier: a tag team partner sprinting in (1 the rest of the time). */
+  sprint = 1;
   /** Tied up in a clinch (see grapple.ts): clinch knees open up, footwork and dodges close. */
   clinched = false;
   guardMode: GuardMode = 'normal';
@@ -1125,7 +1129,8 @@ export class Fighter {
     }
   }
 
-  private beginGetUp() {
+  /** Up off the canvas (the count's rise; a tag team's knocked-out bot coming round to leave the ring). */
+  beginGetUp() {
     this.setState('getup');
     const P = this.body.pos;
     // which way up is it lying? chest normal = spine x shoulder axis
@@ -1233,7 +1238,7 @@ export class Fighter {
     const st = this.build.stats;
     if (this.state === 'down' || this.state === 'ko') return;
     const legs = this.parts.mobility();
-    let maxSpd = st.moveSpeed * (1 + this.overdrive * 0.5) * legs;
+    let maxSpd = st.moveSpeed * (1 + this.overdrive * 0.5) * legs * this.sprint;
     if (this.staminaRatio < 0.2) maxSpd *= 0.8;
     // (unhurried: the body gathers speed over a step rather than jumping to it)
     let accel = 8 * st.agility * legs;

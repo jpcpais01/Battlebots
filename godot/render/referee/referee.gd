@@ -379,6 +379,15 @@ func on_event(type: String, d) -> void:
 			_wide = 1.8
 		"finisherBlow":
 			_flinch(_v(d.point), 1.0)
+		# a tag team match: hands slapped, a bot out of the match, and the fight on again
+		"tag":
+			if not JS.truthy(d.get("elim")):
+				_gesture("clap", 0.8)
+		"eliminated":
+			_gesture("whoa", 1.6)
+			_wide = 1.6
+		"tagResume":
+			_gesture("chop", 1.0)
 		"ko":
 			_ko_t = 0.0
 			_winner = int(d.winner.index)

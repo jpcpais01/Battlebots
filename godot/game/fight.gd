@@ -21,7 +21,20 @@ const RIMS := [[Color(1.0, 0.1946, 0.0232), Vector3(-5.5, 3.5, -2)], [Color(0.02
 const INTRO_MAX := 16.0
 
 var m
+## The robots fighting: one per side (in a tag team match, each side's legal bot's).
 var models: Array[BotModel] = []
+## A tag team match's robots out of the ring, one per side (its partner's: on the apron, on its
+## way in or out, in for a double team, or knocked out of the match). Empty one-on-one.
+var bench: Array[BotModel] = []
+## A tag team match's robots in tag.ts order (each side's starter, then its partner).
+var crew: Array[BotModel] = []
+## Which of crew each side's legal bot is (follows the sim's TagTeam.legal: see _tag_frame).
+var _legal := PackedInt32Array([0, 2])
+## A tag team match's own camera moments (tags, eliminations), over the director's.
+var tag_cam := TagCam.new()
+## A tag lights up the corner where the hands met, in the colours of the bot coming in.
+var _tag_light: OmniLight3D
+var _tag_glow := 0.0
 var arena: Arena
 ## Pieces of the world built ahead, off the main thread, while the loading screen shows
 ## (app/boot/boot.gd): "arena" (an Arena), "effects" (a FightFx) and "home:<scene>" (a home
@@ -347,17 +360,22 @@ func _queue_event(type: String, data) -> void:
 	_events.append([type, data])
 
 
-## A fight between two random bots (the scene on its own: see auto).
+## A fight between two random bots (the scene on its own: see auto; BB_TAG=1 makes it two a side).
 func new_fight() -> void:
 	var rng := TMath.Rng.new(float(_seed_rng.randi_range(1, 2000000000)))
 	var a = TLoadout.randomBot(rng)
 	var b = TLoadout.randomBot(rng, 0.35, a.paint)
-	start_match(a, b, rng.int_(0.0, 1e9))
+	# BB_TAG=1: tag team matches (two more random bots)
+	var partners = null
+	if OS.get_environment("BB_TAG") != "":
+		partners = {"a": TLoadout.randomBot(rng, 0.35, a.paint), "b": TLoadout.randomBot(rng, 0.35, b.paint)}
+	start_match(a, b, rng.int_(0.0, 1e9), partners)
 
 
 ## Start a fight between bots a (the player's corner, filmed screen-left) and b from `seed` (game.ts
 ## startMatch, offline). The sim is deterministic: the same bots and seed give the same fight.
-func start_match(a, b, seed: float) -> void:
+## `partners` ({a, b}: a bot each) makes it a tag team match, two a side.
+func start_match(a, b, seed: float, partners = null) -> void:
 	_sync()
 	if place != "arena":
 		set_place("arena")
@@ -374,11 +392,10 @@ func start_match(a, b, seed: float) -> void:
 	_sfx_count = -1
 	_thud_prev = [[false, false, false], [false, false, false]]
 	_hiss_seen.clear()
-	for bm in models:
-		bm.queue_free()
-	models.clear()
+	_free_models()
 	stretcher.clear()
-	m = TMatch.Match.new(a, b, seed)
+	tag_cam.stop()
+	m = TMatch.Match.new(a, b, seed, partners)
 	m.on(_queue_event)
 	# the walkout: each robot rides its corner lift up and makes its entrance (BB_SKIPINTRO=1: straight
 	# to the countdown, for quick checks)
@@ -386,11 +403,16 @@ func start_match(a, b, seed: float) -> void:
 		m.skipIntro()
 	# the booth's welcome (game.ts startMatch: booth.begin, offline)
 	booth.begin(m, false)
-	for i in 2:
-		var bm := BotModel.new(m.specs[i])
-		bm.visible = OS.get_environment("BB_NOBOTS") == ""
-		add_child(bm)
-		models.append(bm)
+	if m.tag != null:
+		# all four robots, in tag.ts order; each side's starter fights first
+		for mb in m.tag.members:
+			crew.append(_add_model(mb.spec))
+		models.append_array([crew[0], crew[2]])
+		bench.append_array([crew[1], crew[3]])
+		_legal = PackedInt32Array([0, 2])
+	else:
+		for i in 2:
+			models.append(_add_model(m.specs[i]))
 	hud.visible = OS.get_environment("BB_NOHUD") == ""
 	speed = 1.0
 	hud.game = self
@@ -435,9 +457,10 @@ func end_match() -> void:
 	_events.clear()
 	booth.end()
 	sfx.walk_on_stop(0.4)
-	for bm in models:
-		bm.queue_free()
-	models.clear()
+	_free_models()
+	tag_cam.stop()
+	_tag_glow = 0.0
+	_tag_light.visible = false
 	effects.stop()
 	stretcher.clear()
 	if _gate_on:
@@ -450,9 +473,78 @@ func end_match() -> void:
 	referee.stop()
 	_crowd_count = -1
 	crowd_audio.tick(0.0, null)
-	for i in 2:
+	for i in ContactAO.ROBOTS:
 		contact_ao.set_robot(i, [] as Array[Vector3], 1.0)
 	contact_ao.commit()
+
+
+func _add_model(spec) -> BotModel:
+	var bm := BotModel.new(spec)
+	bm.visible = OS.get_environment("BB_NOBOTS") == ""
+	add_child(bm)
+	return bm
+
+
+func _free_models() -> void:
+	for bm in models + bench:
+		bm.queue_free()
+	models.clear()
+	bench.clear()
+	crew.clear()
+
+
+## Tag team, at each sync: a side whose legal bot changed (a tag, or an elimination's partner
+## storming in) swaps its robots, so models[side] is always the one fighting.
+func _tag_frame() -> void:
+	var t = _mv.tag
+	if t == null or crew.size() != 4:
+		return
+	for side in 2:
+		var l: int = t.legal[side]
+		if l == _legal[side]:
+			continue
+		_legal[side] = l
+		models[side] = crew[l]
+		bench[side] = crew[t.bench_of[side]]
+		effects.swap_side(side)
+		_thud_prev[side] = [false, false, false]
+		_ground_prev[side] = false
+
+
+## Tag team: the robots out of the ring, posed from their own bodies (on the apron they move
+## every few steps, so each update's motion is spread over those steps).
+func _pose_bench(alpha: float) -> void:
+	var t = _mv.tag
+	for side in bench.size():
+		var f = t.bench[side]
+		var em = f.emote
+		var look = _v(em.gaze) if em != null and em.gazeOn else _v(_mv.fighters[side].body.pos[3])
+		bench[side].begin(f, t.bench_alpha(side, alpha), look)
+		bench[side].end(f, _time)
+
+
+## Tag team: a partner waiting on the apron that the director's shot runs into (it doesn't frame
+## them) steps out of the picture: one right at the lens, or standing between it and the fight.
+## The tag camera's own shots are framed round them, so there they always show.
+func _bench_clear() -> void:
+	var c := cam.global_position
+	var focus := (models[0].joints[1] + models[1].joints[1]) * 0.5
+	var to_f := focus - c
+	var on := OS.get_environment("BB_NOBOTS") == ""
+	var tv = _mv.tag
+	for side in bench.size():
+		var md := bench[side]
+		var show := true
+		# (only one waiting on the apron: one in the ring is part of the fight)
+		if tag_cam.kind == "" and tv.members[tv.bench_of[side]].status == "apron":
+			var p := md.joints[1]
+			var d := c.distance_to(p)
+			var t := (p - c).dot(to_f) / maxf(1e-4, to_f.length_squared())
+			var lateral := (c + to_f * clampf(t, 0.0, 1.0)).distance_to(p)
+			# (a little hysteresis, so one at the edge doesn't flicker)
+			var k := 1.0 if md.visible else 1.15
+			show = d > 1.6 * md.size * k and not (t > 0.0 and t < 0.85 and d < 3.2 * k and lateral < 0.8 * md.size * k)
+		md.visible = show and on
 
 
 ## Show a single bot idling (game.ts showBot): behind the menus in the ring, on the garage lift.
@@ -640,6 +732,7 @@ func _on_event(type: String, data) -> void:
 	# the HUD's callouts, counts, numbers and banners (hud.ts onEvent)
 	hud.on_event(type, data)
 	referee.on_event(type, data)
+	tag_cam.event(type, data, m, crew)
 	_arena_event(type, data)
 	# (the torn-off piece flies before the socket's wrench, as in game.ts tearOff)
 	effects.on_event(type, data)
@@ -703,6 +796,20 @@ func _sound_event(type: String, data) -> void:
 			sfx.ko()
 		"fistBump":
 			sfx.fist_bump()
+		"tag":
+			# hands slapped over the top rope, and the ropes taking the partner's weight
+			if not JS.truthy(data.get("elim")):
+				sfx.fist_bump()
+			sfx.ropes()
+		"tagOut":
+			sfx.ropes()
+		"eliminated":
+			sfx.ko()
+		"assistHold":
+			# the full nelson locks on
+			sfx.thud(0.45, Sfx.pan_of(cam, _v(data.f.body.pos[1])))
+		"tagResume":
+			sfx.bell(1)
 		"decision":
 			sfx.bell(2)
 		"fightStart":
@@ -801,6 +908,21 @@ func _arena_event(type: String, data) -> void:
 			arena.excite(2.0)
 		"fistBump":
 			arena.excite(0.5)
+		"tag":
+			arena.excite(0.9)
+			arena.flash_ropes(0.7)
+			# the corner lights up in the incoming bot's colours (just inside the ropes, overhead)
+			var at := Vector3(float(data.x), 0.0, float(data.z))
+			_tag_light.position = at * (1.0 - 0.7 / maxf(1.0, at.length())) + Vector3(0, 2.3, 0)
+			_tag_light.light_color = _lin(int(m.specs[int(data.side)].paint.accent)).lerp(Color(1, 1, 1), 0.25).linear_to_srgb()
+			_tag_glow = 1.0
+		"eliminated":
+			arena.excite(1.6)
+			arena.strobe(0.7)
+		"assist":
+			arena.excite(1.0)
+		"tagResume":
+			arena.excite(0.6)
 		"emote":
 			arena.excite(float(data.k) * 0.6)
 		"decision":
@@ -842,6 +964,7 @@ func _process(dt: float) -> void:
 	# what the rest of the frame draws, copied while the sim is idle: once the next steps start,
 	# the robots, effects, arena and camera read this, never the match
 	_mv.capture(m)
+	_tag_frame()
 	var events := _events
 	_events = []
 	for e in events:
@@ -863,6 +986,9 @@ func _process(dt: float) -> void:
 	var call := hud.take_coach()
 	if call != "":
 		m.queueCoach(0.0, call)
+	# ...and the TAG button: the bot makes for its corner if its partner is ready (tag team)
+	if m.tag != null and hud.has_method("take_tag") and hud.take_tag():
+		m.queueTag(0.0)
 	# ...and a tap on the intro skips to the countdown (hud.ts skipIntro)
 	if hud.take_skip() and m.phase == "intro":
 		m.skipIntro()
@@ -904,6 +1030,8 @@ func _process(dt: float) -> void:
 		models[i].end(who[i], _time, models[1 - i], true)
 		if i == carried:
 			stretcher.dress(models[i])
+	if not bench.is_empty():
+		_pose_bench(pose_alpha)
 	BotWear.update(models, _mv, dt)
 	# riding the corner lift up in the intro (game.ts: model.root.position.y = drop)
 	var drops := [arena.corners.drop(_mv, 0), arena.corners.drop(_mv, 1)]
@@ -914,8 +1042,12 @@ func _process(dt: float) -> void:
 	var away := stretcher.loser if stretcher.gone() else -1
 	for i in 2:
 		contact_ao.set_robot(i, models[i].joints if drops[i] >= -0.3 and i != away else ([] as Array[Vector3]), models[i].size)
+	for i in bench.size():
+		contact_ao.set_robot(2 + i, bench[i].joints, bench[i].size)
 	contact_ao.commit()
 	for md in models:
+		md.ao_lists(contact_ao)
+	for md in bench:
 		md.ao_lists(contact_ao)
 	# sparks, smoke, vapour and oil off the wrecked parts, the debris, the trails (the view's)
 	effects.update(dt, flow, cam)
@@ -923,7 +1055,10 @@ func _process(dt: float) -> void:
 	_sound_frame()
 	Perf.lap(Perf.AUDIO)
 	# the building (game.ts frame: pressRopes, crowdMood.tick, crowd.update, venue.score, arena.update)
-	arena.press_ropes([models[0].joints, models[1].joints], [models[0].size, models[1].size])
+	if bench.is_empty():
+		arena.press_ropes([models[0].joints, models[1].joints], [models[0].size, models[1].size])
+	else:
+		arena.press_ropes([models[0].joints, models[1].joints, bench[0].joints, bench[1].joints], [models[0].size, models[1].size, bench[0].size, bench[1].size])
 	var hp: Array = _view.hp
 	crowd_mood.tick(dt, _mv.phase, _mv.clock, hp[0], hp[1])
 	arena.crowd.update(dt, crowd_mood.excite, _mv.phase == "fight" or _mv.phase == "greet")
@@ -943,6 +1078,11 @@ func _process(dt: float) -> void:
 	arena.score(dt, {"names": [_mv.fighters[0].name_, _mv.fighters[1].name_], "hp": hp, "clock": _mv.clock, "phase": _mv.phase, "presenting": int(_mv.presenting)})
 	arena.update(dt, _time)
 	arena.corners.update(dt, _time, _mv, effects.fx, false)
+	if _tag_glow > 0.0:
+		_tag_glow = maxf(0.0, _tag_glow - dt / 1.8)
+		var g := _tag_glow * _tag_glow * (3.0 - 2.0 * _tag_glow)
+		_tag_light.light_energy = 14.0 / PI * g
+		_tag_light.visible = g > 0.01
 	# the rim light over each corner swings to that robot's colours while it makes its entrance
 	var h0: Array = TEntrance.hatchXZ(0.0)
 	for j in 2:
@@ -960,15 +1100,26 @@ func _process(dt: float) -> void:
 	var st_shot := stretcher.shot if stretcher.on else {}
 	if not st_shot.is_empty():
 		director.film(st_shot.pos, st_shot.look, st_shot.fov_k, st_shot.cut)
+	else:
+		# a tag team match's tags and eliminations (tag_cam.gd)
+		var tc := tag_cam.frame(dt)
+		if not tc.is_empty():
+			director.film(tc.pos, tc.look, tc.fov_k, tc.cut)
 	if stretcher.posed or _gate_on:
 		_gate_on = stretcher.posed
 		arena.gate_hit(stretcher.at if stretcher.posed else null)
 	_frame_camera(dt, false)
+	if not bench.is_empty():
+		_bench_clear()
 	# ropes, posts and rigging between the lens and the robots dissolve; the house exposes for the ring
 	var chests: Array[Vector3] = [_v(_mv.fighters[0].body.pos[1]), _v(_mv.fighters[1].body.pos[1])]
 	if stretcher.posed:
 		chests[stretcher.loser] = models[stretcher.loser].joints[1]
-	var pov: int = director.pov
+	var pov: int = director.pov if tag_cam.kind == "" else -1
+	# (a tag's shot looks through the ropes at the partner too)
+	if tag_cam.kind != "":
+		for md in bench:
+			chests.append(md.joints[1])
 	ClearView.update(cam, [chests[1 - pov]] as Array[Vector3] if pov >= 0 else chests)
 	arena.expose(dt, cam.global_position.distance_to((chests[0] + chests[1]) * 0.5) if _fixed_cam.is_empty() else _cam_dist)
 	Perf.lap(Perf.CAMERA)
@@ -1115,7 +1266,7 @@ func _direct_steps(events: Array) -> void:
 			director.shake(0.25)
 		_entry_prev[i] = t
 	# a bot's-eye shot: the lens is inside that bot's head
-	var pov := director.pov
+	var pov := director.pov if tag_cam.kind == "" else -1
 	for i in 2:
 		if models[i].has_method("set_head_hidden"):
 			models[i].set_head_hidden(i == pov)
@@ -1149,7 +1300,7 @@ func _camera_event(type: String, data) -> void:
 			director.punch(5.0)
 		"takedown":
 			director.shake(0.2)
-		"ko":
+		"ko", "eliminated":
 			director.focus_ko(int(data.loser.index))
 			director.shake(0.9)
 			director.punch(5.0)
@@ -1233,3 +1384,9 @@ func _build_world() -> void:
 		o.position = r[1]
 		add_child(o)
 		_rims.append(o)
+	_tag_light = OmniLight3D.new()
+	_tag_light.omni_range = 5.0
+	_tag_light.omni_attenuation = 1.2
+	_tag_light.light_energy = 0.0
+	_tag_light.visible = false
+	add_child(_tag_light)

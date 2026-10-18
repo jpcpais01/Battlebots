@@ -168,6 +168,16 @@ var _fb_t := -1.0
 var _fb_move := ""
 var _fb_bot := ""
 var _fb_i := 0
+## What the band says and how it plays: the small line over the word and its icon, the colour, how
+## long it stays (s) and whether the screen's edges glow with it. The finisher's, or a tag team's
+## moment (a tag, a hot tag, an elimination, a double team) on the same band.
+var _fb_label := "FINISHER"
+var _fb_icon := "bolt"
+var _fb_col := HudKit.CYAN
+var _fb_dur := 2.8
+var _fb_edge := true
+## A tag team match: each side's two bots' names, for the end-of-fight word (side -> "A & B").
+var _teams: Array[String] = []
 # the tap for the next fight fading in
 var _tap_t := 0.0
 
@@ -326,6 +336,10 @@ func start(m_) -> void:
 		# (the bars' colour: --bot0 / --bot1)
 		_side[i] = HudKit.bar_colors(m_.specs[i].paint)[0]
 		_kd_seen[i] = int(m_.fighters[i].knockdowns)
+	_teams.clear()
+	if m_.get("tag") != null:
+		for i in 2:
+			_teams.append("%s & %s" % [str(m_.specs[i].name_), str(m_.tag.partnerOf(float(i)).spec.name_)])
 	_last_count = -1
 	_last_callout_at = 0.0
 	_fin_by = []
@@ -351,6 +365,14 @@ func stop() -> void:
 		sp.visible = false
 	for c in _layer.values():
 		(c as Control).queue_redraw()
+
+
+## A tag: side `i`'s colour and knockdowns are the new bot's.
+func swap(i: int, m_) -> void:
+	_side[i] = HudKit.bar_colors(m_.specs[i].paint)[0]
+	_kd_seen[i] = int(m_.fighters[i].knockdowns)
+	if _ref_live and _ref_i == i:
+		_end_count()
 
 
 ## hud.ts update's share: the countdown by the clock, the referee's count, and the end-of-fight
@@ -439,7 +461,30 @@ func on_event(type: String, d) -> void:
 			if str(d.kind) != "Dismantled":
 				_co_t = -1.0
 			var w = d.winner
-			_pending = {"kind": str(d.kind), "side": int(w.index), "name": str(w.name_), "reason": d.reason}
+			var who := str(w.name_)
+			# (a tag team wins together)
+			var team := int(w.index) < _teams.size()
+			if team:
+				who = _teams[int(w.index)]
+			_pending = {"kind": str(d.kind), "side": int(w.index), "name": who, "reason": d.reason, "team": team}
+		"tagCall":
+			if float(m.time) - _last_callout_at > 1.2:
+				_callout("GOING FOR THE TAG!", "small cyan", 1000)
+		"tag":
+			var side := int(d.side)
+			var col := HudKit.bar_colors(m.specs[side].paint)[0]
+			if d.get("elim", false):
+				# after an elimination the partner storms in
+				_band(side, "HOT TAG", "swords", str(d.to.name_).to_upper(), "STORMS THE RING", col, 2.2, true)
+			else:
+				_band(side, "TAG TEAM", "refresh", "TAG!", "%s IS IN" % str(d.to.name_).to_upper(), col, 2.0, false)
+		"eliminated":
+			# knocked out of the match, not the end of it: the count stops, the band says who's out
+			_end_count()
+			_co_t = -1.0
+			_band(int(d.winner.index), "OUT OF THE MATCH", "close", "ELIMINATED", "%s IS OUT" % str(d.loser.name_).to_upper(), _rgba(255, 63, 94), 3.0, true)
+		"tagResume":
+			_callout("FIGHT ON!", "", 1100)
 		"decision":
 			_end_count()
 			_callout("TIME!", "", 1800)
@@ -527,18 +572,19 @@ func _finish(pf: Dictionary) -> void:
 	_fin_kind = kind
 	_fin_i = pf.side
 	var who: String = pf.name
+	var wins := "win" if pf.get("team", false) else "wins"
 	var fin := ""
 	if not _fin_by.is_empty() and _fin_by[0] == _fin_i:
 		fin = _fin_by[1]
 	if fin != "" and kind != "TKO":
 		_fin_sub = "%s finishes it · %s" % [who, fin]
 	elif kind == "KO":
-		_fin_sub = "%s wins by knockout" % who
+		_fin_sub = "%s %s by knockout" % [who, wins]
 	elif kind == "Dismantled":
 		var r = pf.reason
-		_fin_sub = "%s · %s wins" % [LOSS_TEXT.get(str(r), "Torn apart") if r != null else "Torn apart", who]
+		_fin_sub = "%s · %s %s" % [LOSS_TEXT.get(str(r), "Torn apart") if r != null else "Torn apart", who, wins]
 	else:
-		_fin_sub = "Technical knockout · %s wins" % who
+		_fin_sub = "Technical knockout · %s %s" % [who, wins]
 	_fin_sub = _fin_sub.to_upper()
 	_st = _kind_style(kind)
 	_fin_word.assign(FINISH_WORD.get(kind, ["K.", "O."]))
@@ -592,13 +638,30 @@ func _kind_style(kind: String) -> Dictionary:
 ## hud.ts finisher: the finisher's name sweeps in low across the screen in its colours.
 func _finisher(d) -> void:
 	var f = d.f
-	_fb_i = int(f.index)
-	_fb_move = str(d.name_).to_upper()
-	_fb_bot = str(f.name_).to_upper()
+	var partner = d.get("partner")
+	if partner != null:
+		# a tag team's double team: the partner holds, the legal bot finishes
+		_band(int(f.index), "DOUBLE TEAM", "swords", str(d.name_).to_upper(), "%s + %s" % [str(f.name_).to_upper(), str(partner.name_).to_upper()], _side[int(f.index)], 2.8, true)
+	else:
+		_band(int(f.index), "FINISHER", "bolt", str(d.name_).to_upper(), str(f.name_).to_upper(), _side[int(f.index)], 2.8, true)
 	_fin_by = [_fb_i, str(d.name_)]
+	_sfx("start")
+
+
+## The band across the screen (the finisher's, and a tag team's moments on it): in from side
+## `i`'s edge with the small `label` (and `icon`) over `word` and `sub` under it, in `col`, for `dur`
+## seconds; `edge` makes the screen's edges glow with it. A new one takes over from the last.
+func _band(i: int, label: String, icon: String, word: String, sub: String, col: Color, dur: float, edge: bool) -> void:
+	_fb_i = i
+	_fb_label = label
+	_fb_icon = icon
+	_fb_move = word
+	_fb_bot = sub
+	_fb_col = col
+	_fb_dur = dur
+	_fb_edge = edge
 	_fb_t = 0.0
 	_co_t = -1.0
-	_sfx("start")
 
 
 func _sfx(kind: String) -> void:
@@ -633,7 +696,7 @@ func tick(dt: float) -> void:
 				_fin_t = -1.0
 	if _fb_t >= 0.0:
 		_fb_t += dt
-		if _fb_t > 2.8:
+		if _fb_t > _fb_dur:
 			_fb_t = -1.0
 	var tap := can_restart and (_phase == "ko" or _phase == "end")
 	_tap_t = _tap_t + dt if tap else 0.0
@@ -1114,8 +1177,8 @@ func _finban_geom() -> Dictionary:
 	var em_px := int(round(minf(2.0 * vh, 3.0 * vw)))
 	var pad_t := 0.5 * vh
 	var bh := pad_t + small_px * 1.25 + b_px + em_px * 1.25 + 0.9 * vh
-	if t > 2.3:
-		var eo := HudKit.ease_in(clampf((t - 2.3) / 0.45, 0.0, 1.0))
+	if t > _fb_dur - 0.5:
+		var eo := HudKit.ease_in(clampf((t - (_fb_dur - 0.5)) / 0.45, 0.0, 1.0))
 		ba = 1.0 - eo
 		tx = 0.0
 		ty = 0.3 * bh * eo
@@ -1134,8 +1197,8 @@ func _draw_finban_back(ci: CanvasItem) -> void:
 	var t := _fb_t
 	var w := size.x
 	var h := size.y
-	var fc := _side[_fb_i]
-	var ea := _kf(t, 2.6, [[0.0, 0.0], [0.12, 1.0], [1.0, 0.0]], _e_ease_out)
+	var fc := _fb_col
+	var ea := _kf(t, _fb_dur - 0.2, [[0.0, 0.0], [0.12, 1.0], [1.0, 0.0]], _e_ease_out) if _fb_edge else 0.0
 	if ea > 0.0:
 		var B := 0.14 * h
 		var c0 := fc
@@ -1176,11 +1239,11 @@ func _draw_finban_back(ci: CanvasItem) -> void:
 	var sfp := float(small_px)
 	var ls := 0.5 * sfp
 	var icon := 1.1 * sfp
-	var label := "FINISHER"
+	var label := _fb_label
 	var row := icon + 0.35 * sfp + _sw(_bu, label, small_px, ls)
 	var line_c := rect.position.y + float(g.vh) * 0.5 + sfp * 0.625
 	var x0 := -row * 0.5
-	ci.draw_texture_rect(UiTheme.icon("bolt", int(ceil(icon))), Rect2(x0, line_c - icon * 0.5, icon, icon), false, _rgba(0xff, 0xe0, 0x8a, 0.9 * ba))
+	ci.draw_texture_rect(UiTheme.icon(_fb_icon, int(ceil(icon))), Rect2(x0, line_c - icon * 0.5, icon, icon), false, _rgba(0xff, 0xe0, 0x8a, 0.9 * ba))
 	_str(ci, _bu, Vector2(x0 + icon + 0.35 * sfp, line_c + _mid(_bu, small_px)), label, small_px, Color(1, 1, 1, 0.9 * ba), ls)
 	# em: the bot, letter-spaced 0.2em, at 75%
 	var em_px: int = g.em
@@ -1213,7 +1276,7 @@ func _draw_finban_move(ci: CanvasItem, glow: bool) -> void:
 	var at := Vector2(-mw * 0.5, _mid(_fi, b_px))
 	var vh: float = g.vh
 	if glow:
-		var gc := MenuKit.mix(_side[_fb_i], Color.WHITE, 0.9)
+		var gc := MenuKit.mix(_fb_col, Color.WHITE, 0.9)
 		gc.a = a
 		_glow(ci, _gi, at, _fb_move, b_px, gc, 3.0 * vh, bls)
 	else:

@@ -100,6 +100,17 @@ func event(type: String, data) -> void:
 		"getUp":
 			_clap(0.6, 1.5)
 			_cue("cheer", 0.4, 0.0, 1.0)
+		"tag":
+			_cue("cheer", 0.75, 0.05, 0.5)
+			_clap(0.7, 1.5)
+		"eliminated":
+			_cue("ooh", 0.85, 0.0)
+			_cue("cheer", 1.0, 0.3, 0.0)
+			cues.append(Cue.new("whistle", 0.5, 0.8))
+		"assist":
+			_cue("ooh", 0.7, 0.0)
+		"tagResume":
+			_cue("cheer", 0.5, 0.0, 1.0)
 		"ko":
 			_cool.clear()
 			_cue("cheer", 1.0, 0.05, 0.0)

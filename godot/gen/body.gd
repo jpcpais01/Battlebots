@@ -57,6 +57,7 @@ class Body extends RefCounted:
 	var tone: float
 	var grounded: Array
 	var outside: Array
+	var ropeFree: bool
 	var cut: Array
 	var radii: Array
 	var clear2: PackedFloat64Array
@@ -74,6 +75,7 @@ class Body extends RefCounted:
 		self.tone = 1.0
 		self.grounded = JS.filled(TBody.JOINT_COUNT, 0.0)
 		self.outside = JS.filled(TBody.JOINT_COUNT, 0.0)
+		self.ropeFree = false
 		self.cut = JS.filled(TBody.JOINT_COUNT, 0.0)
 		self.clear2 = JS.f64(TBody.JOINT_COUNT)
 		self.post2 = JS.f64(TBody.JOINT_COUNT)
@@ -348,7 +350,9 @@ class Body extends RefCounted:
 				grounded[i] = 0.0
 			var past: float = (oct - _hROPE_LINE)
 			var below: bool = (p.y < (TBody.ROPE_TOP + r))
-			if (not (outside[i] != 0.0)):
+			if ropeFree:
+				outside[i] = 0.0
+			elif (not (outside[i] != 0.0)):
 				if below:
 					var pen: float = (past + r)
 					if (pen > 0.0):

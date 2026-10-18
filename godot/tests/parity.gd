@@ -1,5 +1,5 @@
 ## Godot side of godot/tests/parity.ts: same fight, same hash after every step.
-##   godot --headless --path godot -s res://tests/parity.gd -- <seed> <steps> [every]
+##   [TAG=1] godot --headless --path godot -s res://tests/parity.gd -- <seed> <steps> [every]
 extends SceneTree
 
 
@@ -13,7 +13,13 @@ func _init() -> void:
 	var rng := TMath.Rng.new(seed)
 	var a = TLoadout.randomBot(rng)
 	var b = TLoadout.randomBot(rng)
-	var m := TMatch.Match.new(a, b, rng.int_(0.0, 1e9))
+	# TAG=1: a tag team match (two more bots, one per side)
+	var partners = null
+	if OS.get_environment("TAG") == "1":
+		var pa = TLoadout.randomBot(rng)
+		var pb = TLoadout.randomBot(rng)
+		partners = {"a": pa, "b": pb}
+	var m := TMatch.Match.new(a, b, rng.int_(0.0, 1e9), partners)
 	m.skipIntro()
 	var out := PackedStringArray([a.name_ + " vs " + b.name_])
 	var dump_at := int(args[3]) if args.size() > 3 else -1

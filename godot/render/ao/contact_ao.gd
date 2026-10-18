@@ -15,18 +15,21 @@ const MIDS := [[4, 5, 0.12], [5, 6, 0.12], [7, 8, 0.12], [8, 9, 0.12], [10, 11, 
 ## Each sphere's occlusion reaches zero at this many radii; the bounding sphere encloses it all.
 const RANGE := 4.5
 const MAP_SIZE := 384
+## Robots it can hold: the two fighting, then a tag team's partners (only the floor map and the
+## robots' own sphere lists see those).
+const ROBOTS := 4
 
 var _data := PackedFloat32Array()
 var _image: Image
 var _tex: ImageTexture
-var _bounds := [Vector4(), Vector4()]
+var _bounds := [Vector4(), Vector4(), Vector4(), Vector4()]
 var _map: SubViewport
 var _was_near := true
 
 
 func _init() -> void:
-	_data.resize(PER * 2 * 4)
-	_image = Image.create_from_data(PER, 2, false, Image.FORMAT_RGBAF, _data.to_byte_array())
+	_data.resize(PER * ROBOTS * 4)
+	_image = Image.create_from_data(PER, ROBOTS, false, Image.FORMAT_RGBAF, _data.to_byte_array())
 	_tex = ImageTexture.create_from_image(_image)
 	RenderingServer.global_shader_parameter_set("bb_ao_spheres", _tex)
 	# the floor map: one quad drawn with the sphere maths into a small top-down texture
@@ -96,17 +99,19 @@ func set_robot(i: int, joints: Array[Vector3], size := 1.0) -> void:
 
 
 ## This frame's spheres, four floats each (centre xyz, radius; 0 for none): robot 0's PER, then
-## robot 1's, as the shaders' bb_ao_spheres rows hold them.
+## robot 1's (and a tag team's partners'), as the shaders' bb_ao_spheres rows hold them.
 func spheres() -> PackedFloat32Array:
 	return _data
 
 
 ## Upload this frame's spheres (once, after both robots are set).
 func commit() -> void:
-	_image.set_data(PER, 2, false, Image.FORMAT_RGBAF, _data.to_byte_array())
+	_image.set_data(PER, ROBOTS, false, Image.FORMAT_RGBAF, _data.to_byte_array())
 	_tex.update(_image)
 	RenderingServer.global_shader_parameter_set("bb_ao_b0", _bounds[0])
 	RenderingServer.global_shader_parameter_set("bb_ao_b1", _bounds[1])
+	RenderingServer.global_shader_parameter_set("bb_ao_b2", _bounds[2])
+	RenderingServer.global_shader_parameter_set("bb_ao_b3", _bounds[3])
 	# nothing near the floor: the map can keep what it has
 	var near := false
 	for b in _bounds:

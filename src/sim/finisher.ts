@@ -123,6 +123,8 @@ export class FinCtx {
   vtone = 0.8;
   gaze: 'opp' | 'sky' | 'down' = 'opp';
   vgaze: 'opp' | 'down' = 'opp';
+  /** Tag team: how far the partner's hold on the victim has locked (0..1; an input, not reset). */
+  pin = 0;
   reset() {
     this.aw = 0;
     this.range = 0;
@@ -149,6 +151,8 @@ interface FinSpec {
   steps: Step[];
   /** After the final blow, seconds before the knockout is called. */
   tail: number;
+  /** Tag team: the script waits at this time until the partner has hold of the victim. */
+  hold?: number;
   att(o: Shape, c: FinCtx): void;
   vic(o: Shape, c: FinCtx): void;
 }
@@ -453,6 +457,181 @@ const headhunter: FinSpec = (() => {
   };
 })();
 
+// ------------------------------------------------------------------ tag team
+// Double-team finishers (tag.ts): the partner waiting on the apron hops in, gets behind the
+// victim and locks a full nelson on it, and the attacker finishes the pinned victim. The script
+// waits at TAG_HOLD (the attacker calling for it, the victim reeling) until the partner has its
+// grip (FinisherRun.holding), then plays on; the partner lets go just before the last blow.
+
+/** Script time the tag team finishers wait at for the partner to lock on. */
+export const TAG_HOLD = 0.45;
+
+const V_NELSON = A({ crouch: 0.1, pitch: -0.12, head: [0, -0.03, 0.07], a: arm([0.15, 0.42, -0.08], [1, 0.6, -0.2], 0.3), b: arm([0.15, 0.42, -0.08], [1, 0.6, -0.2], 0.3) });
+const V_NELSON_FOLD = A({ crouch: 0.2, pitch: 0.82, pelvis: [0, -0.06], head: [0, -0.05, 0.08], a: arm([0.15, 0.4, -0.04], [1, 0.6, -0.1], 0.3), b: arm([0.15, 0.4, -0.04], [1, 0.6, -0.1], 0.3) });
+/** "Now!": the rear fist up, calling the partner in. */
+const A_CALL = A({ crouch: 0.05, pitch: -0.1, twist: 0.18, head: [0, 0.01, -0.02], a: arm([0.3, 0.64, 0.12], [1, -0.2, -0.4], -0.4), b: LEAD_GUARD });
+
+/** The victim of a tag team finisher: reeling, then pinned in the partner's full nelson (c.pin). */
+function pinned(o: Shape, c: FinCtx, to: Shape) {
+  keys(o, c.t, [[0, V_REEL], [0.3, V_DAZED], [99, V_DAZED]]);
+  const k = c.pin;
+  for (let i = 0; i < EC.N; i++) o[i] += (to[i] - o[i]) * k;
+  // writhing in the hold
+  o[EC.TWIST] += DM.sin(c.rt * 5.3) * 0.08 * k;
+  o[EC.ROLL] += DM.sin(c.rt * 4.1 + 1) * 0.05 * k;
+  sway(o, c.rt, 1 - 0.7 * k);
+}
+
+/** The attacker waiting at the hold: calling the partner in, the fist pumping. */
+function calling(o: Shape, c: FinCtx, H: number) {
+  const k = hold(c.t, 0.25, H, 0.12);
+  o[armI(0) + 1] += DM.sin(c.rt * 9) * 0.05 * k;
+  return k;
+}
+
+const doomsday: FinSpec = (() => {
+  // a hook into the ribs of the pinned bot, then sink low and drive the uppercut through
+  // the chin, the partner letting go as it lands
+  const H = TAG_HOLD;
+  const load = A({ crouch: 0.3, pitch: 0.3, twist: 0.42, hip: 0.25, head: [0, -0.02, 0.03], a: arm([0.3, -0.44, -0.1], [0.3, -0.2, -1], 0.4), b: arm([0.18, 0.24, 0.27], [0.6, -1, -0.3], 0.1) });
+  const deeper = A({ crouch: 0.36, pitch: 0.34, twist: 0.5, hip: 0.3, head: [0, -0.03, 0.04], a: arm([0.3, -0.48, -0.16], [0.3, -0.2, -1], 0.5), b: arm([0.17, 0.22, 0.28], [0.6, -1, -0.3], 0.1) });
+  const reach = A({ crouch: -0.04, pitch: -0.22, twist: -0.32, a: arm([0.2, 0.78, 0.24], [1, 0, -0.3]), b: arm([0.34, -0.22, 0.2], [0.5, -0.4, -1], 0.3), heel: 0.7 });
+  const UP = H + 1.25;
+  return {
+    id: 'doomsday',
+    tail: 0.9,
+    hold: H,
+    steps: [
+      { at: H + 0.12, strike: 'rearHook', zone: 'body', speed: 1.25, blow: { move: 'rearHook', zone: 'body', part: P.Torso, take: 0.35, kb: 0.05, jolt: 4, shown: 70, stop: 0.09 } },
+      { at: UP, strike: 'rearUpper', zone: 'head', speed: 1.4, blow: { move: 'rearUpper', zone: 'head', part: P.Head, take: 1, kb: 0.4, jolt: 9.5, shown: 210, stop: 0.17, final: 'launch' } },
+    ],
+    att(o, c) {
+      const t = c.t;
+      keys(o, t, [[0, A_SET], [0.28, A_CALL, punchy], [H, A_CALL], [H + 0.1, A_SET], [H + 0.5, A_SET], [H + 0.75, load, punchy], [UP - 0.15, deeper], [99, deeper]]);
+      const call = calling(o, c, H);
+      c.aw = t < H + 0.08 ? call : t > H + 0.45 && t < UP - 0.06 ? 1 : 0;
+      const ch = hold(t, H + 0.75, UP - 0.1, 0.15);
+      o[armI(0)] += DM.sin(c.rt * 61) * 0.012 * ch;
+      c.glow = smoothstep(H + 0.55, UP - 0.1, t) * (t < UP + 0.15 ? 1 : 0);
+      c.range = t < H + 0.45 ? 0.9 : 0.68;
+      if (t >= H + 0.45) c.foot = 'head';
+      c.slow = lerp(1, 0.5, hold(t, H + 0.8, UP - 0.08, 0.15));
+      c.gaze = 'opp';
+      if (c.landed(1)) {
+        const s = c.since(1);
+        keys(o, s, [[0, deeper], [0.3, reach, snap], [99, reach]]);
+        c.aw = rise(s, 0.12, 0.25);
+        c.lift = 0.1 * win(s, 0.05, 0.6, 0.2);
+        c.gaze = 'sky';
+        c.range = 0;
+        c.slow = s < 0.55 ? 0.2 : 0.3;
+      }
+    },
+    vic(o, c) {
+      pinned(o, c, V_NELSON);
+      const s = c.since(0);
+      // the hook folds it as far as the hold lets it
+      if (s >= 0) o[EC.PITCH] += 0.2 * pulse(s, 0, 0.06, 0.35) + 0.06 * rise(s, 0, 0.3);
+      c.vgaze = c.pin > 0.5 ? 'opp' : 'down';
+      c.vtone = 0.75;
+    },
+  };
+})();
+
+const crossfire: FinSpec = (() => {
+  // both hooks into the pinned body, a skip back, and the spinning heel to the head
+  const H = TAG_HOLD;
+  const skip = A({ crouch: 0.12, pitch: 0.06, twist: 0.32, hip: 0.22, a: arm([0.16, 0.26, 0.28], [0.6, -1, -0.3], 0.1), b: arm([0.2, 0.32, 0.42], [0.6, -1, -0.3], 0.1) });
+  const after = A({ crouch: 0.1, pitch: -0.1, twist: -0.25, a: arm([0.5, 0.1, 0.1], [0.6, -0.8, -0.4], -0.3), b: arm([0.45, 0.2, 0.25], [0.6, -0.8, -0.4], -0.3) });
+  const SPIN = H + 1.3;
+  return {
+    id: 'crossfire',
+    tail: 0.85,
+    hold: H,
+    steps: [
+      { at: H + 0.1, strike: 'leadHook', zone: 'body', speed: 1.3, blow: { move: 'leadHook', zone: 'body', part: P.Torso, take: 0.3, kb: 0.05, jolt: 4, shown: 60, stop: 0.08 } },
+      { at: H + 0.4, strike: 'rearHook', zone: 'head', speed: 1.3, blow: { move: 'rearHook', zone: 'head', part: P.Head, take: 0.35, kb: 0.1, jolt: 5, shown: 75, stop: 0.1 } },
+      { at: SPIN, strike: 'spinKick', zone: 'head', speed: 1.05, blow: { move: 'spinKick', zone: 'head', part: P.Head, take: 1, kb: 1.5, jolt: 11, shown: 210, stop: 0.16, final: 'fly' } },
+    ],
+    att(o, c) {
+      const t = c.t;
+      keys(o, t, [[0, A_SET], [0.28, A_CALL, punchy], [H, A_CALL], [H + 0.1, A_SET], [H + 0.65, A_SET], [H + 0.85, skip, punchy], [99, skip]]);
+      const call = calling(o, c, H);
+      c.lift = 0.07 * win(t, H + 0.67, H + 0.97, 0.12);
+      c.aw = t < H + 0.08 ? call : t > H + 0.6 && t < SPIN - 0.04 ? 1 : 0;
+      c.range = t < H + 0.65 ? 0.85 : 1.12;
+      c.slow = lerp(1, 0.6, hold(t, H + 0.95, SPIN + 0.2, 0.15));
+      if (c.landed(2)) {
+        const s = c.since(2);
+        keys(o, s, [[0, skip], [0.35, after], [99, after]]);
+        c.aw = rise(s, 0.25, 0.3);
+        c.range = 0;
+        c.slow = s < 0.5 ? 0.22 : 0.3;
+      }
+    },
+    vic(o, c) {
+      pinned(o, c, V_NELSON);
+      for (let k = 0; k < 2; k++) {
+        const s = c.since(k);
+        if (s >= 0) {
+          o[EC.PITCH] += (k ? -0.18 : 0.2) * pulse(s, 0, 0.05, 0.3);
+          o[EC.TWIST] += (k ? 0.22 : -0.22) * pulse(s, 0, 0.05, 0.3);
+        }
+      }
+      c.vgaze = 'opp';
+      c.vtone = 0.72;
+    },
+  };
+})();
+
+const hammerdrop: FinSpec = (() => {
+  // the partner bends the pinned bot over; a leap, and both fists come down on its back
+  const H = TAG_HOLD;
+  const gather = A({ crouch: 0.3, pitch: 0.26, twist: 0.1, a: arm([0.3, -0.3, 0.1], [0.4, -0.2, -1], 0.5), b: arm([0.3, -0.3, 0.1], [0.4, -0.2, -1], 0.5), heel: 0.2 });
+  const up = A({ crouch: 0.02, pitch: -0.3, head: [0, 0.02, -0.04], a: arm([0.05, 0.8, 0.08], [1, 0.2, -0.4], -1), b: arm([0.05, 0.8, 0.08], [1, 0.2, -0.4], -1), heel: 0.7 });
+  const top = A({ crouch: 0.06, pitch: -0.36, head: [0, 0.02, -0.05], a: arm([0.05, 0.78, -0.04], [1, 0.3, -0.5], -1), b: arm([0.05, 0.78, -0.04], [1, 0.3, -0.5], -1), heel: 0.7 });
+  const slam = A({ crouch: 0.32, pitch: 0.62, head: [0, -0.03, 0.06], a: arm([0.06, -0.06, 0.6], [1, -0.3, 0.2], -1), b: arm([0.06, -0.06, 0.6], [1, -0.3, 0.2], -1) });
+  const stand = A({ crouch: 0.12, pitch: 0.1, a: arm([0.5, 0.36, 0.14], [1, -0.6, -0.3], -0.4), b: arm([0.5, 0.36, 0.14], [1, -0.6, -0.3], -0.4) });
+  const L0 = H + 0.35;
+  const SLAM = L0 + 0.85;
+  return {
+    id: 'hammerdrop',
+    tail: 0.85,
+    hold: H,
+    steps: [{ at: SLAM, blow: { move: 'hammer', zone: 'head', part: P.Head, take: 1, kb: 0.2, jolt: 10, shown: 200, stop: 0.17, final: 'slam' } }],
+    att(o, c) {
+      const t = c.t;
+      keys(o, t, [[0, A_SET], [0.28, A_CALL, punchy], [H, A_CALL], [H + 0.1, A_SET], [L0, A_SET], [L0 + 0.25, gather], [L0 + 0.5, up, snap], [L0 + 0.72, top], [L0 + 0.86, slam, snap], [L0 + 1.4, slam], [L0 + 2, stand], [99, stand]]);
+      const call = calling(o, c, H);
+      c.aw = t < H + 0.08 ? call : t > L0 - 0.05 ? 1 : 0;
+      c.lift = 0.42 * DM.sin(Math.PI * clamp01((t - (L0 + 0.32)) / 0.56));
+      c.range = t < L0 ? 0.8 : 0.7;
+      if (t >= L0) c.foot = 'back';
+      c.smash = rise(t, L0 + 0.7, SLAM - (L0 + 0.7)) * (c.landed(0) ? 1 - rise(c.since(0), 0.12, 0.3) : 1);
+      c.slow = lerp(1, 0.45, hold(t, L0 + 0.55, L0 + 0.75, 0.12));
+      if (t > SLAM) c.slow = t < SLAM + 0.5 ? 0.22 : 0.3;
+      c.gaze = t > L0 + 0.2 && t < SLAM + 0.6 ? 'down' : 'opp';
+    },
+    vic(o, c) {
+      // bent double by the partner, the back square to the sky
+      const fold = rise(c.t, H + 0.05, 0.4);
+      for (let i = 0; i < EC.N; i++) _s[i] = V_NELSON[i] + (V_NELSON_FOLD[i] - V_NELSON[i]) * fold;
+      pinned(o, c, _s);
+      c.vgaze = 'down';
+      c.vtone = 0.75;
+    },
+  };
+})();
+
+export const TAG_FINISHERS: Record<string, FinSpec> = Object.fromEntries([doomsday, crossfire, hammerdrop].map((s) => [s.id, s]));
+export const TAG_FINISHER_IDS = ['doomsday', 'crossfire', 'hammerdrop'];
+export const TAG_FINISHER_NAME: Record<string, string> = { doomsday: 'Doomsday Device', crossfire: 'Crossfire', hammerdrop: 'Hammer Drop' };
+
+/** A tag team finisher for this pair (their own stream, as pickFinisher). */
+export function pickTagFinisher(rng: Rng): string {
+  return TAG_FINISHER_IDS[Math.floor(rng.next() * TAG_FINISHER_IDS.length)];
+}
+
 const _s = new Float32Array(EC.N);
 
 export const FINISHERS: Record<string, FinSpec> = Object.fromEntries([skyfall, meteor, cyclone, overdrive, headhunter].map((s) => [s.id, s]));
@@ -525,6 +704,8 @@ const REACH: Partial<Record<MoveId, number>> = {
 const STALL_MAX = 0.35;
 /** Longest a strike is held back while the feet close to its range. */
 const WAIT_MAX = 0.3;
+/** Longest a tag team finisher waits at its hold for the partner (it plays on regardless). */
+const HOLD_MAX = 5;
 /** A pose blow (the smash) can land this long before its beat, if the fists are already there. */
 const POSE_EARLY = 0.22;
 /** ... and lands on its own this long after, wherever the fists are. */
@@ -570,9 +751,16 @@ export class FinisherRun {
   /** Smoothed footwork target (so a switch of what the range is kept to never jerks the feet). */
   private readonly stand = new Vector3();
   private standOn = false;
+  /** Tag team: the script is waiting at the spec's hold for the partner's grip (tag.ts clears it). */
+  holding = false;
+  /** How long it has waited there. */
+  heldFor = 0;
+  /** Tag team: the partner's hold on the victim, 0..1 (tag.ts sets it; the victim's pose reads it). */
+  pin = 0;
 
   constructor(id: string, att: Fighter, def: Fighter, host: FinHost, preview = false) {
-    this.spec = FINISHERS[id] ?? skyfall;
+    this.spec = FINISHERS[id] ?? TAG_FINISHERS[id] ?? skyfall;
+    this.holding = (this.spec.hold ?? -1) >= 0;
     this.att = att;
     this.def = def;
     this.host = host;
@@ -602,6 +790,16 @@ export class FinisherRun {
     return this.spec.id;
   }
 
+  /** Script time of the last blow's beat (a tag team partner lets go just before it). */
+  get finalAt() {
+    return this.spec.steps[this.spec.steps.length - 1].at;
+  }
+
+  /** Script time now. */
+  get t() {
+    return this.c.t;
+  }
+
   /** The strike that triggered it lands: the victim is rocked, and the finisher begins. */
   opener(point: Vector3, zone: Zone, move: MoveId) {
     const part = zone === 'head' ? P.Head : zone === 'legs' ? legPart(this.def.leadSide === 'L' ? 0 : 1, 1) : P.Chest;
@@ -618,8 +816,14 @@ export class FinisherRun {
     // a scripted strike still on its way holds the script (briefly), so no beat ever
     // starts before the blow before it has touched
     const due = this.next < steps.length ? steps[this.next] : null;
+    const H = this.spec.hold ?? -1;
     if (this.pending && due && due.at <= c.t + dt && this.stall < STALL_MAX) this.stall += dt;
-    else c.t += dt;
+    else if (this.holding && c.t + dt >= H) {
+      // a tag team finisher waits here for the partner to get hold of them
+      c.t = Math.max(c.t, H);
+      this.heldFor += dt;
+      if (this.heldFor > HOLD_MAX) this.holding = false;
+    } else c.t += dt;
     // launch scheduled steps
     while (this.next < steps.length && !this.struck) {
       const st = steps[this.next];
@@ -693,6 +897,7 @@ export class FinisherRun {
 
     // poses
     c.reset();
+    c.pin = this.pin;
     const a = this.auth;
     this.spec.att(a, c);
     a[EC.CROUCH] += DM.sin(c.rt * 2.6) * 0.006;
