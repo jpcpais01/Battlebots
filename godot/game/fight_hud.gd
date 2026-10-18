@@ -300,7 +300,11 @@ class IntroView extends Control:
 			var rv = rival if i == 1 else null
 			_specs.append(spec)
 			_names.append(str(spec.name_))
-			_styles.append(str(rv.style if rv != null else m.brains[i].traits.style).to_upper())
+			var style := str(rv.style if rv != null else m.brains[i].traits.style).to_upper()
+			# a tag team match: and who waits on its apron
+			if m.tag != null:
+				style += "  ·  WITH " + str(m.tag.partnerOf(float(i)).f.name_).to_upper()
+			_styles.append(style)
 			_taunts.append(str(rv.taunt) if rv != null else "")
 			# hud.ts showVs: the card, its parts popping in from 0.3s
 			var card := BotCard.make(game, spec, m.fighters[i].build, "r" if i == 1 else "l", "Challenger" if i == 1 else "Your bot", 0.3)

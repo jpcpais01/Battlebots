@@ -523,6 +523,27 @@ func _pose_bench(alpha: float) -> void:
 		bench[side].end(f, _time)
 
 
+## Tag team: a bot outside the fight that the director's shot runs into (it doesn't frame them)
+## steps out of the picture: one right at the lens, or standing between it and the fight.
+## The tag camera's own shots are framed round them, so there they always show.
+func _bench_clear() -> void:
+	var c := cam.global_position
+	var focus := (models[0].joints[1] + models[1].joints[1]) * 0.5
+	var to_f := focus - c
+	var on := OS.get_environment("BB_NOBOTS") == ""
+	for md in bench:
+		var show := true
+		if tag_cam.kind == "":
+			var p := md.joints[1]
+			var d := c.distance_to(p)
+			var t := (p - c).dot(to_f) / maxf(1e-4, to_f.length_squared())
+			var lateral := (c + to_f * clampf(t, 0.0, 1.0)).distance_to(p)
+			# (a little hysteresis, so one at the edge doesn't flicker)
+			var k := 1.0 if md.visible else 1.15
+			show = d > 1.6 * md.size * k and not (t > 0.0 and t < 0.85 and d < 3.2 * k and lateral < 0.8 * md.size * k)
+		md.visible = show and on
+
+
 ## Show a single bot idling (game.ts showBot): behind the menus in the ring, on the garage lift.
 ## null shows nobody. A new spec builds a new robot; the same one keeps it.
 func show_bot(spec) -> void:
@@ -1078,6 +1099,8 @@ func _process(dt: float) -> void:
 		_gate_on = stretcher.posed
 		arena.gate_hit(stretcher.at if stretcher.posed else null)
 	_frame_camera(dt, false)
+	if not bench.is_empty():
+		_bench_clear()
 	# ropes, posts and rigging between the lens and the robots dissolve; the house exposes for the ring
 	var chests: Array[Vector3] = [_v(_mv.fighters[0].body.pos[1]), _v(_mv.fighters[1].body.pos[1])]
 	if stretcher.posed:

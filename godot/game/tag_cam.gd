@@ -1,17 +1,20 @@
 ## A tag team match's own camera moments, filmed through Director.film: the hands meeting for a
-## tag and the partner storming in after an elimination, both along the ropes from inside the
-## ring. Everything else is the director's (an elimination is its knockout shot). It reads the
-## posed robots, never the match.
+## tag, a bot knocked out of the match and the partner storming in after it, each from inside
+## the ring with nobody in the way (the director knows nothing of the bots outside the fight).
+## Everything else is the director's. It reads the posed robots, never the match.
 class_name TagCam
 extends RefCounted
 
 ## How long a tag's shot holds, and the storm-in's (s, real time).
 const TAG_HOLD := 2.1
 const STORM_HOLD := 2.6
+## The elimination's shot holds until the partner comes in (this long at most).
+const ELIM_HOLD := 6.0
+const J_PELVIS := 0
 const J_CHEST := 1
 const J_HEAD := 3
 
-## "", "tag" or "storm".
+## "", "tag", "elim" or "storm".
 var kind := ""
 var _t := 0.0
 var _dur := 0.0
@@ -44,6 +47,9 @@ func event(type: String, data, models: Array[BotModel], bench: Array[BotModel]) 
 				_storm(models[side], models[1 - side], rest)
 			else:
 				_tag(Vector3(float(data.x), 0.0, float(data.z)), models[side], bench[side], models[1 - side], rest)
+		"eliminated":
+			var side := int(data.side)
+			_elim(models[side], models[1 - side], bench)
 		"tagResume", "finisher", "ko", "knockdown", "decision":
 			stop()
 
@@ -57,6 +63,16 @@ func _tag(at: Vector3, partner: BotModel, out: BotModel, opp: BotModel, others: 
 	_begin("tag", TAG_HOLD, partner, out, at, cam)
 	_look = (a + b) * 0.5 - Vector3(0, 0.1, 0)
 	_push = (Vector3(_look.x, cam.y, _look.z) - cam).normalized() * 0.35
+
+
+## Knocked out of the match: low, the fallen bot and the winner standing over it in the slow motion.
+func _elim(loser: BotModel, winner: BotModel, others: Array[BotModel]) -> void:
+	var l := loser.joints[J_PELVIS]
+	var w := winner.joints[J_CHEST]
+	var cam := _place([l, w], _chests(others), 4.3, 0.85)
+	_begin("elim", ELIM_HOLD, loser, winner, l, cam)
+	_look = l.lerp(w, 0.45)
+	_push = (Vector3(_look.x, cam.y, _look.z) - cam).normalized() * 0.6
 
 
 ## The partner storms in after an elimination: from inside the ring as it comes through the ropes.
@@ -145,6 +161,9 @@ func frame(dt: float) -> Dictionary:
 			# between the hands and the partner as it comes through
 			want = _at.lerp(_a.joints[J_CHEST], 0.35 + 0.4 * ease) + Vector3(0, 0.1, 0)
 			fov_k = 1.1 - 0.12 * ease
+		"elim":
+			want = _a.joints[J_PELVIS].lerp(_b.joints[J_CHEST], 0.45)
+			fov_k = 1.0 - 0.15 * ease
 		"storm":
 			want = _a.joints[J_CHEST].lerp(_a.joints[J_HEAD], 0.3)
 			fov_k = 0.95 - 0.08 * ease
