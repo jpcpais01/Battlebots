@@ -548,6 +548,8 @@ func set_place(p: String) -> void:
 	arena.visible = in_arena
 	if ray != null:
 		ray.set_place(p)
+	if settings != null:
+		settings.place_changed()
 	drones.visible = in_arena
 	referee.visible = in_arena
 	if showcase != null:

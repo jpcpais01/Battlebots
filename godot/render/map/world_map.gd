@@ -117,6 +117,7 @@ func enter(g: Game) -> void:
 		_active = true
 		_save_look()
 	_apply_time()
+	_hand_to_ray()
 	_write_director()
 
 
@@ -240,6 +241,18 @@ func _write_director() -> void:
 	d.scene_roll = 0.0
 	d.scene_lambda = 200.0
 	d.clip = cam.clip
+	if game.ray != null:
+		game.ray.set_map_view(cam.dist)
+
+
+## The Ray tracing setting's map trace (render/rt/map_trace.gdshader) samples what the map's own
+## shaders do: hand it the shared textures once they're built.
+func _hand_to_ray() -> void:
+	if game == null or game.ray == null or progress < 1.0 or _mats.by_kind.get("sea", []).is_empty():
+		return
+	var t := _mats.shared_textures()
+	var sea: ShaderMaterial = _mats.by_kind.sea[0]
+	game.ray.set_map(t[0], t[1], sea.get_shader_parameter("uDepth"), float(sea.get_shader_parameter("uFine")))
 
 
 func _animate(dt: float, t: float) -> void:
@@ -587,6 +600,8 @@ func _finish() -> void:
 	sites.highlight(sites.picked)
 	_apply_time()
 	_root.visible = true
+	progress = 1.0
+	_hand_to_ray()
 	if not _mats.missing.is_empty():
 		push_warning("world map: no port for %s" % [_mats.missing.keys()])
 
