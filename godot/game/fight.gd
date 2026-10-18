@@ -30,6 +30,8 @@ var bench: Array[BotModel] = []
 var crew: Array[BotModel] = []
 ## Which of crew each side's legal bot is (follows the sim's TagTeam.legal: see _tag_frame).
 var _legal := PackedInt32Array([0, 2])
+## A tag team match's own camera moments (tags, eliminations), over the director's.
+var tag_cam := TagCam.new()
 var arena: Arena
 ## Pieces of the world built ahead, off the main thread, while the loading screen shows
 ## (app/boot/boot.gd): "arena" (an Arena), "effects" (a FightFx) and "home:<scene>" (a home
@@ -389,6 +391,7 @@ func start_match(a, b, seed: float, partners = null) -> void:
 	_hiss_seen.clear()
 	_free_models()
 	stretcher.clear()
+	tag_cam.stop()
 	m = TMatch.Match.new(a, b, seed, partners)
 	m.on(_queue_event)
 	# the walkout: each robot rides its corner lift up and makes its entrance (BB_SKIPINTRO=1: straight
@@ -452,6 +455,7 @@ func end_match() -> void:
 	booth.end()
 	sfx.walk_on_stop(0.4)
 	_free_models()
+	tag_cam.stop()
 	effects.stop()
 	stretcher.clear()
 	if _gate_on:
@@ -697,6 +701,7 @@ func _on_event(type: String, data) -> void:
 	# the HUD's callouts, counts, numbers and banners (hud.ts onEvent)
 	hud.on_event(type, data)
 	referee.on_event(type, data)
+	tag_cam.event(type, data, models, bench)
 	_arena_event(type, data)
 	# (the torn-off piece flies before the socket's wrench, as in game.ts tearOff)
 	effects.on_event(type, data)
@@ -760,6 +765,20 @@ func _sound_event(type: String, data) -> void:
 			sfx.ko()
 		"fistBump":
 			sfx.fist_bump()
+		"tag":
+			# hands slapped over the top rope, and the ropes taking the partner's weight
+			if not JS.truthy(data.get("elim")):
+				sfx.fist_bump()
+			sfx.ropes()
+		"tagOut":
+			sfx.ropes()
+		"eliminated":
+			sfx.ko()
+		"assistHold":
+			# the full nelson locks on
+			sfx.thud(0.45, Sfx.pan_of(cam, _v(data.f.body.pos[1])))
+		"tagResume":
+			sfx.bell(1)
 		"decision":
 			sfx.bell(2)
 		"fightStart":
@@ -858,6 +877,16 @@ func _arena_event(type: String, data) -> void:
 			arena.excite(2.0)
 		"fistBump":
 			arena.excite(0.5)
+		"tag":
+			arena.excite(0.9)
+			arena.flash_ropes(0.7)
+		"eliminated":
+			arena.excite(1.6)
+			arena.strobe(0.7)
+		"assist":
+			arena.excite(1.0)
+		"tagResume":
+			arena.excite(0.6)
 		"emote":
 			arena.excite(float(data.k) * 0.6)
 		"decision":
@@ -1025,6 +1054,11 @@ func _process(dt: float) -> void:
 	var st_shot := stretcher.shot if stretcher.on else {}
 	if not st_shot.is_empty():
 		director.film(st_shot.pos, st_shot.look, st_shot.fov_k, st_shot.cut)
+	else:
+		# a tag team match's tags and eliminations (tag_cam.gd)
+		var tc := tag_cam.frame(dt)
+		if not tc.is_empty():
+			director.film(tc.pos, tc.look, tc.fov_k, tc.cut)
 	if stretcher.posed or _gate_on:
 		_gate_on = stretcher.posed
 		arena.gate_hit(stretcher.at if stretcher.posed else null)
@@ -1033,7 +1067,11 @@ func _process(dt: float) -> void:
 	var chests: Array[Vector3] = [_v(_mv.fighters[0].body.pos[1]), _v(_mv.fighters[1].body.pos[1])]
 	if stretcher.posed:
 		chests[stretcher.loser] = models[stretcher.loser].joints[1]
-	var pov: int = director.pov
+	var pov: int = director.pov if tag_cam.kind == "" else -1
+	# (a tag's shot looks through the ropes at the partner too)
+	if tag_cam.kind != "":
+		for md in bench:
+			chests.append(md.joints[1])
 	ClearView.update(cam, [chests[1 - pov]] as Array[Vector3] if pov >= 0 else chests)
 	arena.expose(dt, cam.global_position.distance_to((chests[0] + chests[1]) * 0.5) if _fixed_cam.is_empty() else _cam_dist)
 	Perf.lap(Perf.CAMERA)
@@ -1180,7 +1218,7 @@ func _direct_steps(events: Array) -> void:
 			director.shake(0.25)
 		_entry_prev[i] = t
 	# a bot's-eye shot: the lens is inside that bot's head
-	var pov := director.pov
+	var pov := director.pov if tag_cam.kind == "" else -1
 	for i in 2:
 		if models[i].has_method("set_head_hidden"):
 			models[i].set_head_hidden(i == pov)
@@ -1214,7 +1252,7 @@ func _camera_event(type: String, data) -> void:
 			director.punch(5.0)
 		"takedown":
 			director.shake(0.2)
-		"ko":
+		"ko", "eliminated":
 			director.focus_ko(int(data.loser.index))
 			director.shake(0.9)
 			director.punch(5.0)

@@ -452,6 +452,12 @@ func event(type: String, data) -> void:
 		"ko":
 			# the finishing hit is reported right after this, so the call waits for it
 			_ko_pending = data
+		# a tag team match (no lines of its own yet: the nearest ones)
+		"tag":
+			if m.phase == "fight" and not JS.truthy(data.get("elim")):
+				_say({"chain": ["brain.rally"], "prio": 60, "about": data.to, "name": 0.5}, 0.6)
+		"eliminated":
+			_say({"chain": ["knockdown.any"], "prio": 92, "about": data.loser}, 0.3)
 		"decision":
 			_say({"chain": ["decision.time"], "prio": 100, "voice": "p"}, 0.3)
 			var w = data.get("winner")

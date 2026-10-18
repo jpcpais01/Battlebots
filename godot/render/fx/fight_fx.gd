@@ -223,6 +223,24 @@ func on_event(type: String, data) -> void:
 			fx.burst(at, accent, 46, 4.0)
 		"finisherBlow":
 			finisher_blow(data)
+		"tag":
+			# the hands slapped over the top rope: a flash and a spray of sparks where they met
+			if JS.truthy(data.get("elim")):
+				return
+			var best := INF
+			var at := Vector3.ZERO
+			for ja in [J_HAND_L, J_HAND_R]:
+				for jb in [J_HAND_L, J_HAND_R]:
+					var pa := _v(data.from.body.pos[ja])
+					var pb := _v(data.to.body.pos[jb])
+					var d := pa.distance_squared_to(pb)
+					if d < best:
+						best = d
+						at = (pa + pb) * 0.5
+			var accent = data.to.index
+			fx.sparks(at, Vector3.UP, 16, 0xffe2b0, 3.0, 1.4)
+			fx.flash(at, 0xfff0d0, 0.9, 0.16)
+			fx.burst(at, _paint(int(accent)).accent, 14, 2.0)
 		"fistBump":
 			# touching gloves: a few sparks off the knuckles
 			var at := Vector3(data.x, data.y, data.z)

@@ -65,6 +65,10 @@ func _process(_dt: float) -> bool:
 			var path := _out.path_join(name + ".png")
 			get_root().get_texture().get_image().save_png(path)
 			print("shot ", path)
+			var cam: Camera3D = _fight.cam
+			print("   cam ", cam.global_position.snapped(Vector3.ONE * 0.01), " fwd ", (-cam.global_basis.z).snapped(Vector3.ONE * 0.01), " tagcam ", _fight.tag_cam.kind)
+			for md in _fight.models + _fight.bench:
+				print("   ", md.spec.name_, " chest ", md.joints[1].snapped(Vector3.ONE * 0.01), " legal" if md in _fight.models else "")
 			_shots += 1
 			_i += 1
 			_fight.speed = 1.0
