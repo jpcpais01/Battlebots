@@ -33,12 +33,12 @@ class Parts extends RefCounted:
 		self.off = JS.filled(TDamage.PART_COUNT, 0.0)
 		self.lost = []
 		self.durability = JS.f32(TDamage.PART_COUNT)
-		var i: float = 0.0
+		var i: int = 0
 		while (i < TDamage.PART_COUNT):
 			var r: float = (TItems.RARITIES[loadout[TDamage.PART_SLOT[i]].rarity].mult if (loadout != null) else 1.0)
 			var t: float = maxf(-0.4, ((tough.get(TDamage.PART_SLOT[i]) if tough != null else null) if (tough.get(TDamage.PART_SLOT[i]) if tough != null else null) != null else 0.0))
 			durability[i] = ((TDamage.DURABILITY[i] * ((0.85 + (0.15 * r)))) * ((1.0 + t)))
-			i += 1.0
+			i += 1
 	
 	func wear(p: float) -> float:
 		return (1.0 - cond[p])

@@ -15,8 +15,8 @@ static func itemAt(slot: String, maker: String, rarity: float):
 	for it in mine:
 		if ((TCatalogue.rarityOf(it) <= minf(rarity, TItems.MAX_RARITY)) and ((not (best != null)) or (TCatalogue.rarityOf(it) > TCatalogue.rarityOf(best)))):
 			best = it
-	var __t1 = (best if best != null else mine[0.0])
-	return (__t1 if __t1 != null else TItems.itemsForSlot(slot)[0.0])
+	var __t1 = (best if best != null else mine[0])
+	return (__t1 if __t1 != null else TItems.itemsForSlot(slot)[0])
 static var EARNABLE: Array
 
 static func commonOf(item):

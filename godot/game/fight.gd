@@ -893,8 +893,13 @@ func _process(dt: float) -> void:
 		var em = f.emote
 		var look = _v(em.gaze) if em != null and em.gazeOn else _v(_mv.fighters[1 - i].body.pos[3])
 		models[i].begin(f, pose_alpha, look)
+	# the two limb contact passes (most of the robots' frame) at once: the second on a worker
+	var who := [stretcher.puppet if carried == 0 else _mv.fighters[0], stretcher.puppet if carried == 1 else _mv.fighters[1]]
+	var other := WorkerThreadPool.add_task(models[1].solve.bind(who[1], _time, models[0]), true, "contacts")
+	models[0].solve(who[0], _time, models[1])
+	WorkerThreadPool.wait_for_task_completion(other)
 	for i in 2:
-		models[i].end(stretcher.puppet if i == carried else _mv.fighters[i], _time, models[1 - i])
+		models[i].end(who[i], _time, models[1 - i], true)
 		if i == carried:
 			stretcher.dress(models[i])
 	BotWear.update(models, _mv, dt)

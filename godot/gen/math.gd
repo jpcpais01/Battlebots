@@ -107,10 +107,10 @@ class Noise1 extends RefCounted:
 	
 	func _init(rng: TMath.Rng, size_: float = 64.0) -> void:
 		self.vals = JS.f32(size_)
-		var i: float = 0.0
+		var i: int = 0
 		while (i < size_):
 			vals[i] = rng.range_(-1.0, 1.0)
-			i += 1.0
+			i += 1
 	
 	func at(x: float) -> float:
 		var n: float = float(vals.size())
@@ -136,12 +136,12 @@ static func softmaxPick(utils: Array, temperature: float, rng: TMath.Rng) -> flo
 		return e
 	var w: Array = JS.map(utils, __f1)
 	var r: float = (rng.next() * sum[0])
-	var i: float = 0.0
+	var i: int = 0
 	while (i < float(w.size())):
 		r -= w[i]
 		if (r <= 0.0):
-			return i
-		i += 1.0
+			return float(i)
+		i += 1
 	return (float(w.size()) - 1.0)
 static var UP: V3
 

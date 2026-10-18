@@ -215,7 +215,7 @@ static func stock(c, events) -> Array:
 		var out: Array = []
 		var left: Array = list.duplicate()
 		while ((float(out.size()) < n) and (float(left.size()) != 0.0)):
-			out.append(JS.splice(left, floorf((rng.next() * float(left.size()))), 1.0)[0.0])
+			out.append(JS.splice(left, floorf((rng.next() * float(left.size()))), 1.0)[0])
 		return out
 	var take = __f1
 	var epics: Array = take.call(pool.call(2.0), (2.0 if (TItems.MAX_RARITY >= 2.0) else 0.0))

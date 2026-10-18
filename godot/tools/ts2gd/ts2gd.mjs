@@ -262,6 +262,7 @@ class ModuleEmitter {
     this.helperN = 0;
     this.initScope = new Scope(); // __init_module's locals: one namespace for every initialiser
     this.override = new Map(); // node -> already emitted text (links of an optional chain)
+    this.intVars = new Set(); // for-loop counters kept as GDScript ints (intCounter)
   }
 
   /** a?.b.c(d)?.[e]: evaluated link by link, the whole chain is null once a guarded link is. */
@@ -996,8 +997,61 @@ class ModuleEmitter {
     return { cond, pre };
   }
 
+  /**
+   * `for (let i = 0; i < n; i++)` whose counter nothing else writes (nor a closure keeps): the
+   * counter is a GDScript int, read as itself where it indexes a list or is compared and as
+   * float(i) everywhere else, so every result stays bit-identical while list reads skip the
+   * float-to-int index conversion (several times faster in GDScript).
+   */
+  intCounter(node) {
+    const init = node.initializer;
+    if (!init || !ts.isVariableDeclarationList(init) || init.declarations.length !== 1) return null;
+    const d = init.declarations[0];
+    if (!ts.isIdentifier(d.name) || !d.initializer || !ts.isNumericLiteral(d.initializer)) return null;
+    const start = Number(d.initializer.text);
+    if (!Number.isInteger(start) || start < 0) return null;
+    const sym = checker.getSymbolAtLocation(d.name);
+    const inc = node.incrementor && skipOuter(node.incrementor);
+    const K = ts.SyntaxKind;
+    const isSelf = (e) => ts.isIdentifier(skipOuter(e)) && checker.getSymbolAtLocation(skipOuter(e)) === sym;
+    if (!inc || !((ts.isPostfixUnaryExpression(inc) || ts.isPrefixUnaryExpression(inc)) && inc.operator === K.PlusPlusToken && isSelf(inc.operand))) return null;
+    let ok = true;
+    const visit = (n, inFn) => {
+      if (!ok) return;
+      if (ts.isIdentifier(n) && checker.getSymbolAtLocation(n) === sym) {
+        const p = n.parent;
+        if (inFn) ok = false;
+        else if ((ts.isPostfixUnaryExpression(p) || ts.isPrefixUnaryExpression(p)) && [K.PlusPlusToken, K.MinusMinusToken].includes(p.operator)) ok = false;
+        else if (ts.isBinaryExpression(p) && p.left === n && p.operatorToken.kind >= K.FirstAssignment && p.operatorToken.kind <= K.LastAssignment) ok = false;
+      }
+      ts.forEachChild(n, (c) => visit(c, inFn || FN_KINDS.has(c.kind)));
+    };
+    if (node.condition) visit(node.condition, false);
+    visit(node.statement, false);
+    return ok ? { sym, start } : null;
+  }
+
   forStmt(node, ctx) {
     const out = [];
+    const ic = this.intCounter(node);
+    if (ic) {
+      const nm = ctx.scope.lookup(ic.sym);
+      if (nm && !ctx.scope.boxed.has(ic.sym)) {
+        this.intVars.add(ic.sym);
+        const c = node.condition ? this.withPreCond(ctx, node.condition) : { cond: 'true', pre: [] };
+        const incr = [`${nm} += 1`];
+        ctx.loops.push({ incr });
+        const body = this.stmts(node.statement, ctx);
+        ctx.loops.pop();
+        out.push(`var ${nm}: int = ${ic.start}`);
+        if (c.pre.length) out.push('while true:', ...c.pre.map((l) => '\t' + l), `\tif not (${c.cond}):`, '\t\tbreak');
+        else out.push(`while ${c.cond}:`);
+        const endsInJump = body.length && /^(return|break|continue)\b/.test(body[body.length - 1]);
+        for (const l of body) out.push('\t' + l);
+        if (!endsInJump) for (const l of incr) out.push('\t' + l);
+        return out;
+      }
+    }
     if (node.initializer) {
       if (ts.isVariableDeclarationList(node.initializer)) {
         for (const d of node.initializer.declarations) {
@@ -1424,6 +1478,15 @@ class ModuleEmitter {
     if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
     if (!sym) fail(node, `unknown name ${t}`);
     const local = ctx.scope.lookup(sym);
+    if (local && this.intVars.has(sym)) {
+      let n = node;
+      while (ts.isParenthesizedExpression(n.parent)) n = n.parent;
+      const p = n.parent;
+      const K = ts.SyntaxKind;
+      if (ts.isElementAccessExpression(p) && p.argumentExpression === n && (isList(typeOf(p.expression)) || isStr(typeOf(p.expression)))) return local;
+      if (ts.isBinaryExpression(p) && [K.LessThanToken, K.LessThanEqualsToken, K.GreaterThanToken, K.GreaterThanEqualsToken].includes(p.operatorToken.kind)) return local;
+      return `float(${local})`;
+    }
     if (local) return ctx.scope.boxed.has(sym) ? `${local}[0]` : local;
     const h = ctx.hoist?.get(sym);
     if (h) return h.name;
@@ -1511,7 +1574,12 @@ class ModuleEmitter {
   elem(node, ctx) {
     const rt = typeOf(node.expression);
     const recv = this.expr(node.expression, ctx);
-    const idx = this.expr(node.argumentExpression, ctx);
+    const lit = skipOuter(node.argumentExpression);
+    // (a whole-number constant index into a list is written as an int: a float index costs a conversion)
+    const idx =
+      (isList(rt) || isStr(rt)) && ts.isNumericLiteral(lit) && Number.isInteger(Number(lit.text)) && Number(lit.text) >= 0
+        ? String(Number(lit.text))
+        : this.expr(node.argumentExpression, ctx);
     const parent = node.parent;
     const K = ts.SyntaxKind;
     const maybeMissing =

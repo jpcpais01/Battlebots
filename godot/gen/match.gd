@@ -142,8 +142,8 @@ class Match extends RefCounted:
 		if (phase != "intro"):
 			return
 		self.introCut = frame
-		shows[0.0].stop()
-		shows[1.0].stop()
+		shows[0].stop()
+		shows[1].stop()
 		setPhase("countdown")
 	
 	func queueCoach(side: float, kind: String, frame = null) -> void:
@@ -162,7 +162,7 @@ class Match extends RefCounted:
 		return (((((phase == "fight") and (not (fin != null))) and (not (winner != null))) and (time >= coachReadyAt[side])) and (not coachPending(side)))
 	
 	func applyCoach() -> void:
-		while ((float(coachQueue.size()) != 0.0) and (coachQueue[0.0].frame <= frame)):
+		while ((float(coachQueue.size()) != 0.0) and (coachQueue[0].frame <= frame)):
 			var c = coachQueue.pop_front()
 			if (((phase != "fight") or (winner != null)) or (time < coachReadyAt[c.side])):
 				continue
@@ -194,13 +194,13 @@ class Match extends RefCounted:
 		ropeCooldown[1.0] -= dt
 		var _hENTRY = TEntrance.ENTRY
 		if phase == "intro":
-			var i: float = 0.0
+			var i: int = 0
 			while (i < 2.0):
-				var t0: float = ((i * TEntrance.PRESENT) + _hENTRY.start)
+				var t0: float = ((float(i) * TEntrance.PRESENT) + _hENTRY.start)
 				if (((phaseTime - dt) < t0) and (phaseTime >= t0)):
 					var id: String = shows[i].enter(self, ((TEntrance.PRESENT - _hENTRY.start) - 0.12))
 					emit("entrance", {"f": fighters[i], "id": id})
-				i += 1.0
+				i += 1
 			if ((replayCut < 0.0) and (phaseTime >= introLength)):
 				if (introLength != (TEntrance.PRESENT * 2.0)):
 					self.introCut = frame
@@ -248,11 +248,11 @@ class Match extends RefCounted:
 			for br: TBrain.Brain in brains:
 				br.grip = (g if ((g != null) and g.involves(br.me)) else null)
 			var t0_2: float = TPerf.now()
-			brains[0.0].update(dt, time)
-			brains[1.0].update(dt, time)
+			brains[0].update(dt, time)
+			brains[1].update(dt, time)
 			TPerf.add("ai", t0_2)
-		shows[0.0].update(dt, self)
-		shows[1.0].update(dt, self)
+		shows[0].update(dt, self)
+		shows[1].update(dt, self)
 		var g_2: TGrapple.Grapple = grapple
 		if (g_2 != null):
 			g_2.update(dt)
@@ -262,8 +262,8 @@ class Match extends RefCounted:
 		if (fin != null):
 			fin.update(dt)
 			self.slowmo = fin.slowmo
-		fighters[0.0].update(dt)
-		fighters[1.0].update(dt)
+		fighters[0].update(dt)
+		fighters[1].update(dt)
 		separate()
 		if (fin != null):
 			fin.settle()
@@ -272,8 +272,8 @@ class Match extends RefCounted:
 			self.fin = null
 			ko(fin.att, fin.def, ("Dismantled" if (fin.final == "decap") else "KO"))
 		elif ((phase == "fight") and (not (fin != null))):
-			checkStrike(fighters[0.0], fighters[1.0])
-			checkStrike(fighters[1.0], fighters[0.0])
+			checkStrike(fighters[0], fighters[1])
+			checkStrike(fighters[1], fighters[0])
 	
 	func separate() -> void:
 		var __t1 = fighters
@@ -410,9 +410,9 @@ class Match extends RefCounted:
 		var dp: TDamage.Parts = def.parts
 		var _h_p: V3 = TMatch._p
 		var _h_c: V3 = TMatch._c
-		var k: float = 1.0
+		var k: int = 1
 		while (k <= 3.0):
-			var __v1: float = (k / 3.0)
+			var __v1: float = (float(k) / 3.0)
 			_h_p.x = from.x + (to.x - from.x) * __v1
 			_h_p.y = from.y + (to.y - from.y) * __v1
 			_h_p.z = from.z + (to.z - from.z) * __v1
@@ -420,33 +420,33 @@ class Match extends RefCounted:
 			var blockHand: float = -1.0
 			var part: float = 1.0
 			if canGuard:
-				var side: float = 0.0
+				var side: int = 0
 				while (side < 2.0):
 					var ds = def.strike
-					var sideCh: String = ("L" if (side == 0.0) else "R")
+					var sideCh: String = ("L" if (float(side) == 0.0) else "R")
 					if ((((ds != null) and (ds.side == sideCh)) and (ds.move.kind == "punch")) and (ds.phase != "windup")):
-						side += 1.0
+						side += 1
 						continue
-					if dp.armOut(side):
-						side += 1.0
+					if dp.armOut(float(side)):
+						side += 1
 						continue
-					var el: V3 = db[(5.0 if (side == 0.0) else 8.0)]
-					var hd: V3 = db[(6.0 if (side == 0.0) else 9.0)]
-					var sh: V3 = db[(4.0 if (side == 0.0) else 7.0)]
+					var el: V3 = db[(5.0 if (float(side) == 0.0) else 8.0)]
+					var hd: V3 = db[(6.0 if (float(side) == 0.0) else 9.0)]
+					var sh: V3 = db[(4.0 if (float(side) == 0.0) else 7.0)]
 					TMath.closestOnSegment(_h_p, el, hd, _h_c)
 					if (_h_c.distanceTo(_h_p) < ((r * 0.85) + (0.048 * z))):
 						hit = "block"
-						blockHand = side
-						part = TDamage.armPart(side, 1.0)
+						blockHand = float(side)
+						part = TDamage.armPart(float(side), 1.0)
 						break
 					if (s.zone == "body"):
 						TMath.closestOnSegment(_h_p, sh, el, _h_c)
 						if (_h_c.distanceTo(_h_p) < ((r * 0.85) + (0.048 * z))):
 							hit = "block"
-							blockHand = side
-							part = TDamage.armPart(side, 0.0)
+							blockHand = float(side)
+							part = TDamage.armPart(float(side), 0.0)
 							break
-					side += 1.0
+					side += 1
 			if ((not JS.truthy(hit)) and (_h_p.distanceTo(db[3.0]) < (r + (0.17 * z)))):
 				hit = "head"
 				part = 0.0
@@ -462,24 +462,24 @@ class Match extends RefCounted:
 					hit = "head"
 					part = 0.0
 			if ((not JS.truthy(hit)) and legsMove):
-				var side_2: float = 0.0
+				var side_2: int = 0
 				while (side_2 < 2.0):
-					if (dp.off[TDamage.legPart(side_2, 0.0)] != 0.0):
-						side_2 += 1.0
+					if (dp.off[TDamage.legPart(float(side_2), 0.0)] != 0.0):
+						side_2 += 1
 						continue
-					var h: float = (13.0 if (side_2 != 0.0) else 10.0)
-					var kn: float = (14.0 if (side_2 != 0.0) else 11.0)
-					var ft: float = (15.0 if (side_2 != 0.0) else 12.0)
+					var h: float = (13.0 if (float(side_2) != 0.0) else 10.0)
+					var kn: float = (14.0 if (float(side_2) != 0.0) else 11.0)
+					var ft: float = (15.0 if (float(side_2) != 0.0) else 12.0)
 					TMath.closestOnSegment(_h_p, db[kn], db[ft], _h_c)
-					var d1: float = (INF if (dp.off[TDamage.legPart(side_2, 1.0)] != 0.0) else _h_c.distanceTo(_h_p))
+					var d1: float = (INF if (dp.off[TDamage.legPart(float(side_2), 1.0)] != 0.0) else _h_c.distanceTo(_h_p))
 					var shinT: float = (_h_c.distanceTo(db[kn]) / maxf(0.0001, db[kn].distanceTo(db[ft])))
 					TMath.closestOnSegment(_h_p, db[h], db[kn], _h_c)
 					var d2: float = _h_c.distanceTo(_h_p)
 					if (minf(d1, d2) < (r + (0.09 * z))):
 						hit = "legs"
-						part = (TDamage.legPart(side_2, 0.0) if (d2 < d1) else (TDamage.legPart(side_2, 2.0) if (shinT > 0.78) else TDamage.legPart(side_2, 1.0)))
+						part = (TDamage.legPart(float(side_2), 0.0) if (d2 < d1) else (TDamage.legPart(float(side_2), 2.0) if (shinT > 0.78) else TDamage.legPart(float(side_2), 1.0)))
 						break
-					side_2 += 1.0
+					side_2 += 1
 			var g: TGrapple.Grapple = grapple
 			if (((((JS.truthy(hit) and (hit != "block")) and (g != null)) and g.live) and (g.phase == "clinch")) and canGuard):
 				var p: float = TMath.clamp_(((0.3 + (g.control(def) * 0.45)) - ((0.25 if (def.state == "stun") else 0.0))), 0.05, 0.7)
@@ -493,7 +493,7 @@ class Match extends RefCounted:
 				else:
 					resolveHit(att, def, s, (s.zone if (hit == "block") else hit), (hit == "block"), _h_p.clone(), blockHand, part)
 				return
-			k += 1.0
+			k += 1
 	
 	func grabContact(att: TFighter.Fighter, def: TFighter.Fighter, s) -> void:
 		var old: TGrapple.Grapple = grapple
@@ -504,7 +504,7 @@ class Match extends RefCounted:
 			return
 		var pair: float = (((att.size_ + def.size_)) * 0.5)
 		var d: float = att.distTo(def)
-		if (d > (((0.78 * pair) if shot else (((s.move.range_[1.0] + 0.06)) * TFighter.rangeScale(att, def))))):
+		if (d > (((0.78 * pair) if shot else (((s.move.range_[1] + 0.06)) * TFighter.rangeScale(att, def))))):
 			return
 		if ((def.state != "fight") and (def.state != "stun")):
 			return
@@ -516,7 +516,7 @@ class Match extends RefCounted:
 			self.grapple = null
 		var ab: TBrain.Brain = brains[att.index]
 		var dbn: TBrain.Brain = brains[def.index]
-		var tie: Array = [brains[0.0].clinchTie(), brains[1.0].clinchTie()]
+		var tie: Array = [brains[0].clinchTie(), brains[1].clinchTie()]
 		var under: float = (0.0 if rng.chance(0.5) else 1.0)
 		s.hasHit = true
 		var sa: float = TGrapple.grappleStrength(att)
@@ -1022,16 +1022,16 @@ class Match extends RefCounted:
 		var hp: float = def.hpRatio
 		var p: float = TMath.clamp_(((TMatch.GETUP_PER_SECOND * hp) * ((1.0 + def.passive("composure")))), 0.01, 0.6)
 		var last: float = -9.0
-		var n: float = 2.0
+		var n: int = 2
 		while (n <= 9.0):
-			var at: float = ((n - 0.65) + 0.2)
+			var at: float = ((float(n) - 0.65) + 0.2)
 			if rng.chance(p):
 				def.downTime = maxf(at, (last + TMatch.TRY_GAP))
 				return
 			if (((n <= 8.0) and ((at - last) >= TMatch.TRY_GAP)) and rng.chance((0.3 + (hp * 0.4)))):
 				def.tries.append({"at": at, "fail": (rng.range_(0.22, 0.38) + (hp * 0.2))})
 				last = at
-			n += 1.0
+			n += 1
 		def.downTime = (TMatch.COUNT_OUT + 1.0)
 		self.countOut = {"att": att, "def": def, "at": time}
 	
@@ -1103,7 +1103,7 @@ class Match extends RefCounted:
 			if (s.result == "whiff"):
 				var dodging = def.dodge
 				var d: float = f.distTo(def)
-				var inRange: bool = (d < (((s.move.range_[1.0] + 0.2)) * TFighter.rangeScale(f, def)))
+				var inRange: bool = (d < (((s.move.range_[1] + 0.2)) * TFighter.rangeScale(f, def)))
 				if ((dodging != null) and inRange):
 					s.result = "dodged"
 					def.stats.dodged += 1.0

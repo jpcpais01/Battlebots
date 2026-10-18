@@ -10,10 +10,10 @@ static func walkOnFor(spec) -> String:
 	if (JS.truthy(spec.get("walkOn")) and TWalkOns.IDS.has(spec.get("walkOn"))):
 		return spec.get("walkOn")
 	var h: float = float(2166136261)
-	var i: float = 0.0
+	var i: int = 0
 	while (i < float(spec.name_.length())):
-		h = JS.imul(JS.bxor(h, JS.char_code_at(spec.name_, i)), 16777619.0)
-		i += 1.0
+		h = JS.imul(JS.bxor(h, JS.char_code_at(spec.name_, float(i))), 16777619.0)
+		i += 1
 	var _hWALK_ONS: Array = TWalkOns.WALK_ONS
 	return _hWALK_ONS[fmod((JS.ushr(h, 0.0)), float(_hWALK_ONS.size()))].id
 
