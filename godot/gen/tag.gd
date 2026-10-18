@@ -94,6 +94,7 @@ class TagMember extends RefCounted:
 	var raw: PackedFloat32Array
 	var wantW: float
 	var acc: float
+	var every: float
 	var ropeW: float
 	var reachW: float
 	
@@ -115,6 +116,7 @@ class TagMember extends RefCounted:
 		self.raw = JS.f32(TEmote.EC.N)
 		self.wantW = 0.0
 		self.acc = 0.0
+		self.every = 1.0
 		self.ropeW = 0.0
 		self.reachW = 0.0
 		self.f = f
@@ -490,11 +492,13 @@ class TagTeam extends RefCounted:
 			if (mb.status == "apron"):
 				mb.acc += dt
 				var busy: bool = ((((m.presenting == mb.side) or (mb.reachW > 0.02)) or (hype[mb.side] > 0.05)) or (run[mb.side] >= 0.0))
-				if (fmod(((m.frame + (mb.side * 2.0))), ((2.0 if busy else 4.0))) == 0.0):
+				mb.every = (2.0 if busy else 4.0)
+				if (fmod(((m.frame + (mb.side * 2.0))), mb.every) == 0.0):
 					onApron(mb, mb.acc)
 					mb.f.update(mb.acc)
 					mb.acc = 0.0
 				continue
+			mb.every = 1.0
 			if (mb.status == "enter"):
 				entering(mb, dt)
 			elif ((mb.status == "leave") or (mb.status == "party")):

@@ -8,6 +8,9 @@ global uniform sampler2D bb_ao_spheres : filter_nearest;
 // Each robot's bounding sphere (xyz, radius): occlusion fades to exactly zero inside it.
 global uniform vec4 bb_ao_b0;
 global uniform vec4 bb_ao_b1;
+// A tag team's partners (rows 2 and 3): only the floor map and the robots' own lists see them.
+global uniform vec4 bb_ao_b2;
+global uniform vec4 bb_ao_b3;
 // Top-down occlusion of the floor (y = 0), worked out once a frame (MAP_HALF metres either side).
 global uniform sampler2D bb_ao_map : filter_linear, repeat_disable;
 
@@ -27,7 +30,7 @@ float ao_sphere(vec4 s, vec3 p, vec3 n, float k) {
 	return 1.0 - min(o * k, 0.9);
 }
 
-// Sphere k of the two robots' (robot k / AO_PER, its sphere k % AO_PER).
+// Sphere k of the robots' (robot k / AO_PER, its sphere k % AO_PER).
 vec4 ao_sphere_at(int k) {
 	return texelFetch(bb_ao_spheres, ivec2(k % AO_PER, k / AO_PER), 0);
 }
@@ -45,6 +48,11 @@ float ao_robot(vec3 p, vec3 n, float k, vec4 bb, int row) {
 // Occlusion at world point p with world normal n, strength k (ao.ts aoSpheres).
 float ao_spheres(vec3 p, vec3 n, float k) {
 	return ao_robot(p, n, k, bb_ao_b0, 0) * ao_robot(p, n, k, bb_ao_b1, 1);
+}
+
+// ao_spheres with a tag team's partners too (the floor map).
+float ao_spheres_all(vec3 p, vec3 n, float k) {
+	return ao_spheres(p, n, k) * ao_robot(p, n, k, bb_ao_b2, 2) * ao_robot(p, n, k, bb_ao_b3, 3);
 }
 
 // The floor's occlusion from the map (ao.ts aoFloorMap); past its edge nothing is near enough.

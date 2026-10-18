@@ -204,8 +204,10 @@ export class TagMember {
   readonly raw = new Float32Array(EC.N);
   /** The pose weight it is heading for. */
   wantW = 0;
-  /** Time since it was last updated (on the apron it is updated every few steps). */
+  /** Time since it was last updated (on the apron it is updated every few steps)... */
   acc = 0;
+  /** ...and every how many steps (the renderer spreads the motion of one update over them). */
+  every = 1;
   /** The hand on the rope's weight, and the reaching hand's. */
   ropeW = 0;
   reachW = 0;
@@ -603,13 +605,15 @@ export class TagTeam {
         // costs as much as one fighting, so this is most of what the partners cost.
         mb.acc += dt;
         const busy = m.presenting === mb.side || mb.reachW > 0.02 || this.hype[mb.side] > 0.05 || this.run[mb.side] >= 0;
-        if ((m.frame + mb.side * 2) % (busy ? 2 : 4) === 0) {
+        mb.every = busy ? 2 : 4;
+        if ((m.frame + mb.side * 2) % mb.every === 0) {
           this.onApron(mb, mb.acc);
           mb.f.update(mb.acc);
           mb.acc = 0;
         }
         continue;
       }
+      mb.every = 1;
       if (mb.status === 'enter') this.entering(mb, dt);
       else if (mb.status === 'leave' || mb.status === 'party') this.walking(mb, dt);
       else if (mb.status === 'assist') this.assisting(mb, dt);

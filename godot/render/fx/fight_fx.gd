@@ -91,6 +91,8 @@ var _stumps := [[], []]
 ## Per fighter: where the chest's and lower torso's wounds open (angles off its front).
 var _wounds := [[0.0, 0.0], [0.0, 0.0]]
 var _ground_prev := [[false, false, false], [false, false, false]]
+## Tag team: per side, the trails, stumps and wounds of the bot out of the ring (see swap_side).
+var _benched := [null, null]
 var _feet: Array = []
 var _oil_feet: Array = [null, null, null, null]
 ## GDScript time the effects took last frame (us), for checks.
@@ -133,6 +135,28 @@ func start(match_, bot_models: Array[BotModel]) -> void:
 	# wounds open somewhere on the front half of the body
 	_wounds = [[(randf() - 0.5) * 2.4, (randf() - 0.5) * 2.4], [(randf() - 0.5) * 2.4, (randf() - 0.5) * 2.4]]
 	_ground_prev = [[false, false, false], [false, false, false]]
+	_benched = [null, null]
+	# a tag team's partners: their own trails (in their colours), stumps and wounds for when they come in
+	if m.tag != null:
+		for side in 2:
+			var p = m.tag.partnerOf(float(side))
+			var trails := []
+			for k in 4:
+				trails.append(fx.make_trail(p.spec.paint.accent, 0.13))
+			_benched[side] = [trails, [], [(randf() - 0.5) * 2.4, (randf() - 0.5) * 2.4]]
+
+
+## Tag team: side `side`'s bots swapped places (a tag; models[side] is the new one already): the
+## trails, stumps and wounds go with each bot.
+func swap_side(side: int) -> void:
+	var b = _benched[side]
+	if b == null:
+		return
+	_benched[side] = [_trails[side], _stumps[side], _wounds[side]]
+	_trails[side] = b[0]
+	_stumps[side] = b[1]
+	_wounds[side] = b[2]
+	_ground_prev[side] = [false, false, false]
 
 
 ## The fight is over and gone (game.ts endMatch): its trails, parts, oil and vapour go with it.
@@ -146,6 +170,11 @@ func stop() -> void:
 	for list in _trails:
 		for t in list:
 			fx.remove_trail(t)
+	for b in _benched:
+		if b != null:
+			for t in b[0]:
+				fx.remove_trail(t)
+	_benched = [null, null]
 	_trails = [[], []]
 	_stumps = [[], []]
 	_feet.clear()

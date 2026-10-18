@@ -128,6 +128,14 @@ bb_ao_b1={
 "type": "vec4",
 "value": Vector4(0, 0, 0, 0)
 }
+bb_ao_b2={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+bb_ao_b3={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
 bb_ao_map={
 "type": "sampler2D",
 "value": ""

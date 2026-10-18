@@ -23,7 +23,10 @@ class MatchView extends RefCounted:
 	var fin = null
 	## null, or the winner's view.
 	var winner = null
+	## A tag team match's teams (TagView), or null one-on-one.
+	var tag = null
 	var _fin := FinView.new()
+	var _tag: TagView
 
 	func _init() -> void:
 		fighters = [FighterView.new(), FighterView.new()]
@@ -49,6 +52,100 @@ class MatchView extends RefCounted:
 			_fin.glowJoint = f.glowJoint
 			fin = _fin
 		winner = null if m.winner == null else fighters[int(m.winner.index)]
+		if m.tag == null:
+			tag = null
+		else:
+			if _tag == null:
+				_tag = TagView.new()
+			_tag.capture(m.tag)
+			tag = _tag
+
+
+## A tag team match (tag.ts TagTeam): who is in the ring for each side, and the partners outside it.
+class TagView extends RefCounted:
+	## Per bot, in tag.ts order (side 0's starter and partner, then side 1's).
+	var members: Array[MemberView] = []
+	## Index into members of each side's legal bot (the one the match's fighters hold).
+	var legal := PackedInt32Array([0, 2])
+	## Each side's bot out of the ring (its partner), drawn from this view.
+	var bench: Array[FighterView] = []
+	## Index into members of each side's bench bot.
+	var bench_of := PackedInt32Array([1, 3])
+	## Can each side tag now (the HUD's TAG button)?
+	var can_tag := [false, false]
+	## Each side's run to its corner for a tag: seconds into it, -1 when not running.
+	var run := PackedFloat32Array([-1.0, -1.0])
+	## Health of each team, 0..1: both bots' together.
+	var team_hp := PackedFloat32Array([1.0, 1.0])
+	## Tags each side has made.
+	var tags := PackedInt32Array([0, 0])
+	## The fight is stopped for an elimination.
+	var paused := false
+	## The partner in on a double team (index into members), or -1.
+	var assist := -1
+
+	func _init() -> void:
+		for i in 4:
+			members.append(MemberView.new())
+		bench = [FighterView.new(), FighterView.new()]
+
+	func capture(t) -> void:
+		var ms: Array = t.members
+		for i in 4:
+			members[i].capture(ms[i])
+		for side in 2:
+			legal[side] = int(t.legal[side])
+			var b := side * 2 + (1 if legal[side] == side * 2 else 0)
+			bench_of[side] = b
+			bench[side].capture(ms[b].f)
+			can_tag[side] = t.canTag(float(side))
+			run[side] = t.run[side]
+			team_hp[side] = t.teamHp(float(side))
+			tags[side] = int(t.tags[side])
+		paused = t.paused
+		assist = -1 if t.assist == null else ms.find(t.assist)
+
+	## How far through its last update bench bot `side` is drawn at, for the step alpha `alpha`:
+	## on the apron it moves every few steps, so one update's motion is spread over them.
+	func bench_alpha(side: int, alpha: float) -> float:
+		var mb := members[bench_of[side]]
+		if mb.every <= 1.0:
+			return alpha
+		return clampf((mb.acc / (1.0 / 120.0) + alpha) / mb.every, 0.0, 1.0)
+
+
+## One bot of a tag team (tag.ts TagMember).
+class MemberView extends RefCounted:
+	var side := 0
+	var slot := 0
+	var status := ""
+	var out := false
+	var cheer := false
+	var name_ := ""
+	var hpRatio := 1.0
+	var staminaRatio := 1.0
+	## Seconds in its status.
+	var t := 0.0
+	var acc := 0.0
+	var every := 1.0
+	## Reaching for the tag (0..1).
+	var reachW := 0.0
+	var spec
+
+	func capture(mb) -> void:
+		side = int(mb.side)
+		slot = int(mb.slot)
+		status = mb.status
+		out = mb.out
+		cheer = mb.cheer
+		name_ = mb.f.name_
+		hpRatio = mb.f.hpRatio
+		staminaRatio = mb.f.staminaRatio
+		t = mb.t
+		acc = mb.acc
+		every = mb.every
+		reachW = mb.reachW
+		spec = mb.spec
 
 
 class FinView extends RefCounted:
