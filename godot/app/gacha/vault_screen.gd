@@ -1,12 +1,14 @@
-## The Skin Vault: where skins are won. The player's bot stands on the workshop lift on the right
-## (drag to turn it); the panel on the left has two tabs.
+## The Skin Vault: where skins are won. The vault is its own place out in space
+## (render/vault/vault_stage.gd): the player's bot on a glowing turntable on the right (drag to turn
+## round it) in front of a giant gumball machine full of capsules; the panel on the left has two tabs.
 ##   Vault: today's featured Epic turning in its halo, the rates and how close the Epic pity is,
 ##   the free pull (or when it's back), and the pulls (one, or ten with a Rare or better in them),
 ##   paid in career credits. The first visit has a free 10-pull waiting.
 ##   Collection: every skin as a card (the ones not owned yet veiled), by rarity. Tapping one
 ##   paints it onto the bot with a sweep of light: one owned goes on for good, one not owned is
 ##   only tried on, with the shards it costs.
-## Credits and shards sit top right. Pulls play out in PullShow.
+## Credits and shards sit top right. Pulls play out on the machine (VaultStage.play), with PullShow's
+## words and buttons over them.
 class_name VaultScreen
 extends AppScreen
 
@@ -171,12 +173,12 @@ func enter() -> void:
 	trial = false
 	_spin.vel = 0.0
 	_spin.idle = 0.0
-	var d := app.game.director
-	Garage.focus(d, "", Garage.spec_size(app.player))
 	refresh()
 	_layout()
 	pivot_offset = size * 0.5
 	modulate.a = 0.0
+	if show != null:
+		return
 	if _fade_tw != null:
 		_fade_tw.kill()
 	_fade_tw = create_tween()
@@ -508,6 +510,7 @@ func _open(n: int, paid: int) -> void:
 	show.again_ok = app.record.career.credits >= cost
 	show.finished.connect(func(action: String, data) -> void: _on_show(action, data, n))
 	app.ui.add_child(show)
+	_panel_shown(false)
 
 
 func _on_show(action: String, data, n: int) -> void:
@@ -533,9 +536,26 @@ func _close_show() -> void:
 	sound.stop_all()
 	s.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	s.set_process(false)
+	s._exit_tree()
 	var tw := s.create_tween()
 	tw.tween_property(s, "modulate:a", 0.0, 0.25)
 	tw.tween_callback(s.queue_free)
+	# the machine at rest again, the player's own bot back on the turntable (a 10-pull's card may
+	# have left another skin on it), and the panel back
+	var st := stage()
+	if st != null:
+		st.finish()
+	if app.game._shown_spec != app.player and app.current == "vault":
+		app.game.show_bot(app.player)
+	_panel_shown(true)
+
+
+## The panel and the wallet out of the way while a pull plays on the machine, or back.
+func _panel_shown(on: bool) -> void:
+	if _fade_tw != null:
+		_fade_tw.kill()
+	_fade_tw = create_tween()
+	_fade_tw.tween_property(self, "modulate:a", 1.0 if on else 0.0, 0.3 if on else 0.2)
 
 
 ## Put a skin on the bot for good ("" for the plain paint), painted on with a sweep.
@@ -713,7 +733,9 @@ func _try_on(s) -> void:
 	app.game.show_bot(spec)
 	if app.game.showcase != null:
 		app.game.showcase.model.paint_on(was)
-	app.game.garage_pulse()
+	var st := stage()
+	if st != null:
+		st.pulse()
 	sound.play("paint", 0.5, 1.15)
 
 
@@ -791,7 +813,7 @@ func _unhandled_input(e: InputEvent) -> void:
 		var mm := e as InputEventMouseMotion
 		var now := Time.get_ticks_usec()
 		var d := (mm.position.x - float(_spin.x)) * 0.012
-		app.game.director.garage_yaw -= d
+		_turn(-d)
 		var dt := maxf(1.0, (now - int(_spin.t)) / 1000.0) / 1000.0
 		_spin.vel = float(_spin.vel) * 0.5 + (-d / dt) * 0.5
 		_spin.x = mm.position.x
@@ -806,4 +828,15 @@ func _spin_tick(dt: float) -> void:
 	_spin.vel = clampf(float(_spin.vel) * exp(-3.5 * dt), -6.0, 6.0)
 	# a slow showroom turn once nobody has touched it a while
 	var drift := minf(1.0, (float(_spin.idle) - 3.0) / 3.0) * 0.12 if float(_spin.idle) > 3.0 else 0.0
-	app.game.director.garage_yaw += float(_spin.vel) * dt + drift * dt
+	_turn(float(_spin.vel) * dt + drift * dt)
+
+
+func _turn(by: float) -> void:
+	var st := stage()
+	if st != null:
+		st.yaw += by
+
+
+## The vault's place in the world (built the first time the screen opens).
+func stage() -> VaultStage:
+	return app.game.get_place("vault") as VaultStage if app != null and app.game != null else null

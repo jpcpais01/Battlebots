@@ -1,6 +1,7 @@
 ## The Skin Vault's own sounds, synthesized once on first use (no clips to ship): the capsule's
 ## rising charge, the seam's crack and burst, a chime per rarity (a bell for a Common, a bright
-## run up for a Rare, a full shimmering chord for an Epic), a card flipping and the paint-on hiss.
+## run up for a Rare, a full shimmering chord for an Epic), a card flipping and the paint-on hiss,
+## and the gumball machine's own: its crank's ratchet, the chute's clunk and a capsule's pop.
 ## Played on the effects bus, so the sound switch mutes them with everything else.
 class_name GachaSound
 extends Node
@@ -19,7 +20,8 @@ func _ready() -> void:
 		_players.append(p)
 
 
-## Play one ("riser", "crack", "burst", "chime0".."chime2", "flip", "paint", "coin").
+## Play one ("riser", "crack", "burst", "chime0".."chime2", "flip", "paint", "coin", "crank",
+## "chute", "pop").
 func play(id: String, gain := 1.0, pitch := 1.0) -> void:
 	var s := stream(id)
 	if s == null:
@@ -63,6 +65,12 @@ static func stream(id: String) -> AudioStreamWAV:
 			data = _paint()
 		"coin":
 			data = _chord([1318.5, 1975.5], 0.05, 0.5, 0.35)
+		"crank":
+			data = _crank(1.5)
+		"chute":
+			data = _chute()
+		"pop":
+			data = _pop()
 		_:
 			return null
 	var s := _wav(data)
@@ -204,6 +212,76 @@ static func _paint() -> PackedFloat32Array:
 		bp2 += (bp - bp2) * k
 		var env := sin(PI * minf(1.0, t / 1.1)) * (0.8 + 0.2 * sin(TAU * 13.0 * t))
 		d[i] = (bp - bp2) * env * 0.9
+	return d
+
+
+## The crank turning: a ratchet's clicks, quickening as it gets going, over a low gear grind.
+static func _crank(secs: float) -> PackedFloat32Array:
+	var d := _buf(secs)
+	var seed := 5150
+	var lp := 0.0
+	# the clicks: each a short knock with a little ring, closer together as the crank speeds up
+	var t_click := 0.0
+	var gap := 0.11
+	while t_click < secs - 0.05:
+		var start := int(t_click * RATE)
+		var f := 1500.0 + float(int(t_click * 1000.0) % 3) * 180.0
+		for i in range(start, mini(start + int(0.05 * RATE), d.size())):
+			var u := float(i - start) / RATE
+			seed = (seed * 1103515245 + 12345) & 0x7fffffff
+			var n := float(seed) / 0x7fffffff * 2.0 - 1.0
+			d[i] += (n * exp(-u * 260.0) * 0.7 + sin(TAU * f * u) * exp(-u * 90.0) * 0.35) * 0.75
+		t_click += gap
+		gap = maxf(0.055, gap * 0.93)
+	for i in d.size():
+		var t := float(i) / RATE
+		seed = (seed * 1103515245 + 12345) & 0x7fffffff
+		var n := float(seed) / 0x7fffffff * 2.0 - 1.0
+		lp += (n - lp) * 0.02
+		var env := minf(1.0, t * 6.0) * (1.0 - smoothstep(secs - 0.25, secs, t))
+		d[i] = d[i] * (1.0 - smoothstep(secs - 0.2, secs, t)) + (lp * 1.6 + sin(TAU * 55.0 * t) * 0.08) * env * 0.5
+	return d
+
+
+## The chute's flap swinging open: a heavy clunk, then the whoosh of the capsule rolling out.
+static func _chute() -> PackedFloat32Array:
+	var d := _buf(0.9)
+	var seed := 8080
+	var bp := 0.0
+	var bp2 := 0.0
+	var ph := 0.0
+	for i in d.size():
+		var t := float(i) / RATE
+		seed = (seed * 1103515245 + 12345) & 0x7fffffff
+		var n := float(seed) / 0x7fffffff * 2.0 - 1.0
+		ph += TAU * (90.0 + 60.0 * exp(-t * 30.0)) / RATE
+		var clunk := (sin(ph) * 0.8 + n * 0.3 * exp(-t * 80.0)) * exp(-t * 16.0)
+		var k := 0.04 + 0.2 * smoothstep(0.1, 0.6, t)
+		bp += (n - bp) * k
+		bp2 += (bp - bp2) * k
+		var whoosh := (bp - bp2) * sin(PI * clampf((t - 0.08) / 0.8, 0.0, 1.0)) * 2.2
+		d[i] = clunk * 0.8 + whoosh * 0.45
+	return d
+
+
+## A capsule popping open: a cork's pop, a bright squeak up and a fizz of sparkle.
+static func _pop() -> PackedFloat32Array:
+	var d := _buf(0.6)
+	var seed := 6060
+	var hp := 0.0
+	var last := 0.0
+	var ph := 0.0
+	for i in d.size():
+		var t := float(i) / RATE
+		seed = (seed * 1103515245 + 12345) & 0x7fffffff
+		var n := float(seed) / 0x7fffffff * 2.0 - 1.0
+		hp = 0.85 * (hp + n - last)
+		last = n
+		ph += TAU * (320.0 + 900.0 * smoothstep(0.0, 0.07, t)) / RATE
+		var pop := sin(ph) * exp(-t * 28.0)
+		var click := n * exp(-t * 400.0)
+		var fizz := hp * exp(-t * 7.0) * (0.5 + 0.5 * sin(TAU * 47.0 * t)) * smoothstep(0.0, 0.03, t)
+		d[i] = pop * 0.7 + click * 0.6 + fizz * 0.25
 	return d
 
 

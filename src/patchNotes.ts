@@ -17,6 +17,17 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-18 04:00",
+    title: "The Skin Vault goes to space",
+    notes: [
+      "Android: the Skin Vault has its own place now, a neon platform floating in space under a ringed planet, with a giant gumball machine full of skin capsules behind your robot.",
+      "Every pull plays out on the machine: the crank turns, the capsules churn in the glass and yours drops out of the chute, bounces and rolls out before it charges up.",
+      "A single pull bursts in a flash of light, then a beam paints the new skin onto your robot while its rarity and name come in beside it.",
+      "A 10-pull shoots ten capsules out in an arc that pop one by one into glowing lights of their rarity (an Epic trembles first), then deals the cards. Tap a card to see that skin on your robot.",
+      "New sounds for the crank, the chute and every capsule popping open.",
+    ],
+  },
+  {
+    hour: "2026-10-18 04:00",
     title: "Tag Team",
     notes: [
       "Android: Tag Team is here. Pick a partner from your saved bots (or sign up a recruit) and take on a rival pair in 2-on-2 fights of 180 seconds.",

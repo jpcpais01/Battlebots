@@ -144,7 +144,7 @@ signal forfeited
 ## enters the tree and starts every fight itself.
 var auto := true
 ## Where the world is (game.ts Place): "arena" (fights and the menus behind them), "garage",
-## "home" or "map". Only the arena exists so far: the others are added by their own modules.
+## "home", "map" or "vault". Only the arena exists so far: the others are added by their own modules.
 var place := "arena"
 ## The bot idling on its own between fights (null in a fight or with nobody shown).
 var showcase: Showcase
@@ -156,6 +156,7 @@ const PLACES := {
 	"garage": "res://render/garage/garage.gd",
 	"map": "res://render/map/world_map.gd",
 	"home": "res://render/home/home_stage.gd",
+	"vault": "res://render/vault/vault_stage.gd",
 }
 
 
