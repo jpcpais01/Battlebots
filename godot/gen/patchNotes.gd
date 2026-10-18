@@ -18,6 +18,17 @@ static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
 	"hour": "2026-10-18 04:00",
+	"title": "Tag Team",
+	"notes": [
+	"Android: Tag Team is here. Pick a partner from your saved bots (or sign up a recruit) and take on a rival pair in 2-on-2 fights of 180 seconds.",
+	"One bot fights at a time while its partner waits on the apron. Tap TAG and your bot runs to its corner to slap hands, and the fresh partner ducks in through the ropes. Resting on the apron mends a little damage.",
+	"A knockout only eliminates that bot: the fight stops, the winner celebrates and the partner storms in. Knock out both bots to win, or have the most team health left at the bell.",
+	"Double teams: when your bot goes for a finisher, its partner can run in, lock the rival in a full nelson and hold it still for one of three tag team finishers.",
+	"The fight screen shows each partner's health and state, with banners and new camera shots for tags, eliminations and double teams, and the crowd, referee and booth react to all of it."
+]
+},
+	{
+	"hour": "2026-10-18 04:00",
 	"title": "100,000 credits for everyone",
 	"notes": [
 	"Android: Ray tracing now lights the world map too. Streets darken at the foot of the towers, sunlit walls warm the roads, and trees, cranes and the Ferris wheel cast their own shadows.",
