@@ -411,6 +411,10 @@ func start_match(a, b, seed: float, partners = null) -> void:
 	tag_cam.stop()
 	m = TMatch.Match.new(a, b, seed, partners)
 	m.on(_queue_event)
+	# every robot's plating shader compiling on worker threads while the rest is set up (a no-op
+	# for those already made: the player's at boot, the opponent's when it was picked)
+	var all := [a, b] + ([partners.a, partners.b] if partners != null else [])
+	BotModel.warm(all.map(func(sp): return JS.get_field(sp, "skin")))
 	# the walkout: each robot rides its corner lift up and makes its entrance (BB_SKIPINTRO=1: straight
 	# to the countdown, for quick checks)
 	if OS.get_environment("BB_SKIPINTRO") != "":
@@ -608,6 +612,15 @@ func _bench_clear() -> void:
 
 ## Show a single bot idling (game.ts showBot): behind the menus in the ring, on the garage lift.
 ## null shows nobody. A new spec builds a new robot; the same one keeps it.
+## Behind the loading screen (boot.gd): draw what a fight shows only once it's under way (every
+## effect's particles, the winner's confetti), so their looks are made there and not on the frame
+## of the first hit or the first win; warm_up(false) puts them away again.
+func warm_up(on: bool) -> void:
+	FxPool.warm(on)
+	if arena != null and arena.show != null and arena.show.has_method("warm"):
+		arena.show.warm(on)
+
+
 func show_bot(spec) -> void:
 	_shown_spec = spec
 	# the home scenes have their own actor (game.ts showBot: home.setBot)

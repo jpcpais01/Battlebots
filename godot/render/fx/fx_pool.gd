@@ -24,6 +24,9 @@ var _dirty := false
 var _colors := true
 var _custom := true
 var _stride := 20
+var _warming := false
+## Every pool made (they live as long as the app), for warm().
+static var _all: Array[FxPool] = []
 
 
 func _init(n: int, mesh: Mesh, shader: Shader, colors := true, custom := true) -> void:
@@ -49,6 +52,27 @@ func _init(n: int, mesh: Mesh, shader: Shader, colors := true, custom := true) -
 	ignore_occlusion_culling = true
 	top_level = true
 	visible = false
+	_all.append(self)
+
+
+## Draw one (empty) particle of every pool nothing is using, or stop (warm(false)): done behind
+## the loading screen, so each pool's look is ready before the first hit that needs it, not
+## made on that frame.
+static func warm(on: bool) -> void:
+	for p in _all:
+		if not is_instance_valid(p):
+			continue
+		if on and p._used == 0 and not p._warming:
+			p._warming = true
+			p.expires = INF
+			p.multimesh.visible_instance_count = 1
+			p.visible = true
+		elif not on and p._warming:
+			p._warming = false
+			if p._used == 0:
+				p.expires = -1.0
+				p.multimesh.visible_instance_count = 0
+				p.visible = false
 
 
 func stride() -> int:
@@ -149,7 +173,7 @@ func set_used(n: int) -> void:
 ## Per frame: the shader clock, visibility, and the upload if anything was born.
 func flush(clock: float) -> void:
 	mat.set_shader_parameter("now", clock)
-	visible = clock < expires and _used > 0
+	visible = _warming or (clock < expires and _used > 0)
 	if _dirty:
 		_dirty = false
 		RenderingServer.multimesh_set_buffer(multimesh.get_rid(), buf)

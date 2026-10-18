@@ -48,6 +48,7 @@ var _emit_dirty := true
 ## Last time any emitter is still burning.
 var _pyro_until := -1.0
 var _confetti_start := -99.0
+var _warming := false
 ## The eased look: level, fan, focus, strobe, mono.
 var _look: Array[float] = [0.55, 0.0, 0.0, 0.0, 0.0]
 var _phase := "menu"
@@ -173,7 +174,7 @@ func update(dt: float, time: float, hype: float) -> void:
 			_spark_mat.set_shader_parameter("emit", _emit)
 	if _pyro and _pyro.visible and time > _pyro_until:
 		_pyro.visible = false
-	if _confetti and _confetti.visible and time - _confetti_start > CONFETTI_LIFE + 2.5:
+	if _confetti and _confetti.visible and not _warming and time - _confetti_start > CONFETTI_LIFE + 2.5:
 		_confetti.visible = false
 	if _beam_mats.is_empty():
 		return
@@ -202,3 +203,11 @@ func update(dt: float, time: float, hype: float) -> void:
 		m.set_shader_parameter("mono", _look[4])
 		m.set_shader_parameter("white", _kick * 0.6)
 		m.set_shader_parameter("col_m", mono)
+
+
+## Show the confetti behind the loading screen (warm(false) hides it again), so the first win's
+## burst has its look ready.
+func warm(on: bool) -> void:
+	_warming = on
+	if _confetti:
+		_confetti.visible = on

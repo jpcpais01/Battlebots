@@ -1036,7 +1036,8 @@ func _start(s: Dictionary) -> bool:
 	_seq += 1
 	_heard[line.id] = _seq
 	_dirty += 1
-	if _dirty >= 12:
+	# (not mid-fight: end() saves when it's over, so no file write lands in a fight's frame)
+	if _dirty >= 12 and m == null:
 		_save()
 	said.emit({"t": _t, "frame": m.frame if m != null else -1.0, "v": line.v, "id": line.id, "trig": line.t, "e": line.e, "clips": clips, "prio": s.prio, "name": named, "chain": chain, "dur": dur})
 	return true

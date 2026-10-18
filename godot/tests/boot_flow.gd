@@ -51,6 +51,14 @@ func _init() -> void:
 	_check(home != null and home.id == "beach", "the home place is the beach")
 	_check(app.game.made.is_empty(), "every part built ahead was used")
 	_check(app.game.arena != null and app.game.arena.is_inside_tree(), "the arena built ahead is in the world")
+	var warmed := 0
+	var left := 0
+	for p in FxPool._all:
+		if is_instance_valid(p):
+			warmed += 1
+			if p.visible or p._warming:
+				left += 1
+	_check(warmed > 0 and left == 0, "the %d effect pools drawn in the warm-up are put away again" % warmed)
 	var hs = app.screens.home
 	_check(not hs._garage.disabled and not hs._career.disabled, "the home screen's Garage and Career buttons can be tapped")
 	await create_timer(0.5).timeout

@@ -109,6 +109,11 @@ func _instances() -> void:
 		if mi == null or mi.mesh == null:
 			continue
 		var count := int(n.instanceMatrix.count)
+		# the instances the slim bake keeps (far trees thinned out), or all of them
+		var thinned: bool = scene.slim_instances.has(i)
+		var keep: PackedInt32Array = scene.slim_instances.get(i, PackedInt32Array())
+		if thinned:
+			count = keep.size()
 		var f := scene.floats(int(n.instanceMatrix.buffer))
 		var cols := PackedFloat32Array()
 		if n.has("instanceColor"):
@@ -121,11 +126,12 @@ func _instances() -> void:
 		# the node's own placement, relative to the venue's root
 		var base := world[i]
 		for k in count:
-			var o := k * 16
+			var j := keep[k] if thinned else k
+			var o := j * 16
 			var t := Transform3D(Basis(Vector3(f[o], f[o + 1], f[o + 2]), Vector3(f[o + 4], f[o + 5], f[o + 6]), Vector3(f[o + 8], f[o + 9], f[o + 10])), Vector3(f[o + 12], f[o + 13], f[o + 14]))
 			mm.set_instance_transform(k, base * t)
 			if mm.use_custom_data:
-				mm.set_instance_custom_data(k, Color(cols[k * 3], cols[k * 3 + 1], cols[k * 3 + 2], 1.0))
+				mm.set_instance_custom_data(k, Color(cols[j * 3], cols[j * 3 + 1], cols[j * 3 + 2], 1.0))
 		var mmi := MultiMeshInstance3D.new()
 		mmi.multimesh = mm
 		mmi.name = mi.name

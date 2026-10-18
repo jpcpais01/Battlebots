@@ -146,7 +146,9 @@ func _setup() -> void:
 		# the arena drawn a moment behind the loading screen, so its looks are ready for the
 		# first fight
 		game.show_bot(player)
+		game.warm_up(true)
 		await boot.step("arena")
+		game.warm_up(false)
 	if game.has_place("home"):
 		game.home_scene(home_place)
 	var first := OS.get_environment("BB_SCREEN")
@@ -408,6 +410,8 @@ func make_opponent():
 	var sk = Gacha.opponent_skin(_rng)
 	if sk != null:
 		best.skin = sk
+		# its plating shader starts compiling now, well before the robot rides up its lift
+		BotModel.warm([sk])
 	return best
 
 
