@@ -17,6 +17,14 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-18 21:00",
+	"title": "Ray tracing without glitches",
+	"notes": [
+	"Android: with Ray tracing on, robots no longer break into shards, bushes no longer get black holes and shade no longer fills with white blocks.",
+	"Android: Ray tracing now smooths edges with FXAA instead of multisampling, so the frame no longer has to round-trip through memory halfway through drawing. That should also make it lighter on the GPU."
+]
+},
+	{
 	"hour": "2026-10-18 15:00",
 	"title": "Skin Vault cards fixed",
 	"notes": [
