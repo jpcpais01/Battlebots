@@ -1,7 +1,25 @@
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { execSync } from 'node:child_process';
 
-export default defineConfig({
+/** Which build this is, shown on the home screen: the commit it was built from and when. */
+function buildTag() {
+  let sha = process.env.VERCEL_GIT_COMMIT_SHA ?? '';
+  if (!sha) {
+    try {
+      sha = execSync('git rev-parse HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    } catch {
+      sha = '';
+    }
+  }
+  const at = new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+  return { id: sha ? `build ${sha.slice(0, 7)}` : 'dev', at: sha ? at : '' };
+}
+
+export default defineConfig(({ command }) => ({
+  define: {
+    __BUILD__: JSON.stringify(command === 'build' ? buildTag() : { id: 'dev', at: '' }),
+  },
   build: {
     target: 'es2020',
     chunkSizeWarningLimit: 900,
@@ -51,4 +69,4 @@ export default defineConfig({
       },
     }),
   ],
-});
+}));

@@ -90,6 +90,12 @@ const FOCUS: Record<Slot, [number, number, number, number]> = {
 };
 
 /** A word for a frame size. */
+/**
+ * For now every part is the player's to fit (João, 2026-10-17, as in the Android app): Rare and
+ * Epic parts aren't locked and nothing rolls back to Common. The career still pays, sells and
+ * hands out parts as before; set this false to bring the locks back.
+ */
+const UNLOCK_ALL = true;
 const sizeName = (size: number) => (size <= 0.85 ? 'Compact' : size < 1 ? 'Light' : size === 1 ? 'Standard' : size < 1.15 ? 'Heavy' : 'Giant');
 
 /** Screens, navigation and persistence around the 3D game. */
@@ -198,7 +204,7 @@ export class App {
       adoptWorn(this.record.career, [this.player, ...loadSaves()]);
       saveRecord(this.record);
     }
-    if (fitOwned(this.player, this.record.career)) savePlayer(this.player);
+    if (this.fitOwned(this.player)) savePlayer(this.player);
     this.career = {
       record: () => this.record,
       player: () => this.player,
@@ -243,7 +249,7 @@ export class App {
       previewMove: (id) => this.game.previewMove(id),
       redraw: () => this.refreshGarage(),
       // Rare and Epic parts are earned in career mode: until then they can be tried on, not fitted
-      locked: (item) => !owns(this.record.career, item),
+      locked: (item) => !this.owns(item),
       lockText: (item) => this.lockText(item),
     });
     this.hud.onPause = () => this.pause();
@@ -460,6 +466,10 @@ export class App {
     const bar = el('div', 'topbar', '', s);
     const brand = el('div', 'brand', '<div class="logo"><span class="l1">BATTLE</span><span class="l2">BOTS</span></div>', bar);
     this.patchBtn(brand);
+    // the build this is, quietly beside What's new
+    const build = typeof __BUILD__ === 'undefined' ? { id: 'dev', at: '' } : __BUILD__;
+    const ver = el('span', 'build-tag', esc(build.id), brand);
+    ver.title = build.at ? `Built ${build.at}` : 'Local build';
     const tr = el('div', 'tb-right', '', bar);
     if (this.account.available) {
       this.accountBtn = button('account-btn', '', () => this.accountPopup(), tr);
@@ -639,7 +649,7 @@ export class App {
       const b = randomBot(this.rng, this.rng.range(0.2, 0.8));
       this.player = { ...b, name: this.player.name, emotes: this.player.emotes, walkOn: this.player.walkOn };
       // (only parts the player has: the rest roll back to Common)
-      fitOwned(this.player, this.record.career);
+      this.fitOwned(this.player);
       this.commitPlayer();
       this.game.garagePulse();
     }, actions);
@@ -754,7 +764,7 @@ export class App {
         button('btn small primary', 'Use', () => {
           this.tap('select');
           this.player = structuredClone(bot);
-          fitOwned(this.player, this.record.career);
+          this.fitOwned(this.player);
           this.commitPlayer();
           this.game.garagePulse();
           this.closeModal();
@@ -1742,7 +1752,7 @@ export class App {
     this.player = bot;
     this.record = record;
     if (isNewCareer(record.career)) adoptWorn(record.career, [bot]);
-    fitOwned(bot, record.career);
+    if (!UNLOCK_ALL) fitOwned(bot, record.career);
     savePlayer(bot);
     saveRecord(record);
     this.online.session?.setBot(bot);
@@ -2094,6 +2104,16 @@ export class App {
   }
 
   /** How to get a part the player doesn't have yet. */
+  /** Whether the player may fit this part (career's owns, unless UNLOCK_ALL). */
+  private owns(item: ItemDef) {
+    return UNLOCK_ALL || owns(this.record.career, item);
+  }
+
+  /** Parts the player may not fit come off the bot, the Common version going on: whether anything changed. Nothing does while UNLOCK_ALL is on. */
+  private fitOwned(bot: BotSpec) {
+    return !UNLOCK_ALL && fitOwned(bot, this.record.career);
+  }
+
   private lockText(item: ItemDef) {
     const o = stock(this.record.career, this.record.events).find((x) => x.item.id === item.id && !x.sold);
     if (o) return o.locked ? `In the Parts Market now: ${o.locked.toLowerCase()} to buy it` : `In the Parts Market now for ${credits(o.price)} credits`;

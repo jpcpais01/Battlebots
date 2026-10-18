@@ -3141,6 +3141,18 @@ button:focus-visible {
   animation-duration: 1.4s;
 }
 
+/* the build tag beside What's new */
+.build-tag {
+  flex: none;
+  font-size: 0.68em;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.82);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 /* patch notes: a "What's new" pill by the logo, with a dot until the newest notes are read */
 .notes-btn {
   position: relative;
