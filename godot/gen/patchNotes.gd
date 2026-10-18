@@ -17,6 +17,28 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-18 01:00",
+	"title": "The Skin Vault",
+	"notes": [
+	"Android: the Skin Vault is open. Win skins, special paint jobs that cover your robot's plating: 13 Common patterns, 8 Rare exotic finishes and 7 animated Epic skins that move as you fight.",
+	"Every pull drops a capsule that charges up and bursts open, its light teasing violet for a Rare and gold for an Epic. A 10-pull deals ten cards and turns them over one by one.",
+	"Pulls cost career credits: 100, or 900 for ten with a Rare or better guaranteed. A free pull comes back every 4 hours, and your first visit has a free 10-pull waiting.",
+	"The odds are in the vault: Epic 4%, Rare 21%, Common 75%, an Epic guaranteed within 50 pulls, and a featured Epic each day. Duplicates turn into shards that buy the skin you want.",
+	"Wear skins from the vault's Collection or the garage's new Skins page, and each one paints on with a sweep of light. Opponents show up in skins too, and title finals in an Epic one."
+]
+},
+	{
+	"hour": "2026-10-18 00:00",
+	"title": "The referee comes to the web",
+	"notes": [
+	"The referee drone from the Android app now runs every fight on the web too: it presents both robots, counts down 3-2-1 on its face and chops the air for FIGHT!",
+	"It watches each exchange from the side, flinches at big hits, moves in to break up clinches, and counts a downed robot with the same number as the count on screen.",
+	"At a knockout it waves the fight off with K.O. on its face, then raises the winner's hand with a happy spin.",
+	"On the web too, every Rare and Epic part is unlocked for now: fit anything from any maker in the garage. The career still pays out as usual.",
+	"The home screen now shows which build of the game you're on, next to What's new."
+]
+},
+	{
 	"hour": "2026-10-17 23:00",
 	"title": "Every part unlocked",
 	"notes": [

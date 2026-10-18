@@ -13,12 +13,13 @@ const SCREENS := {
 	"home": "res://app/home/home_screen.gd",
 	"garage": "res://app/garage/garage_screen.gd",
 	"map": "res://app/career/map_screen.gd",
+	"vault": "res://app/gacha/vault_screen.gd",
 }
 ## The results card (app.ts showResults), a ResultsView.
 const RESULTS := "res://app/results/results_view.gd"
 ## The world's place for each screen (app.ts go: the garage and the map are their own places; the
 ## home screen is the arena unless an animated home scene is picked and ported).
-const PLACE := {"garage": "garage", "map": "map"}
+const PLACE := {"garage": "garage", "map": "map", "vault": "garage"}
 
 ## A screen came on (App.go): its id.
 signal screen_changed(id: String)
@@ -36,6 +37,9 @@ var player
 var record
 ## The player's saved bots.
 var saves: Array = []
+## The skins won in the vault, its pity and its free pull (app/gacha/gacha.gd). Skins are only ever
+## won there: UNLOCK_ALL is for parts.
+var skins: Dictionary = {}
 ## For now every part is the player's to fit (João, 2026-10-17): Rare and Epic parts aren't locked
 ## and nothing rolls back to Common. The career still pays, sells and hands out parts as before;
 ## set this false to bring the locks back.
@@ -82,6 +86,12 @@ func _setup() -> void:
 	player = Store.load_player()
 	record = Store.load_record()
 	saves = Store.load_saves()
+	skins = Gacha.load_state()
+	# a skin the vault no longer counts as owned comes off (a save from another phone)
+	if Gacha.check_worn(skins, player):
+		Store.save_player(player)
+	for b in saves:
+		Gacha.check_worn(skins, b)
 	# a career just started keeps the parts already worn; after that, parts the player hasn't
 	# earned come off (the Common version goes on in their place) (app.ts constructor)
 	if TCareer.isNewCareer(record.career):
@@ -214,6 +224,12 @@ func _camera(id: String) -> void:
 			d.shift_x = 0.27
 			# the arena crowd is far away from the workshop
 			game.crowd_audio.ambience(0.04)
+		"vault":
+			# the same lift, the bot on the right of the vault's panel
+			d.mode = "garage"
+			d.garage_yaw = 0.45
+			d.shift_x = -0.24
+			game.crowd_audio.ambience(0.04)
 		_:
 			d.shift_x = 0.0
 			game.crowd_audio.ambience(1.0)
@@ -242,6 +258,24 @@ func commit_player() -> void:
 	if current != "fight":
 		game.show_bot(player)
 	changed.emit()
+
+
+## Put a skin the player owns on their bot ("" for the plain paint): it paints on with a sweep
+## of light up the bot and the lift's scan ring.
+func wear_skin(id: String) -> void:
+	var prev = Skins.of(player)
+	if id == "":
+		player.erase("skin")
+	else:
+		player.skin = id
+	var fresh: Array = skins.get("fresh", [])
+	fresh.erase(id)
+	Gacha.save_state(skins)
+	commit_player()
+	if game.showcase != null:
+		game.showcase.model.paint_on(prev)
+	if game.place == "garage":
+		game.garage_pulse()
 
 
 ## Save the record (after the market, a fit, a fight) and tell the screens.
@@ -293,6 +327,9 @@ func make_opponent():
 			best_d = d
 			best = b
 	best.paint = TPaint.contrastingPaint(player.paint, _rng)
+	var sk = Gacha.opponent_skin(_rng)
+	if sk != null:
+		best.skin = sk
 	return best
 
 
@@ -336,6 +373,12 @@ func fight_event(e) -> void:
 	var defence: float = TEvents.defenceOf(record.events, e)
 	event_run = {"id": e.id, "round": round_, "defence": defence}
 	opponent = TEvents.rival(e, round_, player, defence)
+	# a title's last rival comes out in an Epic skin, the one before in a Rare, the same skin
+	# every time (by the event)
+	var left := int(e.rivals.size()) - 1 - int(round_)
+	if left <= 1:
+		var pool: Array = Skins.of_rarity(Skins.EPIC if left == 0 else Skins.RARE)
+		opponent.skin = pool[absi(String(e.id).hash() + int(round_)) % pool.size()].id
 	tap("start")
 	start_fight(true)
 
