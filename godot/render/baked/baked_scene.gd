@@ -106,6 +106,14 @@ func floats(id: int) -> PackedFloat32Array:
 	return buffer(id).to_float32_array()
 
 
+## Overwrite buffer `id` with `data` (as many bytes as it has), before anything is built from it.
+func set_floats(id: int, data: PackedFloat32Array) -> void:
+	var b: Dictionary = json.buffers[id]
+	var o := int(b.offset)
+	for i in mini(data.size(), int(b.bytes) / 4):
+		_bin.encode_float(o + i * 4, data[i])
+
+
 ## Texture `id` as the web game samples it: canvas textures (flipY) are turned up the right way.
 ## The same picture made the same way by another scene that's still around is shared, not made
 ## again (see _shared).
