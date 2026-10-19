@@ -17,6 +17,17 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-19 05:00",
+    title: "A living, detailed city",
+    notes: [
+      "Android: the city's windows now look into real rooms with furniture and lamps, some switching on and off, behind glass that reflects the sky and catches the sun.",
+      "Android: buildings get balconies, fire escapes, shopfronts with awnings and lit signs, and grime; roofs get gardens, solar panels, air-conditioning units with spinning fans and stair housings.",
+      "Android: the streets come alive when you zoom in: cars, taxis, vans and buses drive their lanes and over the bridges, cars park along the kerbs, and people walk the pavements.",
+      "Android: cars, people and rooftop units cast shadows, and the roads have tyre tracks, patched asphalt, cracks, manholes, drains and lane arrows.",
+      "Android: pavements and plazas are laid in real slabs, each its own shade, with worn and stained patches.",
+    ],
+  },
+  {
+    hour: "2026-10-19 05:00",
     title: "Faster fights on Android",
     notes: [
       "Android: on phones with a 120 Hz screen the game now asks the screen for 120 Hz, so it can actually run above 60 FPS.",

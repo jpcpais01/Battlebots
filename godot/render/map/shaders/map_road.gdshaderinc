@@ -6,7 +6,7 @@ const vec3 R_YELLOW = vec3(0.86, 0.55, 0.09);
 const vec3 R_KERB = vec3(0.6, 0.58, 0.54);
 const vec3 R_PAVE = vec3(0.44, 0.41, 0.37);
 const vec3 R_GRASS = vec3(0.17, 0.28, 0.07);
-const vec3 R_CITY_TAR = vec3(0.058, 0.061, 0.072);
+const vec3 R_CITY_TAR = vec3(0.064, 0.065, 0.07);
 // a line of half width h centred at c, box-filtered over a pixel
 float rLine(float x, float c, float h, float px) { return fband(x, c - h, c + h, px); }
 // on for 'duty' of every 'period' metres
@@ -28,7 +28,10 @@ vec3 rVerge(vec2 xz, vec4 nz, float px) {
 
 // paving slabs
 vec3 rPave(vec2 xz, vec4 nz, float px) {
-	vec3 c = R_PAVE * (0.9 + 0.16 * nz.r);
+	// each slab its own shade (a few relaid, paler), stains where people walk most
+	float id = mix(hash12(floor(xz / 1.4) + 11.0), 0.5, smoothstep(0.08, 0.35, px));
+	vec3 c = R_PAVE * (0.9 + 0.16 * nz.r) * (0.92 + 0.12 * id + 0.1 * step(0.94, id));
+	c *= 1.0 - 0.12 * smoothstep(0.62, 0.78, nz.a);
 	return c * (1.0 - 0.14 * max(fpulse(xz.x / 1.4, 0.05, px / 1.4), fpulse(xz.y / 1.4, 0.05, px / 1.4)));
 }
 

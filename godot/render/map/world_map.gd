@@ -49,6 +49,8 @@ const BUILD_BUDGET_MS := 12
 var cam := MapCamera.new()
 ## The venues: anchors (id -> Vector3, where each pin stands) and highlight(id).
 var sites := Sites.new()
+## The city's traffic, parked cars, people and roof kit (shown close in).
+var life: StreetLife
 ## How far the build is, 0..1 (the map screen shows a loading bar until 1).
 var progress := 0.0
 var game: Game
@@ -58,6 +60,8 @@ var _mats := MapMaterials.new()
 var _root: Node3D
 var _next := -1
 var _named := {}
+# MultiMeshes by their material's kind (the signs, for the street life)
+var _mm_kinds := {}
 var _night := 0.0
 var _night_to := 0.0
 var _glow := -1.0
@@ -227,6 +231,7 @@ func update(dt: float, time: float) -> void:
 	cam.update(dt)
 	if progress >= 1.0:
 		_animate(dt, time)
+		life.visible = cam.dist < StreetLife.SHOW_DIST
 	_write_director()
 
 
@@ -480,6 +485,8 @@ func _open() -> void:
 	_mats.setup(_scene)
 	_scene.factory = _mats.make
 	_scene.nodes.resize(_scene.json.nodes.size())
+	life = StreetLife.new()
+	life.prepare(_scene)
 	_next = 0
 	var m: Dictionary = _scene.json.map
 	_gn = int(m.ground.n)
@@ -512,6 +519,7 @@ func _node(i: int) -> void:
 			mesh.custom_aabb = AABB()
 			var mmi := MultiMeshInstance3D.new()
 			mmi.multimesh = _multimesh(mesh, n.multimesh)
+			_mm_kinds[StreetLife._kind(_scene, n)] = mmi.multimesh
 			if n.has("lod1"):
 				# the cheap trees: a second MultiMesh of the same instances, shown instead past
 				# LOD_FAR (swapping one MultiMesh's mesh loses its colours on some drivers)
@@ -596,6 +604,9 @@ func _finish() -> void:
 	_lift = _named.funicular
 	_lift_pts = _scene.floats(int(t.funicular.pts))
 	_lift_dt = float(t.funicular.dt)
+	var tm: Array = _mats.by_kind.get("terrain", [])
+	life.build((_named.buildings as MultiMeshInstance3D).multimesh, _mm_kinds.get("sign"), tm[0] if tm.size() > 0 else null, ground_at, _ground, _gn, _gcell, _ghalf)
+	add_child(life)
 	# (the bake's geometry bytes are on the GPU now: let them go)
 	_scene.release()
 	sites.mat = _mats.by_kind.pillar[0]

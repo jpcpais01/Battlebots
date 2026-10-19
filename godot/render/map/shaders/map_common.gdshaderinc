@@ -64,6 +64,14 @@ vec3 mapLight(vec3 n, vec3 w) {
 	return ambient(n) * mix(0.82, 1.0, cs) + uSunCol * (ndl * sunShadow(w + n * 3.5) * cs);
 }
 
+// mapLight with the sun's share scaled by k (0: something nearer than the shadow map knows of, a
+// balcony, a window's reveal, a parapet, shades it; the sky's light still gets in), and the shadow
+// map looked up `lift` metres out from the surface
+vec3 mapLightK(vec3 n, vec3 w, float k, float lift) {
+	float cs = cloudShade(w.xz);
+	return ambient(n) * mix(0.82, 1.0, cs) + uSunCol * (max(dot(n, uSunDir), 0.0) * sunShadow(w + n * lift) * cs * k);
+}
+
 // kit.ts MAP_OUT: the haze, three's FogExp2 on the view depth, towards the haze colour as the
 // background shows it (the web's bloom path: mixed in linear light, tone mapped after)
 float mapFog(vec3 view) {
