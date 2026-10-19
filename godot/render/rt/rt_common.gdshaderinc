@@ -1,7 +1,10 @@
 // What both screen-space traces share (ray_trace.gdshader in the arena, the garage and the home
 // scenes; map_trace.gdshader on the world map): the frame and its depth, read one whole pixel at a
 // time, positions and normals rebuilt from them, and the 2x2 quad's derivative tricks.
-uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap, repeat_disable;
+// (no mipmaps: the screen copy's mip chain is built by the renderer behind our back, and on phones
+// its upper levels were read back as stale blocks; the traces read the full-size copy only, which
+// also spares the renderer building the chain every frame)
+uniform sampler2D screen_tex : hint_screen_texture, filter_linear, repeat_disable;
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest, repeat_disable;
 
 // The four pixels of a quad average their results through the derivative units: a pixel's
@@ -13,6 +16,18 @@ uniform sampler2D depth_tex : hint_depth_texture, filter_nearest, repeat_disable
 #define DFDX dFdxFine
 #define DFDY dFdyFine
 #endif
+
+// Can this pixel trust the quad tricks? Fine derivatives, quads on even pixels: checked on values
+// whose answers are known, at the same place in the shader as the tricks they vouch for. A GPU
+// that answers coarsely (one row's difference for both rows), or zero, fails it, and its pixels
+// keep their own results instead of mixing in wrong neighbours.
+bool quad_ok(ivec2 fc) {
+	float ox = float(fc.x & 1);
+	float oy = float(fc.y & 1);
+	float both = ox * oy;
+	return abs(DFDX(ox) - 1.0) < 0.25 && abs(DFDY(oy) - 1.0) < 0.25
+		&& abs(DFDX(both) - oy) < 0.25 && abs(DFDY(both) - ox) < 0.25;
+}
 
 float ndc_z(float d) {
 #if CURRENT_RENDERER == RENDERER_COMPATIBILITY

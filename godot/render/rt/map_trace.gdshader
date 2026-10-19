@@ -69,8 +69,10 @@ void fragment() {
 	ivec2 qc = ivec2((fc.x >> 1) & 3, (fc.y >> 1) & 3);
 	float qjit = (float(BAYER[qc.y * 4 + qc.x]) + 0.5) / 16.0;
 	float z = sky ? -1e7 : p.z;
-	float sx = alike(z, z + DFDX(z) * sgn.x);
-	float sy = alike(z, z + DFDY(z) * sgn.y);
+	// (the quad tricks only where the GPU's derivatives answer as they should, rt_common quad_ok)
+	float trust = quad_ok(fc) ? 1.0 : 0.0;
+	float sx = alike(z, z + DFDX(z) * sgn.x) * trust;
+	float sy = alike(z, z + DFDY(z) * sgn.y) * trust;
 	vec3 n = cross(DFDX(p), DFDY(p));
 	float nl = length(n);
 	if (sx > 0.5 && sy > 0.5 && nl > 1e-12) {
@@ -108,10 +110,9 @@ void fragment() {
 			float cosv = dot(v, n) * inversesqrt(vv + 1e-4);
 			float h = max(0.0, cosv - 0.1) * max(0.0, 1.0 - vv / r2);
 			occ += h;
-			float lod = clamp(log2(rad * 0.5 + 1.0) + 0.5, 0.0, 5.0);
 			// (the map's glows run seven times over with bloom on: a neon trim tints the street, it
-			// doesn't flood it)
-			bounce += safe(textureLod(screen_tex, suv, lod).rgb, 3.0) * h;
+			// doesn't flood it; the full-size frame, see rt_common's screen_tex)
+			bounce += safe(textureLod(screen_tex, suv, 0.0).rgb, 3.0) * h;
 		}
 	}
 	float ao = clamp(1.0 - occ * 2.6 / float(samples), 0.0, 1.0);
@@ -274,8 +275,14 @@ void fragment() {
 				float found = edge.x * edge.y * (1.0 - smoothstep(reach.z * 0.6, reach.z, th));
 				// gloss blurs with distance, measured in pixels the cone grows by
 				float cone = rough * th / max(px_m, 1e-3);
-				float lod = clamp(log2(1.0 + cone * (kind < 1.5 ? 0.15 : 0.3)) + rough * (kind < 1.5 ? 2.0 : 3.0), 0.0, 6.0);
-				c = mix(c, safe(textureLod(screen_tex, huv, lod).rgb, 24.0), found);
+				// (a few taps across the cone on the full-size frame, which has no mips to read)
+				vec2 spread = vec2(min(cone * (kind < 1.5 ? 0.15 : 0.3) + rough * 2.0, 24.0)) * (0.5 + qjit) / vec2(size);
+				vec3 hc = safe(textureLod(screen_tex, huv, 0.0).rgb, 24.0) * 0.4;
+				hc += safe(textureLod(screen_tex, huv + vec2(spread.x, 0.0), 0.0).rgb, 24.0) * 0.15;
+				hc += safe(textureLod(screen_tex, huv - vec2(spread.x, 0.0), 0.0).rgb, 24.0) * 0.15;
+				hc += safe(textureLod(screen_tex, huv + vec2(0.0, spread.y), 0.0).rgb, 24.0) * 0.15;
+				hc += safe(textureLod(screen_tex, huv - vec2(0.0, spread.y), 0.0).rgb, 24.0) * 0.15;
+				c = mix(c, hc, found);
 				got = max(got, found);
 			}
 			a *= got;
@@ -292,6 +299,10 @@ void fragment() {
 	vec4 lw = vec4(bounce, mix(1.0, ao, amounts.x) * mix(1.0, shade, amounts.z)) * wt;
 	float rw8 = shiny;
 	vec4 rf = vec4(refl_c, refl_a) * rw8;
+	// (checked again where the sharing happens)
+	float trust_end = quad_ok(fc) ? 1.0 : 0.0;
+	sx *= trust_end;
+	sy *= trust_end;
 	vec4 lw_x = DFDX(lw);
 	vec4 rf_x = DFDX(rf);
 	float wt_x = DFDX(wt);

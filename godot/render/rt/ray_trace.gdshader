@@ -69,9 +69,11 @@ void fragment() {
 	ivec2 qc = ivec2((fc.x >> 1) & 3, (fc.y >> 1) & 3);
 	float qjit = (float(BAYER[qc.y * 4 + qc.x]) + 0.5) / 16.0;
 	float z = sky ? -1e5 : p.z;
+	// (only where the GPU's derivatives answer as they should: else every pixel is on its own)
+	float trust = quad_ok(fc) ? 1.0 : 0.0;
 	// how alike the neighbours across the quad are in depth: what they find counts here too
-	float sx = alike(z, z + DFDX(z) * sgn.x);
-	float sy = alike(z, z + DFDY(z) * sgn.y);
+	float sx = alike(z, z + DFDX(z) * sgn.x) * trust;
+	float sy = alike(z, z + DFDY(z) * sgn.y) * trust;
 	// the normal from the quad's own positions when all of it is one surface, else from the
 	// pixels round this one (an edge: the nearer side, so it doesn't bend the surface behind)
 	vec3 n = cross(DFDX(p), DFDY(p));
@@ -117,10 +119,9 @@ void fragment() {
 				continue;
 			}
 			occ += h;
-			// (a mip a level finer than the web's: its copy was already half the screen)
-			float lod = clamp(log2(rad * 0.5 + 1.0) + 0.5, 0.0, 5.0);
-			// keep broken pixels and blinding glows from smearing
-			bounce += safe_col(textureLod(screen_tex, suv, lod).rgb) * h;
+			// keep broken pixels and blinding glows from smearing (the full-size frame: the taps
+			// spread over the spiral and the quad do the web's mip blur's work)
+			bounce += safe_col(textureLod(screen_tex, suv, 0.0).rgb) * h;
 		}
 	}
 	float ao = clamp(1.0 - occ * 1.8 / float(SAMPLES), 0.0, 1.0);
@@ -278,9 +279,14 @@ void fragment() {
 		// fade where the trace runs out of screen, rather than cutting off at its edge
 		vec2 edge = smoothstep(vec2(0.0), vec2(0.06), huv) * smoothstep(vec2(0.0), vec2(0.06), 1.0 - huv);
 		float found = edge.x * edge.y * (1.0 - smoothstep(MAX_DIST * 0.6, MAX_DIST, th));
-		// gloss blurs with distance: the further the ray travels, the wider its cone
-		float lod = clamp(log2(1.0 + rough * th * 8.0) + rough * 2.0 + 1.0, 0.0, 6.0);
-		vec3 c = safe_col(textureLod(screen_tex, huv, lod).rgb);
+		// gloss blurs with distance: the further the ray travels, the wider its cone (a few taps
+		// across it on the full-size frame, which has no mips to read)
+		float spread = (rough * th * 0.012 + rough * 0.004) * (0.5 + qjit);
+		vec3 c = safe_col(textureLod(screen_tex, huv, 0.0).rgb) * 0.4;
+		c += safe_col(textureLod(screen_tex, huv + vec2(spread, 0.0), 0.0).rgb) * 0.15;
+		c += safe_col(textureLod(screen_tex, huv - vec2(spread, 0.0), 0.0).rgb) * 0.15;
+		c += safe_col(textureLod(screen_tex, huv + vec2(0.0, spread), 0.0).rgb) * 0.15;
+		c += safe_col(textureLod(screen_tex, huv - vec2(0.0, spread), 0.0).rgb) * 0.15;
 		refl = vec4(c * found * fres * k, found * k);
 	}
 
@@ -297,6 +303,10 @@ void fragment() {
 		rf = vec4(0.0);
 		rw = 0.0;
 	}
+	// (checked again here, where the sharing happens: past the loops a driver may answer otherwise)
+	float trust_end = quad_ok(fc) ? 1.0 : 0.0;
+	sx *= trust_end;
+	sy *= trust_end;
 	vec4 lw_x = DFDX(lw);
 	vec4 rf_x = DFDX(rf);
 	float wt_x = DFDX(wt);
@@ -320,7 +330,11 @@ void fragment() {
 	vec3 col = safe_col(textureLod(screen_tex, uv0, 0.0).rgb);
 	float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
 	float keep = mix(1.0, light.a, 1.0 - smoothstep(1.2, 3.0, lum));
-	vec3 add = light.rgb * amounts.y + refl_c;
+	// Bounded, whatever the inputs: shade never takes more than two thirds of a pixel away (no black
+	// holes), the bounce never adds more than the pixel's own colour again (no flat blocks of
+	// another colour), and a reflection stays within a bright highlight.
+	keep = max(keep, 0.35);
+	vec3 add = min(light.rgb * amounts.y, col * 0.75 + 0.03) + min(refl_c, vec3(1.5));
 	if (sky) {
 		keep = 1.0;
 		add = vec3(0.0);

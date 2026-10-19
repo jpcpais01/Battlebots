@@ -125,6 +125,9 @@ func _sync() -> void:
 		return
 	var arena := _place == "arena"
 	var k: Vector4 = AMOUNTS.get(mode, AMOUNTS.light)
+	# (a phone's Heavy keeps Godot's own occlusion and bounce off, Settings._apply_rt: all of it here)
+	if mode == "heavy" and OS.has_feature("mobile"):
+		k = AMOUNTS.light
 	# away from the arena the key light is off and there's no canvas (the home scenes, the garage)
 	if not arena:
 		k.z = 0.0
