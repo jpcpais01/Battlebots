@@ -42,6 +42,8 @@ const int CS_STEPS = 2;
 const float CS_LEN = 0.32;
 const int STEPS = 8;
 const int REFINE = 5;
+// (fewer in a quad that shares: its four hits are averaged, a finer one each buys nothing)
+const int REFINE_Q = 3;
 const float MAX_DIST = 9.0;
 // the golden angle: the spiral's taps spread evenly however many there are
 const float GOLDEN = 2.39996323;
@@ -286,7 +288,7 @@ void fragment() {
 		// home in on where the ray met it
 		float lo = max(0.0, f_hit - 1.0 / float(n_r));
 		float hi = f_hit;
-		for (int j = 0; j < REFINE; j++) {
+		for (int j = 0; j < (shared ? REFINE_Q : REFINE); j++) {
 			float m = (lo + hi) * 0.5;
 			if (z_at(mix(uv_a, uv_b, m), size, ip) - 1.0 / mix(iz_a, iz_b, m) > 0.0) {
 				hi = m;
@@ -310,10 +312,17 @@ void fragment() {
 		vec2 ax = vec2(cos(rot), sin(rot)) * sp;
 		vec2 ay = vec2(-sin(rot), cos(rot)) * sp;
 		vec3 c = safe_col(textureLod(screen_tex, huv, 0.0).rgb) * 0.2;
-		c += (safe_col(textureLod(screen_tex, huv + ax, 0.0).rgb) + safe_col(textureLod(screen_tex, huv - ax, 0.0).rgb)
-			+ safe_col(textureLod(screen_tex, huv + ay, 0.0).rgb) + safe_col(textureLod(screen_tex, huv - ay, 0.0).rgb)) * 0.12;
-		c += (safe_col(textureLod(screen_tex, huv + (ax + ay) * 0.5, 0.0).rgb) + safe_col(textureLod(screen_tex, huv - (ax + ay) * 0.5, 0.0).rgb)
-			+ safe_col(textureLod(screen_tex, huv + (ax - ay) * 0.5, 0.0).rgb) + safe_col(textureLod(screen_tex, huv - (ax - ay) * 0.5, 0.0).rgb)) * 0.08;
+		if (shared) {
+			// the quad deals the eight taps round the hit out two to a pixel and averages them
+			// below, as it does the steps: a third of the reads, the same blur over the quad
+			vec2 t = q == 0 ? ax : (q == 1 ? ay : (q == 2 ? (ax + ay) * 0.5 : (ax - ay) * 0.5));
+			c += (safe_col(textureLod(screen_tex, huv + t, 0.0).rgb) + safe_col(textureLod(screen_tex, huv - t, 0.0).rgb)) * 0.4;
+		} else {
+			c += (safe_col(textureLod(screen_tex, huv + ax, 0.0).rgb) + safe_col(textureLod(screen_tex, huv - ax, 0.0).rgb)
+				+ safe_col(textureLod(screen_tex, huv + ay, 0.0).rgb) + safe_col(textureLod(screen_tex, huv - ay, 0.0).rgb)) * 0.12;
+			c += (safe_col(textureLod(screen_tex, huv + (ax + ay) * 0.5, 0.0).rgb) + safe_col(textureLod(screen_tex, huv - (ax + ay) * 0.5, 0.0).rgb)
+				+ safe_col(textureLod(screen_tex, huv + (ax - ay) * 0.5, 0.0).rgb) + safe_col(textureLod(screen_tex, huv - (ax - ay) * 0.5, 0.0).rgb)) * 0.08;
+		}
 		refl = vec4(c * found * fres * k, found * k);
 	}
 
