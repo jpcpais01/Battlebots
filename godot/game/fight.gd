@@ -153,6 +153,8 @@ var pause_menu: PauseMenu
 ## What the graphics settings reach into: the environment (glow) and the key spot (its shadow).
 var _env: Environment
 var _key: SpotLight3D
+## The two follow spots in the rigging, one on each robot (render/venue/follow_spots.gd).
+var follow: FollowSpots
 
 ## Each sim event of the fight on screen, after the game has handled it (the app: results,
 ## career, the HUD's next screens). Emitted on the main thread in step order.
@@ -509,6 +511,8 @@ func set_titan(on: bool) -> void:
 	_titan_seat = Vector4(-1, -1, -1, -1)
 	TitanVenue.set_ring_hidden(arena, on)
 	_key.visible = not on
+	if on:
+		follow.off()
 	director.titan = on
 	sfx.titan = on
 	if on and titan_fx == null:
@@ -539,6 +543,7 @@ func end_match() -> void:
 	tag_cam.stop()
 	_tag_glow = 0.0
 	_tag_light.visible = false
+	follow.off()
 	effects.stop()
 	stretcher.clear()
 	if _gate_on:
@@ -1192,6 +1197,9 @@ func _process(dt: float) -> void:
 	var away := stretcher.loser if stretcher.gone() else -1
 	for i in 2:
 		contact_ao.set_robot(i, models[i].joints if drops[i] >= -0.3 and i != away else ([] as Array[Vector3]), models[i].size)
+	# a follow spot on each robot from the rigging, once it is up out of its lift, until it is carried off
+	if not titan:
+		follow.track(dt, [models[0].joints[1], models[1].joints[1]], [drops[0] >= -0.6 and away != 0, drops[1] >= -0.6 and away != 1])
 	for i in bench.size():
 		contact_ao.set_robot(2 + i, bench[i].joints, bench[i].size)
 	contact_ao.commit()
@@ -1574,3 +1582,5 @@ func _build_world() -> void:
 	_tag_light.light_energy = 0.0
 	_tag_light.visible = false
 	add_child(_tag_light)
+	follow = FollowSpots.new()
+	add_child(follow)
