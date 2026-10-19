@@ -62,6 +62,7 @@ func restore(game) -> void:
 		game._rims[i].omni_range = r[2]
 		game._rims[i].position = r[3]
 	game.rims_look = _indoor.rims_look.duplicate(true)
+	game.follow.level = 1.0
 	RenderingServer.global_shader_parameter_set("bb_fog_color", _indoor.bb_fog_color)
 	RenderingServer.global_shader_parameter_set("bb_fog_density", _indoor.bb_fog_density)
 
@@ -115,6 +116,8 @@ func apply(game, l: Dictionary, dome: ShaderMaterial) -> void:
 		o.position = _v3(r.pos)
 		looks.append([_hex(r.color).srgb_to_linear(), float(r.intensity)])
 	game.rims_look = looks
+	# the follow spots stand out less against daylight (hemisphere 0.7..1.1 outdoors)
+	game.follow.level = clampf(1.25 - 0.75 * float(l.hemi.intensity), 0.4, 1.0)
 
 
 static func _hex(h) -> Color:
