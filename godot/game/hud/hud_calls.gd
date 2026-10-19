@@ -1215,12 +1215,11 @@ func _place_spans() -> void:
 		_place_clip(k, wk, big)
 		var ga := a * oa
 		grp.visible = ga > 0.0
-		# (faded: composited as a group; fully in: drawn plainly, and no fade to apply)
-		var fading := ga > 0.0 and ga < 0.999
-		_set_group(k, fading)
-		var gm := ga if fading else 1.0
-		if grp.self_modulate.a != gm:
-			grp.self_modulate.a = gm
+		# (always composited as a group while it shows: drawn plainly, the glow and the soft shadow
+		# blend differently and the settled word looked lighter than the web's)
+		_set_group(k, ga > 0.0)
+		if grp.self_modulate.a != ga:
+			grp.self_modulate.a = ga
 		x += wk
 
 

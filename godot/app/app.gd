@@ -151,6 +151,8 @@ func _setup() -> void:
 		# first fight
 		game.show_bot(player)
 		game.warm_up(true)
+		# (and every face the fight's words use, at their sizes: no glyphs made mid-fight)
+		HudCalls.warm_fonts()
 		await boot.step("arena")
 		game.warm_up(false)
 	if game.has_place("home"):
