@@ -6,7 +6,8 @@ render_mode unshaded, blend_add, depth_draw_never, cull_back, fog_disabled;
 
 uniform vec3 color = vec3(1.0);
 uniform float glow = 1.4;
-uniform float spin = 0.0;
+// turns per second (of bb_time)
+uniform float spin_rate = 0.4;
 uniform float chase = 0.0;
 uniform float r = 0.74;
 
@@ -20,6 +21,7 @@ void fragment() {
 	CLEAR_VIEW
 	float rr = length(v_p) - r;
 	float a = atan(v_p.y, v_p.x) / 6.2831853;
+	float spin = bb_time * spin_rate;
 	float seam = smoothstep(0.0, 0.006, rr) * (1.0 - smoothstep(0.016, 0.024, rr));
 	float band = smoothstep(0.034, 0.04, rr) * (1.0 - smoothstep(0.07, 0.076, rr));
 	float seg = fract(a * 24.0 + spin);

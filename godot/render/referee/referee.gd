@@ -709,12 +709,12 @@ func update(dt: float, cam: Camera3D, mv, models: Array, calls) -> void:
 	var shown := _face_col
 	if face == 2 and fmod(_t, 0.5) > 0.36:
 		shown = _face_col * 0.15
-	_body_mat.set_shader_parameter("eyes", _eyes)
-	_body_mat.set_shader_parameter("gaze", _gaze)
-	_body_mat.set_shader_parameter("face_mode", face)
-	_body_mat.set_shader_parameter("face_num", num)
-	_body_mat.set_shader_parameter("face_col", Vector3(shown.r, shown.g, shown.b))
-	_body_mat.set_shader_parameter("status", Vector3(_status.r, _status.g, _status.b))
+	Mats.put(_body_mat, "eyes", _eyes)
+	Mats.put(_body_mat, "gaze", _gaze)
+	Mats.put(_body_mat, "face_mode", face)
+	Mats.put(_body_mat, "face_num", num)
+	Mats.put(_body_mat, "face_col", Vector3(shown.r, shown.g, shown.b))
+	Mats.put(_body_mat, "status", Vector3(_status.r, _status.g, _status.b))
 
 	for a in 2:
 		var arm := _arms[a]

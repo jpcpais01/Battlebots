@@ -16,6 +16,17 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-19 05:00",
+    title: "Faster fights on Android",
+    notes: [
+      "Android: on phones with a 120 Hz screen the game now asks the screen for 120 Hz, so it can actually run above 60 FPS.",
+      "Android: the crowd costs the GPU about half as much to draw, with the front rows drawn first so the seats behind them are skipped.",
+      "Android: Ray tracing skips the far stands, where its shading couldn't be seen anyway, so it costs less in every shot.",
+      "Android: robot wear, scuffs and the metal finish are drawn from a texture instead of being worked out pixel by pixel, which keeps damaged robots cheap late in a fight.",
+      "Android: the follow spots only light the robots and the canvas, and the arena no longer re-sends unchanged lighting settings every frame.",
+    ],
+  },
+  {
     hour: "2026-10-19 04:00",
     title: "Ray tracing fixed, spotlights on the fighters",
     notes: [

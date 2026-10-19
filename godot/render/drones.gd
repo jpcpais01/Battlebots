@@ -165,6 +165,8 @@ func _multi(mesh: Mesh, mat: Material, count: int, custom: bool) -> MultiMesh:
 			m.surface_set_material(s, null)
 		mm.mesh = m
 	mm.instance_count = count
+	# (they're never culled anyway: spare the engine re-bounding them after every move)
+	mm.custom_aabb = AABB(Vector3(-500, -500, -500), Vector3(1000, 1000, 1000))
 	for i in count:
 		mm.set_instance_transform(i, ZERO)
 		if custom:

@@ -20,6 +20,7 @@ static var cap := 0
 ## panels, Samsung's and Xiaomi's among them, give a 60 Hz window 120 only through it). Called
 ## at start and whenever the app comes back to the front (Android may have reset the mode).
 static func boost_refresh() -> void:
+	_hz = 0
 	if OS.get_name() != "Android" or not Engine.has_singleton("AndroidRuntime"):
 		return
 	var rt = Engine.get_singleton("AndroidRuntime")
@@ -88,10 +89,19 @@ static func _is_a(o, cls_name: String) -> bool:
 	return false
 
 
-## The screen's refresh rate in Hz (what "Max" means).
+## The screen's refresh rate in Hz (what "Max" means). Asked of the screen at most twice a
+## second (on Android that's a call into Java, and the governor wants it every frame).
 static func hz() -> int:
-	var r := DisplayServer.screen_get_refresh_rate()
-	return roundi(r) if r > 0.0 else 60
+	var now := Time.get_ticks_msec()
+	if _hz <= 0 or now - _hz_at > 500:
+		var r := DisplayServer.screen_get_refresh_rate()
+		_hz = roundi(r) if r > 0.0 else 60
+		_hz_at = now
+	return _hz
+
+
+static var _hz := 0
+static var _hz_at := 0
 
 
 ## Cap the frame rate (0 = the screen's own rate). VSync stays on, so 60 on a 120 Hz screen is

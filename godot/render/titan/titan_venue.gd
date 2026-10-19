@@ -267,5 +267,5 @@ func _tick(_dt: float, _t: float) -> void:
 	var a = get_parent()
 	if a != null and "_rope_flash" in a:
 		var f: float = a._rope_flash
-		rope_mat.set_shader_parameter("flare", f)
-		pylon_mat.set_shader_parameter("flare", f)
+		Mats.put(rope_mat, "flare", f)
+		Mats.put(pylon_mat, "flare", f)

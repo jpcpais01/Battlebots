@@ -112,6 +112,15 @@ var _last_mode := ""
 ## stage.ts detectQuality, for this port: a desktop gets High, a phone Med, and a phone with few
 ## cores or an entry-level GPU Low (the web goes by core count alone).
 static func auto_quality() -> String:
+	if _auto == "":
+		_auto = _detect_quality()
+	return _auto
+
+
+static var _auto := ""
+
+
+static func _detect_quality() -> String:
 	if not OS.has_feature("mobile"):
 		return "high"
 	var gpu := RenderingServer.get_video_adapter_name().to_lower()

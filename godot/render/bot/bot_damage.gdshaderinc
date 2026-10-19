@@ -38,6 +38,20 @@ float dmg_noise(vec3 x) {
 			mix(mix(dmg_hash(i + vec3(0, 0, 1)), dmg_hash(i + vec3(1, 0, 1)), f.x), mix(dmg_hash(i + vec3(0, 1, 1)), dmg_hash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
 }
 
+// the same kind of smooth value noise from a baked 64³ lattice that wraps (BotModel.noise3d,
+// tools/bake/noise3d.py): sampled between lattice points at the eased offsets, the filtering
+// does the trilinear blend, so one fetch stands in for eight hashes and seven mixes. For the
+// pixels' finish and wear, which call it a dozen times a pixel; the shape of the plating (the
+// dents, here) keeps the exact hash.
+global uniform sampler3D bb_noise3d : filter_linear, repeat_enable;
+
+float dmg_noise_t(vec3 x) {
+	vec3 i = floor(x);
+	vec3 f = fract(x);
+	f = f * f * (3.0 - 2.0 * f);
+	return textureLod(bb_noise3d, (i + f + 0.5) * (1.0 / 64.0), 0.0).r;
+}
+
 // dmg_noise (the same value) and its gradient in .yzw, worked out with it: the trilinear blend
 // written as a polynomial in the eased fractions, differentiated term by term
 vec4 dmg_noise_d(vec3 x) {

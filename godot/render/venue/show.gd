@@ -196,13 +196,13 @@ func update(dt: float, time: float, hype: float) -> void:
 	var focus := minf(1.0, _look[2] + _kick * 0.6)
 	var mono := Vector3(_mono.r, _mono.g, _mono.b)
 	for m in _beam_mats:
-		m.set_shader_parameter("level", level)
-		m.set_shader_parameter("fan", _look[1])
-		m.set_shader_parameter("focus", focus)
-		m.set_shader_parameter("strobe", strobe)
-		m.set_shader_parameter("mono", _look[4])
-		m.set_shader_parameter("white", _kick * 0.6)
-		m.set_shader_parameter("col_m", mono)
+		Mats.put(m, "level", level)
+		Mats.put(m, "fan", _look[1])
+		Mats.put(m, "focus", focus)
+		Mats.put(m, "strobe", strobe)
+		Mats.put(m, "mono", _look[4])
+		Mats.put(m, "white", _kick * 0.6)
+		Mats.put(m, "col_m", mono)
 
 
 ## Show the confetti behind the loading screen (warm(false) hides it again), so the first win's

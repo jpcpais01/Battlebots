@@ -38,6 +38,8 @@ func _init(n: int, mesh: Mesh, shader: Shader, colors := true, custom := true) -
 	mm.mesh = mesh
 	mm.instance_count = n
 	mm.visible_instance_count = 0
+	# (a bounds of its own: else the engine re-bounds all n instances on every buffer upload)
+	mm.custom_aabb = AABB(Vector3(-500, -500, -500), Vector3(1000, 1000, 1000))
 	multimesh = mm
 	_colors = colors
 	_custom = custom
