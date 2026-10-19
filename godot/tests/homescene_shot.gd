@@ -60,6 +60,15 @@ func _run(args: Array) -> void:
 	d.scene_look = c.look
 	d.scene_fov = c.fov
 	d.scene_roll = c.roll
+	# BB_CAM="x,y,z;x,y,z": another view of the place (a phone screenshot's); BB_RT=light: Ray tracing
+	if OS.get_environment("BB_CAM") != "":
+		var cv := OS.get_environment("BB_CAM").split(";")
+		var a := cv[0].split_floats(",")
+		var b := cv[1].split_floats(",")
+		d.scene_pos = Vector3(a[0], a[1], a[2])
+		d.scene_look = Vector3(b[0], b[1], b[2])
+	if OS.get_environment("BB_RT") != "":
+		game.settings.set_rt(OS.get_environment("BB_RT"))
 	d.scene_lambda = 200.0
 	d.snap()
 	d.update(0.0, null, 1.0)

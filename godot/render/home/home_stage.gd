@@ -61,6 +61,9 @@ var _on_over := Callable()
 var _kit := Kit.new()
 var _look := HomeLook.new()
 var _spec = null
+## What the actor was built from: the app changes the player's bot in place (a skin, a part, paint),
+## so the same spec object can stand for another robot by the time the world comes back here.
+var _spec_sig := ""
 ## The Low tier's plainer places (null: as the settings say).
 var _low = null
 
@@ -160,7 +163,7 @@ func enter(g: Game) -> void:
 		# (the app normally picks the place first: game.home_scene)
 		id = str(Store.pref("homeScene", "beach"))
 	_look.save(game)
-	if not is_same(_spec, game._shown_spec) or _actor == null:
+	if not is_same(_spec, game._shown_spec) or _actor == null or _sig(game._shown_spec) != _spec_sig:
 		set_bot(game._shown_spec)
 	_scene = null
 	if not has_scene(id):
@@ -203,6 +206,7 @@ func exit() -> void:
 ## The robot to show (null: none).
 func set_bot(spec) -> void:
 	_spec = spec
+	_spec_sig = _sig(spec)
 	var k := _kit_now()
 	if _scene != null and k != null:
 		_scene.release(k)
@@ -214,6 +218,12 @@ func set_bot(spec) -> void:
 		add_child(_actor.model)
 	if _active:
 		_restart()
+
+
+static func _sig(spec) -> String:
+	if spec == null:
+		return ""
+	return JSON.stringify(spec) if spec is Dictionary else str(spec)
 
 
 func _restart() -> void:
