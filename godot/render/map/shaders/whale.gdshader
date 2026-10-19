@@ -37,7 +37,7 @@ void vertex() {
 void fragment() {
 	vec3 V = normalize((CAMERA_POSITION_WORLD - uMapShift) - vWorld);
 	bool fin = vUv.y > 1.5;
-	float rim = fin ? 0.5 : pow(1.0 - abs(dot(V, normalize(vN))), 2.2);
+	float rim = fin ? 0.5 : pow(max(1.0 - abs(dot(V, normalize(vN))), 0.0), 2.2);
 	vec2 px = fwidth(vUv);
 	// a wire grid along and round the body, grooves along the throat
 	float wire = fin ? 0.0 : max(fband(fract(vUv.x * 32.0), 0.0, 0.08, px.x * 32.0), fband(fract(vUv.y * 10.0), 0.0, 0.06, px.y * 10.0));

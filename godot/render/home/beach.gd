@@ -107,6 +107,8 @@ func _init() -> void:
 		if gi != null and not (node.get_meta("bake") as Dictionary).castShadow:
 			gi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_fly_birds(0.0)
+	# (the bake's geometry bytes are on the GPU now: let them go)
+	scene.release()
 
 
 static func _material(node: Node) -> ShaderMaterial:

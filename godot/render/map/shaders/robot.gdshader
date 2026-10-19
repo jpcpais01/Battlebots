@@ -33,7 +33,7 @@ void vertex() {
 
 void fragment() {
 	vec3 V = normalize((CAMERA_POSITION_WORLD - uMapShift) - vWorld);
-	float rim = pow(1.0 - abs(dot(V, normalize(vN))), 1.6);
+	float rim = pow(max(1.0 - abs(dot(V, normalize(vN))), 0.0), 1.6);
 	vec2 px = fwidth(vUv);
 	// every plate outlined, like a wireframe
 	vec2 e = min(vUv, 1.0 - vUv);

@@ -178,6 +178,8 @@ func _init() -> void:
 	_sky.sky_material = sky_mat
 	_sky.process_mode = Sky.PROCESS_MODE_QUALITY
 	_sky.radiance_size = Sky.RADIANCE_SIZE_128
+	# (the bake's geometry bytes are on the GPU now: let them go)
+	scene.release()
 
 
 func _omni(hex: int, range_m: float, at: Vector3) -> OmniLight3D:

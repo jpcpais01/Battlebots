@@ -104,7 +104,7 @@ void fragment() {
 		float bands = fbm(vec3(uv.y * 6.0 + sin(uv.x * 3.0) * 0.2, uv.x * 0.5 + t * 0.003, 1.0));
 		vec3 pc = mix(vec3(0.95, 0.42, 0.55), vec3(1.0, 0.78, 0.5), smoothstep(0.3, 0.7, bands));
 		pc = mix(pc, vec3(0.45, 0.25, 0.75), smoothstep(0.6, 0.9, sin(uv.y * 9.0 + bands * 3.0) * 0.5 + 0.5) * 0.5);
-		vec3 planet = pc * (lit * 0.85 + 0.04) + vec3(0.6, 0.3, 1.0) * pow(1.0 - n.z, 3.0) * 0.6;
+		vec3 planet = pc * (lit * 0.85 + 0.04) + vec3(0.6, 0.3, 1.0) * pow(max(1.0 - n.z, 0.0), 3.0) * 0.6;
 		// the rings' shadow across it
 		planet *= 1.0 - 0.5 * smoothstep(0.08, 0.0, abs(ru.y + 0.12));
 		col = planet;

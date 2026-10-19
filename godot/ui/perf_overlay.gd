@@ -9,8 +9,8 @@
 ## the renderer's own stage stamps, game/perf.gd), and what each part of the scene costs, live
 ## too: the GPU draws a stage's objects in one go, so to split a stage by part, as the web does
 ## where it has no timer queries, the frame is drawn again off-screen without each part and the
-## cost read from the difference (GpuProbe, below), round after round while the panel is open
-## (João: always showing). That extra drawing costs GPU time of its own, which the GPU numbers
+## cost read from the difference (GpuProbe, below), a round every few seconds while the panel is
+## open (João: always showing). That extra drawing costs GPU time of its own, which the GPU numbers
 ## leave out (the frame row times the screen's viewport only, the stage rows skip the probe's
 ## stamps, each part is a difference inside the probe) but the FPS can't: the button under the
 ## parts stops it (and starts it again); the choice is kept. Tap the FPS line to fold the panel
@@ -624,6 +624,8 @@ class GpuProbe extends RefCounted:
 	static var take := 3
 	const LIVE_ROUNDS := 2
 	const LIVE_TAKE := 2
+	## Live rounds rest this long between them, drawing nothing extra (ms).
+	const LIVE_REST_MS := 6000
 	const MAX_LAG := 12
 	## How late measured times arrive here, once worked out (per renderer, so kept).
 	static var _lag := -1
@@ -675,6 +677,8 @@ class GpuProbe extends RefCounted:
 	var _full_n := 0
 	var _full_ref := 0.0
 	var _switch_at := -1
+	## When a live round's rest ends (Time.get_ticks_msec), or 0 while measuring.
+	var _rest_until := 0
 
 	func _init(scene: Node3D, host: Node, live_ := false) -> void:
 		_scene = scene
@@ -882,6 +886,13 @@ class GpuProbe extends RefCounted:
 	func step() -> void:
 		if done or _vp == null:
 			return
+		if _rest_until > 0:
+			if Time.get_ticks_msec() < _rest_until:
+				return
+			_rest_until = 0
+			_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+			_make_plan()
+			_plan_start = _frame + 1
 		_copy_camera()
 		var gpu := RenderingServer.viewport_get_measured_render_time_gpu(_vp.get_viewport_rid())
 		if _plan_start < 0:
@@ -976,13 +987,16 @@ class GpuProbe extends RefCounted:
 		r.samples = _samples
 		res = r
 		if live:
-			# straight into the next round, on the same viewport
+			# the next round after a rest, on the same viewport: drawn round after round with no
+			# break, the probe drew the whole scene a second time on every frame the panel was
+			# open, which nearly halved the frame rate it was there to show
 			fresh = true
 			_samples = {}
 			_plan = PackedInt32Array()
 			_keep = PackedByteArray()
-			_make_plan()
-			_plan_start = _frame + 1
+			_cam.cull_mask = 0
+			_vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+			_rest_until = Time.get_ticks_msec() + LIVE_REST_MS
 			return
 		_restore()
 		done = true

@@ -20,6 +20,8 @@ signal cut_off(info: Dictionary)
 
 const HISTORY_PATH := "user://booth_heard.json"
 const HISTORY_MAX := 900
+## How long a frame may spend on a spread-out restock (us).
+const STOCK_USEC := 1000
 ## Lines per trigger (play-by-play, colour, robot) kept loaded and ready. The rest get one each.
 const DECK := {
 	"hit.solid": [6, 0],
@@ -122,6 +124,8 @@ var _man = null
 var _by_trig := {}
 ## Bound replies by lead id.
 var _replies := {}
+## When each line was last heard (a running count), oldest first: a re-heard line is moved to
+## the end, so the keys are always in hearing order and saving needs no sort.
 var _heard := {}
 var _seq := 0
 var _dirty := 0
@@ -164,6 +168,14 @@ var _play_at := 0
 var _played := {}
 ## Names the player had voiced on this device: used ahead of the shipped ones.
 var _custom := {}
+## A restock in progress, a few triggers a frame (see _restock_later): the triggers, the next
+## one to do (-1: none in progress), the files so far, the lines just said (left out) and the
+## booth time it may start.
+var _stock_keys: Array = []
+var _stock_at := -1
+var _stock_files: Array = []
+var _stock_skip := {}
+var _stock_from := 0.0
 
 
 func _init(audio_out = null) -> void:
@@ -231,10 +243,40 @@ func _ri(n: int) -> int:
 
 
 ## Keeps the freshest few lines of every trigger loaded, so whatever happens next has something
-## ready to say. Played lines get replaced after each fight.
+## ready to say. Played lines get replaced after each fight. All at once: only for the manifest
+## arriving (the fight scene loading); after a fight it's _restock_later.
 func _restock() -> void:
-	var files: Array = []
-	for t in _by_trig:
+	_stock_begin(_used, _t)
+	_stock_step(-1)
+
+
+## The restock after a fight, spread over the frames after this one at about STOCK_USEC each:
+## sorting some two thousand lines in one go took a few ms of the frame a rematch starts in.
+## The lines just said are noted now (begin() clears them), so they still make way for fresh ones.
+func _restock_later() -> void:
+	var skip := _used
+	if _stock_at >= 0:
+		# (one still going: start over, still leaving out what the earlier fight said)
+		skip = _stock_skip.merged(_used)
+	_stock_begin(skip, _t + 0.2)
+
+
+func _stock_begin(skip: Dictionary, from: float) -> void:
+	_stock_keys = _by_trig.keys()
+	_stock_at = 0
+	_stock_files = []
+	_stock_skip = skip.duplicate()
+	_stock_from = from
+
+
+## Stocks triggers until `budget` us have gone (at least one; -1: all of them), handing the deck
+## to the voice when the last is done.
+func _stock_step(budget: int) -> void:
+	var t0 := Time.get_ticks_usec()
+	var files := _stock_files
+	while _stock_at < _stock_keys.size():
+		var t = _stock_keys[_stock_at]
+		_stock_at += 1
 		var lines: Array = _by_trig[t]
 		var deck: Array = DECK.get(t, [1, 1, 1])
 		var nr: int = deck[2] if deck.size() > 2 else 1
@@ -245,14 +287,23 @@ func _restock() -> void:
 			# (booth.ts sorts with a jittered comparator; a jittered key is the same idea)
 			var pool: Array = []
 			for l in lines:
-				if l.v == vn[0] and not _used.has(l.id):
+				if l.v == vn[0] and not _stock_skip.has(l.id):
 					pool.append([_fresh(l) * (0.7 + _rnd() * 0.6), l])
 			pool.sort_custom(func(a, b): return a[0] > b[0])
 			for k in mini(n, pool.size()):
 				var l = pool[k][1]
 				files.append(l.f[_ri(l.f.size())][0])
 				_thread(l.id, files, 4)
-	out.want(files)
+		if budget >= 0 and Time.get_ticks_usec() - t0 >= budget:
+			return
+	_stock_at = -1
+	_stock_files = []
+	_stock_skip = {}
+	# (the voice lets go of the last deck's clips nobody wants now; a stand-in may only want())
+	if out.has_method("stock"):
+		out.stock(files)
+	else:
+		out.want(files)
 
 
 ## The replies chained under a line, so a whole exchange is ready to play.
@@ -352,9 +403,11 @@ func end() -> void:
 	_played.clear()
 	_queue.clear()
 	if m != null and _man != null:
-		_restock()
+		_restock_later()
 	m = null
-	_save()
+	# (begin() and a rematch's start call this again with nothing new to write)
+	if _dirty > 0:
+		_save()
 
 
 # ------------------------------------------------------------------ events
@@ -661,6 +714,8 @@ func _winner(f) -> void:
 func tick(dt: float, excite: float, live: bool) -> void:
 	_t += dt
 	_excite = excite
+	if _stock_at >= 0 and _t >= _stock_from:
+		_stock_step(STOCK_USEC)
 	if _playback != null:
 		if m != null and enabled:
 			_replay(_playback)
@@ -1034,6 +1089,7 @@ func _start(s: Dictionary) -> bool:
 		_hold = 0.0
 	_used[line.id] = true
 	_seq += 1
+	_heard.erase(line.id)
 	_heard[line.id] = _seq
 	_dirty += 1
 	# (not mid-fight: end() saves when it's over, so no file write lands in a fight's frame)
@@ -1143,8 +1199,8 @@ func _names(f):
 
 func _save() -> void:
 	_dirty = 0
+	# (already oldest first: see _heard)
 	var ids: Array = _heard.keys()
-	ids.sort_custom(func(a, b): return _heard[a] < _heard[b])
 	if ids.size() > HISTORY_MAX:
 		ids = ids.slice(ids.size() - HISTORY_MAX)
 	var fh := FileAccess.open(HISTORY_PATH, FileAccess.WRITE)

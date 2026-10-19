@@ -118,4 +118,46 @@ static func _family(buf: PackedByteArray, o: Array) -> Family:
 		f.ends[g] = buf.decode_u32(at + 4)
 		at += 8
 	o[0] = at
+	_unmix(f)
 	return f
+
+
+## Give every triangle one material key at all three corners. The shaders read the key as a flat
+## varying, which takes it from ONE corner: the last on GL (the container's shots), the first on
+## Vulkan (the phones). The simplified armour has a few triangles whose corners disagree (the
+## simplifier only sees positions), and each drew in another part's paint on a phone only. Such a
+## triangle takes the key most of its corners have (all three different: the last corner's, as
+## GL shows it) on copies of the odd corners.
+static func _unmix(f: Family) -> void:
+	var tag := f.tag
+	var idx := f.index
+	var pos := f.pos
+	var nor := f.nor
+	var copies := {}
+	for t in range(0, idx.size(), 3):
+		var a: float = tag[idx[t]]
+		var b: float = tag[idx[t + 1]]
+		var c: float = tag[idx[t + 2]]
+		if a == b and b == c:
+			continue
+		var k := a if a == b or a == c else c
+		for j in 3:
+			var v: int = idx[t + j]
+			if tag[v] == k:
+				continue
+			var key := v * 64 + int(k)
+			var nv: int = copies.get(key, -1)
+			if nv < 0:
+				nv = pos.size()
+				pos.append(pos[v])
+				if not nor.is_empty():
+					nor.append(nor[v])
+				tag.append(k)
+				copies[key] = nv
+			idx[t + j] = nv
+	if copies.is_empty():
+		return
+	f.tag = tag
+	f.index = idx
+	f.pos = pos
+	f.nor = nor

@@ -6,9 +6,13 @@
 ## every look after is free.
 ##
 ## thumb() hands back the picture if it's made, or null and queues it: at most one picture is
-## drawn a frame (an offscreen SubViewport with its own world and lights), and read back the frame
-## after, so nothing waits on the GPU mid-frame. When it lands, `ready_thumb` fires (and the
-## optional `done` callback gets it), so the screen can swap it in.
+## drawn a frame (an offscreen SubViewport with its own world and lights). The frame after, its
+## read-back is asked for with RenderingDevice.texture_get_data_async, which copies it out on the
+## GPU's own time and lands it a frame or two later, so nothing waits on the GPU (a plain
+## get_image() stalls the whole pipeline for each picture, up to ~160 of them as the garage's
+## parts picker fills). The Compatibility renderer has no RenderingDevice and reads back with
+## get_image() instead. When a picture lands, `ready_thumb` fires (and the optional `done`
+## callbacks get it), so the screen can swap it in.
 ##
 ## The web draws at twice the card size, on black and on white, to get exact transparency. Here
 ## the parts are drawn at twice the size on a transparent background (its edges come out
@@ -33,12 +37,18 @@ const HEMI := [0xc8d8ff, 0x1c1610, 0.9]
 const LIGHTS := [[0xfff4e8, 2.6, Vector3(-1.4, 2.2, 2.4)], [0xff9a4a, 2.2, Vector3(2.4, 0.8, -1.6)], [0x5fd2ff, 1.8, Vector3(-2.4, 0.4, -1.8)]]
 const ENV := 0.7
 
+## Off: always read back with get_image() (tests compare the two ways).
+static var async_readback := true
+
 var _cache := {}
-## Queued pictures, oldest first: [key, item, rarity, paint, loadout, callbacks].
+## Queued pictures, oldest first: [key, item, rarity, paint, loadout, callbacks]. A job stays in
+## _queued until its picture lands, so asking again meanwhile only adds a callback to it.
 var _queue: Array = []
 var _queued := {}
-## The picture drawn last frame, read back this frame: [key, callbacks] (empty when none).
+## The job drawn last frame, read back this frame (empty when none).
 var _drawn: Array = []
+## Asynchronous read-backs asked for and not landed yet.
+var reading := 0
 var _vp3: SubViewport
 var _vp2: SubViewport
 var _holder: Node3D
@@ -107,8 +117,47 @@ func _process(_dt: float) -> void:
 
 func _read_back() -> void:
 	var t0 := Time.get_ticks_usec()
-	var k: String = _drawn[0]
-	var img := _vp2.get_texture().get_image()
+	var job: Array = _drawn
+	_drawn = []
+	var rd := _async_device()
+	if rd != null:
+		var rid := RenderingServer.texture_get_rd_texture(_vp2.get_texture().get_rid())
+		if rid.is_valid() and rd.texture_get_data_async(rid, 0, _landed.bind(job)) == OK:
+			reading += 1
+			last_us += Time.get_ticks_usec() - t0
+			return
+	_land(job, _vp2.get_texture().get_image())
+	last_us += Time.get_ticks_usec() - t0
+
+
+## The RenderingDevice to read back through, or null for get_image(): none on the Compatibility
+## renderer, and only while rendering runs on the main thread (a separate render thread would
+## need every call handed over to it; the project uses the default, safe model).
+func _async_device() -> RenderingDevice:
+	if not async_readback or int(ProjectSettings.get_setting("rendering/driver/threads/thread_model", 1)) == 2:
+		return null
+	return RenderingServer.get_rendering_device()
+
+
+## An asynchronous read-back has landed: the 2D pass's pixels, tightly packed RGBA8 (the format
+## get_image() hands back for this viewport, byte for byte).
+func _landed(data: PackedByteArray, job: Array) -> void:
+	reading -= 1
+	var img: Image = null
+	if data.size() == SIZE * SIZE * 4:
+		img = Image.create_from_data(SIZE, SIZE, false, Image.FORMAT_RGBA8, data)
+	else:
+		# (not the format expected: draw it again and read it back the plain way)
+		push_warning("PartThumbs: read-back of %d bytes, expected %d" % [data.size(), SIZE * SIZE * 4])
+		async_readback = false
+		_queue.push_front(job)
+		return
+	_land(job, img)
+
+
+## A picture is in: cache it and hand it to whoever asked (in the order they asked).
+func _land(job: Array, img: Image) -> void:
+	var k: String = job[0]
 	_queued.erase(k)
 	var tex: Texture2D = null
 	if img != null and not img.is_empty():
@@ -117,13 +166,10 @@ func _read_back() -> void:
 		if _cache.size() >= MAX_CACHED:
 			_cache.erase(_cache.keys()[0])
 		_cache[k] = tex
-	var calls: Array = _drawn[1]
-	_drawn = []
-	last_us += Time.get_ticks_usec() - t0
 	if tex == null:
 		return
 	ready_thumb.emit(k, tex)
-	for c: Callable in calls:
+	for c: Callable in job[5]:
 		if c.is_valid():
 			c.call(tex)
 
@@ -279,7 +325,7 @@ func _draw(job: Array) -> void:
 	_paint(paint, _look(lo, "core") if str(item.slot) != "core" else int(item.look))
 	_vp3.render_target_update_mode = SubViewport.UPDATE_ONCE
 	_vp2.render_target_update_mode = SubViewport.UPDATE_ONCE
-	_drawn = [job[0], job[5]]
+	_drawn = job
 	last_us = Time.get_ticks_usec() - t0
 
 

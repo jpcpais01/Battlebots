@@ -65,9 +65,7 @@ const LEG_B := Vector3(0, 0.12, -0.08)
 const TOE_OFFSET := Vector3(0, -0.048, 0.072)
 ## How strongly a bone keeps last frame's roll against a weak hint (orient_held).
 const HOLD := 0.15
-## Room in the shader for the contact occlusion's per-bone sphere lists (bot_opaque.gdshaderinc),
-## and how far dents and wear may push the plating past its rest bounds, in metres.
-const AO_LIST_MAX := 768
+## How far dents and wear may push the plating past its rest bounds, in metres.
 const AO_MARGIN := 0.12
 const HOT := Color(1, 0.13, 0.05)
 
@@ -75,6 +73,11 @@ const HOT := Color(1, 0.13, 0.05)
 ## while a skin paints on. Otherwise a robot wears opaque_shader(its skin's kind).
 const OPAQUE_SHADER := preload("res://render/bot_opaque.gdshader")
 const GLOW_SHADER := preload("res://render/bot_glow.gdshader")
+
+## Robots' merged meshes kept for reuse (_family_meshes), by their parts.
+const MESH_CACHE := 8
+static var _mesh_cache := {}
+static var _mesh_lock := Mutex.new()
 
 ## The plating shaders built for one skin each (kind -> Shader), shared by every robot wearing it.
 static var _fixed := {}
@@ -173,7 +176,14 @@ var _dent_target := PackedFloat32Array()
 var _dent_shown := PackedFloat32Array()
 var _dent_vel := PackedFloat32Array()
 var _dent_time := -1.0
+## What changed since the last _push_damage: a dent's depth (dent_n) as it springs in and out,
+## the dents' layout (where they are and on which bone), the marks. Most frames of a fight only
+## the depths move, and one of them is all that gets sent then.
 var _dents_dirty := false
+var _layout_dirty := false
+var _marks_dirty := false
+## The grime the materials have (the setter skips changes too small to see).
+var _grime_sent := 0.0
 var _marks := PackedVector4Array()
 var _mark_b := PackedVector3Array()
 var _sockets := 0
@@ -187,11 +197,11 @@ var _bone_corners := {}
 var _dent_jobs: Array = []
 var _hull_task := -1
 ## Each skin bone's plating in its rest frame: centre xyz, radius w (for the contact occlusion's
-## per-bone sphere lists, ao_lists), and where _upload last centred the meshes.
+## per-bone robot masks, ao_masks), and where _upload last centred the meshes.
 var _bone_bound := PackedVector4Array()
 var _origin := Vector3.ZERO
-var _ao_list := PackedInt32Array()
-var _ao_at := PackedInt32Array()
+var _ao_mask := PackedInt32Array()
+var _mythic := Color()
 var _hulls_loaded: Array = []
 
 
@@ -312,11 +322,12 @@ func _build() -> void:
 		m.set_shader_parameter("core_shift", PackedVector3Array(_core_shift))
 	_push_damage(true)
 
+	var meshes := _family_meshes()
 	_opaque = MeshInstance3D.new()
-	_opaque.mesh = _family_mesh(true)
+	_opaque.mesh = meshes[0]
 	_opaque.material_override = _opaque_mat
 	_glow = MeshInstance3D.new()
-	_glow.mesh = _family_mesh(false)
+	_glow.mesh = meshes[1]
 	_glow.material_override = _glow_mat
 	_glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	for m in [_opaque, _glow]:
@@ -381,6 +392,32 @@ func wait_hulls() -> void:
 	hull_torso.hull = _hulls_loaded[0]
 	hull_head.hull = _hulls_loaded[1]
 	hull_pelvis.hull = _hulls_loaded[2]
+
+
+## The robot's two meshes (plating, glow), shared by every robot built from the same parts: the
+## player's robot is built again for every fight, the showcase and each home scene, and merging
+## its ~30 parts (rebasing every index in GDScript) is a hitch each time. The last MESH_CACHE
+## robots' meshes are kept.
+func _family_meshes() -> Array:
+	var key := ""
+	for e in _list:
+		key += "%s@%d|" % [e[0], e[1]]
+	_mesh_lock.lock()
+	var hit: Array = _mesh_cache.get(key, [])
+	if not hit.is_empty():
+		# (most recent last)
+		_mesh_cache.erase(key)
+		_mesh_cache[key] = hit
+	_mesh_lock.unlock()
+	if not hit.is_empty():
+		return hit
+	var made := [_family_mesh(true), _family_mesh(false)]
+	_mesh_lock.lock()
+	_mesh_cache[key] = made
+	while _mesh_cache.size() > MESH_CACHE:
+		_mesh_cache.erase(_mesh_cache.keys()[0])
+	_mesh_lock.unlock()
+	return made
 
 
 ## One material family of the whole robot: every part's corners and triangles (the simplified
@@ -469,6 +506,7 @@ func _glow_colours(core_look: int) -> void:
 		var r := int(spec.loadout[slot].rarity)
 		_rarity.append(lin(TItems.RARITIES[r].glow) * 3.0)
 	_cols.resize(8)
+	_mythic = lin(TItems.RARITIES[4].glow)
 
 
 # ------------------------------------------------------------------ posing (botModel.ts)
@@ -616,46 +654,43 @@ func _bound_bones() -> void:
 			_bone_bound[b] = Vector4(c.x, c.y, c.z, (hi[b] - lo[b]).length() * 0.5)
 
 
-## The contact-occlusion spheres (ContactAO, this frame's) that can reach each bone's plating,
-## so a corner loops over the few near it instead of all 48. Exact: a sphere left out darkens
-## nothing there (its reach ends at ContactAO.RANGE radii). Call after ContactAO.commit().
-func ao_lists(ao: ContactAO) -> void:
-	if _opaque_mat == null or _bone_bound.is_empty() or _pos.size() < BONE_COUNT:
+## Which robots' contact-occlusion spheres (ContactAO, this frame's) can reach each bone's
+## plating, so a corner only loops over those robots' spheres. Exact: a robot left out darkens
+## nothing there (its bound holds every sphere's reach). Its own spheres reach nearly all of a
+## robot's plating, so a per-sphere list bought nothing over this and cost thousands of tests a
+## frame; this is 31 x 4. The four ints upload only when they change. Call after
+## ContactAO.commit().
+func ao_masks(ao: ContactAO) -> void:
+	if _opaque_mat == null or _bone_bound.is_empty() or _pos.size() < BONE_COUNT or not visible:
 		return
-	var data := ao.spheres()
+	var bounds := ao.bounds()
 	var xf := global_transform if is_inside_tree() else transform
 	var g := xf.basis.get_scale()
 	var gs := maxf(g.x, maxf(g.y, g.z))
-	_ao_list.resize(0)
-	_ao_at.resize(BONE_COUNT)
+	var mask := PackedInt32Array([0, 0, 0, 0])
 	for b in BONE_COUNT:
-		var start := _ao_list.size()
-		var bb := _bone_bound[b]
 		var sc := _scl[b]
+		if sc == Vector3.ZERO or (_head_hidden and (b == HEAD or b == NECK)):
+			continue
+		var bb := _bone_bound[b]
 		var all := bb.w < 0.0
 		var c := Vector3.ZERO
 		var r := 0.0
 		if not all:
 			c = xf * (_pos[b] - _origin + _rot[b] * (sc * Vector3(bb.x, bb.y, bb.z)))
 			r = bb.w * maxf(sc.x, maxf(sc.y, sc.z)) * gs + AO_MARGIN
-		for k in data.size() / 4:
-			var sr := data[k * 4 + 3]
-			if sr <= 0.0:
+		var bits := 0
+		for k in ContactAO.ROBOTS:
+			var rb: Vector4 = bounds[k]
+			if rb.w <= 0.0:
 				continue
-			var reach := sr * ContactAO.RANGE + r
-			if all or Vector3(data[k * 4], data[k * 4 + 1], data[k * 4 + 2]).distance_squared_to(c) < reach * reach:
-				_ao_list.append(k)
-		_ao_at[b] = start | ((_ao_list.size() - start) << 10)
-	# (past the shader's room for them, every corner loops over all the spheres, as before)
-	var listed := _ao_list.size() <= AO_LIST_MAX
-	_opaque_mat.set_shader_parameter("ao_listed", listed)
-	if listed:
-		var pack := PackedInt32Array()
-		pack.resize(AO_LIST_MAX / 4)
-		for j in _ao_list.size():
-			pack[j >> 2] |= _ao_list[j] << ((j & 3) * 8)
-		_opaque_mat.set_shader_parameter("ao_pack", pack)
-		_opaque_mat.set_shader_parameter("ao_at", _ao_at)
+			var reach := rb.w + r
+			if all or Vector3(rb.x, rb.y, rb.z).distance_squared_to(c) < reach * reach:
+				bits |= 1 << k
+		mask[b >> 3] |= bits << ((b & 7) * 4)
+	if mask != _ao_mask:
+		_ao_mask = mask
+		_opaque_mat.set_shader_parameter("ao_mask", Vector4i(mask[0], mask[1], mask[2], mask[3]))
 
 
 ## Y along a→b, Z towards z_hint.
@@ -883,8 +918,9 @@ func _effects(f, time: float) -> void:
 	_settle_dents(0.0 if _dent_time < 0.0 else time - _dent_time)
 	_dent_time = time
 	_push_damage(false)
-	for m in _mats:
-		m.set_shader_parameter("time", time)
+	# (the robot's own two: a torn-off piece reads the clock from bb_time, piece_clock)
+	_opaque_mat.set_shader_parameter("time", time)
+	_glow_mat.set_shader_parameter("time", time)
 	# Aegis shield bubble
 	var target := 1.0 if f.shield and not f.isDown else 0.0
 	_shield_alpha += (target - _shield_alpha) * 0.15
@@ -908,10 +944,9 @@ func _effects(f, time: float) -> void:
 	# mythic items shimmer
 	for i in 6:
 		if int(spec.loadout[SLOTS[i]].rarity) == 4:
-			_cols[2 + i] = lin(TItems.RARITIES[4].glow) * (2.6 + sin(time * 5 + SLOTS[i].length()) * 1.2)
-	for m in _mats:
-		if m.shader == GLOW_SHADER:
-			m.set_shader_parameter("cols", _cols)
+			_cols[2 + i] = _mythic * (2.6 + sin(time * 5 + SLOTS[i].length()) * 1.2)
+	# (a torn-off piece keeps the colours it flew off with)
+	_glow_mat.set_shader_parameter("cols", _cols)
 
 
 # ------------------------------------------------------------------ skins
@@ -960,6 +995,10 @@ var grime: float:
 		return _grime
 	set(v):
 		_grime = clampf(v, 0.0, 1.0)
+		# (a bleeding robot sets it every frame: send it when it has moved enough to see)
+		if absf(_grime - _grime_sent) < 0.004 and not (_grime != _grime_sent and (_grime == 0.0 or _grime == 1.0)):
+			return
+		_grime_sent = _grime
 		for m in _mats:
 			if m.shader != GLOW_SHADER:
 				m.set_shader_parameter("grime", _grime)
@@ -1136,6 +1175,7 @@ func _place_dent(job: Dictionary) -> void:
 		_dent_target[slot] = minf(r * 0.42, depth)
 		_dent_shown[slot] = 0.0
 		_dent_vel[slot] = 0.0
+	_layout_dirty = true
 	if job.instant:
 		_dent_shown[slot] = _dent_target[slot]
 		_dent_vel[slot] = 0.0
@@ -1175,45 +1215,54 @@ func _write_dent(k: int) -> void:
 	_dents_dirty = true
 
 
-## Hand the dents and marks to every material drawing this robot's metal.
+## Hand the dents and marks to every material drawing this robot's metal (only what changed:
+## each change rebuilds and re-sends a material's whole uniform block).
 func _push_damage(all: bool) -> void:
-	if not (all or _dents_dirty):
+	if not (all or _dents_dirty or _layout_dirty or _marks_dirty):
 		return
+	var layout := all or _layout_dirty
+	var marks_too := all or _marks_dirty
 	_dents_dirty = false
-	# each bone's dents, listed together, so a corner only visits its own bone's
-	var count := PackedInt32Array()
-	count.resize(BONE_COUNT)
-	for k in DENTS:
-		var b := int(_dent_n[k].w)
-		if b >= 0:
-			count[b] += 1
-	var at := 0
-	for b in BONE_COUNT:
-		var n := count[b]
-		_dent_at[b] = at | (n << 6)
-		count[b] = at
-		at += n
-	for k in DENTS:
-		var b := int(_dent_n[k].w)
-		if b >= 0:
-			_dent_list[count[b]] = k
-			count[b] += 1
+	_layout_dirty = false
+	_marks_dirty = false
+	if layout:
+		# each bone's dents, listed together, so a corner only visits its own bone's
+		var count := PackedInt32Array()
+		count.resize(BONE_COUNT)
+		for k in DENTS:
+			var b := int(_dent_n[k].w)
+			if b >= 0:
+				count[b] += 1
+		var at := 0
+		for b in BONE_COUNT:
+			var n := count[b]
+			_dent_at[b] = at | (n << 6)
+			count[b] = at
+			at += n
+		for k in DENTS:
+			var b := int(_dent_n[k].w)
+			if b >= 0:
+				_dent_list[count[b]] = k
+				count[b] += 1
 	var marks := 0
-	for k in MARKS:
-		if int(_mark_b[k].y) != MARK_NONE:
-			marks = k + 1
+	if marks_too:
+		for k in MARKS:
+			if int(_mark_b[k].y) != MARK_NONE:
+				marks = k + 1
 	for m in _mats:
-		m.set_shader_parameter("dent_p", _dent_p)
 		m.set_shader_parameter("dent_n", _dent_n)
-		m.set_shader_parameter("dent_list", _dent_list)
-		m.set_shader_parameter("dent_at", _dent_at)
+		if layout:
+			m.set_shader_parameter("dent_p", _dent_p)
+			m.set_shader_parameter("dent_list", _dent_list)
+			m.set_shader_parameter("dent_at", _dent_at)
 		if all:
 			m.set_shader_parameter("wear", _wear)
-		if m.shader != GLOW_SHADER:
+		if marks_too and m.shader != GLOW_SHADER:
 			m.set_shader_parameter("marks", _marks)
 			m.set_shader_parameter("mark_b", _mark_b)
 			m.set_shader_parameter("mark_count", marks)
-			m.set_shader_parameter("grime", _grime)
+			if all:
+				m.set_shader_parameter("grime", _grime)
 
 
 ## Put a damage mark on `bone` at a world point (stored in the bone's own frame, so it moves with it).
@@ -1223,8 +1272,8 @@ func _mark(slot: int, bone: int, at: Vector3, radius: float, kind: int, strength
 	var p := _to_bone(bone, at)
 	_marks[slot] = Vector4(p.x, p.y, p.z, radius)
 	_mark_b[slot] = Vector3(bone, kind, strength)
-	_dents_dirty = true
-	_push_damage(false)
+	# (sent with the frame's other damage, once, however many marks land this frame)
+	_marks_dirty = true
 
 
 ## A part was torn off: the socket it left is wrenched (its metal wrecked round the joint) and
@@ -1320,9 +1369,11 @@ func detach_piece(part: int) -> Node3D:
 		mesh.custom_aabb = box
 		var mat: ShaderMaterial = (_opaque_mat if opaque else _glow_mat).duplicate()
 		mat.set_shader_parameter("bones", bones)
-		# (the lists follow the robot's bones, not a piece flying off)
+		mat.set_shader_parameter("piece_clock", true)
+		# (the masks follow the robot's bones, not a piece flying off: a piece lists every robot,
+		# and their bounds skip the far ones)
 		if opaque:
-			mat.set_shader_parameter("ao_listed", false)
+			mat.set_shader_parameter("ao_mask", Vector4i(-1, -1, -1, -1))
 		_mats.append(mat)
 		var mi := MeshInstance3D.new()
 		mi.mesh = mesh

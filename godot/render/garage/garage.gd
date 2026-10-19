@@ -106,6 +106,8 @@ func _init() -> void:
 	screens.attach(scene.named.get("screens") as MeshInstance3D)
 	screens.step()
 	_sky_mat = sky_material(LOOK.hemi, LOOK.env)
+	# (the bake's geometry bytes are on the GPU now: let them go)
+	scene.release()
 	print("garage built in ", Time.get_ticks_msec() - t0, " ms")
 
 

@@ -73,6 +73,8 @@ func _init(venue_id := "", crowd_template: ShaderMaterial = null) -> void:
 	if dome and dome.mesh:
 		sky_mat = dome.mesh.surface_get_material(0) as ShaderMaterial
 	_setup()
+	# (the bake's geometry bytes are on the GPU now: let them go)
+	scene.release()
 	print("venue ", id, " built in ", Time.get_ticks_msec() - t0, " ms")
 
 

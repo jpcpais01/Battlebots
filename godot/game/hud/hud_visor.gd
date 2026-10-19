@@ -55,6 +55,14 @@ var _size := Vector2.ZERO
 var _px := 1.0
 ## The recording dot's clock (pvRec: 1s, blinking).
 var _rec := 0.0
+## What the brackets and the tag were last drawn with (whose eyes, the dot lit or dim, the colour,
+## the name): they're drawn at full strength and only again when one of these changes or the
+## screen does; the visor's fade is the layer's opacity.
+var _drawn_by := -1
+var _drawn_dim := -1.0
+var _drawn_col := Color(0, 0, 0, 0)
+var _drawn_name := ""
+var _pv := Color(0, 0, 0, 0)
 
 
 func _init() -> void:
@@ -84,6 +92,7 @@ func start(mm) -> void:
 		_cols.append(HudKit.bar_colors(spec.paint)[0])
 	_by = -1
 	_k = 0.0
+	_drawn_by = -1
 	visible = false
 
 
@@ -115,7 +124,11 @@ func tick(dt: float) -> void:
 		return
 	_rec = fmod(_rec + dt, 1.0)
 	# color-mix(in srgb, var(--pv) 30%, transparent)
-	_mat.set_shader_parameter("pv", Color(_cols[_by], 0.3))
+	var pv := Color(_cols[_by], 0.3)
+	if pv != _pv:
+		_pv = pv
+		_mat.set_shader_parameter("pv", pv)
+	var redraw := false
 	var e := em()
 	if e != _em or size != _size:
 		_em = e
@@ -123,15 +136,29 @@ func tick(dt: float) -> void:
 		_px = HudCoach.px(self)
 		_mat.set_shader_parameter("view", size)
 		_mat.set_shader_parameter("px", _px)
-	_glass.modulate.a = HudKit.ease_css(_k)
-	_top.queue_redraw()
+		redraw = true
+	var a := HudKit.ease_css(_k)
+	_glass.modulate.a = a
+	_top.modulate.a = a
+	var dim := _dim()
+	if redraw or _by != _drawn_by or dim != _drawn_dim or _cols[_by] != _drawn_col or _names[_by] != _drawn_name:
+		_drawn_by = _by
+		_drawn_dim = dim
+		_drawn_col = _cols[_by]
+		_drawn_name = _names[_by]
+		_top.queue_redraw()
 
 
-## The brackets and the tag, over the glass.
+## pvRec: steps(2, jump-none) on 50% { opacity .25 }: lit, dim from 0.25s to 0.75s.
+func _dim() -> float:
+	return 0.25 if _rec >= 0.25 and _rec < 0.75 else 1.0
+
+
+## The brackets and the tag, over the glass, at full strength (the layer fades them).
 func _paint(ci: Control) -> void:
 	if _by < 0:
 		return
-	var a := HudKit.ease_css(_k)
+	var a := 1.0
 	var p := _px
 	var vmin := minf(size.x, size.y) / 100.0
 	var pv := _cols[_by]
@@ -168,8 +195,7 @@ func _paint(ci: Control) -> void:
 	var tw := dot + 0.5 * fs + nw + cw
 	var base := size.y - maxf(17.0 * vmin, 92.0 * p) - 1.25 * fs * 0.5 + (font.get_ascent(isz) - font.get_descent(isz)) * 0.5
 	var x0 := (size.x - tw) * 0.5
-	# pvRec: steps(2, jump-none) on 50% { opacity .25 }: lit, dim from 0.25s to 0.75s
-	var dim := 0.25 if _rec >= 0.25 and _rec < 0.75 else 1.0
+	var dim := _dim()
 	var dc := Vector2(x0 + dot * 0.5, base - 0.08 * fs - dot * 0.5)
 	ci.draw_circle(dc, dot * 0.5 + 4.0 * p, Color(DOT, 0.18 * dim * a))
 	ci.draw_circle(dc, dot * 0.5 + 2.0 * p, Color(DOT, 0.3 * dim * a))

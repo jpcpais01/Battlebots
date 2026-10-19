@@ -32,7 +32,7 @@ void vertex() {
 		v_a = mix(v_a, fog, f);
 		sz *= 1.0 + f * 1.5;
 	}
-	POINT_SIZE = VIEWPORT_SIZE.y * sz / -mv.z;
+	POINT_SIZE = min(VIEWPORT_SIZE.y * sz / -mv.z, VIEWPORT_SIZE.y * 0.08);
 	POSITION = PROJECTION_MATRIX * mv;
 }
 

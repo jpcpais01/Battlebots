@@ -116,6 +116,8 @@ func _init() -> void:
 		# and a fixed arena clock (shot.ts `time=`)
 		_time_fixed = float(OS.get_environment("BB_ATIME"))
 	_upload_ropes()
+	# (the bake's geometry bytes are on the GPU now: let them go)
+	scene.release()
 	print("arena built in ", Time.get_ticks_msec() - t0, " ms")
 
 

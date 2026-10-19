@@ -46,15 +46,10 @@ func _init() -> void:
 static func px(c: Control) -> float:
 	var h := c.size.y if c.size.y > 0.0 else 720.0
 	var w := c.size.x if c.size.x > 0.0 else 1280.0
-	var win := Vector2(DisplayServer.window_get_size())
+	var win := HudKit.window_size()
 	if win.x <= 0.0 or win.y <= 0.0:
 		win = Vector2(w, h)
-	var dpr := 1.0
-	if OS.has_feature("mobile"):
-		dpr = maxf(1.0, DisplayServer.screen_get_dpi() / 160.0)
-	else:
-		dpr = maxf(1.0, DisplayServer.screen_get_scale())
-	return h / (win.y / dpr)
+	return h / (win.y / HudKit.css_ratio())
 
 
 ## CSS color-mix(in srgb, a p, b): premultiplied, as browsers mix.
@@ -165,16 +160,64 @@ func _layout() -> void:
 		b.pivot_offset = b.size * 0.5
 		b.fs = fs
 		b.px = p
-		b.queue_redraw()
+		b.relayout()
 		x += widths[i] + gap
 
 
 ## One call (style.css .coach-btn): a dark pill edged in its colour, the shared cooldown's dark
 ## sweep unwinding clockwise from the top, its label, and the call's time left along the bottom.
+## The button draws its face (the pill, its edge and glow) only when its state changes; the sweep
+## and the time left, which move every frame through a cooldown, are a shader's on a layer over it
+## (FX_SHADER), and the label is a layer over that, drawn when its colour changes.
 class CoachButton extends BaseButton:
 	const BG := Color(12.0 / 255.0, 15.0 / 255.0, 23.0 / 255.0, 0.74)
 	const BG_ON := Color(18.0 / 255.0, 23.0 / 255.0, 37.0 / 255.0, 0.9)
 	const SWEEP := Color(4.0 / 255.0, 6.0 / 255.0, 12.0 / 255.0, 0.72)
+	## The sweep (conic-gradient(dark cd*360deg, transparent 0) from the top, clockwise) and the
+	## time left (.cb-left: 3px along the bottom, scaleX(left)), both clipped to the inside of the
+	## edge (a stadium `inset` in from the button's `size`), the bar over the sweep. In the
+	## button's own units (UV times size), antialiased over a pixel (each shape's cover the least of
+## its edges', so an edge it shares with the inside of the pill isn't faded twice).
+	const FX_SHADER := """shader_type canvas_item;
+uniform vec2 size = vec2(100.0, 40.0);
+uniform float inset = 1.0;
+uniform float cd = 0.0;
+uniform float left = 0.0;
+uniform float bar_h = 3.0;
+uniform vec4 sweep_col = vec4(0.0, 0.0, 0.0, 0.72);
+uniform vec4 bar_col = vec4(1.0);
+float cover(float d) { return clamp(0.5 - d / max(fwidth(d), 1e-4), 0.0, 1.0); }
+void fragment() {
+	vec2 p = UV * size;
+	vec2 c = size * 0.5;
+	float r = max(0.0, c.y - inset);
+	vec2 q = abs(p - c) - (c - vec2(inset) - vec2(r));
+	float inner = cover(length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r);
+	float sa = 0.0;
+	if (cd >= 0.9995) {
+		sa = 1.0;
+	} else if (cd > 0.0005) {
+		// clockwise from the top, 0..TAU; past the wedge's far side counts back from 0
+		vec2 v = p - c;
+		float a = atan(v.x, -v.y);
+		if (a < 0.0) a += 6.2831853;
+		float end = cd * 6.2831853;
+		if (a > 0.5 * (end + 6.2831853)) a -= 6.2831853;
+		float far = length(v);
+		sa = clamp(min(a, end - a) * far + 0.5, 0.0, 1.0);
+	}
+	sa = sweep_col.a * min(sa, inner);
+	float ba = 0.0;
+	if (left > 0.0) {
+		float x1 = inset + (size.x - 2.0 * inset) * left;
+		float bx = min(clamp(x1 - p.x + 0.5, 0.0, 1.0), clamp(p.x - inset + 0.5, 0.0, 1.0));
+		float by = min(clamp(p.y - (size.y - inset - bar_h) + 0.5, 0.0, 1.0), clamp(size.y - inset - p.y + 0.5, 0.0, 1.0));
+		ba = bar_col.a * min(min(bx, by), inner);
+	}
+	float a = ba + sa * (1.0 - ba);
+	COLOR = vec4((bar_col.rgb * ba + sweep_col.rgb * sa * (1.0 - ba)) / max(a, 1e-4), a);
+}"""
+	static var _fx_shader: Shader
 	var kind := ""
 	var label := ""
 	var kc := HudKit.AMBER
@@ -183,6 +226,10 @@ class CoachButton extends BaseButton:
 	var _box := StyleBoxFlat.new()
 	## The glow round the pill (box-shadow, outside it only: no centre fill).
 	var _glow := StyleBoxFlat.new()
+	## The sweep and the time left (FX_SHADER), and the label, over the face.
+	var _fx := ColorRect.new()
+	var _fx_mat := ShaderMaterial.new()
+	var _text := Control.new()
 	var _ready := false
 	var _on := false
 	var _pending := false
@@ -197,9 +244,12 @@ class CoachButton extends BaseButton:
 	var _pulse := 0.0
 	## Pressed while ready: scale(0.93), transition transform 0.1s ease.
 	var _press := 0.0
-	var _sweep_cd := -1.0
-	var _sweep: Array[PackedVector2Array] = []
-	var _shown := ""
+	## The state the face and the label were last drawn in, and the sweep's and the bar's last
+	## values handed to the shader.
+	var _face := -1
+	var _label_col := Color(0, 0, 0, 0)
+	var _fx_cd := -1.0
+	var _fx_left := -1.0
 
 	func _init() -> void:
 		focus_mode = Control.FOCUS_NONE
@@ -211,6 +261,21 @@ class CoachButton extends BaseButton:
 		_glow.corner_detail = 16
 		_glow.draw_center = false
 		_glow.bg_color = Color(0, 0, 0, 0)
+		if _fx_shader == null:
+			_fx_shader = Shader.new()
+			_fx_shader.code = FX_SHADER
+		_fx_mat.shader = _fx_shader
+		_fx_mat.set_shader_parameter(&"sweep_col", SWEEP)
+		_fx.material = _fx_mat
+		_fx.color = Color.WHITE
+		_fx.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_fx.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_fx.visible = false
+		add_child(_fx)
+		_text.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_text.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_text.draw.connect(_draw_label)
+		add_child(_text)
 
 	func reset() -> void:
 		_ready = false
@@ -224,9 +289,20 @@ class CoachButton extends BaseButton:
 		_edge_t = 1.0
 		_press = 0.0
 		_pulse = 0.0
-		_sweep_cd = -1.0
-		_shown = ""
+		_face = -1
+		_fx_cd = -1.0
+		_fx_left = -1.0
+		_label_col = Color(0, 0, 0, 0)
 		scale = Vector2.ONE
+
+	## The size, the type or the screen's scale changed (HudCoach._layout): draw it all again.
+	func relayout() -> void:
+		_fx_mat.set_shader_parameter(&"size", size)
+		_fx_mat.set_shader_parameter(&"inset", float(maxi(1, roundi(px))))
+		_fx_mat.set_shader_parameter(&"bar_h", 3.0 * px)
+		_fx_mat.set_shader_parameter(&"bar_col", kc)
+		queue_redraw()
+		_text.queue_redraw()
 
 	## The state hud.ts updateCoach gives it: the bar's .ready, .on, .pending, --cd and --left.
 	func show_state(ready: bool, on: bool, pending: bool, cd: float, left: float, dt: float) -> void:
@@ -258,10 +334,30 @@ class CoachButton extends BaseButton:
 			_press = p
 			var s := lerpf(1.0, 0.93, HudKit.ease_css(_press))
 			scale = Vector2(s, s)
-		var key := "%s%s%s%.3f%.3f" % [ready, on, pending, cd, left]
-		if animating or key != _shown:
-			_shown = key
+		# the face: only when its state changes, or while its edge eases or it pulses
+		var face := (1 if ready else 0) | (2 if on else 0) | (4 if pending else 0)
+		if animating or face != _face:
+			_face = face
 			queue_redraw()
+		# the label's colour
+		var col := HudKit.TEXT
+		if on or pending:
+			col = Color.WHITE
+		elif not ready:
+			col = UiTheme.MUTED
+		if col != _label_col:
+			_label_col = col
+			_text.queue_redraw()
+		# the sweep and the time left: the shader's (above 0.0005: as it drew the wedge)
+		var sweep := cd if cd > 0.0005 else 0.0
+		var bar := left if on and left > 0.0 else 0.0
+		if sweep != _fx_cd:
+			_fx_cd = sweep
+			_fx_mat.set_shader_parameter(&"cd", sweep)
+		if bar != _fx_left:
+			_fx_left = bar
+			_fx_mat.set_shader_parameter(&"left", bar)
+		_fx.visible = sweep > 0.0 or bar > 0.0
 
 	func _draw() -> void:
 		var r := Rect2(Vector2.ZERO, size)
@@ -291,64 +387,14 @@ class CoachButton extends BaseButton:
 			_glow.shadow_size = maxi(1, int(round((14.0 if _edge.z > _edge.y else 10.0) * 0.6 * px)))
 			draw_style_box(_glow, r)
 		draw_style_box(_box, r)
-		# the cooldown sweep (::after, inset -50%: centred, clipped to the inside of the edge)
-		if _cd > 0.0005:
-			if absf(_cd - _sweep_cd) > 0.0005:
-				_sweep_cd = _cd
-				_sweep = _sweep_polys(_cd, bw)
-			for poly in _sweep:
-				draw_colored_polygon(poly, SWEEP)
-		# the label
+
+	## The label, centred, over the sweep.
+	func _draw_label() -> void:
+		if size.x <= 0.0:
+			return
 		var font := HudKit.body(750)
-		var col := HudKit.TEXT
-		if _on or _pending:
-			col = Color.WHITE
-		elif not _ready:
-			col = UiTheme.MUTED
 		var isz := int(round(fs))
 		var tw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, isz).x
 		var asc := font.get_ascent(isz)
 		var desc := font.get_descent(isz)
-		draw_string(font, Vector2((size.x - tw) * 0.5, (size.y + asc - desc) * 0.5), label, HORIZONTAL_ALIGNMENT_LEFT, -1, isz, col)
-		# the call's time left (.cb-left: 3px along the bottom, scaleX(--left), inside the clip)
-		if _on and _left > 0.0:
-			var ih := 3.0 * px
-			var inner := _stadium(bw)
-			var bar := PackedVector2Array([Vector2(bw, size.y - bw - ih), Vector2(bw + (size.x - 2 * bw) * _left, size.y - bw - ih), Vector2(bw + (size.x - 2 * bw) * _left, size.y - bw), Vector2(bw, size.y - bw)])
-			for poly in Geometry2D.intersect_polygons(bar, inner):
-				draw_colored_polygon(poly, kc)
-
-	## The inside of the edge: a stadium inset by the border.
-	func _stadium(inset: float) -> PackedVector2Array:
-		var pts := PackedVector2Array()
-		var h := size.y - 2.0 * inset
-		var rr := h * 0.5
-		var cy := size.y * 0.5
-		var lx := inset + rr
-		var rx := size.x - inset - rr
-		var n := 16
-		for i in n + 1:
-			var a := -PI * 0.5 + PI * float(i) / n
-			pts.append(Vector2(rx + cos(a) * rr, cy + sin(a) * rr))
-		for i in n + 1:
-			var a := PI * 0.5 + PI * float(i) / n
-			pts.append(Vector2(lx + cos(a) * rr, cy + sin(a) * rr))
-		return pts
-
-	## conic-gradient(dark cd*360deg, transparent 0) from the top, clockwise, inside the edge.
-	func _sweep_polys(cd: float, inset: float) -> Array[PackedVector2Array]:
-		var inner := _stadium(inset)
-		var out: Array[PackedVector2Array] = []
-		if cd >= 0.9995:
-			out.append(inner)
-			return out
-		var c := size * 0.5
-		var big := size.x + size.y
-		var wedge := PackedVector2Array([c])
-		var steps := maxi(2, int(ceil(cd * 48.0)))
-		for i in steps + 1:
-			var a := TAU * cd * float(i) / steps
-			wedge.append(c + Vector2(sin(a), -cos(a)) * big)
-		for poly in Geometry2D.intersect_polygons(wedge, inner):
-			out.append(poly)
-		return out
+		_text.draw_string(font, Vector2((size.x - tw) * 0.5, (size.y + asc - desc) * 0.5), label, HORIZONTAL_ALIGNMENT_LEFT, -1, isz, _label_col)

@@ -25,7 +25,7 @@ float ao_sphere(vec4 s, vec3 p, vec3 n, float k) {
 	float nl = dot(n, d) * inversesqrt(max(l2, 1e-8));
 	float r2 = s.w * s.w;
 	// cosine-weighted solid angle, windowed to reach exactly zero at 4.5 radii
-	float fade = max(1.0 - l2 / (r2 * AO_RANGE2), 0.0);
+	float fade = max(1.0 - l2 / max(r2 * AO_RANGE2, 1e-8), 0.0);
 	float o = max(nl, 0.0) * r2 / max(l2, 1e-4) * fade * fade;
 	return 1.0 - min(o * k, 0.9);
 }

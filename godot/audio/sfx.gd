@@ -81,6 +81,9 @@ func _ready() -> void:
 		p.attenuation = 0.0
 		p.max_distance = 1e9
 		p.panning_strength = 4.0
+		# no Area2D in the game overrides an audio bus, so don't have every voice ask the 2D
+		# physics space for one each time it pans: it always plays on the bus it's given
+		p.area_mask = 0
 		add_child(p)
 		if i < VOICES:
 			_players.append(p)

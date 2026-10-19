@@ -58,7 +58,7 @@ void sandWet(vec2 p, float h, out float wet, out float film) {
 }
 
 vec3 skyCol(vec3 d) {
-	float h = max(d.y, 0.0);
+	float h = clamp(d.y, 0.0, 1.0);
 	float s = max(dot(d, sun), 0.0);
 	// deep tropical blue overhead, paling to a soft white haze lying on the horizon
 	vec3 col = mix(horizon, zenith, pow(h, 0.42));

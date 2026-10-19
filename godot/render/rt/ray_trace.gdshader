@@ -210,7 +210,7 @@ void fragment() {
 		if (k > 0.0) {
 			vec3 vdir = normalize(p);
 			r = reflect(vdir, up);
-			float cosv = max(0.0, dot(-vdir, up));
+			float cosv = clamp(dot(-vdir, up), 0.0, 1.0);
 			// Schlick's Fresnel for a varnished surface: faint looking down, strong at a grazing angle
 			fres = 0.04 + 0.96 * pow(1.0 - cosv, 5.0);
 			// The ray is marched across the screen, not along its length in metres (the web's

@@ -17,7 +17,7 @@ const float SPR_W = 0.9;
 const float SPR_H = 2.1;
 const float PI_ = 3.14159265;
 
-uniform sampler2D atlas : filter_linear_mipmap_anisotropic, repeat_disable;
+uniform sampler2D atlas : filter_linear_mipmap, repeat_disable;
 uniform sampler2D bounds : filter_nearest;
 uniform float wave = 0.0;
 uniform float wave_a = 0.0;

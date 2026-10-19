@@ -1,15 +1,38 @@
-## The Skin Vault's own sounds, synthesized once on first use (no clips to ship): the capsule's
-## rising charge, the seam's crack and burst, a chime per rarity (a bell for a Common, a bright
-## run up for a Rare, a full shimmering chord for an Epic), a card flipping and the paint-on hiss,
-## and the gumball machine's own: its crank's ratchet, the chute's clunk and a capsule's pop.
+## The Skin Vault's own sounds, synthesized once (no clips to ship): the capsule's rising charge,
+## the seam's crack and burst, a chime per rarity (a bell for a Common, a bright run up for a Rare,
+## a full shimmering chord for an Epic), a card flipping and the paint-on hiss, and the gumball
+## machine's own: its crank's ratchet, the chute's clunk and a capsule's pop.
 ## Played on the effects bus, so the sound switch mutes them with everything else.
+##
+## The synthesis is a per-sample loop in GDScript (the Epic chime alone is ~380k iterations, half
+## a second on a phone), so it all runs once on a WorkerThreadPool task, started the first time a
+## GachaSound is made (the vault building its screen or stage), long before the first pull. The
+## worker only fills PCM bytes under a mutex; the AudioStreamWAVs are wrapped around them on the
+## caller's thread the first time each is played. A sound asked for before the worker got to it is
+## skipped that once rather than made on the main thread (the order below makes the pull's first
+## sounds first, so in practice everything is ready seconds before it's wanted).
 class_name GachaSound
 extends Node
 
 const RATE := 22050
+## Every sound, in the order the worker makes them: the pull's own first (crank, chute, pop, the
+## capsule's riser, crack and burst, the chimes), then the rest.
+const IDS := ["crank", "chute", "pop", "riser", "crack", "burst", "chime0", "chime1", "chime2", "paint", "flip", "coin"]
 
+## Made streams, by id (main thread side; built from _pcm on first use).
 static var _bank := {}
+## 16-bit PCM the worker has finished, by id, waiting to be wrapped in a stream.
+static var _pcm := {}
+## Guards _bank, _pcm and _task (the vault can be built on a loader thread).
+static var _mutex := Mutex.new()
+## The synthesis task: -1 not started, -2 finished and reaped, else its WorkerThreadPool id.
+static var _task := -1
 var _players: Array[AudioStreamPlayer] = []
+
+
+func _init() -> void:
+	# the vault's screen and stage each make one when they're built: start making the sounds now
+	_start()
 
 
 func _ready() -> void:
@@ -21,7 +44,7 @@ func _ready() -> void:
 
 
 ## Play one ("riser", "crack", "burst", "chime0".."chime2", "flip", "paint", "coin", "crank",
-## "chute", "pop").
+## "chute", "pop"). Silently skipped if the worker hasn't made it yet.
 func play(id: String, gain := 1.0, pitch := 1.0) -> void:
 	var s := stream(id)
 	if s == null:
@@ -42,47 +65,90 @@ func stop_all() -> void:
 		p.stop()
 
 
+## The sound `id`, or null when it's unknown or the worker hasn't finished it yet (never made
+## here: see the top of the file).
 static func stream(id: String) -> AudioStreamWAV:
-	if _bank.has(id):
-		return _bank[id]
-	var data: PackedFloat32Array
-	match id:
-		"riser":
-			data = _riser(1.9)
-		"crack":
-			data = _crack()
-		"burst":
-			data = _burst()
-		"chime0":
-			data = _chord([523.25, 783.99], 0.0, 0.9, 0.5)
-		"chime1":
-			data = _chord([587.33, 739.99, 880.0, 1174.66], 0.07, 1.4, 0.55)
-		"chime2":
-			data = _chord([523.25, 659.25, 783.99, 1046.5, 1318.5, 1567.98], 0.06, 2.6, 0.6, true)
-		"flip":
-			data = _flip()
-		"paint":
-			data = _paint()
-		"coin":
-			data = _chord([1318.5, 1975.5], 0.05, 0.5, 0.35)
-		"crank":
-			data = _crank(1.5)
-		"chute":
-			data = _chute()
-		"pop":
-			data = _pop()
-		_:
-			return null
-	var s := _wav(data)
-	_bank[id] = s
+	_start()
+	_mutex.lock()
+	var s: AudioStreamWAV = _bank.get(id)
+	if s == null and _pcm.has(id):
+		s = _wav(_pcm[id])
+		_bank[id] = s
+		_pcm.erase(id)
+	_mutex.unlock()
+	_reap()
 	return s
 
 
-static func _wav(d: PackedFloat32Array) -> AudioStreamWAV:
+## Starts the synthesis task if it isn't running or done.
+static func _start() -> void:
+	_mutex.lock()
+	if _task == -1:
+		_task = WorkerThreadPool.add_task(_make_all, false, "GachaSound")
+	_mutex.unlock()
+
+
+## Once the task has finished, waits on it (instant then) so the pool can drop its record. The
+## id is claimed under the lock so it's only ever waited on once.
+static func _reap() -> void:
+	_mutex.lock()
+	var id := _task
+	var done := id >= 0 and WorkerThreadPool.is_task_completed(id)
+	if done:
+		_task = -2
+	_mutex.unlock()
+	if done:
+		WorkerThreadPool.wait_for_task_completion(id)
+
+
+## The worker: makes every sound in turn, handing each over as soon as it's done. Pure maths on
+## locals only (no nodes, no shared buffers), so it's safe off the main thread.
+static func _make_all() -> void:
+	for id in IDS:
+		var bytes := _pcm16(_synth(id))
+		_mutex.lock()
+		_pcm[id] = bytes
+		_mutex.unlock()
+
+
+static func _synth(id: String) -> PackedFloat32Array:
+	match id:
+		"riser":
+			return _riser(1.9)
+		"crack":
+			return _crack()
+		"burst":
+			return _burst()
+		"chime0":
+			return _chord([523.25, 783.99], 0.0, 0.9, 0.5)
+		"chime1":
+			return _chord([587.33, 739.99, 880.0, 1174.66], 0.07, 1.4, 0.55)
+		"chime2":
+			return _chord([523.25, 659.25, 783.99, 1046.5, 1318.5, 1567.98], 0.06, 2.6, 0.6, true)
+		"flip":
+			return _flip()
+		"paint":
+			return _paint()
+		"coin":
+			return _chord([1318.5, 1975.5], 0.05, 0.5, 0.35)
+		"crank":
+			return _crank(1.5)
+		"chute":
+			return _chute()
+		"pop":
+			return _pop()
+	return PackedFloat32Array()
+
+
+static func _pcm16(d: PackedFloat32Array) -> PackedByteArray:
 	var bytes := PackedByteArray()
 	bytes.resize(d.size() * 2)
 	for i in d.size():
 		bytes.encode_s16(i * 2, int(clampf(d[i], -1.0, 1.0) * 32000.0))
+	return bytes
+
+
+static func _wav(bytes: PackedByteArray) -> AudioStreamWAV:
 	var s := AudioStreamWAV.new()
 	s.format = AudioStreamWAV.FORMAT_16_BITS
 	s.mix_rate = RATE
@@ -285,11 +351,12 @@ static func _pop() -> PackedFloat32Array:
 	return d
 
 
-## Make the next sound not yet made (one per call: spread over frames before the first pull).
-## Whether any were left.
+## Kept for the vault screen's tick: makes sure the worker is going (nothing is made here) and
+## reaps it once it's done. Whether any sounds are still to come.
 static func warm_one() -> bool:
-	for id in ["riser", "crack", "burst", "chime0", "chime1", "chime2", "flip", "paint", "coin"]:
-		if not _bank.has(id):
-			stream(id)
-			return true
-	return false
+	_start()
+	_reap()
+	_mutex.lock()
+	var left := _task != -2
+	_mutex.unlock()
+	return left

@@ -84,6 +84,17 @@ var titan_fx: TitanFx
 ## The player's fight speed: 1, 2 or 0.5 (game.ts speed; the HUD's speed button). Reset each fight.
 var speed := 1.0
 var _time := 0.0
+## Places building on worker threads (prefetch_place): id -> [task, {node}].
+var _prefetch := {}
+var _home_idle := 0.0
+## Rows of fans the titan stands' ray march goes through, per quality tier (titan_crowd.gdshader).
+const TITAN_ROWS := {"low": 5, "med": 8, "high": 12}
+var _titan_rows := -1
+var _titan_seat := Vector4(-1, -1, -1, -1)
+## Where corner 0's hatch is (it never moves: worked out once).
+var _hatch0: Array = []
+## BB_NOBOTS (tests that want no robots drawn), read once.
+static var NO_BOTS := OS.get_environment("BB_NOBOTS") != ""
 var _hype := 0.3
 ## Contact shadows round the robots (ao.ts contactAO), read by the canvas, floor and the robots.
 var contact_ao: ContactAO
@@ -157,6 +168,8 @@ var auto := true
 var place := "arena"
 ## The bot idling on its own between fights (null in a fight or with nobody shown).
 var showcase: Showcase
+## show_bot's robot waits to be built until the world is somewhere it's drawn.
+var _showcase_due := false
 var _shown_spec = null
 var _places := {}
 ## The world's other places, built the first time the world goes there (a missing one isn't
@@ -492,6 +505,8 @@ func set_titan(on: bool) -> void:
 	if on == titan:
 		return
 	titan = on
+	_titan_rows = -1
+	_titan_seat = Vector4(-1, -1, -1, -1)
 	TitanVenue.set_ring_hidden(arena, on)
 	_key.visible = not on
 	director.titan = on
@@ -569,6 +584,8 @@ func _tag_frame() -> void:
 		_legal[side] = l
 		models[side] = crew[l]
 		bench[side] = crew[t.bench_of[side]]
+		# (one waiting on the apron may have been stepped out of the picture: _bench_clear)
+		models[side].visible = not NO_BOTS
 		effects.swap_side(side)
 		_thud_prev[side] = [false, false, false]
 		_ground_prev[side] = false
@@ -630,8 +647,17 @@ func show_bot(spec) -> void:
 		# (its sparring dummy too: game.ts showBot's sparring(false))
 		showcase.dispose()
 		showcase = null
+	_showcase_due = false
 	if spec == null:
 		return
+	if place == "home" or place == "map":
+		# (not drawn there: built when the world moves somewhere it shows, set_place)
+		_showcase_due = true
+		return
+	_make_showcase(spec)
+
+
+func _make_showcase(spec) -> void:
 	showcase = Showcase.new(spec)
 	showcase.game = self
 	# its strikes whoosh and its feet step (game.ts showBot hooks.emit)
@@ -689,11 +715,41 @@ func home_leaving() -> bool:
 	return place == "home" and _places.has("home") and _places.home.leaving
 
 
-## A place's node, built on first use (null for the arena or one not there).
+## A place's node, built on first use (null for the arena or one not there): taken from
+## prefetch_place's build if one was started (waiting for it if it isn't done yet).
 func get_place(p: String) -> Node3D:
+	if not _places.has(p) and _prefetch.has(p):
+		var e: Array = _prefetch[p]
+		_prefetch.erase(p)
+		WorkerThreadPool.wait_for_task_completion(e[0])
+		var built = e[1].get("node")
+		if built != null:
+			add_place(p, built)
 	if not _places.has(p) and ResourceLoader.exists(PLACES.get(p, "")):
 		add_place(p, load(PLACES[p]).new())
 	return _places.get(p)
+
+
+## Start building place `p` on a worker thread, off the tree, as boot builds the arena and the
+## beach: the garage takes most of a second to unpack and build, which froze the screen on the
+## first visit. get_place takes it when it's wanted.
+func prefetch_place(p: String) -> void:
+	if _places.has(p) or _prefetch.has(p) or not ResourceLoader.exists(PLACES.get(p, "")):
+		return
+	var holder := {}
+	var path: String = PLACES[p]
+	var task := WorkerThreadPool.add_task(func() -> void: holder.node = load(path).new(), false, "place " + p)
+	_prefetch[p] = [task, holder]
+
+
+func _exit_tree() -> void:
+	# (a place still building on a worker finishes first: it can't outlive the game)
+	for p in _prefetch:
+		WorkerThreadPool.wait_for_task_completion(_prefetch[p][0])
+		var built = _prefetch[p][1].get("node")
+		if built != null:
+			built.free()
+	_prefetch.clear()
 
 
 ## Switch the world between its places (game.ts setPlace): the arena (fights and the menus behind
@@ -716,6 +772,9 @@ func set_place(p: String) -> void:
 		settings.place_changed()
 	drones.visible = in_arena
 	referee.visible = in_arena
+	if _showcase_due and p != "home" and p != "map":
+		_showcase_due = false
+		_make_showcase(_shown_spec)
 	if showcase != null:
 		showcase.model.visible = p != "home" and p != "map"
 	var now = _places.get(p)
@@ -1092,8 +1151,14 @@ func _process(dt: float) -> void:
 	# the loser's ride out: from the stretcher's deck, not its body (game.ts frame: carry)
 	var flow := dt * speed * _mv.pace * time_k
 	var carried := _carry(flow)
+	# the loser once the stretcher has carried it off is drawn no more: nor posed, nor solved
+	var gone := -1
+	if stretcher.on and stretcher.gone() and _mv.winner != null:
+		gone = 1 - int(_mv.winner.index)
 	# both bodies first: each robot's limbs then slide out of either robot's armour (game.ts)
 	for i in 2:
+		if i == gone:
+			continue
 		if i == carried:
 			models[i].begin_posed(stretcher.puppet, stretcher.joints, cam.global_position)
 			continue
@@ -1103,11 +1168,16 @@ func _process(dt: float) -> void:
 		models[i].begin(f, pose_alpha, look)
 	# the two limb contact passes (most of the robots' frame) at once: the second on a worker
 	var who := [stretcher.puppet if carried == 0 else _mv.fighters[0], stretcher.puppet if carried == 1 else _mv.fighters[1]]
-	var other := WorkerThreadPool.add_task(models[1].solve.bind(who[1], _time, models[0]), true, "contacts")
-	models[0].solve(who[0], _time, models[1])
-	WorkerThreadPool.wait_for_task_completion(other)
+	if gone < 0:
+		var other := WorkerThreadPool.add_task(models[1].solve.bind(who[1], _time, models[0]), true, "contacts")
+		models[0].solve(who[0], _time, models[1])
+		WorkerThreadPool.wait_for_task_completion(other)
+	else:
+		models[1 - gone].solve(who[1 - gone], _time, null)
 	for i in 2:
-		models[i].end(who[i], _time, models[1 - i], true)
+		if i == gone:
+			continue
+		models[i].end(who[i], _time, null if gone >= 0 else models[1 - i], true)
 		if i == carried:
 			stretcher.dress(models[i])
 	if not bench.is_empty():
@@ -1126,9 +1196,9 @@ func _process(dt: float) -> void:
 		contact_ao.set_robot(2 + i, bench[i].joints, bench[i].size)
 	contact_ao.commit()
 	for md in models:
-		md.ao_lists(contact_ao)
+		md.ao_masks(contact_ao)
 	for md in bench:
-		md.ao_lists(contact_ao)
+		md.ao_masks(contact_ao)
 	# sparks, smoke, vapour and oil off the wrecked parts, the debris, the trails (the view's)
 	# (a titan's sparks and smoke drift down slowly, at the titans' scale)
 	effects.update(dt * time_k, flow, cam)
@@ -1142,7 +1212,15 @@ func _process(dt: float) -> void:
 		var tv = venues.current
 		if tv is TitanVenue:
 			tv.sun.shadow_enabled = _key.shadow_enabled
-			tv.crowd_mat.set_shader_parameter("fan_seat", director.crowd_seat)
+			if director.crowd_seat != _titan_seat:
+				_titan_seat = director.crowd_seat
+				tv.crowd_mat.set_shader_parameter("fan_seat", _titan_seat)
+			# the stands' ray march looks through fewer rows of fans on the lighter tiers (it
+			# covers most of the screen in a titan fight)
+			var rows: int = TITAN_ROWS.get(settings.tier() if settings != null else "high", 12)
+			if rows != _titan_rows:
+				_titan_rows = rows
+				tv.crowd_mat.set_shader_parameter("max_rows", rows)
 	Perf.lap(Perf.FX)
 	_sound_frame()
 	Perf.lap(Perf.AUDIO)
@@ -1176,7 +1254,9 @@ func _process(dt: float) -> void:
 		_tag_light.light_energy = 14.0 / PI * g
 		_tag_light.visible = g > 0.01
 	# the rim light over each corner swings to that robot's colours while it makes its entrance
-	var h0: Array = TEntrance.hatchXZ(0.0)
+	if _hatch0.is_empty():
+		_hatch0 = TEntrance.hatchXZ(0.0)
+	var h0 := _hatch0
 	for j in 2:
 		var at: Vector3 = RIMS[j][1]
 		# the fighter whose corner this light hangs over
@@ -1232,7 +1312,7 @@ func _carry(flow: float) -> int:
 		st.begin(_mv, m.fighters[loser].body, m.result, loser)
 	st.update(_mv.phaseTime + _acc, flow, models[loser], effects.debris, sfx, false)
 	# carried off: its model goes with the stretcher, and stays gone once that has left
-	models[loser].visible = not st.gone() and OS.get_environment("BB_NOBOTS") == ""
+	models[loser].visible = not st.gone() and not NO_BOTS
 	return loser if (st.posed or st.gone()) and st.joints.size() == 16 else -1
 
 
@@ -1240,6 +1320,17 @@ func _carry(flow: float) -> int:
 ## its crowd and its light show run on, and the director flies its menu or garage camera.
 func _idle_frame(dt: float) -> void:
 	Perf.lap(Perf.SIM)
+	# a moment on the home screen: get the garage built meanwhile, ready for its first visit
+	if place == "home":
+		_home_idle += dt
+		if _home_idle > 1.5:
+			prefetch_place("garage")
+		# and the robot the garage shows, hidden till then (show_bot waited with it)
+		if _home_idle > 2.5 and _showcase_due:
+			_showcase_due = false
+			_make_showcase(_shown_spec)
+	else:
+		_home_idle = 0.0
 	var shown: Array[BotModel] = []
 	if showcase != null and place != "home" and place != "map":
 		showcase.update(dt, _time)
@@ -1255,7 +1346,7 @@ func _idle_frame(dt: float) -> void:
 		contact_ao.set_robot(i, shown[i].joints if i < shown.size() else ([] as Array[Vector3]), shown[i].size if i < shown.size() else 1.0)
 	contact_ao.commit()
 	for md in shown:
-		md.ao_lists(contact_ao)
+		md.ao_masks(contact_ao)
 	# (torn-off sparring parts fly in the showcase's slow motion: game.ts debris.update(dt * slowmo))
 	effects.update(dt, dt * (showcase.flow if showcase != null else 1.0), cam)
 	Perf.lap(Perf.FX)
@@ -1430,7 +1521,8 @@ func _build_world() -> void:
 	env.fog_light_color = Color.hex(0x070a12ff)
 	env.fog_density = 0.006
 	env.fog_sky_affect = 0.0
-	env.glow_enabled = OS.get_environment("BB_NOGLOW") == ""
+	# (Settings decides: on the Mobile renderer the bloom can't show, see _apply_quality)
+	env.glow_enabled = OS.get_environment("BB_NOGLOW") == "" and Settings.renderer() != "mobile"
 	env.glow_intensity = 0.7
 	env.glow_strength = 1.0
 	env.glow_bloom = 0.0

@@ -80,12 +80,13 @@ func _init() -> void:
 
 
 ## The strip down each side the HUD never draws in: 3% of the width (curved screen edges), or
-## more where the phone's notch or cutout eats into the screen.
+## more where the phone's notch or cutout eats into the screen. (The screen and its safe area are
+## HudKit's kept reading: this is asked for several times a frame.)
 static func side_margin(c: Control) -> float:
 	var w := c.size.x
 	var m := w * 0.03
-	var screen := DisplayServer.screen_get_size()
-	var safe := DisplayServer.get_display_safe_area()
+	var screen := HudKit.screen_size()
+	var safe := HudKit.safe_area()
 	if screen.x > 0 and safe.size.x > 0:
 		# the safe area is in screen pixels; the HUD is in its own canvas units
 		var k := w / float(screen.x)
@@ -98,8 +99,8 @@ static func side_margin(c: Control) -> float:
 static func bottom_margin(c: Control) -> float:
 	var h := c.size.y
 	var m := 12.0
-	var screen := DisplayServer.screen_get_size()
-	var safe := DisplayServer.get_display_safe_area()
+	var screen := HudKit.screen_size()
+	var safe := HudKit.safe_area()
 	if screen.y > 0 and safe.size.y > 0:
 		m = maxf(m, (screen.y - safe.end.y) * h / float(screen.y))
 	return m
@@ -284,6 +285,49 @@ class IntroView extends Control:
 	var _bold: Font
 	## Uppercase captions are letter-spaced (letter-spacing 0.16-0.26em).
 	var _wide := FontVariation.new()
+	## Each card's size as last laid out, and whether its content's minimum size has changed since
+	## (a picture coming in): the cards are only measured and sized again then.
+	var _card_size: Array[Vector2] = []
+	var _card_dirty: Array[bool] = []
+	## The name's face and the rival's taunt's, made once for the app's run (a new SystemFont each
+	## fight would start an empty glyph cache each fight: HudCalls.warm_fonts fills these once).
+	static var _bold_font: SystemFont
+	static var _taunt: FontVariation
+
+	## The name's face (.banner .name: --broadcast, italic, 800).
+	static func bold_font() -> Font:
+		if _bold_font == null:
+			_bold_font = SystemFont.new()
+			_bold_font.font_names = PackedStringArray(["Russo One", "Arial Black", "Impact", "sans-serif"])
+			_bold_font.font_weight = 800
+			_bold_font.font_italic = true
+		return _bold_font
+
+	## .banner .taunt: 0.95em, italic, 650.
+	static func taunt_font() -> Font:
+		if _taunt == null:
+			_taunt = FontVariation.new()
+			_taunt.base_font = UiTheme.font(650)
+			_taunt.variation_transform = Transform2D(Vector2(1, 0), Vector2(0.2, 1), Vector2.ZERO)
+		return _taunt
+
+	## What the intro draws its text with on a screen `view` canvas units big: [font, size,
+	## outline] for each face and size it uses (for HudCalls.warm_fonts).
+	static func faces(view: Vector2) -> Array:
+		var u := clampf(view.y / 720.0, 0.6, 2.0)
+		var em := 20.0 * u
+		var nfs := int(minf(3.4 * em, view.x * 0.085))
+		var out := [[bold_font(), nfs, 0], [bold_font(), nfs, int(nfs * 0.14)]]
+		var wide := FontVariation.new()
+		wide.base_font = ThemeDB.fallback_font
+		wide.spacing_glyph = int(0.2 * 0.8 * em)
+		for fs in [int(0.72 * em), int(0.85 * em), int(0.8 * em)]:
+			out.append([wide, fs, 0])
+			out.append([wide, fs, maxi(3, int(fs * 0.2))])
+		var tfs := int(0.95 * em)
+		out.append([taunt_font(), tfs, 0])
+		out.append([taunt_font(), tfs, maxi(3, int(tfs * 0.2))])
+		return out
 
 	func start(m) -> void:
 		_names.clear()
@@ -295,6 +339,8 @@ class IntroView extends Control:
 		for c in _cards:
 			c.queue_free()
 		_cards.clear()
+		_card_size.clear()
+		_card_dirty.clear()
 		for i in 2:
 			var spec = m.specs[i]
 			var rv = rival if i == 1 else null
@@ -311,6 +357,9 @@ class IntroView extends Control:
 			card.visible = false
 			add_child(card)
 			_cards.append(card)
+			_card_size.append(Vector2.ZERO)
+			_card_dirty.append(true)
+			card.minimum_size_changed.connect(_mark_card.bind(_card_dirty.size() - 1))
 			_tunes.append(_walk_on(spec).to_upper())
 			_paint.append(Color.hex((int(spec.paint.primary) << 8) | 0xff))
 		_who = -1
@@ -318,16 +367,14 @@ class IntroView extends Control:
 		_gone = 0.0 if m.phase == "intro" else 1.0
 		_font = ThemeDB.fallback_font
 		_wide.base_font = _font
-		_bold = SystemFont.new()
-		(_bold as SystemFont).font_names = PackedStringArray(["Russo One", "Arial Black", "Impact", "sans-serif"])
-		(_bold as SystemFont).font_weight = 800
-		(_bold as SystemFont).font_italic = true
-		# .banner .taunt: 0.95em, italic, 650
-		var tv := FontVariation.new()
-		tv.base_font = UiTheme.font(650)
-		tv.variation_transform = Transform2D(Vector2(1, 0), Vector2(0.2, 1), Vector2.ZERO)
-		_taunt_font = tv
+		_bold = bold_font()
+		_taunt_font = taunt_font()
 		_pic_wait = 0.5
+
+	## Card `i`'s content asks for a different size now: measure it again.
+	func _mark_card(i: int) -> void:
+		if i < _card_dirty.size():
+			_card_dirty[i] = true
 
 	## walkOn.ts walkOnFor: the bot's own pick, or one that always goes with its name (FNV-1a).
 	static func _walk_on(spec) -> String:
@@ -390,8 +437,12 @@ class IntroView extends Control:
 			if not c.visible:
 				continue
 			c.modulate.a = a
-			var h := c.get_combined_minimum_size().y
-			c.size = Vector2(w, h)
+			# (measured and sized only when the width or the card's content changed)
+			if _card_dirty[i] or _card_size[i].x != w:
+				_card_dirty[i] = false
+				_card_size[i] = Vector2(w, c.get_combined_minimum_size().y)
+				c.size = _card_size[i]
+			var h := _card_size[i].y
 			var x := size.x - pad - w if i == 1 else pad
 			c.position = Vector2(x + dx, top + maxf(0.0, (bottom - top - h) * 0.5) + dy)
 			# gearIn runs from when the cards were made (the start of the intro), shown or not

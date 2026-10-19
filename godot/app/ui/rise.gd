@@ -68,7 +68,13 @@ func leave(dur: float, to := Vector2.ZERO) -> Tween:
 
 
 func _apply(k: float, from: Vector2, scale_from: float) -> void:
+	var o := from * (1.0 - k)
+	var g := lerpf(scale_from, 1.0, k)
+	# (driven every frame by some (the fight intro's gear tiles: BotCard.gear_at), long after the
+	# entrance is over: nothing to lay out again when nothing moved)
+	if modulate.a == k and off == o and grow == g:
+		return
 	modulate.a = k
-	off = from * (1.0 - k)
-	grow = lerpf(scale_from, 1.0, k)
+	off = o
+	grow = g
 	queue_sort()

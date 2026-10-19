@@ -410,7 +410,7 @@ func _apply_time() -> void:
 ## The map's glows are seven times brighter with bloom on (settings.ts glow(7)); with it off,
 ## barely brighter at all, as the web draws them.
 func _check_glow() -> void:
-	var on := game != null and game._env != null and game._env.glow_enabled
+	var on := Settings.tier_glow and OS.get_environment("BB_NOGLOW") == ""
 	var g := 7.0 if on else 1.0 + 6.0 * 0.12
 	if g != _glow:
 		_glow = g
@@ -596,6 +596,8 @@ func _finish() -> void:
 	_lift = _named.funicular
 	_lift_pts = _scene.floats(int(t.funicular.pts))
 	_lift_dt = float(t.funicular.dt)
+	# (the bake's geometry bytes are on the GPU now: let them go)
+	_scene.release()
 	sites.mat = _mats.by_kind.pillar[0]
 	sites.highlight(sites.picked)
 	_apply_time()
