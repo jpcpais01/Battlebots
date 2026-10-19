@@ -16,6 +16,28 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-19 03:00",
+    title: "Smoother menus, less memory",
+    notes: [
+      "Android: the game uses roughly 180 MB less memory once the arenas and home scenes are loaded, and places that use the same pictures now share them.",
+      "Android: the garage opens without a freeze: it is prepared while you sit on the home screen, and part pictures in the parts picker no longer stall the screen.",
+      "Android: the Skin Vault's sounds and the commentators' voice lines load in the background instead of stuttering the screen.",
+      "Android: the phone's Back button now works everywhere: it closes the open menu, and in a fight it pauses.",
+      "Android: confetti, pyro and smoke no longer blow up to fill the screen when they pass right by the camera.",
+    ],
+  },
+  {
+    hour: "2026-10-19 03:00",
+    title: "Faster fights, cleaner robots",
+    notes: [
+      "Android: fixed robots sometimes showing small patches in another part's colour on phones.",
+      "Android: every scene is lighter on the GPU: a bloom effect that phones could never actually show is no longer paid for.",
+      "Android: fights spend less time on each frame: the robots' shading and contact shadows, and the fight HUD, only update what changed.",
+      "Android: Performance stats is now off by default, and turning it on no longer draws the whole scene twice. GPU timings show after restarting the app.",
+      "Android: fixed rare black or flickering pixels on shields, water, the world map and some arenas.",
+    ],
+  },
+  {
     hour: "2026-10-19 01:00",
     title: "Lighter robots and arenas",
     notes: [
