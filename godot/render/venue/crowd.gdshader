@@ -1,6 +1,6 @@
 // The crowd (src/render/crowd.ts): every fan a billboard sprite from the painted atlas, posed and
 // lit in the vertex shader from what the fight is doing (crowd.gd drives the uniforms).
-// VERTEX iPos (the seat), UV the quad corner (x -0.5..0.5, y 0..1), CUSTOM0 iData (scale, column,
+// VERTEX iPos (the seat), UV the quad corner (x -0.5..0.5, y 0..1, doubled: see xy below), CUSTOM0 iData (scale, column,
 // seed, flags), CUSTOM1 iShirt (rgb, skin index/255), CUSTOM2 iHair (rgb, pants index/255),
 // CUSTOM3 iAccent (rgb).
 // Fans in the bowl's seats also draw their seat's moulded back (venue.ts, the seat-back block)
@@ -196,7 +196,10 @@ void vertex() {
 			v_seat_c = (upper ? SEAT_UP : SEAT_LOW) * kk * house_light(sb + vec3(0.0, 0.25, 0.0));
 		}
 	}
-	vec2 xy = mix(lo, hi, vec2(UV.x + 0.5, UV.y));
+	// each fan is one triangle (tools/bake/slim_scene.gd: its quad's two lower corners and top
+	// left one) twice the quad's size, covering it: what's outside the figure and its seat back is
+	// discarded all the same (a quad drawn this way just covers more)
+	vec2 xy = mix(lo, hi, vec2(UV.x + 0.5, UV.y) * 2.0);
 	vec3 p = base + right * xy.x + vec3(0.0, xy.y, 0.0);
 	if (k > 0.0) {
 		// where this corner's view ray meets the shell's plane, in shell metres (across, up), as a

@@ -128,9 +128,9 @@ class Builder extends RefCounted:
 			return [at + out * (big + cos(t) * small) + b.y * (sin(t) * h), nrm], bone, key)
 
 	## A rod with round ends from p to q.
-	func capsule(p: Vector3, q: Vector3, r: float, bone: int, key: int, cols := 12) -> void:
+	func capsule(p: Vector3, q: Vector3, r: float, bone: int, key: int, cols := 8) -> void:
 		var b := _frame((q - p).normalized())
-		var half := 4
+		var half := 3
 		grid(half * 2 + 1, cols, func(row: int, k: int) -> Array:
 			# rows 0..half: the cap at q; half+1..: the cap at p (the band between is the rod)
 			var top := row <= half
@@ -268,7 +268,7 @@ static func _material(path: String) -> ShaderMaterial:
 ## The drone, part by part, each in its bone's space.
 func _build(b: Builder, f: Builder) -> void:
 	# the hull: crown, stripes, face and belly are all the shader's (referee_body.gdshader)
-	b.ellipsoid(Vector3.ZERO, HULL, 0, K_HULL, 26, 44)
+	b.ellipsoid(Vector3.ZERO, HULL, 0, K_HULL, 18, 30)
 	# the antenna and its beacon, raked back
 	b.capsule(Vector3(0, 0.185, -0.07), Vector3(0, 0.275, -0.1), 0.0055, 0, K_GRAPHITE, 8)
 	b.ellipsoid(Vector3(0, 0.282, -0.102), Vector3.ONE * 0.012, 0, K_BEACON, 6, 8)
@@ -280,9 +280,9 @@ func _build(b: Builder, f: Builder) -> void:
 		# the strut out to the fan
 		b.capsule(Vector3(s * 0.19, 0.03, -0.015), Vector3(s * (POD.x - DUCT_R - 0.01), POD.y, POD.z), 0.017, 0, K_GRAPHITE)
 		# the duct (pod space: centred on the fan), its glowing lip, hub, spokes and nav light
-		b.torus(Vector3.ZERO, Vector3.UP, DUCT_R, 0.024, pod, K_GRAPHITE, 32, 12, 0.042)
-		b.torus(Vector3(0, 0.04, 0), Vector3.UP, DUCT_R + 0.002, 0.007, pod, K_GLOW, 32, 6)
-		b.torus(Vector3(0, -0.026, 0), Vector3.UP, DUCT_R + 0.017, 0.012, pod, K_HULL_WHITE, 32, 8)
+		b.torus(Vector3.ZERO, Vector3.UP, DUCT_R, 0.024, pod, K_GRAPHITE, 24, 8, 0.042)
+		b.torus(Vector3(0, 0.04, 0), Vector3.UP, DUCT_R + 0.002, 0.007, pod, K_GLOW, 24, 4)
+		b.torus(Vector3(0, -0.026, 0), Vector3.UP, DUCT_R + 0.017, 0.012, pod, K_HULL_WHITE, 24, 5)
 		b.ellipsoid(Vector3(0, -0.006, 0), Vector3(0.024, 0.02, 0.024), pod, K_CHROME, 6, 10)
 		for k in 3:
 			var ang := TAU * k / 3.0 + 0.4
@@ -297,8 +297,8 @@ func _build(b: Builder, f: Builder) -> void:
 		b.capsule(Vector3.ZERO, Vector3(0, -UPPER, 0), 0.02, up, K_WHITE)
 		b.ellipsoid(Vector3(0, -UPPER, 0), Vector3.ONE * 0.024, up, K_GRAPHITE, 8, 12)
 		b.capsule(Vector3.ZERO, Vector3(0, -FORE + 0.01, 0), 0.0185, up + 1, K_WHITE)
-		b.torus(Vector3(0, -FORE + 0.012, 0), Vector3.UP, 0.021, 0.008, up + 1, K_GRAPHITE, 16, 6)
-		b.ellipsoid(Vector3(0, -0.032, 0.002), Vector3(0.033, 0.04, 0.026), up + 2, K_WHITE, 10, 14)
+		b.torus(Vector3(0, -FORE + 0.012, 0), Vector3.UP, 0.021, 0.008, up + 1, K_GRAPHITE, 12, 4)
+		b.ellipsoid(Vector3(0, -0.032, 0.002), Vector3(0.033, 0.04, 0.026), up + 2, K_WHITE, 8, 12)
 		b.ellipsoid(Vector3(-s * 0.026, -0.018, 0.012), Vector3(0.011, 0.019, 0.011), up + 2, K_WHITE, 6, 8)
 
 

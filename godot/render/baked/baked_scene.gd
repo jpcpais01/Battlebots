@@ -13,6 +13,13 @@ const CUSTOM_BLEND := 5
 
 var json: Dictionary
 var _bin: PackedByteArray
+## Lighter triangle lists for some geometries (tools/bake/slim_scene.gd, <bake>.slim): per
+## geometry id, [index, groups].
+var _slim := {}
+## Per node id, the instances (of its instanceMatrix) the slim bake keeps.
+var slim_instances := {}
+## Draw the slim bakes (BB_FULL_SCENES=1 draws the full ones, to compare).
+static var use_slim := not OS.has_environment("BB_FULL_SCENES")
 var _textures := {}
 var _meshes := {}
 ## Every built node, by its index in the bake.
@@ -31,7 +38,50 @@ static func open(path: String) -> BakedScene:
 		s._bin = raw.slice(8).decompress(raw.decode_u32(4), FileAccess.COMPRESSION_ZSTD)
 	else:
 		s._bin = raw
+	if use_slim and FileAccess.file_exists(path + ".slim"):
+		s._read_slim(FileAccess.get_file_as_bytes(path + ".slim"))
 	return s
+
+
+## The slim bake: "BBSL", u32 version, u32 raw size, then zstd: u32 geometries, each (u32 id,
+## u32 source index count, u32 groups, groups as u32 start/count/material, u32 index count, the
+## indices), then u32 instanced nodes, each (u32 node id, u32 source count, u32 kept, the kept
+## instance numbers). An entry no longer matching the bake (re-baked since) is left out.
+func _read_slim(raw: PackedByteArray) -> void:
+	if raw.size() < 12 or raw.slice(0, 4).get_string_from_ascii() != "BBSL":
+		return
+	var b := raw.slice(12).decompress(raw.decode_u32(8), FileAccess.COMPRESSION_ZSTD)
+	var o := 0
+	var geos: Array = json.geometries
+	var n := b.decode_u32(o)
+	o += 4
+	for k in n:
+		var id := b.decode_u32(o)
+		var src := b.decode_u32(o + 4)
+		var ng := b.decode_u32(o + 8)
+		o += 12
+		var groups := []
+		for g in ng:
+			groups.append([b.decode_u32(o), b.decode_u32(o + 4), b.decode_u32(o + 8)])
+			o += 12
+		var ni := b.decode_u32(o)
+		o += 4
+		var index := b.slice(o, o + ni * 4).to_int32_array()
+		o += ni * 4
+		if id < geos.size() and int(json.buffers[int(geos[id].index.buffer)].bytes) / 4 == src:
+			_slim[id] = [index, groups]
+	n = b.decode_u32(o)
+	o += 4
+	for k in n:
+		var id := b.decode_u32(o)
+		var src := b.decode_u32(o + 4)
+		var kept := b.decode_u32(o + 8)
+		o += 12
+		var list := b.slice(o, o + kept * 4).to_int32_array()
+		o += kept * 4
+		var node: Dictionary = json.nodes[id] if id < json.nodes.size() else {}
+		if node.has("instanceMatrix") and int(node.instanceMatrix.count) == src:
+			slim_instances[id] = list
 
 
 func buffer(id: int) -> PackedByteArray:
@@ -148,14 +198,19 @@ func _mesh(n: Dictionary) -> ArrayMesh:
 				arrays[Mesh.ARRAY_CUSTOM0 + k] = bytes.to_float32_array()
 				flags |= ([Mesh.ARRAY_CUSTOM_R_FLOAT, Mesh.ARRAY_CUSTOM_RG_FLOAT, Mesh.ARRAY_CUSTOM_RGB_FLOAT, Mesh.ARRAY_CUSTOM_RGBA_FLOAT][w - 1]) << (Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT + k * Mesh.ARRAY_FORMAT_CUSTOM_BITS)
 	var index := buffer(int(g.index.buffer)).to_int32_array()
+	var groups: Array = g.groups
+	var slim: Array = _slim.get(int(n.geometry), [])
+	if not slim.is_empty():
+		index = slim[0]
+		groups = slim[1]
 	var prim := Mesh.PRIMITIVE_POINTS if n.primitive == "points" else Mesh.PRIMITIVE_LINES if n.primitive == "lines" else Mesh.PRIMITIVE_TRIANGLES
 	var mesh := ArrayMesh.new()
-	var groups: Array = g.groups
 	if groups.is_empty():
 		groups = [[0, index.size(), 0]]
 	for gr in groups:
 		var mat: Material = mats[mini(int(gr[2]), mats.size() - 1)]
-		if mat == null:
+		# the slim bake can hide every triangle of a group
+		if mat == null or (int(gr[1]) == 0 and prim != Mesh.PRIMITIVE_POINTS):
 			continue
 		var a2 := arrays.duplicate()
 		if prim == Mesh.PRIMITIVE_POINTS:

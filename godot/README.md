@@ -19,7 +19,7 @@ node godot/tools/ts2gd/ts2gd.mjs                     # src/sim, items, loadout, 
 THREE_MODULE=node_modules/three/build/three.module.js \
   node --experimental-transform-types --no-warnings --import ./godot/tools/node/register.mjs \
   godot/tools/bake/bake_parts.ts                     # robot parts -> godot/assets/bots
-godot --headless --path godot -s res://tools/bake/bake_lite.gd   # the simplified armour the app draws
+godot --headless --path godot -s res://tools/bake/bake_lite.gd   # the simplified armour the app draws (30k a robot at most)
 ```
 
 After re-baking the arena (`node godot/tools/bake/web/run.mjs venue`, with `serve.mjs` running),
@@ -28,6 +28,26 @@ move its seat backs into the crowd shader (59k fewer triangles in the stands, sa
 ```sh
 node --experimental-transform-types --no-warnings godot/tools/bake/seat_backs.ts
 ```
+
+Every baked place and the camera drones are then brought within their triangle budgets (the
+ring with its arena or event venue at most 50k, a drone 3k): `<bake>.slim` holds lighter triangle
+lists the game draws instead, made by the editor's mesh simplifier as things look from where the
+fight cameras go (`tools/bake/lens_points.json`, recorded by `tests/lens_points.gd`). Re-run the
+one you re-baked (the last number is the ring, drawn with every event venue), then check them all:
+
+```sh
+BB_SLIM_MAX=45 godot --headless --path godot -s res://tools/bake/slim_scene.gd -- res://assets/venue/arena 49000
+godot --headless --path godot -s res://tools/bake/slim_scene.gd -- res://assets/venues/island 49500 13218
+BB_SLIM_PARTS=1 BB_SLIM_MAX=45 godot --headless --path godot -s res://tools/bake/slim_scene.gd -- res://assets/venues/grove 49500 13218
+BB_SLIM_MAX=100 BB_SLIM_THIN=0.1 godot --headless --path godot -s res://tools/bake/slim_scene.gd -- res://assets/venues/rooftop 49500 13218
+BB_SLIM_OBJECT=2.5 godot --headless --path godot -s res://tools/bake/slim_scene.gd -- res://assets/drones/drones 2500
+BB_VENUE_SYNC=1 godot --headless --path godot -s res://tests/tri_budget.gd   # robots, places, drones
+```
+
+A stale `.slim` (its bake changed since) is ignored, so a forgotten re-run only costs triangles.
+`BB_FULL_SCENES=1` draws the full bakes, to compare. `BB_SLIM_CACHE=<dir>` keeps the slow
+which-faces-are-seen pass between runs. Grove (57k) and Skydeck 88 (75k, its world map) are still
+over 50k: tests/tri_budget.gd allows them for now (PLACE_OVER).
 
 Then check the translated sim still matches the web one step for step (any difference is a bug):
 
