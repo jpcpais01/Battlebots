@@ -172,8 +172,10 @@ func set_used(n: int) -> void:
 
 ## Per frame: the shader clock, visibility, and the upload if anything was born.
 func flush(clock: float) -> void:
-	mat.set_shader_parameter("now", clock)
 	visible = _warming or (clock < expires and _used > 0)
+	# (a material's every parameter change rebuilds its uniform buffer: a hidden pool's clock waits)
+	if visible:
+		mat.set_shader_parameter("now", clock)
 	if _dirty:
 		_dirty = false
 		RenderingServer.multimesh_set_buffer(multimesh.get_rid(), buf)

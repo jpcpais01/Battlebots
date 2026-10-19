@@ -334,6 +334,8 @@ func _build() -> void:
 		# the bones move the corners on the GPU: the box has to hold any pose (until _upload
 		# fits it round the pose)
 		m.custom_aabb = AABB(Vector3(-2, -2.2, -2) * size, Vector3(4, 4.4, 4) * size)
+		# (lit by the follow spots too)
+		m.layers |= FollowSpots.LAYER
 		add_child(m)
 
 	# contact hulls from the real armour (bake_parts.ts builds them as botModel.ts does), unpacked
@@ -1379,6 +1381,7 @@ func detach_piece(part: int) -> Node3D:
 		mi.mesh = mesh
 		mi.material_override = mat
 		mi.custom_aabb = box
+		mi.layers |= FollowSpots.LAYER
 		if not opaque:
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		node.add_child(mi)

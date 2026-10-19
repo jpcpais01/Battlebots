@@ -610,6 +610,9 @@ class GpuProbe extends RefCounted:
 	const OTHER := PARTS + 3
 	## Visual layer bits the parts move to (layers 13 to 19: nothing else here uses them).
 	const BIT0 := 12
+	## Layers only lights look at (the follow spots': FollowSpots.LAYER): a mesh moved to its
+	## part's layer keeps them, so it stays lit as it was, and the probe's camera ignores them.
+	const LIGHT_ONLY := FollowSpots.LAYER
 	## The versions drawn: full, without shadows, without glow, then without each part.
 	const V_FULL := 0
 	const V_NO_SHADOW := 1
@@ -697,7 +700,7 @@ class GpuProbe extends RefCounted:
 		refused = _check_masks()
 		if refused != "":
 			return
-		_full_mask = _main_cam.cull_mask
+		_full_mask = _main_cam.cull_mask & ~LIGHT_ONLY
 		_index_arena()
 		_build()
 
@@ -721,6 +724,9 @@ class GpuProbe extends RefCounted:
 		for n in _scene.find_children("*", "Node3D", true, false):
 			if n is Light3D:
 				var l := n as Light3D
+				# (a light of the light-only layers lights the meshes moved just as before)
+				if (l.light_cull_mask & ~LIGHT_ONLY) == 0 and not l.shadow_enabled:
+					continue
 				if (l.light_cull_mask & _all_bits) != _all_bits or (l.shadow_caster_mask & _all_bits) != _all_bits:
 					return "Light %s skips layers 13-19." % l.name
 			elif n is ReflectionProbe or n is Decal:
@@ -822,7 +828,7 @@ class GpuProbe extends RefCounted:
 			if _orig.has(id) or (g.layers & _full_mask) != 0:
 				if not _orig.has(id):
 					_orig[id] = g.layers
-				g.layers = 1 << (BIT0 + p)
+				g.layers = (1 << (BIT0 + p)) | (int(_orig[id]) & LIGHT_ONLY)
 				_count[p] += 1
 		for c in n.get_children():
 			# (other viewports are other pictures: the scoreboard's, this probe's own)

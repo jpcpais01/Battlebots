@@ -45,6 +45,14 @@ const int REFINE = 5;
 const float MAX_DIST = 9.0;
 // the golden angle: the spiral's taps spread evenly however many there are
 const float GOLDEN = 2.39996323;
+// the spiral's sixteen directions, (cos, sin) of k * GOLDEN (a pixel's taps are k = i * 4 + q, or
+// k = i on its own): looked up, not worked out per tap
+const vec2 SPIRAL[16] = vec2[](vec2(1.0000000, 0.0000000), vec2(-0.7373689, 0.6754903), vec2(0.0874257, -0.9961710), vec2(0.6084389, 0.7936008), vec2(-0.9847135, -0.1741820), vec2(0.8437553, -0.5367281), vec2(-0.2596043, 0.9657151), vec2(-0.4609070, -0.8874484), vec2(0.9393213, 0.3430386), vec2(-0.9243456, 0.3815564), vec2(0.4238460, -0.9057343), vec2(0.2992839, 0.9541641), vec2(-0.8652112, -0.5014076), vec2(0.9766758, -0.2147194), vec2(-0.5751294, 0.8180624), vec2(-0.1285107, -0.9917081));
+// Far off (the stands, the crowd, the boards round the bowl) the trace fades out between these
+// view depths (m), and a quad wholly past the second skips it: a quarter of a metre of occlusion
+// is a pixel or two there, and those pixels are often a third of the frame.
+const float FAR0 = 13.0;
+const float FAR1 = 18.0;
 // a 4x4 ordered pattern, for where neighbouring quads start their steps
 const int BAYER[16] = int[](0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5);
 
@@ -76,6 +84,14 @@ void fragment() {
 	float sy = alike(z, z + DFDY(z) * sgn.y) * trust;
 	// a pixel that can't share does its whole quad's work itself
 	bool shared = trust > 0.5;
+	// past FAR1, the whole quad (all four alike, or a quad that can't vouch for its neighbours
+	// doing its own): nothing traced, nothing changed (the sharing below still runs for all four)
+	float far_k = smoothstep(FAR0, FAR1, -z);
+	float fv = far_k > 0.999 ? 1.0 : 0.0;
+	float fx = fv + DFDX(fv) * sgn.x;
+	float fy = fv + DFDY(fv) * sgn.y;
+	float fd = fy + DFDX(fy) * sgn.x;
+	bool skip = sky || (shared && min(min(fv, fx), min(fy, fd)) > 0.5);
 	int n_s = shared ? SAMPLES : SAMPLES * 4;
 	int n_cs = shared ? CS_STEPS : CS_STEPS * 4;
 	int n_r = shared ? STEPS : STEPS * 2;
@@ -86,7 +102,7 @@ void fragment() {
 	if (sx > 0.5 && sy > 0.5 && nl > 1e-12) {
 		n /= nl;
 		n = dot(n, p) > 0.0 ? -n : n;
-	} else {
+	} else if (!skip) {
 		n = view_normal(home, p, size, ip);
 	}
 
@@ -96,13 +112,12 @@ void fragment() {
 	float r2 = radius * radius;
 	float occ = 0.0;
 	vec3 bounce = vec3(0.0);
-	if (!sky) {
+	if (!skip) {
 		for (int i = 0; i < n_s; i++) {
-			float k = shared ? float(i * 4 + q) : float(i);
-			float a = (k + 0.5) / float(SAMPLES * 4);
-			float ang = k * GOLDEN;
+			int ki = shared ? i * 4 + q : i;
+			float a = (float(ki) + 0.5) / float(SAMPLES * 4);
 			float rad = a * a * r_px + 1.5;
-			vec2 suv = uv0 + vec2(cos(ang), sin(ang)) * rad / vec2(size);
+			vec2 suv = uv0 + SPIRAL[ki] * rad / vec2(size);
 			if (suv.x < 0.0 || suv.y < 0.0 || suv.x >= 1.0 || suv.y >= 1.0) {
 				continue;
 			}
@@ -141,7 +156,7 @@ void fragment() {
 	bool facing = false;
 	float t_hit = CS_LEN;
 	float block = 0.0;
-	if (amounts.z > 0.0 && !sky) {
+	if (amounts.z > 0.0 && !skip) {
 		vec3 kv = (VIEW_MATRIX * vec4(key_pos, 1.0)).xyz;
 		l = normalize(kv - p);
 		facing = dot(l, n) > 0.05;
@@ -336,6 +351,8 @@ void fragment() {
 	wt += (wt + wt_y * sgn.y) * sy;
 	rw += (rw + rw_y * sgn.y) * sy;
 	vec4 light = wt > 1e-4 ? lw / wt : vec4(0.0, 0.0, 0.0, 1.0);
+	// (faded out into the distance, to nothing where the quads skip it)
+	light = vec4(light.rgb * (1.0 - far_k), mix(light.a, 1.0, far_k));
 	vec3 refl_c = rw > 1e-4 ? rf.rgb / rw : vec3(0.0);
 
 	// glowing screens, lamps and LEDs give light rather than take shade (rt.ts RT_COMPOSITE)

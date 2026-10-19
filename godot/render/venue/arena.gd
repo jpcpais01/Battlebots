@@ -76,6 +76,10 @@ func _init() -> void:
 	scene.factory = mats.make
 	scene.build(self)
 	mats.mark_clear(scene)
+	# the canvas (the ring's first mesh) is lit by the follow spots' pools
+	var ring := node("arena")
+	if ring != null and ring.get_child_count() > 0 and ring.get_child(0) is MeshInstance3D:
+		(ring.get_child(0) as MeshInstance3D).layers |= FollowSpots.LAYER
 	var crowd_mats: Array = mats.by_kind.get("crowd", [])
 	crowd = ArenaCrowd.new(crowd_mats[0] if crowd_mats.size() > 0 else null)
 	var flash_mats: Array = mats.by_kind.get("photo_flash", [])
