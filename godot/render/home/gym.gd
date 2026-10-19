@@ -224,6 +224,8 @@ func _init() -> void:
 	_sky.process_mode = Sky.PROCESS_MODE_QUALITY
 	_sky.radiance_size = Sky.RADIANCE_SIZE_128
 	_doors()
+	# (the bake's geometry bytes are on the GPU now: let them go)
+	scene.release()
 
 
 static func _mat(node: Node) -> ShaderMaterial:

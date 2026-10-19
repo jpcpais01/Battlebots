@@ -101,13 +101,18 @@ static var _flash_tex: GradientTexture2D
 var _layer := {}
 var _shown := {}
 var _moving := {}
-## The end-of-fight word's pieces: each a plain node holding its three layers (glow, soft shadow,
-## the piece), faded as one (CSS opacity on the span) while it fades in or out. A fading piece is
-## drawn as a canvas group (its layers composited off screen, then faded together, so the glow
-## doesn't show through the face); once it's fully in it's drawn plainly, as a canvas group costs a
-## copy of the whole screen every frame on a phone's tiled GPU.
-var _spans: Array[Node2D] = []
-var _span_group: Array[bool] = [false, false, false]
+## The end-of-fight word's pieces: each a canvas group holding its three layers (glow, soft
+## shadow, the piece), faded as one (CSS opacity on the span) while it fades in or out: its layers
+## are composited off screen, then faded together, so the glow doesn't show through the face.
+## Once a piece is fully in, its group is switched off and the layers draw plainly (the same
+## picture at full opacity), as a canvas group costs a copy of the whole screen every frame on a
+## phone's tiled GPU, and the word stays up for seconds.
+var _spans: Array[CanvasGroup] = []
+var _span_group: Array[bool] = [true, true, true]
+## Each piece's clip: what the canvas group showed of its layers (their rect and its 10 px fit
+## margin, CanvasGroup's default), kept when the group is off, so the piece looks the same either
+## way. A scissor, which costs nothing like a group's copy of the screen.
+var _span_clip: Array[Control] = []
 var _span_ctl: Array[Control] = []
 var _span_px := 100
 var _span_mat: Array[ShaderMaterial] = []
@@ -115,9 +120,14 @@ var _span_mat: Array[ShaderMaterial] = []
 ## (they're moved, scaled and faded as nodes), and the pieces' widths for it.
 var _span_key := ""
 var _span_w: Array[float] = []
-## The room round each piece's layers (font sizes): glow, shadow and the glyphs' overshoot all
-## stay inside the layer's rect, so a fading piece's canvas group never cuts them off.
-const SPAN_PAD := 0.6
+## The room round each piece's layers, in font sizes. At 0 the layers are the piece's own box, and
+## the group (and the clip after it) cuts off what reaches past it and its margin: the tops of
+## the K and the O, the soft shadow's lower edge and much of the glow, as the word has always
+## looked here. At 0.6 the glow, the shadow and the glyphs' overshoot all fit inside: the word as
+## the web draws it.
+const SPAN_PAD := 0.0
+## CanvasGroup's fit margin round its layers (render target pixels).
+const SPAN_FIT := 10.0
 # faces: the loud one italic and upright (distance field, sharp at any scale), their glow twins,
 # the upright one for small print, and the body face
 var _fi: Font
@@ -219,9 +229,14 @@ func _init() -> void:
 	for k in 3:
 		# each piece, faded as one (CSS opacity on the span): its glow, its soft drop shadow, then
 		# the piece (hard edge, depth, face)
-		var grp := Node2D.new()
+		var grp := CanvasGroup.new()
 		grp.visible = false
 		add_child(grp)
+		var clip := Control.new()
+		clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		clip.clip_contents = true
+		grp.add_child(clip)
+		_span_clip.append(clip)
 		var mat := ShaderMaterial.new()
 		mat.shader = _shader(FACE_SHADER)
 		var mats: Array[Material] = [_glow_mat(), _glow_mat(), mat]
@@ -231,7 +246,7 @@ func _init() -> void:
 			c.material = mats[j]
 			var fn := _draw_span.bind(k, j)
 			c.draw.connect(func() -> void: fn.call(c))
-			grp.add_child(c)
+			clip.add_child(c)
 			_span_ctl.append(c)
 		_spans.append(grp)
 		_span_mat.append(mat)
@@ -1160,7 +1175,6 @@ func _place_spans() -> void:
 			_span_w.append(wk)
 			for j in 3:
 				var c := _span_ctl[k * 3 + j]
-				c.position = Vector2(-pad, -pad)
 				c.size = Vector2(wk, big) + Vector2(pad, pad) * 2.0
 				c.queue_redraw()
 	var total := 0.0
@@ -1198,6 +1212,7 @@ func _place_spans() -> void:
 		var sc := Vector2.ONE * (sw * ss)
 		if grp.scale != sc:
 			grp.scale = sc
+		_place_clip(k, wk, big)
 		var ga := a * oa
 		grp.visible = ga > 0.0
 		# (faded: composited as a group; fully in: drawn plainly, and no fade to apply)
@@ -1209,17 +1224,38 @@ func _place_spans() -> void:
 		x += wk
 
 
+## Piece `k`'s clip where its canvas group's rect would be: its layers' box (with SPAN_PAD) and
+## SPAN_FIT render target pixels round it, at the piece's scale now. The layers stay put in the
+## piece's own space as the clip moves round them.
+func _place_clip(k: int, wk: float, big: float) -> void:
+	var gs := _spans[k].get_global_transform_with_canvas().get_scale().x
+	var m := SPAN_FIT / maxf(gs, 1e-3)
+	var pad := SPAN_PAD * big
+	var clip := _span_clip[k]
+	var at := Vector2(-pad - m, -pad - m)
+	if clip.position == at and clip.size.x == wk + 2.0 * (pad + m):
+		return
+	clip.position = at
+	clip.size = Vector2(wk, big) + Vector2(pad + m, pad + m) * 2.0
+	for j in 3:
+		_span_ctl[k * 3 + j].position = Vector2(m, m)
+
+
 ## Piece `k` drawn as a canvas group (its layers composited, then faded together) or plainly.
-## (CanvasGroup's own settings: a 10 px margin cleared and fitted round its layers.)
+## Off, the group's mode is switched off under the node, and the rect the group drew its
+## composite with is cleared away (it would stay behind, white); on, setting its margin hands the
+## node's own settings back to the renderer (and redraws it).
 func _set_group(k: int, on: bool) -> void:
 	if _span_group[k] == on:
 		return
 	_span_group[k] = on
-	var rid := _spans[k].get_canvas_item()
+	var grp := _spans[k]
 	if on:
-		RenderingServer.canvas_item_set_canvas_group_mode(rid, RenderingServer.CANVAS_GROUP_MODE_CLIP_AND_DRAW, 10.0, true, 10.0, false)
+		grp.fit_margin = grp.fit_margin
 	else:
+		var rid := grp.get_canvas_item()
 		RenderingServer.canvas_item_set_canvas_group_mode(rid, RenderingServer.CANVAS_GROUP_MODE_DISABLED)
+		RenderingServer.canvas_item_clear(rid)
 
 
 ## One piece's layer (`part`): 0 its glow, 1 its soft drop shadow, 2 the piece itself (a hard

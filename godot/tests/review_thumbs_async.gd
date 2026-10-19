@@ -32,6 +32,7 @@ func _shots(th: PartThumbs, rarity: int, use_async: bool) -> Dictionary:
 	var on_ready := func(k: String, t: Texture2D) -> void:
 		got[k] = t.get_image()
 		order.append(k)
+		print("  landed %d: %s" % [order.size(), k])
 	th.ready_thumb.connect(on_ready)
 	var keys: Array = []
 	for slot in TItems.SLOTS:
@@ -46,6 +47,8 @@ func _shots(th: PartThumbs, rarity: int, use_async: bool) -> Dictionary:
 		await process_frame
 		frames += 1
 		max_reading = maxi(max_reading, th.reading)
+		if frames % 10 == 0:
+			print("  frame %d: %d landed, %d in flight" % [frames, got.size(), th.reading])
 	th.ready_thumb.disconnect(on_ready)
 	print("%s: %d pictures in %d frames, up to %d read-backs in flight" % ["async" if use_async else "get_image", got.size(), frames, max_reading])
 	_check(got.size() == keys.size(), "every picture landed (%s)" % ("async" if use_async else "get_image"))

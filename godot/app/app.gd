@@ -249,8 +249,9 @@ func _unhandled_input(e: InputEvent) -> void:
 
 
 ## Android's back button. It arrives as this notification (to every node), never as ui_cancel,
-## which is what the screens, cards and the results listen for; the pause menu took it alone and
-## asked the fight to pause, which does nothing off a fight (and paused over the results).
+## which is what the screens, cards and the results listen for, and the fight's pause menu can
+## only pause, which means nothing off a fight (and over the results it put the pause menu up).
+## So the app routes it, and the pause menu leaves it to the app (PauseMenu.back_handled_above).
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
 		_go_back()

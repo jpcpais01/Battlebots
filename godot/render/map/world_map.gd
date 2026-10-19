@@ -596,6 +596,8 @@ func _finish() -> void:
 	_lift = _named.funicular
 	_lift_pts = _scene.floats(int(t.funicular.pts))
 	_lift_dt = float(t.funicular.dt)
+	# (the bake's geometry bytes are on the GPU now: let them go)
+	_scene.release()
 	sites.mat = _mats.by_kind.pillar[0]
 	sites.highlight(sites.picked)
 	_apply_time()

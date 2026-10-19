@@ -176,7 +176,8 @@ class CoachButton extends BaseButton:
 	## The sweep (conic-gradient(dark cd*360deg, transparent 0) from the top, clockwise) and the
 	## time left (.cb-left: 3px along the bottom, scaleX(left)), both clipped to the inside of the
 	## edge (a stadium `inset` in from the button's `size`), the bar over the sweep. In the
-	## button's own units (UV times size), antialiased over a pixel.
+	## button's own units (UV times size), antialiased over a pixel (each shape's cover the least of
+## its edges', so an edge it shares with the inside of the pill isn't faded twice).
 	const FX_SHADER := """shader_type canvas_item;
 uniform vec2 size = vec2(100.0, 40.0);
 uniform float inset = 1.0;
@@ -205,13 +206,13 @@ void fragment() {
 		float far = length(v);
 		sa = clamp(min(a, end - a) * far + 0.5, 0.0, 1.0);
 	}
-	sa *= sweep_col.a * inner;
+	sa = sweep_col.a * min(sa, inner);
 	float ba = 0.0;
 	if (left > 0.0) {
 		float x1 = inset + (size.x - 2.0 * inset) * left;
-		float bx = clamp(x1 - p.x + 0.5, 0.0, 1.0) * clamp(p.x - inset + 0.5, 0.0, 1.0);
-		float by = clamp(p.y - (size.y - inset - bar_h) + 0.5, 0.0, 1.0) * clamp(size.y - inset - p.y + 0.5, 0.0, 1.0);
-		ba = bar_col.a * bx * by * inner;
+		float bx = min(clamp(x1 - p.x + 0.5, 0.0, 1.0), clamp(p.x - inset + 0.5, 0.0, 1.0));
+		float by = min(clamp(p.y - (size.y - inset - bar_h) + 0.5, 0.0, 1.0), clamp(size.y - inset - p.y + 0.5, 0.0, 1.0));
+		ba = bar_col.a * min(min(bx, by), inner);
 	}
 	float a = ba + sa * (1.0 - ba);
 	COLOR = vec4((bar_col.rgb * ba + sweep_col.rgb * sa * (1.0 - ba)) / max(a, 1e-4), a);
