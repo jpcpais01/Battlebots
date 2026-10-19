@@ -103,6 +103,14 @@ class Speech extends RefCounted:
 ## Encoded clips by file: bytes, or null while waiting to be read.
 var _enc := {}
 var _wanted: Array[String] = []
+## Clips handed in with add() (a name the player voiced): never evicted, never re-read.
+var _pinned := {}
+## Clips wanted outside the booth's stock (prime, a fetch for a line with nothing loaded, a
+## replay's script) or spoken since the last stock(): kept through the next one, then evictable.
+var _extra := {}
+## flush()'s background read: the WorkerThreadPool task (-1 none) and what it hands back.
+var _bg_task := -1
+var _bg: _Batch = null
 ## Decoded (AudioStreamMP3) by file, oldest first.
 var _dec := {}
 ## Clips to decode ahead of time, one a frame so they never bunch up.
@@ -119,6 +127,13 @@ var duck_level := 0.0
 var duck_gain := 1.0
 ## Commentary volume, 0..1 (sfx.ts commentary: the bus gain).
 var level := 1.0
+
+
+## Files read off the main thread: the worker fills `out` under the lock as it goes.
+class _Batch extends RefCounted:
+	var files: Array[String] = []
+	var out := {}
+	var lock := Mutex.new()
 
 
 ## The list of every line and name clip (voice.ts fetchManifest); null when the app ships
@@ -144,6 +159,11 @@ func _ready() -> void:
 		_players.append(p)
 		_free.append(p)
 	set_level(level)
+
+
+func _exit_tree() -> void:
+	# (don't leave a read running against a voice that's going away)
+	_bg_finish()
 
 
 ## The Voice bus chain and the two panned voice buses (made here, at runtime, so the shared
@@ -233,6 +253,7 @@ func set_level(v: float) -> void:
 ## A clip that didn't come from the pack (a name the player had voiced).
 func add(file: String, bytes: PackedByteArray) -> void:
 	_enc[file] = bytes
+	_pinned[file] = true
 
 
 ## The clip is loaded and can start right away.
@@ -242,6 +263,41 @@ func ready(file: String) -> bool:
 
 ## Load these in the background, a few a frame.
 func want(files: Array) -> void:
+	for f in files:
+		_extra[f] = true
+		if not _enc.has(f):
+			_enc[f] = null
+			_wanted.append(f)
+
+
+## The booth's deck of lines to keep loaded (its restock after each fight): loads what's new, as
+## want() does, and lets go of the bytes of clips nothing wants any more: not in this stock, not
+## wanted or spoken since the last one, not decoded or about to be. Otherwise every restock's
+## lines would stay in memory for the whole session, creeping toward the whole 73 MB pack.
+func stock(files: Array) -> void:
+	var keep := {}
+	for f in files:
+		keep[f] = true
+	for f in _extra:
+		keep[f] = true
+	for f in _dec:
+		keep[f] = true
+	for f in _prime_q:
+		keep[f] = true
+	var drop: Array = []
+	for f in _enc:
+		if not keep.has(f) and not _pinned.has(f):
+			drop.append(f)
+	for f in drop:
+		_enc.erase(f)
+	if not drop.is_empty():
+		# (still queued to be read: no need now; a background read's copy is ignored on arrival)
+		var still: Array[String] = []
+		for f in _wanted:
+			if _enc.has(f):
+				still.append(f)
+		_wanted = still
+	_extra = {}
 	for f in files:
 		if not _enc.has(f):
 			_enc[f] = null
@@ -268,12 +324,68 @@ func prime(files: Array) -> void:
 		_wanted = soon
 
 
-## Reads everything wanted so far, now. The web has the booth's first stock downloaded long
-## before a fight (sfx.ts preload, at app start); here the app opens on a fight, so the fight
-## scene reads that stock while it loads (about a thousand small files, tens of ms).
+## Reads everything wanted so far, all at once rather than a few a frame. The web has the booth's
+## first stock downloaded long before a fight (sfx.ts preload, at app start); here the fight scene
+## asks for it while it loads. That's about a thousand files (~16 MB), far too much for one boot
+## frame on a phone, so they're read on a WorkerThreadPool task and land over the next frames
+## (well under a second), long before the first fight wants a line.
 func flush() -> void:
-	while not _wanted.is_empty():
-		_read(_wanted.pop_front())
+	if _wanted.is_empty():
+		return
+	if _bg_task >= 0:
+		# one read at a time: the rest come in a few a frame, or with the next flush
+		return
+	_bg = _Batch.new()
+	_bg.files = _wanted
+	_wanted = []
+	_bg_task = WorkerThreadPool.add_task(_read_batch.bind(_bg), false, "Voice.flush")
+
+
+## The worker's side of flush(): file reads only, into the batch (no node, no shared state).
+static func _read_batch(b: _Batch) -> void:
+	for f in b.files:
+		var bytes := FileAccess.get_file_as_bytes(BASE + "c/" + f.get_basename() + ".bin")
+		b.lock.lock()
+		b.out[f] = bytes
+		b.lock.unlock()
+
+
+## Takes in what the background read has finished so far; once it's all done, retires the task.
+func _bg_take() -> void:
+	var done := WorkerThreadPool.is_task_completed(_bg_task)
+	if done:
+		WorkerThreadPool.wait_for_task_completion(_bg_task)
+		_bg_task = -1
+	_bg.lock.lock()
+	var got := _bg.out
+	_bg.out = {}
+	_bg.lock.unlock()
+	for f in got:
+		# (evicted by a stock while it was being read, or already read some other way: skip)
+		if not _enc.has(f) or _enc[f] != null:
+			continue
+		var bytes: PackedByteArray = got[f]
+		if bytes.is_empty():
+			_enc.erase(f) # try again next time it's wanted
+		else:
+			_enc[f] = bytes
+	if done:
+		_bg = null
+
+
+## Waits for a background read still running and takes in all of it.
+func _bg_finish() -> void:
+	if _bg_task < 0:
+		return
+	WorkerThreadPool.wait_for_task_completion(_bg_task)
+	_bg_task = -1
+	_bg.lock.lock()
+	var got := _bg.out
+	_bg.lock.unlock()
+	for f in got:
+		if _enc.has(f) and _enc[f] == null and not (got[f] as PackedByteArray).is_empty():
+			_enc[f] = got[f]
+	_bg = null
 
 
 func _read(f: String) -> void:
@@ -327,6 +439,8 @@ func speak(clips: Array, energy: float, within: float, voice: String) -> Speech:
 	s._voice = self
 	var streams: Array[AudioStreamMP3] = []
 	for c in clips:
+		# (kept through the next stock, so a replay of this fight still finds it)
+		_extra[c.clip[0]] = true
 		var st := _decode(c.clip[0])
 		if st == null:
 			s.done = true
@@ -369,6 +483,8 @@ func _process(dt: float) -> void:
 
 func _tick(dt: float) -> void:
 	_now += dt
+	if _bg_task >= 0:
+		_bg_take()
 	if not _wanted.is_empty():
 		_pump()
 	if not _prime_q.is_empty():

@@ -34,7 +34,8 @@ void vertex() {
 	// a flash of the light from above as a piece turns face-up
 	v_c = c * (0.55 + 0.45 * v_spin) * (1.0 - 0.35 * (1.0 - air));
 	vec4 mv = MODELVIEW_MATRIX * vec4(p, 1.0);
-	POINT_SIZE = alive * VIEWPORT_SIZE.y * 0.075 / -mv.z;
+	// (capped: a piece drifting past the lens would cover a big share of the screen, blended)
+	POINT_SIZE = min(alive * VIEWPORT_SIZE.y * 0.075 / -mv.z, VIEWPORT_SIZE.y * 0.05);
 	POSITION = alive > 0.0 ? PROJECTION_MATRIX * mv : vec4(2.0, 2.0, 2.0, 1.0);
 }
 

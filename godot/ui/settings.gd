@@ -49,9 +49,11 @@ const KEY_SIZE := {"heavy": 0.8}
 ## arena.ts, show.ts and ao.ts, translated):
 ## - msaa: 3D multisampling (cheap on a phone's tiled GPU, so even Low keeps 2x);
 ## - shadow: the key spot's shadow, its size (the spot gets a whole atlas quadrant, so half the
-##   atlas: 1024 on Med, 2048 on High, as stage.ts mapSize) and its filter;
+##   atlas: 1024 on Med, 2048 on High, as stage.ts mapSize; none on Low, which has no shadow) and
+##   its filter;
 ## - glow: the bloom (High also upsamples it bicubically, smoother on the LED and beacons);
-## - aniso: texture filtering at grazing angles (the canvas, the crowd's atlas);
+## - aniso: texture filtering at grazing angles (the canvas, the LEDs; 8x on High looks the same
+##   as 16x on a phone's screen for less work a pixel);
 ## - beams: the haze beams from the truss and the moving heads (arena.ts / show.ts skip them on
 ##   low: a stack of screen-sized additive layers, the heaviest fill on a phone);
 ## - ao_map: the contact shadows' floor map (ao.ts MAP_SIZE);
@@ -60,10 +62,14 @@ const KEY_SIZE := {"heavy": 0.8}
 ## A reduced 3D resolution is upscaled bilinearly: Godot 4.7 has FSR 1 on Forward+ only (the
 ## Mobile renderer warns and falls back), so FSR is used only where the game runs on Forward+.
 const TIERS := {
-	"low": {"msaa": Viewport.MSAA_2X, "shadow": false, "atlas": 2048, "soft": RenderingServer.SHADOW_QUALITY_HARD, "glow": false, "bicubic": false, "aniso": Viewport.ANISOTROPY_2X, "beams": false, "ao_map": 256, "detail": false, "res_px": 720},
+	"low": {"msaa": Viewport.MSAA_2X, "shadow": false, "atlas": 0, "soft": RenderingServer.SHADOW_QUALITY_HARD, "glow": false, "bicubic": false, "aniso": Viewport.ANISOTROPY_2X, "beams": false, "ao_map": 256, "detail": false, "res_px": 720},
 	"med": {"msaa": Viewport.MSAA_2X, "shadow": true, "atlas": 2048, "soft": RenderingServer.SHADOW_QUALITY_HARD, "glow": true, "bicubic": false, "aniso": Viewport.ANISOTROPY_4X, "beams": true, "ao_map": 384, "detail": false, "res_px": 900},
-	"high": {"msaa": Viewport.MSAA_4X, "shadow": true, "atlas": 4096, "soft": RenderingServer.SHADOW_QUALITY_SOFT_LOW, "glow": true, "bicubic": true, "aniso": Viewport.ANISOTROPY_16X, "beams": true, "ao_map": 512, "detail": true, "res_px": 0},
+	"high": {"msaa": Viewport.MSAA_4X, "shadow": true, "atlas": 4096, "soft": RenderingServer.SHADOW_QUALITY_SOFT_LOW, "glow": true, "bicubic": true, "aniso": Viewport.ANISOTROPY_8X, "beams": true, "ao_map": 512, "detail": true, "res_px": 0},
 }
+
+## Whether the tier in force has bloom (the world map's glows are drawn brighter for it, whether
+## or not the renderer can show the bloom itself).
+static var tier_glow := true
 
 ## Where the settings live (a test points this somewhere else, and its renderer file too).
 static var path := PATH
@@ -72,9 +78,9 @@ static var renderer_path := RENDERER_PATH
 var sound := true
 var commentary := 1.0
 var zoom := "normal"
-## The FPS counter (the web's Performance stats). On by default here: the counter shipped
-## visible before it had a switch.
-var perf_stats := true
+## The performance overlay (the web's Performance stats). Off by default: it's a tool for
+## looking into the game's cost, and it costs something itself.
+var perf_stats := false
 ## "" = Auto (picked for the device), else low / med / high.
 var quality := ""
 ## 0 = Auto (the governor), else a fixed share of the screen's pixels.
@@ -230,6 +236,7 @@ func set_zoom(z: String) -> void:
 
 func set_perf_stats(on: bool) -> void:
 	perf_stats = on
+	_write_renderer()
 	_apply_perf()
 	_changed()
 
@@ -316,8 +323,14 @@ func _apply_quality() -> void:
 	if key != null:
 		# (BB_NOSHADOW: tests that want none)
 		key.shadow_enabled = t.shadow and OS.get_environment("BB_NOSHADOW") == ""
+	tier_glow = t.glow
 	if env != null:
-		env.glow_enabled = t.glow and OS.get_environment("BB_NOGLOW") == ""
+		# Not on the Mobile renderer (the phones): it keeps the 3D frame in 10 bits a channel at
+		# half scale, so nothing in it is ever brighter than 2.0, and the bloom only starts past
+		# 3.0 (fight.gd): it drew nothing at all there, yet cost its blur passes and the store
+		# and reload of the whole frame every frame (checked on the Mobile renderer in the cloud:
+		# a 20x-bright light got no halo). Forward+ (Ray tracing Heavy) keeps the full range.
+		env.glow_enabled = t.glow and renderer() != "mobile" and OS.get_environment("BB_NOGLOW") == ""
 		RenderingServer.environment_glow_set_use_bicubic_upscale(t.bicubic)
 	if arena != null:
 		for n in ["beams", "showBeams"]:
@@ -379,19 +392,28 @@ func _apply_rt() -> void:
 	RenderingServer.positional_soft_shadow_filter_set_quality(maxi(soft, RenderingServer.SHADOW_QUALITY_SOFT_HIGH) if m == "heavy" else soft)
 
 
-## Heavy asks for Forward+ in the renderer file; anything else takes the file away.
+## The renderer file (read before the renderer starts, so it takes effect from the next start):
+## Heavy asks for Forward+ in it, and Performance stats for the renderer's GPU stage stamps (the
+## overlay's live GPU rows). The stamps cost every frame (and the renderer prints a summary to
+## the log once a second), so a player without the overlay doesn't pay for them. Nothing asked
+## for: no file.
 func _write_renderer() -> void:
+	var cfg := ConfigFile.new()
 	if rt == "heavy":
-		if FileAccess.file_exists(renderer_path):
-			return
-		var cfg := ConfigFile.new()
 		cfg.set_value("rendering", "renderer/rendering_method", "forward_plus")
 		cfg.set_value("rendering", "renderer/rendering_method.mobile", "forward_plus")
-		var err := cfg.save(renderer_path)
-		if err != OK:
-			push_warning("settings: couldn't save %s (%s)" % [renderer_path, error_string(err)])
-	elif FileAccess.file_exists(renderer_path):
-		DirAccess.remove_absolute(ProjectSettings.globalize_path(renderer_path))
+	if perf_stats:
+		cfg.set_value("debug", "settings/stdout/print_gpu_profile", true)
+	var text := cfg.encode_to_text()
+	if cfg.get_sections().is_empty():
+		if FileAccess.file_exists(renderer_path):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(renderer_path))
+		return
+	if FileAccess.file_exists(renderer_path) and FileAccess.get_file_as_string(renderer_path) == text:
+		return
+	var err := cfg.save(renderer_path)
+	if err != OK:
+		push_warning("settings: couldn't save %s (%s)" % [renderer_path, error_string(err)])
 
 
 ## The 3D scale the screen shows: the player's fixed pick, or the governor's.

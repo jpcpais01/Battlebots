@@ -64,9 +64,10 @@ void vertex() {
 	}
 	v_seed = a_r.y * 37.0 + a_r.w * 11.0;
 	v_k = k;
-	v_a *= alive;
 	vec4 mv = MODELVIEW_MATRIX * vec4(p, 1.0);
-	POINT_SIZE = alive * VIEWPORT_SIZE.y * size / -mv.z;
+	// (faded and capped right at the lens: one puff there would blend over most of the screen)
+	v_a *= alive * smoothstep(0.3, 1.0, -mv.z);
+	POINT_SIZE = min(alive * VIEWPORT_SIZE.y * size / -mv.z, VIEWPORT_SIZE.y * 0.25);
 	POSITION = alive > 0.0 ? PROJECTION_MATRIX * mv : vec4(2.0, 2.0, 2.0, 1.0);
 }
 

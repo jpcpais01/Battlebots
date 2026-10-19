@@ -60,7 +60,7 @@ void fragment() {
 			base *= 0.92 + 0.08 * sin(y * 260.0);
 			vec3 r = reflect(-v, n);
 			vec3 f0 = base;
-			float ndv = max(n.z, 0.0);
+			float ndv = clamp(n.z, 0.0, 1.0);
 			vec3 fres = f0 + (1.0 - f0) * pow(1.0 - ndv, 5.0) * (1.0 - rough);
 			vec3 lit = fres * studio(r) * (1.0 - rough * 0.5) + base * 0.05;
 			lit += vec3(1.0) * pow(max(dot(n, normalize(vec3(-0.4, 0.6, 0.7) + v)), 0.0), 40.0 / (rough + 0.05)) * 0.4;

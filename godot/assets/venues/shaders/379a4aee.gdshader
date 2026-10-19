@@ -40,7 +40,7 @@ void vertex() {
 void fragment() {
 	vec4 bb_frag = vec4(0.0, 0.0, 0.0, 1.0);
         vec3 V = normalize(CAMERA_POSITION_WORLD - vW);
-        float fres = pow(1.0 - abs(dot(V, normalize(vN))), 3.0);
+        float fres = pow(max(1.0 - abs(dot(V, normalize(vN))), 0.0), 3.0);
         float edge = smoothstep(1.03, 1.15, vUV.y);
         vec3 c = vec3(0.35, 0.75, 1.0) * (0.025 + 0.22 * fres) + vec3(0.6, 0.9, 1.0) * edge * 0.3;
         bb_frag = vec4(c * uGlow * 0.5, 1.0);

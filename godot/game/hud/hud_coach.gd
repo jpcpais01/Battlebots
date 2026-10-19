@@ -46,15 +46,10 @@ func _init() -> void:
 static func px(c: Control) -> float:
 	var h := c.size.y if c.size.y > 0.0 else 720.0
 	var w := c.size.x if c.size.x > 0.0 else 1280.0
-	var win := Vector2(DisplayServer.window_get_size())
+	var win := HudKit.window_size()
 	if win.x <= 0.0 or win.y <= 0.0:
 		win = Vector2(w, h)
-	var dpr := 1.0
-	if OS.has_feature("mobile"):
-		dpr = maxf(1.0, DisplayServer.screen_get_dpi() / 160.0)
-	else:
-		dpr = maxf(1.0, DisplayServer.screen_get_scale())
-	return h / (win.y / dpr)
+	return h / (win.y / HudKit.css_ratio())
 
 
 ## CSS color-mix(in srgb, a p, b): premultiplied, as browsers mix.

@@ -18,7 +18,7 @@ uniform float intensity = 0.7;
 uniform vec3 hemi_tilt = vec3(-0.078, 0.0125, 0.133);
 
 vec3 skyCol(vec3 d) {
-	float h = max(d.y, 0.0);
+	float h = clamp(d.y, 0.0, 1.0);
 	float s = max(dot(d, sun), 0.0);
 	vec3 col = mix(horizon, zenith, pow(h, 0.42));
 	col = mix(col, glow, exp(-h * 30.0) * 0.45);

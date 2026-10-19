@@ -25,7 +25,7 @@ void vertex() {
 	a = max(a, step(0.9975, h(floor(bb_time * 10.0) + s * 91.0)));
 	v_a = a;
 	vec4 mv = MODELVIEW_MATRIX * vec4(VERTEX, 1.0);
-	POINT_SIZE = a > 0.0 ? VIEWPORT_SIZE.y * 0.3 / -mv.z : 0.0;
+	POINT_SIZE = a > 0.0 ? min(VIEWPORT_SIZE.y * 0.3 / -mv.z, VIEWPORT_SIZE.y * 0.08) : 0.0;
 }
 
 void fragment() {

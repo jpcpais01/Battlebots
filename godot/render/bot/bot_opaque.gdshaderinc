@@ -30,19 +30,27 @@ uniform vec4 bones[93];
 uniform vec4 surf[12];
 uniform float rough[12];
 uniform float time = 0.0;
+// a torn-off piece keeps the match clock from the global (bb_time, which the arena sets to the
+// same clock every frame) instead: its material then never changes after it flies off, so it is
+// never rebuilt and re-sent for that
+uniform bool piece_clock = false;
+global uniform float bb_time;
+
+float clock() {
+	return piece_clock ? bb_time : time;
+}
 // marks in a bone's own frame: xyz centre, w radius
 uniform vec4 marks[12];
 // per mark: the bone it sits on, its kind (0 none, 1 a torn-off part's socket, 2 oil), its strength
 uniform vec3 mark_b[12];
 // marks in use: slots below this (the first four are the sockets, the rest oil)
 uniform int mark_count = 0;
-// the contact occlusion's spheres that can reach each bone (bot_model.gd ao_lists): bone b's
-// are list entries (ao_at[b] & 1023) on, (ao_at[b] >> 10) of them; off: every sphere, as before.
-// The list packs four sphere numbers to an int, a byte each (std140 pads an int array to 16
-// bytes an element: packed, 768 entries take 768 bytes)
-uniform bool ao_listed = false;
-uniform ivec4 ao_pack[48];
-uniform int ao_at[31];
+// which robots' contact-occlusion spheres can reach each bone (bot_model.gd ao_masks): four bits
+// a bone (robot 0, 1, then a tag team's partners), eight bones to an int, bone b's in
+// ao_mask[b >> 3] at bit (b & 7) * 4. A robot's own spheres reach nearly all of its plating, so
+// per robot is as fine as it pays to be, and the four ints change only when the robots come
+// close or part (no upload most frames).
+uniform ivec4 ao_mask = ivec4(-1);
 // oily grime over the whole robot, 0..1
 uniform float grime = 0.0;
 // brushed grain, patchy sheen and a faint ripple in the plating (the web's high quality only;
@@ -144,15 +152,21 @@ void vertex() {
 		vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 		vec3 nw = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
 		float occ = 1.0;
-		if (ao_listed) {
-			int at = ao_at[b];
-			int end = (at & 1023) + (at >> 10);
-			for (int j = at & 1023; j < end; j++) {
-				int k = (ao_pack[j >> 4][(j >> 2) & 3] >> ((j & 3) * 8)) & 255;
-				occ *= ao_sphere(ao_sphere_at(k), world, nw, 1.8);
-			}
-		} else {
-			occ = ao_spheres(world, nw, 1.8);
+		// (the int picked by comparisons: indexing a vector's components by a value worked out
+		// while the shader runs is the kind of thing phone drivers get wrong)
+		int wi = b >> 3;
+		int word = wi == 0 ? ao_mask.x : (wi == 1 ? ao_mask.y : (wi == 2 ? ao_mask.z : ao_mask.w));
+		int bits = (word >> ((b & 7) * 4)) & 15;
+		for (int g = 0; g < 4; g++) {
+			if ((bits & (1 << g)) == 0)
+				continue;
+			// (a torn-off piece lists every robot: their bounds still skip the far ones)
+			vec4 bb = g == 0 ? bb_ao_b0 : (g == 1 ? bb_ao_b1 : (g == 2 ? bb_ao_b2 : bb_ao_b3));
+			vec3 bd = bb.xyz - world;
+			if (bb.w <= 0.0 || dot(bd, bd) > bb.w * bb.w)
+				continue;
+			for (int i = 0; i < AO_PER; i++)
+				occ *= ao_sphere(texelFetch(bb_ao_spheres, ivec2(i, g), 0), world, nw, 1.8);
 		}
 		v_ao = occ * ao_ground(world, nw, 0.0, 0.5, 0.5);
 	}
@@ -181,10 +195,10 @@ void fragment() {
 		// each bone's plating starts the pattern somewhere else, so no two parts match
 		vec3 sp = v_dmg_p + v_bone * vec3(1.37, 2.71, 0.93);
 		SkinOut base = SkinOut(albedo, metal, rgh, vec3(0.0), 0.0);
-		SkinOut a = skin_eval(SKIN_A, skin_c[0], skin_c[1], skin_c[2], skin_c[3], skin_p[0], sp, rn, nw, vw, time, sec, base);
+		SkinOut a = skin_eval(SKIN_A, skin_c[0], skin_c[1], skin_c[2], skin_c[3], skin_p[0], sp, rn, nw, vw, clock(), sec, base);
 #ifdef SKIN_SWEEP
 		if (skin_wipe < 50.0) {
-			SkinOut b = skin_eval(skin_kind.y, skin_c[4], skin_c[5], skin_c[6], skin_c[7], skin_p[1], sp, rn, nw, vw, time, sec, base);
+			SkinOut b = skin_eval(skin_kind.y, skin_c[4], skin_c[5], skin_c[6], skin_c[7], skin_p[1], sp, rn, nw, vw, clock(), sec, base);
 			float above = step(skin_wipe, v_my);
 			a.albedo = mix(a.albedo, b.albedo, above);
 			a.metal = mix(a.metal, b.metal, above);
@@ -304,7 +318,7 @@ void fragment() {
 		// as hot split edges), and the innards smoulder
 		float ridge = 1.0 - abs(dmg_noise(v_dmg_p * 26.0 + 9.0) * 2.0 - 1.0);
 		float crack = smoothstep(0.93, 0.98, ridge) * smoothstep(0.55, 0.9, w) * smoothstep(h_t - 0.05, h_t, spread) * (1.0 - hole);
-		float flick = 0.65 + 0.35 * sin(time * 23.0 + v_dmg_p.y * 40.0) * sin(time * 7.0 + v_dmg_p.x * 30.0);
+		float flick = 0.65 + 0.35 * sin(clock() * 23.0 + v_dmg_p.y * 40.0) * sin(clock() * 7.0 + v_dmg_p.x * 30.0);
 		float ember = smoothstep(h_t + 0.04, h_t + 0.1, spread) * smoothstep(0.45, 0.8, dmg_noise(v_dmg_p * 18.0 + 4.2)) * heavy;
 		emit += vec3(1.0, 0.32, 0.06) * (crack * 1.3 + ember * 0.5) * flick;
 	}

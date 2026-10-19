@@ -28,8 +28,9 @@ config/project_settings_override="user://renderer.cfg"
 [debug]
 
 # the renderer stamps each render stage on the GPU's clock (and prints a summary to the log once
-# a second): the performance overlay's live GPU rows read these (game/perf.gd)
-settings/stdout/print_gpu_profile=true
+# a second): the performance overlay's live GPU rows read these (game/perf.gd). Off here: the
+# Performance stats setting turns it on through user://renderer.cfg, from the next start
+settings/stdout/print_gpu_profile=false
 gdscript/warnings/shadowed_variable=0
 gdscript/warnings/shadowed_variable_base_class=0
 gdscript/warnings/shadowed_global_identifier=0

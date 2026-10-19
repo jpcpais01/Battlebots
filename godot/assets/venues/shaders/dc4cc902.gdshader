@@ -86,7 +86,7 @@ vFogDepth = - mvPosition.z;
 void fragment() {
 	vec4 bb_frag = vec4(0.0, 0.0, 0.0, 1.0);
         vec3 V = normalize((CAMERA_POSITION_WORLD - uMapShift) - vWorld);
-        float rim = vUv.y > 1.5 ? 0.6 : pow(1.0 - abs(dot(V, normalize(vN))), 2.0);
+        float rim = vUv.y > 1.5 ? 0.6 : pow(max(1.0 - abs(dot(V, normalize(vN))), 0.0), 2.0);
         
         float spot = step(0.55, texture(uNoise, vUv * vec2(1.3, 0.5) + 0.3).g);
         vec3 col = mix(vec3(0.35, 0.95, 1.0), vec3(1.0, 0.45, 0.25), spot);

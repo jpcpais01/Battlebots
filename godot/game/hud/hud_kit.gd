@@ -15,24 +15,85 @@ const BLUE := Color(0.235, 0.545, 1.0)
 const ORANGE := Color(1.0, 0.478, 0.102)
 
 
+## The screen as the HUD measures it: the window's size, the CSS pixel ratio (the screen's density),
+## the screen's size and the safe area round the notch and the gesture bar. Read from the
+## DisplayServer once and kept: em() and the margins are asked for several times a frame, and on
+## Android the safe area is a call into Java. Read again when the root viewport changes size (a
+## new window size or a turn of the phone), and every couple of seconds anyway, as Android can
+## report the cutout's insets a moment after the first frames.
+static var _win := Vector2.ZERO
+static var _dpr := 1.0
+static var _screen := Vector2i.ZERO
+static var _safe := Rect2i()
+static var _read_ms := -1
+static var _hooked := false
+## How old the kept reading may get (ms) before it is read again anyway.
+const REREAD_MS := 2000
+
+
+## The kept reading, read again when it's gone stale.
+static func _display() -> void:
+	if _read_ms < 0 or Time.get_ticks_msec() - _read_ms >= REREAD_MS:
+		_read_display()
+
+
+static func _read_display() -> void:
+	_read_ms = Time.get_ticks_msec()
+	_win = Vector2(DisplayServer.window_get_size())
+	if OS.has_feature("mobile"):
+		# (Android's CSS pixel is 1/160 inch: window.devicePixelRatio = dpi / 160)
+		_dpr = maxf(1.0, DisplayServer.screen_get_dpi() / 160.0)
+	else:
+		_dpr = maxf(1.0, DisplayServer.screen_get_scale())
+	_screen = DisplayServer.screen_get_size()
+	_safe = DisplayServer.get_display_safe_area()
+	if not _hooked:
+		var tree := Engine.get_main_loop() as SceneTree
+		if tree != null and tree.root != null:
+			_hooked = true
+			tree.root.size_changed.connect(_read_display)
+
+
+## The window's size in screen pixels (zero where there's no window: headless).
+static func window_size() -> Vector2:
+	_display()
+	return _win
+
+
+## The screen's pixels per CSS pixel (window.devicePixelRatio).
+static func css_ratio() -> float:
+	_display()
+	return _dpr
+
+
+## The screen's size in its own pixels, and the part of it clear of the notch and the gesture bar.
+static func screen_size() -> Vector2i:
+	_display()
+	return _screen
+
+
+static func safe_area() -> Rect2i:
+	_display()
+	return _safe
+
+
 ## style.css --fs, the web HUD's em, in this control's canvas units: clamp(11.5px, 1.48vh + 0.42vw,
 ## 17px) of the screen as a browser on this phone would measure it (CSS pixels: the screen's
 ## pixels over its density), then scaled into the canvas. So the HUD takes the same share of the
 ## screen as the web game's does on the same phone: 16 on a 1280x720 desktop window, about 20 on
 ## a landscape phone, whose small CSS viewport hits the 11.5px floor.
 static func em(c: Control) -> float:
-	var h := c.size.y if c.size.y > 0.0 else 720.0
-	var w := c.size.x if c.size.x > 0.0 else 1280.0
-	var win := Vector2(DisplayServer.window_get_size())
+	return em_for(c.size)
+
+
+## em() for a full-screen control `view` canvas units big.
+static func em_for(view: Vector2) -> float:
+	var h := view.y if view.y > 0.0 else 720.0
+	var w := view.x if view.x > 0.0 else 1280.0
+	var win := window_size()
 	if win.x <= 0.0 or win.y <= 0.0:
 		win = Vector2(w, h)
-	var dpr := 1.0
-	if OS.has_feature("mobile"):
-		# (Android's CSS pixel is 1/160 inch: window.devicePixelRatio = dpi / 160)
-		dpr = maxf(1.0, DisplayServer.screen_get_dpi() / 160.0)
-	else:
-		dpr = maxf(1.0, DisplayServer.screen_get_scale())
-	var css := win / dpr
+	var css := win / css_ratio()
 	var fs := clampf(0.0148 * css.y + 0.0042 * css.x, 11.5, 17.0)
 	return fs * h / css.y
 

@@ -66,7 +66,7 @@ void fragment() {
 		// the pattern's relief bends the normal a little
 		vec2 g = vec2(dFdx(o.h), dFdy(o.h));
 		vec3 nb = normalize(n + vec3(-g.x, g.y, 0.0) * 6.0);
-		float ndv = max(dot(nb, v), 0.0);
+		float ndv = clamp(dot(nb, v), 0.0, 1.0);
 		vec3 l = normalize(vec3(-0.5, 0.7, 0.6));
 		vec3 hv = normalize(l + v);
 		float rough = clamp(o.rough, 0.04, 1.0);

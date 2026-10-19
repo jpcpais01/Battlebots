@@ -53,7 +53,7 @@ void fragment() {
 	vec3 n = normalize(vec3(-slope.x, 1.0, -slope.y));
 
 	vec3 V = normalize(CAMERA_POSITION_WORLD - v_w);
-	float NV = max(dot(n, V), 0.0);
+	float NV = clamp(dot(n, V), 0.0, 1.0);
 	// (held back a little at grazing angles, so the lagoon keeps its colour right out to the reef)
 	float fres = min(0.02 + 0.98 * pow(1.0 - NV, 5.0), 0.45) * 0.9;
 	vec3 R = reflect(-V, n);

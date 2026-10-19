@@ -78,6 +78,12 @@ const WHISTLE_SCALE := 32.0
 const TONE_Q := 1.0592537
 ## Reactions and whistles that can ring at once (a KO stacks five over the tail of the last).
 const VOICES := 12
+## A bed this quiet (-80 dB) is inaudible: out of a fight, once it has stayed there BED_REST
+## seconds, its player is paused so the mixer stops decoding a looping OGG nobody can hear (the
+## vault, the map and the garage keep all three beds at or near -120 dB for whole sessions). It
+## resumes the moment its level comes back up past this, so it fades in from silence: no click.
+const BED_SILENT := 1e-4
+const BED_REST := 1.0
 
 ## The crowd's mood (its own instance, as crowd.ts Crowd.mood: it also hears the countdown).
 var mood := CrowdMoodCues.new()
@@ -113,6 +119,8 @@ var _out_set := -1.0
 ## Cues waiting for their delay: when each plays, and the cue.
 var _pending_at := PackedFloat64Array()
 var _pending: Array[CrowdMoodCues.Cue] = []
+## How long each bed (murmur, roar, applause) has been silent out of a fight.
+var _bed_quiet := PackedFloat64Array([0.0, 0.0, 0.0])
 
 
 func _ready() -> void:
@@ -257,6 +265,27 @@ func tick(dt: float, state: State) -> void:
 		_f_applause.aim_at(0.5 * mood.applause, 0.1, 0.5)
 		_f_tone.aim_at(1100.0 + 4200.0 * e, 0.1, 0.8)
 	_apply(false)
+	_rest_beds(dt, state == null)
+
+
+## Pauses the beds that have been silent a while out of a fight, and resumes them as soon as
+## they're due to be heard (in a fight they always run: roar and applause swing in and out there).
+## A tree pause and unpause (the fight's pause menu) clears stream_paused on its own; the next
+## tick puts back whatever should still be resting.
+func _rest_beds(dt: float, idle: bool) -> void:
+	var out := _f_bus.value * _f_duck.value
+	for i in 3:
+		var p: AudioStreamPlayer = _murmur if i == 0 else (_roar if i == 1 else _applause)
+		if p.stream == null:
+			continue
+		var f: Fader = _f_murmur if i == 0 else (_f_roar if i == 1 else _f_applause)
+		if idle and f.value * out < BED_SILENT:
+			_bed_quiet[i] += dt
+		else:
+			_bed_quiet[i] = 0.0
+		var rest := _bed_quiet[i] >= BED_REST
+		if p.stream_paused != rest:
+			p.stream_paused = rest
 
 
 ## Pushes the faders to the players and the filter.

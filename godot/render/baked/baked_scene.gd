@@ -13,6 +13,8 @@ const CUSTOM_BLEND := 5
 
 var json: Dictionary
 var _bin: PackedByteArray
+## release() has let go of the bin: buffers can't be read any more.
+var _released := false
 ## Lighter triangle lists for some geometries (tools/bake/slim_scene.gd, <bake>.slim): per
 ## geometry id, [index, groups].
 var _slim := {}
@@ -21,7 +23,13 @@ var slim_instances := {}
 ## Draw the slim bakes (BB_FULL_SCENES=1 draws the full ones, to compare).
 static var use_slim := not OS.has_environment("BB_FULL_SCENES")
 var _textures := {}
-var _meshes := {}
+## Textures already uploaded by any scene, by what's in them (see _tex_key): the same picture is
+## in several bakes (the world map's 1024x2048 atlas three times, the crowd atlas in the arena
+## and every venue, a sheet the three home scenes share), and each copy was decoded, mipmapped
+## and uploaded again. Held weakly: a texture goes once no scene's materials use it. Scenes are
+## built on worker threads, hence the lock.
+static var _shared := {}
+static var _shared_lock := Mutex.new()
 ## Every built node, by its index in the bake.
 var nodes: Array[Node3D] = []
 ## Named nodes (the bake names what the game animates).
@@ -85,6 +93,9 @@ func _read_slim(raw: PackedByteArray) -> void:
 
 
 func buffer(id: int) -> PackedByteArray:
+	if _released:
+		push_error("BakedScene.buffer(%d) after release()" % id)
+		return PackedByteArray()
 	var b: Dictionary = json.buffers[id]
 	return _bin.slice(int(b.offset), int(b.offset) + int(b.bytes))
 
@@ -94,15 +105,22 @@ func floats(id: int) -> PackedFloat32Array:
 
 
 ## Texture `id` as the web game samples it: canvas textures (flipY) are turned up the right way.
+## The same picture made the same way by another scene that's still around is shared, not made
+## again (see _shared).
 func texture(id: int) -> Texture2D:
 	if _textures.has(id):
 		return _textures[id]
+	if _released:
+		push_error("BakedScene.texture(%d) after release()" % id)
+		return null
 	var t: Dictionary = json.textures[id]
-	var img := Image.new()
+	var mips: bool = t.get("mipmaps", true) and t.get("minFilter", 1008) >= 1004
+	var bytes := PackedByteArray()
+	var fmt := Image.FORMAT_RGBA8
+	var how := ""
 	if t.has("raw"):
 		# a data texture (row 0 is v = 0 in three and in Godot alike)
 		var r: Dictionary = t.raw
-		var fmt := Image.FORMAT_RGBA8
 		var flt: bool = int(r.type) == 1015
 		match int(r.format):
 			1023:
@@ -111,18 +129,88 @@ func texture(id: int) -> Texture2D:
 				fmt = Image.FORMAT_RF if flt else Image.FORMAT_R8
 			1030:
 				fmt = Image.FORMAT_RGF if flt else Image.FORMAT_RG8
-		img = Image.create_from_data(int(r.width), int(r.height), false, fmt, buffer(int(r.buffer)))
+		bytes = buffer(int(r.buffer))
+		how = "raw %dx%d f%d" % [int(r.width), int(r.height), fmt]
 	elif t.has("png"):
 		var p: Dictionary = t.png
-		img.load_png_from_buffer(_bin.slice(int(p.offset), int(p.offset) + int(p.bytes)))
+		bytes = _bin.slice(int(p.offset), int(p.offset) + int(p.bytes))
+		how = "png" + (" flip" if t.flipY else "")
+	var key := ""
+	if not bytes.is_empty():
+		key = _tex_key(bytes, how + (" mips" if mips else ""))
+		var hit := _shared_get(key)
+		if hit != null:
+			_textures[id] = hit
+			return hit
+	var img := Image.new()
+	if t.has("raw"):
+		var r: Dictionary = t.raw
+		img = Image.create_from_data(int(r.width), int(r.height), false, fmt, bytes)
+	elif t.has("png"):
+		img.load_png_from_buffer(bytes)
 		img.convert(Image.FORMAT_RGBA8)
 		if t.flipY:
 			img.flip_y()
-	if t.get("mipmaps", true) and t.get("minFilter", 1008) >= 1004:
+	if mips:
 		img.generate_mipmaps()
-	var tex := ImageTexture.create_from_image(img)
+	var tex: Texture2D = ImageTexture.create_from_image(img)
+	if key != "" and tex != null:
+		tex = _shared_put(key, tex)
 	_textures[id] = tex
 	return tex
+
+
+## What a texture is made of and how: a hash of its bytes (SHA-1: no two different pictures
+## will ever meet by accident, and quicker than SHA-256 next to the PNG decode), their size, and
+## everything else that changes the result (raw: size and format; PNG: flipped or not; either:
+## mipmapped or not). PNGs always end up RGBA8; sRGB or not and the wrapping are the materials'
+## business, not the texture's.
+static func _tex_key(bytes: PackedByteArray, how: String) -> String:
+	var h := HashingContext.new()
+	h.start(HashingContext.HASH_SHA1)
+	h.update(bytes)
+	return "%s %d %s" % [h.finish().hex_encode(), bytes.size(), how]
+
+
+## The live texture made from `key` by any scene, or null.
+static func _shared_get(key: String) -> Texture2D:
+	_shared_lock.lock()
+	var w: WeakRef = _shared.get(key)
+	var tex: Texture2D = w.get_ref() if w != null else null
+	_shared_lock.unlock()
+	return tex
+
+
+## Offers a texture just made for `key`; another thread may have made it meanwhile, in which
+## case that one is returned (this one is dropped) so every scene really holds the same texture.
+static func _shared_put(key: String, tex: Texture2D) -> Texture2D:
+	_shared_lock.lock()
+	var w: WeakRef = _shared.get(key)
+	var had: Texture2D = w.get_ref() if w != null else null
+	if had != null:
+		tex = had
+	else:
+		# (forget the ones every scene has let go of)
+		for k in _shared.keys():
+			if (_shared[k] as WeakRef).get_ref() == null:
+				_shared.erase(k)
+		_shared[key] = weakref(tex)
+	_shared_lock.unlock()
+	return tex
+
+
+## Lets go of what only building needed: the decompressed bin (8-27 MB a scene), the slim index
+## lists and the json's buffer and geometry tables. Kept: nodes, named, slim_instances, the
+## json's nodes, materials, textures and every other key (look, anim, far, map, weld...), and the
+## textures made so far. After it, buffer(), floats(), _mesh() and texture() of a texture not
+## made yet can't work, so the owner calls it once it has built everything and read every buffer
+## it needs.
+func release() -> void:
+	_released = true
+	_bin = PackedByteArray()
+	_slim = {}
+	json.erase("buffers")
+	json.erase("geometries")
 
 
 ## Build the whole tree under `parent`.
@@ -139,6 +227,9 @@ func build(parent: Node3D) -> void:
 			if not named.has(n.name):
 				named[n.name] = node
 			node.name = n.name
+	# the slim index lists only feed _mesh, which nothing calls once the tree is built (the
+	# world map builds its own nodes with _mesh and never calls build)
+	_slim = {}
 
 
 func _node(n: Dictionary) -> Node3D:

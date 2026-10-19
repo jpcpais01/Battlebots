@@ -104,6 +104,11 @@ func spheres() -> PackedFloat32Array:
 	return _data
 
 
+## Each robot's bounding sphere this frame (centre xyz, radius: every sphere's reach; 0 for none).
+func bounds() -> Array:
+	return _bounds
+
+
 ## Upload this frame's spheres (once, after both robots are set).
 func commit() -> void:
 	_image.set_data(PER, ROBOTS, false, Image.FORMAT_RGBAF, _data.to_byte_array())

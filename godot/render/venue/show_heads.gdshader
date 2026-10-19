@@ -22,7 +22,7 @@ void vertex() {
 	vec4 mv = MODELVIEW_MATRIX * vec4(VERTEX, 1.0);
 	float st = mix(1.0, step(0.45, fract(bb_time * 6.0 + a_id.x * 0.37)), strobe);
 	v_c = mix(mix(mix(col_a, col_b, a_id.y), col_m, mono), vec3(1.0), 0.5 + 0.5 * white) * (0.25 + level) * st;
-	POINT_SIZE = VIEWPORT_SIZE.y * 0.55 / -mv.z;
+	POINT_SIZE = min(VIEWPORT_SIZE.y * 0.55 / -mv.z, VIEWPORT_SIZE.y * 0.12);
 	POSITION = PROJECTION_MATRIX * mv;
 }
 

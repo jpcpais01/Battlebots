@@ -10,6 +10,15 @@ uniform vec4 bones[93];
 // 0 accent, 1 core, then one per slot's rarity colour
 uniform vec4 cols[8];
 uniform float time = 0.0;
+// a torn-off piece keeps the match clock from the global (bb_time, which the arena sets to the
+// same clock every frame) instead: its material then never changes after it flies off, so it is
+// never rebuilt and re-sent for that
+uniform bool piece_clock = false;
+global uniform float bb_time;
+
+float clock() {
+	return piece_clock ? bb_time : time;
+}
 
 varying flat float v_ch;
 varying float v_glow_k;
@@ -27,7 +36,7 @@ void vertex() {
 	float k = 1.0 - w * 0.55;
 	if (w > 0.45) {
 		// sputter: drop out in random beats, more often the worse it gets
-		float beat = floor(time * 9.0 + part * 3.1);
+		float beat = floor(clock() * 9.0 + part * 3.1);
 		float h = fract(sin(beat * 12.9898 + part * 78.233) * 43758.5453);
 		k *= step((w - 0.45) * 1.4, h) * 0.85 + 0.15;
 	}

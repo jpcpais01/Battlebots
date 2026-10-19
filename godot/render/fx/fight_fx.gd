@@ -127,6 +127,12 @@ func start(match_, bot_models: Array[BotModel]) -> void:
 	for list in _trails:
 		for t in list:
 			fx.remove_trail(t)
+	# the last fight's benched tag partners' trails too: a rematch without stop() in between
+	# would otherwise leave them in fx._trails, updated every frame and never freed
+	for b in _benched:
+		if b != null:
+			for t in b[0]:
+				fx.remove_trail(t)
 	_trails = [[], []]
 	for i in 2:
 		for k in 4:

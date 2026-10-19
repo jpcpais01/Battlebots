@@ -26,6 +26,8 @@ void vertex() {
 	v_a = INSTANCE_CUSTOM.y * min(1.0, (1.0 - k) * 8.0) * k;
 	v_uv = VERTEX.xy * 2.0;
 	vec4 mv = VIEW_MATRIX * vec4(pos, 1.0);
+	// (a puff right at the lens fades away, as steam does, rather than blending over the screen)
+	v_a *= smoothstep(0.2, 0.7, -mv.z);
 	mv.xy += VERTEX.xy * size / PROJECTION_MATRIX[1][1];
 	POSITION = (tau < 0.0 || tau >= life || MODEL_MATRIX[1].z <= 0.0) ? vec4(2.0, 2.0, 2.0, 1.0) : PROJECTION_MATRIX * mv;
 }
