@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-19 04:00",
+    title: "Spotlights on the fighters",
+    notes: [
+      "Android: two follow spots in the rigging now track the robots through their entrances and the whole fight, so dark robots and fast exchanges are much easier to see.",
+    ],
+  },
+  {
     hour: "2026-10-19 03:00",
     title: "Smoother menus, less memory",
     notes: [
