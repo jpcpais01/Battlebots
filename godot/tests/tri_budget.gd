@@ -8,6 +8,9 @@ const ROBOT_BUDGET := 30000
 ## Everything a fight's place draws: the ring with the arena or event venue round it (stands,
 ## crowd, scenery), as one total.
 const PLACE_BUDGET := 50000
+## Places let over it for now (João, 2026-10-19: "good enough for now"): the grove's forest and
+## Skydeck 88's world map don't simplify further without a re-bake. Lower these as they slim.
+const PLACE_OVER := {"grove": 58000, "rooftop": 76000}
 ## One camera drone, the referee drone.
 const DRONE_BUDGET := 3000
 const REFEREE_BUDGET := 8000
@@ -150,12 +153,17 @@ func _frame() -> void:
 
 ## The place the fight is in now: the ring and the arena or venue round it.
 func _place(title: String) -> void:
+	# (the show's pyro and confetti draw only while they go off: Show hides them after, but the
+	# intro's may still be up here, with no frame run since)
+	for fx in ["pyro", "confetti"]:
+		if _fight.arena.node(fx) != null:
+			_fight.arena.node(fx).visible = false
 	var out := {}
 	tally(_fight.arena, _fight.arena, 2, out)
 	var v = _fight.venues.current if _fight.venues != null else null
 	if v != null and not _fight.arena.is_ancestor_of(v):
 		tally(v, v, 1, out)
-	_check(title, print_tally("place %s" % title, out), PLACE_BUDGET, "the ring and " + title)
+	_check(title, print_tally("place %s" % title, out), PLACE_OVER.get(title, PLACE_BUDGET), "the ring and " + title)
 
 
 func _check(_title: String, n: int, budget: int, what: String) -> void:

@@ -35,8 +35,14 @@ const MIN_TRIS := 16
 ## Instanced things with fewer instances are never thinned out.
 const THIN_MIN := 64
 ## An instance is thinned out where its radius on screen is below this (radians: about 8 pixels
-## across a phone's 50 degree view), the smaller the fewer.
+## across a phone's 50 degree view), the smaller the fewer. BB_SLIM_THIN=<radians> raises it for a
+## place whose far things hardly show: Skydeck 88's city trees, dark specks far below at night.
 const THIN_RADIUS := 0.006
+static var _thin := THIN_RADIUS
+## BB_SLIM_PARTS=1: a single drawing's loose pieces (each tree of a forest baked into one mesh)
+## thin out like instances do. Only for places with nothing small that glows (a far lamp would go).
+var _parts := false
+var _GLOW := RegEx.create_from_string("\\*\\s*uGlow\\b|\\buGlow\\s*\\*")
 ## Shader kinds (venue_materials.gd) that draw their mesh where it stands: translated venue GLSL,
 ## the tunnels' LED strips and boards.
 const RIGID_KINDS := ["glsl", "tunnel_led", "led", "led_ads"]
@@ -95,6 +101,9 @@ func _init() -> void:
 		return
 	BakedScene.use_slim = false
 	_object = float(OS.get_environment("BB_SLIM_OBJECT")) if OS.has_environment("BB_SLIM_OBJECT") else 0.0
+	_parts = OS.get_environment("BB_SLIM_PARTS") == "1"
+	if OS.has_environment("BB_SLIM_THIN"):
+		_thin = float(OS.get_environment("BB_SLIM_THIN"))
 	_scene = BakedScene.open(args[0])
 	_t0 = Time.get_ticks_msec()
 	var nodes: Array = _scene.json.nodes
@@ -202,7 +211,7 @@ func _main() -> void:
 			rows[k][1] += _pick(r, tau).size() / 3 * _kept(r, tau)
 		var ks := rows.keys()
 		ks.sort_custom(func(a, b): return rows[a][1] > rows[b][1])
-		for k in ks.slice(0, 25):
+		for k in ks.slice(0, 60):
 			print("  %-8s %6d -> %6d  (%.1f m)" % [k, rows[k][0], rows[k][1], rows[k][2]])
 	if cache_path != "":
 		var fc := FileAccess.open(cache_path, FileAccess.WRITE)
@@ -416,7 +425,8 @@ func _runs(g: int, list: Array) -> Array[Run]:
 				scale = maxf(scale, s)
 				var d := _near(t * box)
 				dist = minf(dist, d)
-				sizes.append(radius * s / d)
+				# (lit things, windows and signs, thin out only as far as THIN_RADIUS says)
+				sizes.append(radius * s / d * (_thin / THIN_RADIUS if _glows(n) else 1.0))
 			if count >= THIN_MIN and not _animated(n.name):
 				inst.append([i, sizes])
 		else:
@@ -468,6 +478,10 @@ func _runs(g: int, list: Array) -> Array[Run]:
 				_seen_cache[ck] = seen
 			slice = _keep(slice, seen)
 			as_is = _keep(as_is, seen)
+			if _parts and not _glows(_scene.json.nodes[list[0]]):
+				var parts := _parts_kept(as_is, pos, place)
+				slice = _keep(slice, parts)
+				as_is = _keep(as_is, parts)
 		r.levels = [[0.0, as_is]]
 		if slice.size() >= MIN_TRIS * 3 and not EXACT_KINDS.has(_kind(list[0])) and not _in_ring(list):
 			_levels(r, shape, pos, slice, unit)
@@ -648,6 +662,59 @@ func _facing(slice: PackedInt32Array, pos: PackedVector3Array, w: Transform3D, s
 	return seen
 
 
+## Which triangles of a single drawing stay when its loose pieces (joined where corners meet)
+## thin out as instances do (_keeps), by their size on screen from the nearest lens.
+static func _parts_kept(tris: PackedInt32Array, pos: PackedVector3Array, w: Transform3D) -> PackedByteArray:
+	var n := pos.size()
+	var up := PackedInt32Array()
+	up.resize(n)
+	for i in n:
+		up[i] = i
+	var at := {}
+	for i in n:
+		var k := pos[i].snapped(Vector3.ONE * 1e-3)
+		if at.has(k):
+			up[_root(up, i)] = _root(up, at[k])
+		else:
+			at[k] = i
+	for t in tris.size() / 3:
+		var a := _root(up, tris[t * 3])
+		up[_root(up, tris[t * 3 + 1])] = a
+		up[_root(up, tris[t * 3 + 2])] = a
+	var boxes := {}
+	for v in tris:
+		var r := _root(up, v)
+		var p := w * pos[v]
+		boxes[r] = (boxes[r] as AABB).expand(p) if boxes.has(r) else AABB(p, Vector3.ZERO)
+	var keep := {}
+	var k := 0
+	for r in boxes:
+		var b: AABB = boxes[r]
+		keep[r] = _keeps(k, b.size.length() * 0.5 / _near(b), 0.0)
+		k += 1
+	var out := PackedByteArray()
+	out.resize(tris.size() / 3)
+	for t in out.size():
+		out[t] = 1 if keep[_root(up, tris[t * 3])] else 0
+	return out
+
+
+## A material that lights itself (venue GLSL scaled by uGlow: lit windows, neon signs, lamps).
+func _glows(n: Dictionary) -> bool:
+	for m in n.get("materials", []):
+		var src = _scene.json.materials[int(m)].get("src")
+		if src is Dictionary and _GLOW.search(String(src.get("fragment", ""))) != null:
+			return true
+	return false
+
+
+static func _root(up: PackedInt32Array, i: int) -> int:
+	while up[i] != i:
+		up[i] = up[up[i]]
+		i = up[i]
+	return i
+
+
 static func _keep(slice: PackedInt32Array, seen: PackedByteArray) -> PackedInt32Array:
 	var out := PackedInt32Array()
 	for t in seen.size():
@@ -819,7 +886,7 @@ static func _pick(r: Run, tau: float) -> PackedInt32Array:
 ## Whether instance k (screen radius `size`) stays at `tau`: always where it is big enough on
 ## screen, else with a chance that falls with its size (hashed, so the same ones every time).
 static func _keeps(k: int, size: float, tau: float) -> bool:
-	var p := size / THIN_RADIUS
+	var p := size / _thin
 	if p >= 1.0:
 		return true
 	var hsh := float(hash(k * 7919 + 13) % 10007) / 10007.0

@@ -17,6 +17,17 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-19 01:00",
+	"title": "Lighter robots and arenas",
+	"notes": [
+	"Android: every robot is now drawn with at most about 28,000 triangles (some loadouts used over 60,000), so fights run smoother with no visible change.",
+	"Android: the indoor arena, Island, Falls and Harbor each draw under 50,000 triangles with the ring, down from up to 176,000. Grove and Skydeck 88 are much lighter too (Skydeck from 774,000 to 75,000).",
+	"Android: each fan in the crowd is drawn with half the triangles and looks exactly the same.",
+	"Android: the camera drones and the referee drone are lighter on the GPU.",
+	"Android: fewer stutters in fights: sparks, pyro and confetti are prepared behind the loading screen, and your opponent's skin is prepared as soon as they're picked."
+]
+},
+	{
 	"hour": "2026-10-18 21:00",
 	"title": "Ray tracing without glitches",
 	"notes": [

@@ -38,12 +38,16 @@ one you re-baked (the last number is the ring, drawn with every event venue), th
 ```sh
 BB_SLIM_MAX=45 godot --headless --path godot -s res://tools/bake/slim_scene.gd -- res://assets/venue/arena 49000
 godot --headless --path godot -s res://tools/bake/slim_scene.gd -- res://assets/venues/island 49500 13218
+BB_SLIM_PARTS=1 BB_SLIM_MAX=45 godot --headless --path godot -s res://tools/bake/slim_scene.gd -- res://assets/venues/grove 49500 13218
+BB_SLIM_MAX=100 BB_SLIM_THIN=0.1 godot --headless --path godot -s res://tools/bake/slim_scene.gd -- res://assets/venues/rooftop 49500 13218
 BB_SLIM_OBJECT=2.5 godot --headless --path godot -s res://tools/bake/slim_scene.gd -- res://assets/drones/drones 2500
 BB_VENUE_SYNC=1 godot --headless --path godot -s res://tests/tri_budget.gd   # robots, places, drones
 ```
 
 A stale `.slim` (its bake changed since) is ignored, so a forgotten re-run only costs triangles.
-`BB_FULL_SCENES=1` draws the full bakes, to compare.
+`BB_FULL_SCENES=1` draws the full bakes, to compare. `BB_SLIM_CACHE=<dir>` keeps the slow
+which-faces-are-seen pass between runs. Grove (57k) and Skydeck 88 (75k, its world map) are still
+over 50k: tests/tri_budget.gd allows them for now (PLACE_OVER).
 
 Then check the translated sim still matches the web one step for step (any difference is a bug):
 
