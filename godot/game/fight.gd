@@ -294,7 +294,10 @@ func _ready() -> void:
 
 func _notification(what: int) -> void:
 	# (Android's back button pauses now: PauseMenu takes it)
-	if what == NOTIFICATION_APPLICATION_PAUSED:
+	if what == NOTIFICATION_APPLICATION_RESUMED:
+		# back from the background: Android may have put the panel back to its default rate
+		Display.boost_refresh()
+	elif what == NOTIFICATION_APPLICATION_PAUSED:
 		# sent to the background: pause, as the web does when its page is hidden (app.ts
 		# visibilitychange), and keep what the booth has said in case Android ends the app there
 		pause()

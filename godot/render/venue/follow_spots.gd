@@ -16,6 +16,11 @@ const SWING := 0.6
 ## Cone half angle (degrees) and its edge: a pool a little wider than a robot at the canvas.
 const ANGLE := 11.0
 const EDGE := 0.85
+## The render layer the lamps light (and nothing else): the robots and the canvas carry it
+## (BotModel, Arena). Every lit surface a light reaches pays for it on every pixel, aimed at it or
+## not, and the lamps' cones reach most of the ring's box: the truss, posts and apron would pay
+## for two lamps that never fall on them.
+const LAYER := 2
 ## Physical units over pi like the key spot (fight.gd), slightly cool white.
 const ENERGY := 3.0 / PI
 const COLOR := Color(0.93, 0.96, 1.0)
@@ -41,6 +46,7 @@ func _init() -> void:
 		s.spot_angle = ANGLE
 		s.spot_angle_attenuation = EDGE
 		s.shadow_enabled = false
+		s.light_cull_mask = LAYER
 		s.light_specular = 0.6
 		s.visible = false
 		add_child(s)

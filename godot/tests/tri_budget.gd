@@ -48,9 +48,21 @@ static func mesh_tris(mesh: Mesh) -> int:
 	return n
 
 
+## The crowd's fans are sprites: one quad each, counted as one (as the slim bake drew them, one
+## doubled triangle a fan, until the 120 FPS pass: a quad covers half the pixels, and the
+## crowd's pixels, not its corners, are what it costs).
+const CROWD_SHADER := "res://render/venue/crowd.gdshader"
+
+
 static func node_tris(n: Node) -> int:
 	if n is MeshInstance3D:
-		return mesh_tris((n as MeshInstance3D).mesh)
+		var mi := n as MeshInstance3D
+		var t := mesh_tris(mi.mesh)
+		if mi.mesh != null and mi.mesh.get_surface_count() > 0:
+			var mat := mi.mesh.surface_get_material(0) as ShaderMaterial
+			if mat != null and mat.shader != null and mat.shader.resource_path == CROWD_SHADER:
+				t /= 2
+		return t
 	if n is MultiMeshInstance3D:
 		var mm := (n as MultiMeshInstance3D).multimesh
 		if mm == null:

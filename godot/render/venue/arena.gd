@@ -76,6 +76,10 @@ func _init() -> void:
 	scene.factory = mats.make
 	scene.build(self)
 	mats.mark_clear(scene)
+	# the canvas (the ring's first mesh) is lit by the follow spots' pools
+	var ring := node("arena")
+	if ring != null and ring.get_child_count() > 0 and ring.get_child(0) is MeshInstance3D:
+		(ring.get_child(0) as MeshInstance3D).layers |= FollowSpots.LAYER
 	var crowd_mats: Array = mats.by_kind.get("crowd", [])
 	crowd = ArenaCrowd.new(crowd_mats[0] if crowd_mats.size() > 0 else null)
 	var flash_mats: Array = mats.by_kind.get("photo_flash", [])
@@ -229,16 +233,26 @@ func _update_ropes(dt: float) -> void:
 		elif x < -0.2:
 			x = -0.2
 			v = maxf(v, 0.0)
+		# settled: rest exactly, so the ropes' material isn't re-sent every frame for nothing
+		if press <= 0.0 and absf(x) < 0.0005 and absf(v) < 0.005:
+			x = 0.0
+			v = 0.0
 		_rope_u[k * 4 + 1] = x
 		_rope_vel[k] = v
 	_upload_ropes()
 
 
-func _upload_ropes() -> void:
+func _upload_ropes(force := false) -> void:
 	if _rope_mat == null:
 		return
+	var same := not force
 	for k in ROPES:
-		_rope_v4[k] = Vector4(_rope_u[k * 4], _rope_u[k * 4 + 1], _rope_u[k * 4 + 2], 0.0)
+		var r := Vector4(_rope_u[k * 4], _rope_u[k * 4 + 1], _rope_u[k * 4 + 2], 0.0)
+		if same and r != _rope_v4[k]:
+			same = false
+		_rope_v4[k] = r
+	if same:
+		return
 	_rope_mat.set_shader_parameter("rope", _rope_v4)
 	# (the titans' energy ropes bow with the same physics: render/titan)
 	if outdoor != null and outdoor.get("rope_mat") != null:
@@ -302,6 +316,7 @@ func set_venue(v) -> void:
 	if outdoor != null:
 		outdoor.visible = false
 	outdoor = v
+	_upload_ropes(true)
 	crowd = v.crowd if v != null and v.crowd != null else _indoor_parts[0]
 	board = v.board if v != null and v.board != null else _indoor_parts[1]
 	_gates = v.gates if v != null else _indoor_parts[2]
@@ -327,17 +342,17 @@ func update(dt: float, time: float) -> void:
 	_venue_update(dt, time)
 	_rope_flash = maxf(0.0, _rope_flash - dt * 3.0)
 	if _rope_mat:
-		_rope_mat.set_shader_parameter("color", _rope_base * (1.0 + _rope_flash * 1.6))
+		Mats.put(_rope_mat, "color", _rope_base * (1.0 + _rope_flash * 1.6))
 	if _glow_mat:
 		var g := 0.8 + hype * 0.35 + _rope_flash * 0.4
-		_glow_mat.set_shader_parameter("color", Vector3(g, g, g))
+		Mats.put(_glow_mat, "color", Vector3(g, g, g))
 	if _skirt_mat:
-		_skirt_mat.set_shader_parameter("flash", _rope_flash * 0.6)
+		Mats.put(_skirt_mat, "flash", _rope_flash * 0.6)
 	_update_ropes(dt)
 
 
 func _venue_update(dt: float, time: float) -> void:
-	floor_show.update(dt)
+	floor_show.update(dt, time)
 	if show:
 		show.update(dt, time, hype)
 	_flash = maxf(0.0, _flash - dt * 0.8)

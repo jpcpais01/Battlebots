@@ -4,7 +4,6 @@ shader_type spatial;
 render_mode unshaded, blend_add, depth_draw_never, cull_disabled, fog_disabled;
 #include "res://render/venue/common.gdshaderinc"
 
-uniform float now = 0.0;
 uniform float burst = -99.0;
 uniform float burst_k = 0.0;
 uniform float glow = 2.2;
@@ -15,7 +14,7 @@ float h(float n) { return fract(sin(n) * 43758.5453); }
 
 void vertex() {
 	float s = h(dot(VERTEX.xz, vec2(12.9898, 78.233)));
-	float dt = now - burst;
+	float dt = bb_time - burst;
 	float a = 0.0;
 	// two shots each, spread over the first second, only for the keener ones on smaller moments
 	for (int k = 0; k < 2; k++) {

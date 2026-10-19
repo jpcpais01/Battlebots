@@ -235,14 +235,14 @@ void fragment() {
 		// surfaceDetail.ts: how much of the part one pixel covers; the fine finish fades past ~1 cm
 		float fine = 1.0 - smoothstep(0.004, 0.014, length(fwidth(v_dmg_p)));
 		// an uneven sheen: polished in places, dulled by handling in others
-		float sheen = dmg_noise(v_dmg_p * 5.0 + 7.3) * 0.7 + dmg_noise(v_dmg_p * 19.0 + 1.7) * 0.3;
+		float sheen = dmg_noise_t(v_dmg_p * 5.0 + 7.3) * 0.7 + dmg_noise_t(v_dmg_p * 19.0 + 1.7) * 0.3;
 		rgh *= 0.8 + sheen * 0.4;
 		// bare metal is brushed in fine streaks along the part
-		float grain = dmg_noise(vec3(v_dmg_p.x * 7.0, v_dmg_p.y * 260.0, v_dmg_p.z * 7.0));
+		float grain = dmg_noise_t(vec3(v_dmg_p.x * 7.0, v_dmg_p.y * 260.0, v_dmg_p.z * 7.0));
 		rgh *= mix(1.0, 0.72 + grain * 0.56, metal * fine);
 		rgh = clamp(rgh, 0.045, 1.0);
 		// a faint hammered ripple (a bump from the screen-space slope of a height)
-		float h = dmg_noise(v_dmg_p * 150.0) * 0.55 + dmg_noise(v_dmg_p * 41.0) * 0.45;
+		float h = dmg_noise_t(v_dmg_p * 150.0) * 0.55 + dmg_noise_t(v_dmg_p * 41.0) * 0.45;
 		vec3 sdx = dFdx(VERTEX);
 		vec3 sdy = dFdy(VERTEX);
 		vec3 q1 = cross(sdy, nrm);
@@ -259,22 +259,22 @@ void fragment() {
 		vec3 q = v_dmg_p - marks[k].xyz;
 		float r = marks[k].w;
 		if (kind == 1.0) {
-			sock_w = max(sock_w, mark_b[k].z * (1.0 - smoothstep(r * 0.35, r, length(q) + (dmg_noise(v_dmg_p * 9.0) - 0.5) * r * 0.5)));
+			sock_w = max(sock_w, mark_b[k].z * (1.0 - smoothstep(r * 0.35, r, length(q) + (dmg_noise_t(v_dmg_p * 9.0) - 0.5) * r * 0.5)));
 		} else {
 			// oil runs down the part in streaks below where it hit
-			float lane = dmg_noise(vec3(v_dmg_p.x * 26.0, 0.0, v_dmg_p.z * 26.0) + float(k) * 7.1);
+			float lane = dmg_noise_t(vec3(v_dmg_p.x * 26.0, 0.0, v_dmg_p.z * 26.0) + float(k) * 7.1);
 			q.y = q.y < 0.0 ? q.y * mix(0.85, 0.22, smoothstep(0.35, 0.75, lane)) : q.y;
-			float dd = length(q) / r + (dmg_noise(v_dmg_p * 13.0 + float(k) * 3.3) - 0.5) * 0.55;
+			float dd = length(q) / r + (dmg_noise_t(v_dmg_p * 13.0 + float(k) * 3.3) - 0.5) * 0.55;
 			float blob = 1.0 - smoothstep(0.7, 0.95, dd);
 			// a fine spatter of droplets round each splash
-			float spat = smoothstep(0.78, 0.84, dmg_noise(v_dmg_p * 46.0 + float(k) * 11.0)) * (1.0 - smoothstep(1.0, 1.9, dd));
+			float spat = smoothstep(0.78, 0.84, dmg_noise_t(v_dmg_p * 46.0 + float(k) * 11.0)) * (1.0 - smoothstep(1.0, 1.9, dd));
 			oil = max(oil, max(blob, spat) * mark_b[k].z);
 		}
 	}
 	if (v_dent > 0.02) {
 		// a dent's floor sits in its own shade, and the paint there cracks and flakes off,
 		// leaving scraped steel where the blow bit hardest
-		float flake = dmg_noise(v_dmg_p * 38.0 + 2.9) * 0.6 + dmg_noise(v_dmg_p * 90.0) * 0.4;
+		float flake = dmg_noise_t(v_dmg_p * 38.0 + 2.9) * 0.6 + dmg_noise_t(v_dmg_p * 90.0) * 0.4;
 		float bare = smoothstep(0.55, 0.62, v_dent * 0.75 + flake * 0.5);
 		albedo *= 1.0 - v_dent * 0.28;
 		albedo = mix(albedo, vec3(0.3, 0.31, 0.33) * (0.75 + flake * 0.5), bare);
@@ -283,15 +283,15 @@ void fragment() {
 		rgh = mix(rgh, 0.32 + flake * 0.3, bare);
 		// and a rim of crazed paint round the bare patch
 		float craze = smoothstep(0.42, 0.5, v_dent * 0.75 + flake * 0.5) * (1.0 - bare);
-		albedo *= 1.0 - craze * smoothstep(0.55, 0.75, dmg_noise(v_dmg_p * 140.0)) * 0.6;
+		albedo *= 1.0 - craze * smoothstep(0.55, 0.75, dmg_noise_t(v_dmg_p * 140.0)) * 0.6;
 	}
 	if (v_wear > 0.01 || sock_w > 0.01) {
 		float w = max(v_wear, sock_w);
 		float vis = 1.0 - (1.0 - w) * (1.0 - w);
 		float heavy = smoothstep(0.45, 1.0, w);
 		// damage gathers in a few hot spots (where the blows landed) and spreads from them
-		float spot = dmg_noise(v_dmg_p * 3.4 + 1.3);
-		float edge = dmg_noise(v_dmg_p * 22.0) * 0.6 + dmg_noise(v_dmg_p * 45.0) * 0.4;
+		float spot = dmg_noise_t(v_dmg_p * 3.4 + 1.3);
+		float edge = dmg_noise_t(v_dmg_p * 22.0) * 0.6 + dmg_noise_t(v_dmg_p * 45.0) * 0.4;
 		float spread = spot * 0.74 + edge * 0.26;
 		// grime and scuffing over the whole part
 		albedo *= 1.0 - vis * 0.25 * (0.4 + edge);
@@ -316,15 +316,15 @@ void fragment() {
 		rgh = mix(rgh, 0.9, hole);
 		// split plates crack along glowing seams (only in the ring round torn holes, so they read
 		// as hot split edges), and the innards smoulder
-		float ridge = 1.0 - abs(dmg_noise(v_dmg_p * 26.0 + 9.0) * 2.0 - 1.0);
+		float ridge = 1.0 - abs(dmg_noise_t(v_dmg_p * 26.0 + 9.0) * 2.0 - 1.0);
 		float crack = smoothstep(0.93, 0.98, ridge) * smoothstep(0.55, 0.9, w) * smoothstep(h_t - 0.05, h_t, spread) * (1.0 - hole);
 		float flick = 0.65 + 0.35 * sin(clock() * 23.0 + v_dmg_p.y * 40.0) * sin(clock() * 7.0 + v_dmg_p.x * 30.0);
-		float ember = smoothstep(h_t + 0.04, h_t + 0.1, spread) * smoothstep(0.45, 0.8, dmg_noise(v_dmg_p * 18.0 + 4.2)) * heavy;
+		float ember = smoothstep(h_t + 0.04, h_t + 0.1, spread) * smoothstep(0.45, 0.8, dmg_noise_t(v_dmg_p * 18.0 + 4.2)) * heavy;
 		emit += vec3(1.0, 0.32, 0.06) * (crack * 1.3 + ember * 0.5) * flick;
 	}
 	// oily grime: big dull smudges over the whole robot, worst low down
 	if (grime > 0.01) {
-		float smudge = dmg_noise(v_dmg_p * 4.3 + 2.1) * 0.7 + dmg_noise(v_dmg_p * 17.0) * 0.3;
+		float smudge = dmg_noise_t(v_dmg_p * 4.3 + 2.1) * 0.7 + dmg_noise_t(v_dmg_p * 17.0) * 0.3;
 		float g = smoothstep(0.72 - grime * 0.4, 0.82 - grime * 0.4, smudge) * grime;
 		albedo *= 1.0 - g * 0.7;
 		oil = max(oil, g * 0.45);
@@ -335,7 +335,7 @@ void fragment() {
 		albedo = mix(albedo, vec3(0.01, 0.0095, 0.009), oil * 0.94);
 		rgh = mix(rgh, 0.06, oil);
 		metal = mix(metal, 0.15, oil);
-		float swirl = dmg_noise(v_dmg_p * 7.0 + 5.0) * 1.4 + graze * 1.8;
+		float swirl = dmg_noise_t(v_dmg_p * 7.0 + 5.0) * 1.4 + graze * 1.8;
 		vec3 film = 0.5 + 0.5 * cos(6.2831 * (vec3(0.0, 0.33, 0.67) + swirl));
 		emit += film * (0.012 + graze * graze * 0.06) * oil;
 	}

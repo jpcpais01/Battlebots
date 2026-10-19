@@ -117,6 +117,10 @@ bb_cam_pos={
 "type": "vec3",
 "value": Vector3(0, 3, 9)
 }
+bb_noise3d={
+"type": "sampler3D",
+"value": ""
+}
 bb_ao_spheres={
 "type": "sampler2D",
 "value": ""

@@ -147,11 +147,11 @@ func update(dt: float, excite: float, fighting: bool) -> void:
 			any_hot = true
 	if _mat == null:
 		return
-	_mat.set_shader_parameter("wave", _wave)
-	_mat.set_shader_parameter("wave_a", _wave_a)
-	_mat.set_shader_parameter("excite", _excite)
-	_mat.set_shader_parameter("boo", _boo)
-	_mat.set_shader_parameter("joy", Vector2(_joy[0], _joy[1]))
-	_mat.set_shader_parameter("dismay", Vector2(_dismay[0], _dismay[1]))
+	Mats.put(_mat, "wave", _wave)
+	Mats.put(_mat, "wave_a", _wave_a)
+	Mats.put(_mat, "excite", _excite)
+	Mats.put(_mat, "boo", _boo)
+	Mats.put(_mat, "joy", Vector2(_joy[0], _joy[1]))
+	Mats.put(_mat, "dismay", Vector2(_dismay[0], _dismay[1]))
 	if any_hot:
 		_mat.set_shader_parameter("hot", _hot)
