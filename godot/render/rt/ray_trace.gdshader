@@ -74,6 +74,11 @@ void fragment() {
 	// how alike the neighbours across the quad are in depth: what they find counts here too
 	float sx = alike(z, z + DFDX(z) * sgn.x) * trust;
 	float sy = alike(z, z + DFDY(z) * sgn.y) * trust;
+	// a pixel that can't share does its whole quad's work itself
+	bool shared = trust > 0.5;
+	int n_s = shared ? SAMPLES : SAMPLES * 4;
+	int n_cs = shared ? CS_STEPS : CS_STEPS * 4;
+	int n_r = shared ? STEPS : STEPS * 2;
 	// the normal from the quad's own positions when all of it is one surface, else from the
 	// pixels round this one (an edge: the nearer side, so it doesn't bend the surface behind)
 	vec3 n = cross(DFDX(p), DFDY(p));
@@ -92,8 +97,8 @@ void fragment() {
 	float occ = 0.0;
 	vec3 bounce = vec3(0.0);
 	if (!sky) {
-		for (int i = 0; i < SAMPLES; i++) {
-			float k = float(i * 4 + q);
+		for (int i = 0; i < n_s; i++) {
+			float k = shared ? float(i * 4 + q) : float(i);
 			float a = (k + 0.5) / float(SAMPLES * 4);
 			float ang = k * GOLDEN;
 			float rad = a * a * r_px + 1.5;
@@ -124,8 +129,8 @@ void fragment() {
 			bounce += safe_col(textureLod(screen_tex, suv, 0.0).rgb) * h;
 		}
 	}
-	float ao = clamp(1.0 - occ * 1.8 / float(SAMPLES), 0.0, 1.0);
-	bounce /= float(SAMPLES);
+	float ao = clamp(1.0 - occ * 1.8 / float(n_s), 0.0, 1.0);
+	bounce /= float(n_s);
 
 	// --- a short ray at the key light: what stands right in its way, closer than its shadow map
 	// sees. Each pixel takes every fourth step; the quad keeps the firmest blocker any of it found.
@@ -141,8 +146,8 @@ void fragment() {
 		l = normalize(kv - p);
 		facing = dot(l, n) > 0.05;
 		if (facing) {
-			for (int i = 0; i < CS_STEPS; i++) {
-				float t = (float(i * 4 + q) + 0.5) * (CS_LEN / float(CS_STEPS * 4)) + 0.02;
+			for (int i = 0; i < n_cs; i++) {
+				float t = (float(shared ? i * 4 + q : i) + 0.5) * (CS_LEN / float(CS_STEPS * 4)) + 0.02;
 				vec3 s = p + n * 0.01 + l * t;
 				vec2 suv = project(s, pm);
 				if (suv.x < 0.0 || suv.y < 0.0 || suv.x >= 1.0 || suv.y >= 1.0) {
@@ -239,9 +244,11 @@ void fragment() {
 			// Each pixel of a quad starts its steps a quarter of a step on from the last, and quads
 			// next to each other on a 4x4 ordered pattern between those: averaged over the quad,
 			// a thin rail reflected far off comes out as a soft streak, not stepped over in bands.
-			float step_f = 1.0 / float(STEPS);
-			float off = (float(q) + qjit) * 0.25;
-			for (int i = 0; i < STEPS; i++) {
+			// (on its own, a pixel takes twice the steps, all from the middle of each: offsets only
+			// the quad's average would smooth out show as dither)
+			float step_f = 1.0 / float(n_r);
+			float off = shared ? (float(q) + qjit) * 0.25 : 0.5;
+			for (int i = 0; i < n_r; i++) {
 				float f = (float(i) + off) * step_f;
 				float rz = 1.0 / mix(iz_a, iz_b, f);
 				float dz = z_at(mix(uv_a, uv_b, f), size, ip) - rz;
@@ -262,7 +269,7 @@ void fragment() {
 	float rw = k > 0.0 ? 1.0 : 0.0;
 	if (k > 0.0 && f_hit <= 1.0) {
 		// home in on where the ray met it
-		float lo = max(0.0, f_hit - 1.0 / float(STEPS));
+		float lo = max(0.0, f_hit - 1.0 / float(n_r));
 		float hi = f_hit;
 		for (int j = 0; j < REFINE; j++) {
 			float m = (lo + hi) * 0.5;
