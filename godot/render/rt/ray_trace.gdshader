@@ -286,14 +286,19 @@ void fragment() {
 		// fade where the trace runs out of screen, rather than cutting off at its edge
 		vec2 edge = smoothstep(vec2(0.0), vec2(0.06), huv) * smoothstep(vec2(0.0), vec2(0.06), 1.0 - huv);
 		float found = edge.x * edge.y * (1.0 - smoothstep(MAX_DIST * 0.6, MAX_DIST, th));
-		// gloss blurs with distance: the further the ray travels, the wider its cone (a few taps
-		// across it on the full-size frame, which has no mips to read)
-		float spread = (rough * th * 0.012 + rough * 0.004) * (0.5 + qjit);
-		vec3 c = safe_col(textureLod(screen_tex, huv, 0.0).rgb) * 0.4;
-		c += safe_col(textureLod(screen_tex, huv + vec2(spread, 0.0), 0.0).rgb) * 0.15;
-		c += safe_col(textureLod(screen_tex, huv - vec2(spread, 0.0), 0.0).rgb) * 0.15;
-		c += safe_col(textureLod(screen_tex, huv + vec2(0.0, spread), 0.0).rgb) * 0.15;
-		c += safe_col(textureLod(screen_tex, huv - vec2(0.0, spread), 0.0).rgb) * 0.15;
+		// gloss blurs with distance: the further the ray travels, the wider its cone. Nine taps
+		// round the hit on the full-size frame (it has no mips to read), the ring's size in pixels
+		// growing with roughness and distance and turned a little between quads.
+		float spread = clamp(2.0 + rough * (6.0 + th * 40.0), 2.0, 48.0) * (0.75 + 0.5 * qjit);
+		vec2 sp = spread / vec2(size);
+		float rot = qjit * 1.57;
+		vec2 ax = vec2(cos(rot), sin(rot)) * sp;
+		vec2 ay = vec2(-sin(rot), cos(rot)) * sp;
+		vec3 c = safe_col(textureLod(screen_tex, huv, 0.0).rgb) * 0.2;
+		c += (safe_col(textureLod(screen_tex, huv + ax, 0.0).rgb) + safe_col(textureLod(screen_tex, huv - ax, 0.0).rgb)
+			+ safe_col(textureLod(screen_tex, huv + ay, 0.0).rgb) + safe_col(textureLod(screen_tex, huv - ay, 0.0).rgb)) * 0.12;
+		c += (safe_col(textureLod(screen_tex, huv + (ax + ay) * 0.5, 0.0).rgb) + safe_col(textureLod(screen_tex, huv - (ax + ay) * 0.5, 0.0).rgb)
+			+ safe_col(textureLod(screen_tex, huv + (ax - ay) * 0.5, 0.0).rgb) + safe_col(textureLod(screen_tex, huv - (ax - ay) * 0.5, 0.0).rgb)) * 0.08;
 		refl = vec4(c * found * fres * k, found * k);
 	}
 

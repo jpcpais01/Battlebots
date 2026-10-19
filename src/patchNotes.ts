@@ -16,6 +16,16 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-19 04:00",
+    title: "Ray tracing fixed on phones",
+    notes: [
+      "Android: with Ray tracing on, bushes no longer get black holes, shade no longer fills with flat white blocks, and robots no longer look torn apart.",
+      "Android: Ray tracing reads the picture a lighter way, so it also costs the GPU a little less.",
+      "Android: Ray tracing Heavy on a phone now uses the game's own traced lighting instead of the effects that broke on phone GPUs.",
+      "Android: the home screen now shows the skin and parts your robot has in the garage, instead of the ones it had before.",
+    ],
+  },
+  {
     hour: "2026-10-19 03:00",
     title: "Smoother menus, less memory",
     notes: [
