@@ -1,6 +1,6 @@
 // The crowd (src/render/crowd.ts): every fan a billboard sprite from the painted atlas, posed and
 // lit in the vertex shader from what the fight is doing (crowd.gd drives the uniforms).
-// VERTEX iPos (the seat), UV the quad corner (x -0.5..0.5, y 0..1, doubled: see xy below), CUSTOM0 iData (scale, column,
+// VERTEX iPos (the seat), UV the quad corner (x -0.5..0.5, y 0..1), CUSTOM0 iData (scale, column,
 // seed, flags), CUSTOM1 iShirt (rgb, skin index/255), CUSTOM2 iHair (rgb, pants index/255),
 // CUSTOM3 iAccent (rgb).
 // Fans in the bowl's seats also draw their seat's moulded back (venue.ts, the seat-back block)
@@ -196,10 +196,8 @@ void vertex() {
 			v_seat_c = (upper ? SEAT_UP : SEAT_LOW) * kk * house_light(sb + vec3(0.0, 0.25, 0.0));
 		}
 	}
-	// each fan is one triangle (tools/bake/slim_scene.gd: its quad's two lower corners and top
-	// left one) twice the quad's size, covering it: what's outside the figure and its seat back is
-	// discarded all the same (a quad drawn this way just covers more)
-	vec2 xy = mix(lo, hi, vec2(UV.x + 0.5, UV.y) * 2.0);
+	// (each fan is its own quad, drawn nearest the ring first: BakedScene._front_first)
+	vec2 xy = mix(lo, hi, vec2(UV.x + 0.5, UV.y));
 	vec3 p = base + right * xy.x + vec3(0.0, xy.y, 0.0);
 	if (k > 0.0) {
 		// where this corner's view ray meets the shell's plane, in shell metres (across, up), as a
@@ -243,12 +241,33 @@ void vertex() {
 	VERTEX = p;
 }
 
+// sRGB to linear for a 0..1 tone, a cubic within a fraction of a percent of the exact curve
+float srgb_lin(float g) {
+	return g * (g * (g * 0.305306011 + 0.682171111) + 0.012522878);
+}
+
 void fragment() {
+	// Everything that needs a neighbour's value comes first, then whatever lies in neither the
+	// figure's bounds nor the seat back's leaves straight away: a quad's corners round the head
+	// and either side of the seat are a fair share of the crowd's pixels.
+	vec2 sh = v_seat.xy / v_seat.z;
+	vec2 px = fwidth(sh);
+	vec2 uv_dx = dFdx(v_uv.xy);
+	vec2 uv_dy = dFdy(v_uv.xy);
+	bool fig = all(greaterThanEqual(v_cell, v_bb.xz)) && all(lessThanEqual(v_cell, v_bb.yw));
+	float pm = max(px.x, px.y);
+	vec2 sq = abs(sh - vec2(0.0, 0.25));
+	bool seat = v_seat.z > 0.0 && sq.x < 0.203 + pm && sq.y < 0.235 + pm;
+	if (!fig && !seat) discard;
 	// the fan, only inside the figure's bounds (the quad can be bigger: it also holds the seat back)
-	vec4 t = texture(atlas, v_uv.xy);
-	// sharpen the mip-blurred edge
-	float a = clamp((t.a - 0.5) / max(fwidth(t.a), 1e-4) + 0.5, 0.0, 1.0);
-	if (any(lessThan(v_cell, v_bb.xz)) || any(greaterThan(v_cell, v_bb.yw))) a = 0.0;
+	vec4 t = vec4(0.0);
+	float a = 0.0;
+	if (fig) {
+		t = textureGrad(atlas, v_uv.xy, uv_dx, uv_dy);
+		// sharpen the mip-blurred edge (to about a pixel: what the edge's slope is across a pixel
+		// at the mip the GPU picks; the 0.5 cut itself is exact)
+		a = clamp((t.a - 0.5) * 2.0 + 0.5, 0.0, 1.0);
+	}
 	float ly = v_uv.z;
 	vec3 c = mix(ly > 0.60 ? v_hair : v_pants, v_shirt, t.g);
 	c = mix(c, v_skin, t.b * (1.0 - smoothstep(0.5, 0.95, t.g)));
@@ -257,19 +276,16 @@ void fragment() {
 	c *= t.r * (1.0 + 0.45 * v_uv.w) * mix(0.5, 1.0, smoothstep(0.25, 0.62, ly));
 	// the seat back behind them: a shell 0.41 m across from 1.5 to 48.5 cm up its quad, its top
 	// corners rounded (venue.ts SEAT_PTS), lighter at the top edge and in the middle (seatShade)
-	vec2 sh = v_seat.xy / v_seat.z;
-	vec2 px = fwidth(sh);
-	if (a < 1.0 && v_seat.z > 0.0) {
-		vec2 q = abs(sh - vec2(0.0, 0.25));
+	if (a < 1.0 && seat) {
+		vec2 q = sq;
 		float r = sh.y > 0.25 ? 0.109 : 0.0;
 		vec2 e = q - vec2(0.203, 0.235) + r;
 		float sd = length(max(e, 0.0)) + min(max(e.x, e.y), 0.0) - r;
-		float cov = clamp(0.5 - sd / max(max(px.x, px.y), 1e-5), 0.0, 1.0);
+		float cov = clamp(0.5 - sd / max(pm, 1e-5), 0.0, 1.0);
 		float u = sh.x * 2.0 + 0.5, y = (1.0 - sh.y * 2.0) * 64.0;
 		float tone = y < 16.0 ? 255.0 - 47.0 * (y / 16.0) : 208.0 - 86.0 * ((y - 16.0) / 48.0);
 		float side = 1.0 - 0.35 * min(1.0, abs(u * 64.0 - 32.0) / 26.0);
-		float g = clamp(tone * side / 255.0, 0.0, 1.0);
-		g = g <= 0.04045 ? g / 12.92 : pow((g + 0.055) / 1.055, 2.4);
+		float g = srgb_lin(clamp(tone * side / 255.0, 0.0, 1.0));
 		// the fan stands in front: their edge blends over the shell
 		c = mix(v_seat_c * g, c, a);
 		a += cov * (1.0 - a);

@@ -17,6 +17,61 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-19 05:00",
+	"title": "A living, detailed city",
+	"notes": [
+	"Android: the city's windows now look into real rooms with furniture and lamps, some switching on and off, behind glass that reflects the sky and catches the sun.",
+	"Android: buildings get balconies, fire escapes, shopfronts with awnings and lit signs, and grime; roofs get gardens, solar panels, air-conditioning units with spinning fans and stair housings.",
+	"Android: the streets come alive when you zoom in: cars, taxis, vans and buses drive their lanes and over the bridges, cars park along the kerbs, and people walk the pavements.",
+	"Android: cars, people and rooftop units cast shadows, and the roads have tyre tracks, patched asphalt, cracks, manholes, drains and lane arrows.",
+	"Android: pavements and plazas are laid in real slabs, each its own shade, with worn and stained patches."
+]
+},
+	{
+	"hour": "2026-10-19 05:00",
+	"title": "Faster fights on Android",
+	"notes": [
+	"Android: on phones with a 120 Hz screen the game now asks the screen for 120 Hz, so it can actually run above 60 FPS.",
+	"Android: the crowd costs the GPU about half as much to draw, with the front rows drawn first so the seats behind them are skipped.",
+	"Android: Ray tracing skips the far stands, where its shading couldn't be seen anyway, so it costs less in every shot.",
+	"Android: robot wear, scuffs and the metal finish are drawn from a texture instead of being worked out pixel by pixel, which keeps damaged robots cheap late in a fight.",
+	"Android: the follow spots only light the robots and the canvas, and the arena no longer re-sends unchanged lighting settings every frame."
+]
+},
+	{
+	"hour": "2026-10-19 04:00",
+	"title": "Ray tracing fixed, spotlights on the fighters",
+	"notes": [
+	"Android: with Ray tracing on, bushes no longer get black holes, shade no longer fills with flat white blocks, and robots no longer look torn apart.",
+	"Android: Ray tracing reads the picture a lighter way, so it also costs the GPU a little less.",
+	"Android: Ray tracing Heavy on a phone now uses the game's own traced lighting instead of the effects that broke on phone GPUs.",
+	"Android: the home screen now shows the skin and parts your robot has in the garage, instead of the ones it had before.",
+	"Android: two follow spots in the rigging now track the robots through their entrances and the whole fight, so dark robots and fast exchanges are much easier to see."
+]
+},
+	{
+	"hour": "2026-10-19 03:00",
+	"title": "Smoother menus, less memory",
+	"notes": [
+	"Android: the game uses roughly 180 MB less memory once the arenas and home scenes are loaded, and places that use the same pictures now share them.",
+	"Android: the garage opens without a freeze: it is prepared while you sit on the home screen, and part pictures in the parts picker no longer stall the screen.",
+	"Android: the Skin Vault's sounds and the commentators' voice lines load in the background instead of stuttering the screen.",
+	"Android: the phone's Back button now works everywhere: it closes the open menu, and in a fight it pauses.",
+	"Android: confetti, pyro and smoke no longer blow up to fill the screen when they pass right by the camera."
+]
+},
+	{
+	"hour": "2026-10-19 03:00",
+	"title": "Faster fights, cleaner robots",
+	"notes": [
+	"Android: fixed robots sometimes showing small patches in another part's colour on phones.",
+	"Android: every scene is lighter on the GPU: a bloom effect that phones could never actually show is no longer paid for.",
+	"Android: fights spend less time on each frame: the robots' shading and contact shadows, and the fight HUD, only update what changed.",
+	"Android: Performance stats is now off by default, and turning it on no longer draws the whole scene twice. GPU timings show after restarting the app.",
+	"Android: fixed rare black or flickering pixels on shields, water, the world map and some arenas."
+]
+},
+	{
 	"hour": "2026-10-19 01:00",
 	"title": "Lighter robots and arenas",
 	"notes": [

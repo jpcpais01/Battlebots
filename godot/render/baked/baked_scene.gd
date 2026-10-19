@@ -265,6 +265,7 @@ func _mesh(n: Dictionary) -> ArrayMesh:
 	var mats: Array = []
 	var slots := {}
 	var margin := 0.0
+	var sprites := false
 	for mid in n.materials:
 		var rec: Dictionary = json.materials[int(mid)]
 		var made: Array = factory.call(rec, n, self)
@@ -272,6 +273,8 @@ func _mesh(n: Dictionary) -> ArrayMesh:
 		slots = made[1]
 		if made.size() > 2:
 			margin = maxf(margin, made[2])
+		if made.size() > 3:
+			sprites = sprites or made[3]
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	var flags := 0
@@ -301,7 +304,10 @@ func _mesh(n: Dictionary) -> ArrayMesh:
 	var index := buffer(int(g.index.buffer)).to_int32_array()
 	var groups: Array = g.groups
 	var slim: Array = _slim.get(int(n.geometry), [])
-	if not slim.is_empty():
+	if sprites:
+		# sprites (the crowd): whole quads, nearest the ring first, whatever the slim bake has
+		index = _front_first(index, arrays[Mesh.ARRAY_VERTEX])
+	elif not slim.is_empty():
 		index = slim[0]
 		groups = slim[1]
 	var prim := Mesh.PRIMITIVE_POINTS if n.primitive == "points" else Mesh.PRIMITIVE_LINES if n.primitive == "lines" else Mesh.PRIMITIVE_TRIANGLES
@@ -326,6 +332,32 @@ func _mesh(n: Dictionary) -> ArrayMesh:
 	elif margin > 0.0 and mesh.get_surface_count() > 0:
 		mesh.custom_aabb = mesh.get_aabb().grow(margin)
 	return mesh
+
+
+## A sprite mesh's quads (six indices each, every corner at its sprite's centre `at`) ordered
+## out from the ring, the front rows first. A fan's pixels that the fan in front of it already
+## covers then fail the depth test before they are shaded (the fans discard round their
+## outlines, so the GPU can't sort that out for itself ahead of drawing them).
+##
+## Whole quads, not one triangle twice a quad's size: that saved a triangle a fan but drew every
+## fan over twice its pixels, and the crowd's pixels are what it costs.
+static func _front_first(index: PackedInt32Array, at: PackedVector3Array) -> PackedInt32Array:
+	var n := index.size() / 6
+	if n * 6 != index.size() or at.is_empty():
+		return index
+	var order := []
+	order.resize(n)
+	for q in n:
+		var c := at[index[q * 6]]
+		order[q] = Vector2(Vector2(c.x, c.z).length() + c.y * 0.5, q)
+	order.sort()
+	var out := PackedInt32Array()
+	out.resize(index.size())
+	for k in n:
+		var q := int((order[k] as Vector2).y)
+		for j in 6:
+			out[k * 6 + j] = index[q * 6 + j]
+	return out
 
 
 static func _default_slot(name: String) -> String:

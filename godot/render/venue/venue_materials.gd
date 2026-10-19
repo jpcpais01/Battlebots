@@ -59,7 +59,7 @@ func make(rec: Dictionary, node: Dictionary, scene: BakedScene) -> Array:
 			var k: Array = KINDS[kind]
 			if not ResourceLoader.exists(k[0]):
 				return [null, {}]
-			return [_cached(key, func(): return _kind(kind, k[0], rec, scene)), k[1], k[2] if k.size() > 2 else 0.0]
+			return [_cached(key, func(): return _kind(kind, k[0], rec, scene)), k[1], k[2] if k.size() > 2 else 0.0, kind == "crowd"]
 	return [null, {}]
 
 

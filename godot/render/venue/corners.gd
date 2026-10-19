@@ -90,7 +90,7 @@ static func _emissive(arena: Arena, mi: MeshInstance3D, surface: int) -> Array:
 
 static func _set_glow(em: Array, k: float) -> void:
 	if not em.is_empty():
-		em[0].set_shader_parameter("emissive", em[1] * k)
+		Mats.put(em[0], "emissive", em[1] * k)
 
 
 ## A 0xRRGGBB colour (sRGB) in linear, as three's Color.setHex.
@@ -157,9 +157,10 @@ func _pose(m, time := 0.0) -> void:
 		var waiting := not done and t < 0.0
 		var ring: ShaderMaterial = c.ring
 		if ring:
-			ring.set_shader_parameter("glow", 1.2 + 0.4 * sin(time * 3.0) if waiting else 1.4 + live * 2.2)
-			ring.set_shader_parameter("chase", live)
-			ring.set_shader_parameter("spin", time * (0.4 + live * 3.0))
+			Mats.put(ring, "glow", 1.2 + 0.4 * sin(time * 3.0) if waiting else 1.4 + live * 2.2)
+			Mats.put(ring, "chase", live)
+			# (the shader turns it by bb_time, so a ring at rest needs no new value each frame)
+			Mats.put(ring, "spin_rate", 0.4 + live * 3.0)
 		_set_glow(c.deck_glow, 0.9 + live * 2.5)
 		_set_glow(c.sleeve, 1.1 + live * 2.2 * (0.75 + 0.25 * sin(time * 14.0)))
 		_set_glow(c.shaft_mat, 1.2 + live * 2.0)
@@ -167,8 +168,8 @@ func _pose(m, time := 0.0) -> void:
 		var acc: Color = _accents[c.i]
 		var ck := 0.0 if done else open * (1.0 if t < E.arrive else exp(-(t - E.arrive) * 2.2))
 		if c.column_mat:
-			c.column_mat.set_shader_parameter("k", ck * 1.6)
-			c.column_mat.set_shader_parameter("color", Vector3(acc.r, acc.g, acc.b))
+			Mats.put(c.column_mat, "k", ck * 1.6)
+			Mats.put(c.column_mat, "color", Vector3(acc.r, acc.g, acc.b))
 		if c.column:
 			c.column.visible = ck > 0.01
 		var bk := 0.0
@@ -176,8 +177,8 @@ func _pose(m, time := 0.0) -> void:
 			bk = _ease(t / 0.6) * 0.7 if t < E.arrive else 0.7 + 0.5 * exp(-(t - E.arrive) * 2.0) - _ease((t - E.arrive - 1.2) / 1.2) * 0.7
 		if c.beam_mat:
 			var bc := acc.lerp(Color(1, 1, 1), 0.35)
-			c.beam_mat.set_shader_parameter("k", maxf(0.0, bk) * 0.5)
-			c.beam_mat.set_shader_parameter("color", Vector3(bc.r, bc.g, bc.b))
+			Mats.put(c.beam_mat, "k", maxf(0.0, bk) * 0.5)
+			Mats.put(c.beam_mat, "color", Vector3(bc.r, bc.g, bc.b))
 		if c.beam:
 			c.beam.visible = bk > 0.01
 

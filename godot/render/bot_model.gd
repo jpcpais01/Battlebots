@@ -89,6 +89,7 @@ static var _fixed_lock := Mutex.new()
 ## on worker threads as soon as its code is set, so making it early (BotModel.warm) keeps the wait
 ## off the frame that first draws it. Safe from any thread.
 static func opaque_shader(kind: int) -> Shader:
+	noise3d()
 	_fixed_lock.lock()
 	var sh: Shader = _fixed.get(kind)
 	if sh == null:
@@ -97,6 +98,29 @@ static func opaque_shader(kind: int) -> Shader:
 		_fixed[kind] = sh
 	_fixed_lock.unlock()
 	return sh
+
+
+## Put up the robots' baked noise lattice (bb_noise3d: bot_damage.gdshaderinc dmg_noise_t), once.
+## Safe from any thread.
+static func noise3d() -> void:
+	_fixed_lock.lock()
+	if _noise == null:
+		var n := 64
+		var b := FileAccess.get_file_as_bytes("res://assets/bots/noise3d.bin")
+		if b.size() == n * n * n:
+			var images: Array[Image] = []
+			for z in n:
+				images.append(Image.create_from_data(n, n, false, Image.FORMAT_R8, b.slice(z * n * n, (z + 1) * n * n)))
+			_noise = ImageTexture3D.new()
+			_noise.create(Image.FORMAT_R8, n, n, n, false, images)
+			RenderingServer.global_shader_parameter_set("bb_noise3d", _noise)
+		else:
+			push_error("noise3d.bin missing or the wrong size")
+			_noise = ImageTexture3D.new()
+	_fixed_lock.unlock()
+
+
+static var _noise: ImageTexture3D
 
 
 ## Start compiling the plating shaders these skins (or spec.skin ids, or null for the plain
@@ -206,6 +230,7 @@ var _hulls_loaded: Array = []
 
 
 func _init(bot_spec) -> void:
+	noise3d()
 	spec = bot_spec
 	size = float(JS.get_field(spec, "size")) if JS.get_field(spec, "size") != null else 1.0
 	for i in 16:
@@ -334,6 +359,8 @@ func _build() -> void:
 		# the bones move the corners on the GPU: the box has to hold any pose (until _upload
 		# fits it round the pose)
 		m.custom_aabb = AABB(Vector3(-2, -2.2, -2) * size, Vector3(4, 4.4, 4) * size)
+		# (lit by the follow spots too)
+		m.layers |= FollowSpots.LAYER
 		add_child(m)
 
 	# contact hulls from the real armour (bake_parts.ts builds them as botModel.ts does), unpacked
@@ -1379,6 +1406,7 @@ func detach_piece(part: int) -> Node3D:
 		mi.mesh = mesh
 		mi.material_override = mat
 		mi.custom_aabb = box
+		mi.layers |= FollowSpots.LAYER
 		if not opaque:
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		node.add_child(mi)

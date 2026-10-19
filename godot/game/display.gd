@@ -14,14 +14,20 @@ static var cap := 0
 
 
 ## Ask for the panel's fastest refresh rate (a no-op off Android, or where the plugin is missing).
+## Asked three ways, since phones listen to different ones: the window's preferred display mode
+## and its preferred refresh rate (the window manager's vote), and the frame rate of the surface
+## Godot draws on (Android 11's Surface.setFrameRate, the vote games are meant to cast; some
+## panels, Samsung's and Xiaomi's among them, give a 60 Hz window 120 only through it). Called
+## at start and whenever the app comes back to the front (Android may have reset the mode).
 static func boost_refresh() -> void:
+	_hz = 0
 	if OS.get_name() != "Android" or not Engine.has_singleton("AndroidRuntime"):
 		return
 	var rt = Engine.get_singleton("AndroidRuntime")
 	var act = rt.getActivity()
 	if act == null:
 		return
-	# window attributes may only change on Android's UI thread
+	# window attributes and views may only change on Android's UI thread
 	act.runOnUiThread(rt.createRunnableFromGodotCallable(_pick_mode.bind(act)))
 
 
@@ -39,19 +45,63 @@ static func _pick_mode(act) -> void:
 		# same resolution only: a mode switch to another size would blank and rescale the screen
 		if md.getPhysicalWidth() == cur.getPhysicalWidth() and md.getPhysicalHeight() == cur.getPhysicalHeight() and md.getRefreshRate() > best.getRefreshRate() + 0.5:
 			best = md
+	var hz: float = best.getRefreshRate()
 	var lp = win.getAttributes()
-	var field = lp.getClass().getField("preferredDisplayModeId")
-	if field == null:
-		return
-	field.setInt(lp, best.getModeId())
+	var cls = lp.getClass()
+	var field = cls.getField("preferredDisplayModeId")
+	if field != null:
+		field.setInt(lp, best.getModeId())
+	var rate = cls.getField("preferredRefreshRate")
+	if rate != null:
+		rate.setFloat(lp, hz)
 	win.setAttributes(lp)
-	print("display: asked for mode %d at %.0f Hz" % [best.getModeId(), best.getRefreshRate()])
+	var surf = _surface_view(win.getDecorView(), 0)
+	if surf != null:
+		var s = surf.getHolder().getSurface() if surf.getHolder() != null else null
+		# (FRAME_RATE_COMPATIBILITY_DEFAULT: a game drawing as fast as it can, not a fixed-rate video)
+		if s != null and s.isValid():
+			s.setFrameRate(hz, 0)
+	print("display: asked for mode %d at %.0f Hz%s" % [best.getModeId(), hz, " (surface too)" if surf != null else ""])
 
 
-## The screen's refresh rate in Hz (what "Max" means).
+## The SurfaceView Godot draws on, found down the window's view tree (null if there's none).
+static func _surface_view(v, depth: int):
+	if v == null or depth > 8:
+		return null
+	if _is_a(v, "android.view.SurfaceView"):
+		return v
+	if not _is_a(v, "android.view.ViewGroup"):
+		return null
+	for i in v.getChildCount():
+		var hit = _surface_view(v.getChildAt(i), depth + 1)
+		if hit != null:
+			return hit
+	return null
+
+
+## Whether Java object `o` is a `cls_name` (its class or one it extends).
+static func _is_a(o, cls_name: String) -> bool:
+	var c = o.getClass()
+	while c != null:
+		if c.getName() == cls_name:
+			return true
+		c = c.getSuperclass()
+	return false
+
+
+## The screen's refresh rate in Hz (what "Max" means). Asked of the screen at most twice a
+## second (on Android that's a call into Java, and the governor wants it every frame).
 static func hz() -> int:
-	var r := DisplayServer.screen_get_refresh_rate()
-	return roundi(r) if r > 0.0 else 60
+	var now := Time.get_ticks_msec()
+	if _hz <= 0 or now - _hz_at > 500:
+		var r := DisplayServer.screen_get_refresh_rate()
+		_hz = roundi(r) if r > 0.0 else 60
+		_hz_at = now
+	return _hz
+
+
+static var _hz := 0
+static var _hz_at := 0
 
 
 ## Cap the frame rate (0 = the screen's own rate). VSync stays on, so 60 on a 120 Hz screen is

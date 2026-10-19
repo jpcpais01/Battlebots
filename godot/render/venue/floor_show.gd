@@ -1,5 +1,5 @@
 ## The arena floor's live part (src/render/floor.ts FloorShow.event/update): big moments set the
-## photographers' flashes off round the ring (photo_flash.gdshader fires each one from `now`,
+## photographers' flashes off round the ring (photo_flash.gdshader fires each one from bb_time,
 ## `burst` and `burst_k`). The uplights at the foot of the boards pulse with bb_hype on their own.
 class_name FloorShow
 extends RefCounted
@@ -23,7 +23,6 @@ func event(type: String, data) -> void:
 	_flash.set_shader_parameter("burst_k", 1.0 if type == "ko" or type == "knockdown" else 0.55)
 
 
-func update(dt: float) -> void:
-	_t += dt
-	if _flash:
-		_flash.set_shader_parameter("now", _t)
+## `time`: the arena clock, as bb_time (the flashes read it there, so nothing is sent each frame).
+func update(_dt: float, time: float) -> void:
+	_t = time
