@@ -200,7 +200,7 @@ func _run() -> void:
 		"perf": {"Off": func(): return not f.hud.perf.visible and not Perf.on and _cfg("game", "perf_stats") == false,
 			"On": func(): return f.hud.perf.visible and Perf.on and _cfg("game", "perf_stats") == true},
 		"quality": {"Low": func(): return vp.msaa_3d == Viewport.MSAA_2X and not f._key.shadow_enabled and not f._env.glow_enabled and not f.arena.node("beams").visible and _cfg("graphics", "quality") == "low",
-			"Med": func(): return vp.msaa_3d == Viewport.MSAA_2X and f._key.shadow_enabled and f._env.glow_enabled and f.arena.node("showBeams").visible and vp.positional_shadow_atlas_size == 2048 and _cfg("graphics", "quality") == "med",
+			"Med": func(): return vp.msaa_3d == Viewport.MSAA_2X and f._key.shadow_enabled and Settings.tier_glow and f._env.glow_enabled == (Settings.renderer() != "mobile") and f.arena.node("showBeams").visible and vp.positional_shadow_atlas_size == 2048 and _cfg("graphics", "quality") == "med",
 			"High": func(): return vp.msaa_3d == Viewport.MSAA_4X and f._key.shadow_enabled and vp.positional_shadow_atlas_size == 4096 and _cfg("graphics", "quality") == "high",
 			"Auto": func(): return s.quality == "" and s.tier() == Settings.auto_quality() and _cfg("graphics", "quality") == "auto"},
 		"resolution": {"Low (0.5x)": func(): return is_equal_approx(vp.scaling_3d_scale, 0.5) and _cfg("graphics", "resolution") == 0.5,

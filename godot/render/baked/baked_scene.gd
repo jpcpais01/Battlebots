@@ -30,6 +30,8 @@ var _textures := {}
 ## built on worker threads, hence the lock.
 static var _shared := {}
 static var _shared_lock := Mutex.new()
+## Share them (BB_NO_TEXSHARE=1 makes every scene its own, to compare).
+static var share_textures := not OS.has_environment("BB_NO_TEXSHARE")
 ## Every built node, by its index in the bake.
 var nodes: Array[Node3D] = []
 ## Named nodes (the bake names what the game animates).
@@ -136,7 +138,7 @@ func texture(id: int) -> Texture2D:
 		bytes = _bin.slice(int(p.offset), int(p.offset) + int(p.bytes))
 		how = "png" + (" flip" if t.flipY else "")
 	var key := ""
-	if not bytes.is_empty():
+	if share_textures and not bytes.is_empty():
 		key = _tex_key(bytes, how + (" mips" if mips else ""))
 		var hit := _shared_get(key)
 		if hit != null:

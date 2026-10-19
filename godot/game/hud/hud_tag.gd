@@ -222,7 +222,7 @@ func _layout() -> void:
 	_btn.pivot_offset = _btn.size * 0.5
 	_btn.em = e
 	_btn.px = px
-	_btn.queue_redraw()
+	_btn.relayout()
 
 
 ## The chip's outline in its own box: slanted ends (the bars' style), the outer end square-ish.
@@ -349,9 +349,18 @@ class TagButton extends BaseButton:
 	var _t := 0.0
 	var _lit := 0.0
 	var _press := 0.0
-	var _shown := ""
 	var _box := StyleBoxFlat.new()
 	var _glow := StyleBoxFlat.new()
+	var _fill := StyleBoxFlat.new()
+	## The button in layers, so its pulse costs no drawing: the glow behind it and a wash of its
+	## colour over its face are drawn at the pulse's peak and breathe by their opacity; the face
+	## (the pill and its edge, at the pulse's low) and the words only draw when the state changes.
+	var _glow_layer := Control.new()
+	var _wash := Control.new()
+	var _words := Control.new()
+	## What the face and the words were last drawn for.
+	var _drawn_face := []
+	var _drawn_words := []
 
 	func _init() -> void:
 		focus_mode = Control.FOCUS_NONE
@@ -362,6 +371,17 @@ class TagButton extends BaseButton:
 		_glow.corner_detail = 16
 		_glow.draw_center = false
 		_glow.bg_color = Color(0, 0, 0, 0)
+		_fill.corner_detail = 16
+		_fill.anti_aliasing = true
+		for c in [_glow_layer, _wash, _words] as Array[Control]:
+			c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			c.set_anchors_preset(Control.PRESET_FULL_RECT)
+			add_child(c)
+		# (the glow under the face, as a box-shadow sits)
+		_glow_layer.show_behind_parent = true
+		_glow_layer.draw.connect(_draw_glow)
+		_wash.draw.connect(_draw_wash)
+		_words.draw.connect(_draw_words)
 		visible = false
 
 	func reset() -> void:
@@ -371,9 +391,15 @@ class TagButton extends BaseButton:
 		_off = 1.0
 		_lit = 0.0
 		_press = 0.0
-		_shown = ""
+		_drawn_face = []
+		_drawn_words = []
 		scale = Vector2.ONE
 		visible = false
+
+	## The size or the em changed (HudTag._layout): draw every layer again.
+	func relayout() -> void:
+		_drawn_face = []
+		_drawn_words = []
 
 	func show_state(ready: bool, running: bool, gone: bool, status: String, name: String, col: Color) -> void:
 		_ready = ready
@@ -397,42 +423,79 @@ class TagButton extends BaseButton:
 			_press = p
 			var s := lerpf(1.0, 0.92, HudKit.ease_css(_press))
 			scale = Vector2(s, s)
-		var key := "%s%s%s%s%.2f" % [_ready, _running, _status, _name, _lit]
-		if visible and (_ready or _running or key != _shown):
-			_shown = key
+		if not visible:
+			return
+		# the pulse: running for the corner (0.4 s each way), or ready (0.6 s)
+		var u := 0.0
+		if _running:
+			u = HudBars._pulse(_t, 0.4)
+			_glow_layer.modulate.a = (0.4 + 0.3 * u) / 0.7
+		elif _lit > 0.0:
+			u = HudBars._pulse(_t, 0.6)
+			_glow_layer.modulate.a = 0.5 + 0.5 * u
+		_wash.modulate.a = u
+		var face := [_running, _lit, _col]
+		if face != _drawn_face:
+			_drawn_face = face
 			queue_redraw()
+			_glow_layer.queue_redraw()
+			_wash.queue_redraw()
+		var words := [_ready, _running, _status, _name, _col]
+		if words != _drawn_words:
+			_drawn_words = words
+			_words.queue_redraw()
 
+	func _rad() -> int:
+		return maxi(0, int(floor(size.y * 0.5)) - 1)
+
+	func _bw() -> int:
+		return maxi(1, roundi(1.5 * px))
+
+	## The face at the pulse's low: running for the corner in amber, or lit in the partner's colour.
 	func _draw() -> void:
 		var r := Rect2(Vector2.ZERO, size)
 		if r.size.x <= 0.0:
 			return
-		var bw := maxi(1, roundi(1.5 * px))
-		var rad := maxi(0, int(floor(size.y * 0.5)) - 1)
 		var bg := HudCoach.CoachButton.BG
 		var edge := Color(_col, 0.4)
-		var glow := 0.0
 		if _running:
-			# running for the corner: amber, pulsing
-			var u := HudBars._pulse(_t, 0.4)
-			bg = HudCoach.mix(HudKit.AMBER, 0.25 + 0.25 * u, HudCoach.CoachButton.BG_ON)
+			bg = HudCoach.mix(HudKit.AMBER, 0.25, HudCoach.CoachButton.BG_ON)
 			edge = HudKit.AMBER
-			glow = 0.4 + 0.3 * u
 		elif _lit > 0.0:
-			var u := HudBars._pulse(_t, 0.6)
-			bg = bg.lerp(HudCoach.mix(_col, 0.28 + 0.12 * u, HudCoach.CoachButton.BG_ON), _lit)
+			bg = bg.lerp(HudCoach.mix(_col, 0.28, HudCoach.CoachButton.BG_ON), _lit)
 			edge = edge.lerp(Color(_col, 1.0), _lit)
-			glow = _lit * (0.35 + 0.35 * u)
-		if glow > 0.004:
-			_glow.set_corner_radius_all(rad)
-			_glow.shadow_color = Color(HudKit.AMBER if _running else _col, glow * 0.6)
-			_glow.shadow_size = maxi(1, roundi(12.0 * px))
-			draw_style_box(_glow, r)
 		_box.bg_color = bg
-		_box.set_corner_radius_all(rad)
-		_box.set_border_width_all(bw)
+		_box.set_corner_radius_all(_rad())
+		_box.set_border_width_all(_bw())
 		_box.border_color = edge
 		draw_style_box(_box, r)
-		# TAG, and under it the partner's name, or why it can't come in yet
+
+	## The glow round it at the pulse's peak (the layer's opacity takes it down to the low).
+	func _draw_glow() -> void:
+		var glow := 0.7 if _running else _lit * 0.7
+		if glow <= 0.004 or size.x <= 0.0:
+			return
+		_glow.set_corner_radius_all(_rad())
+		_glow.shadow_color = Color(HudKit.AMBER if _running else _col, glow * 0.6)
+		_glow.shadow_size = maxi(1, roundi(12.0 * px))
+		_glow_layer.draw_style_box(_glow, Rect2(Vector2.ZERO, size))
+
+	## The colour washed over the face at the pulse's peak: over the face's own mix (25% amber, or
+	## 28% of its colour), a sixth of its colour (a third of amber) makes the peak's mix (40%, 50%)
+	## exactly, and the layer's opacity at the pulse's u gives the mix in between.
+	func _draw_wash() -> void:
+		var a := 1.0 / 3.0 if _running else _lit / 6.0
+		if a <= 0.0 or size.x <= 0.0:
+			return
+		var bw := float(_bw())
+		_fill.bg_color = Color(HudKit.AMBER if _running else _col, a)
+		_fill.set_corner_radius_all(maxi(0, _rad() - _bw()))
+		_wash.draw_style_box(_fill, Rect2(Vector2.ZERO, size).grow(-bw))
+
+	## TAG, and under it the partner's name, or why it can't come in yet.
+	func _draw_words() -> void:
+		if size.x <= 0.0:
+			return
 		var big := HudKit.broadcast()
 		var fs := 1.12 * em
 		var sfs := 0.48 * em
@@ -444,10 +507,10 @@ class TagButton extends BaseButton:
 		var cy := size.y * 0.5
 		var asc := big.get_ascent(roundi(fs))
 		var base := cy - 0.1 * em + asc * 0.5
-		HudKit.text(self, big, Vector2((size.x - tw) * 0.5, base), label, fs, col, 0.5)
+		HudKit.text(_words, big, Vector2((size.x - tw) * 0.5, base), label, fs, col, 0.5)
 		var room := size.x - 1.6 * em
 		while sub.length() > 1 and HudKit.width(small, sub, sfs) > room:
 			sub = sub.left(sub.length() - 2) + "…"
 		var sw := HudKit.width(small, sub, sfs)
 		var sc := Color(HudKit.AMBER if _running else (Color(_col).lerp(Color.WHITE, 0.45) if _ready else UiTheme.MUTED))
-		HudKit.text(self, small, Vector2((size.x - sw) * 0.5, base + 0.72 * em), sub, sfs, sc, 0.5)
+		HudKit.text(_words, small, Vector2((size.x - sw) * 0.5, base + 0.72 * em), sub, sfs, sc, 0.5)

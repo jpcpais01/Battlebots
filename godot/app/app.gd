@@ -120,6 +120,8 @@ func _setup() -> void:
 	if boot != null:
 		game.made = boot.made
 	add_child(game)
+	# (Android's back button is the app's: _go_back)
+	game.pause_menu.back_handled_above = true
 	game.match_event.connect(_on_match_event)
 	game.forfeited.connect(_on_forfeit)
 	if boot != null:
@@ -136,11 +138,13 @@ func _setup() -> void:
 		s.visible = false
 		screens[id] = s
 		ui.add_child(s)
-	# switching to or from a place dips through black (app.ts .scene-fade)
+	# switching to or from a place dips through black (app.ts .scene-fade); hidden while clear, as
+	# a clear full-screen rect still costs the GPU a pass over every pixel
 	_fade = ColorRect.new()
 	_fade.color = Color(0, 0, 0, 0)
 	_fade.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fade.visible = false
 	ui.add_child(_fade)
 	if boot != null:
 		# the arena drawn a moment behind the loading screen, so its looks are ready for the
@@ -230,12 +234,50 @@ func _process(dt: float) -> void:
 		s.tick(dt)
 
 
-## The Android back button and Escape off the fight: back towards home.
+## Back (Escape, or the Android back button as _go_back passes it on) once the screens and their
+## cards haven't taken it: in a fight being played it pauses, off the fight it heads home.
 func _unhandled_input(e: InputEvent) -> void:
-	if e.is_action_pressed("ui_cancel") and current != "home" and current != "fight" and results == null:
+	if not e.is_action_pressed("ui_cancel"):
+		return
+	if _playing():
+		get_viewport().set_input_as_handled()
+		game.pause()
+	elif current != "home" and current != "fight" and results == null:
 		tap("back")
 		go("home")
 		get_viewport().set_input_as_handled()
+
+
+## Android's back button. It arrives as this notification (to every node), never as ui_cancel,
+## which is what the screens, cards and the results listen for; the pause menu took it alone and
+## asked the fight to pause, which does nothing off a fight (and paused over the results).
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		_go_back()
+
+
+## One step back: through the pause menu while it's up (Settings to the card, the card to the
+## fight), pausing a fight being played, and anywhere else a ui_cancel press for the screen or
+## card on top to take (closing a card, leaving a screen, the results going home).
+func _go_back() -> void:
+	if game == null or ui == null:
+		return
+	var pm: PauseMenu = game.pause_menu
+	if pm != null and pm.is_open():
+		pm.back()
+	elif _playing():
+		game.pause()
+	else:
+		for down in [true, false]:
+			var e := InputEventAction.new()
+			e.action = &"ui_cancel"
+			e.pressed = down
+			Input.parse_input_event(e)
+
+
+## A fight is on screen and being played (or its loser carried out): no results card yet.
+func _playing() -> bool:
+	return current == "fight" and results == null and game != null and game.m != null
 
 
 # ------------------------------------------------------------------------------ navigation
@@ -317,10 +359,12 @@ func _camera(id: String) -> void:
 func _dip(then: Callable) -> void:
 	if _fade_tween != null:
 		_fade_tween.kill()
+	_fade.visible = true
 	_fade_tween = create_tween()
 	_fade_tween.tween_property(_fade, "color:a", 1.0, 0.17)
 	_fade_tween.tween_callback(then)
 	_fade_tween.tween_property(_fade, "color:a", 0.0, 0.25)
+	_fade_tween.tween_callback(_fade.hide)
 
 
 ## A menu sound (app.ts tap): "tap", "select", "back" or "start".

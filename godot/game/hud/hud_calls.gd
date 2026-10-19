@@ -16,10 +16,12 @@ const LOSS_TEXT := {"head": "Head torn off", "leg": "Both legs torn off", "arms"
 const SKEW_CALLOUT := -0.14054
 ## The glow faces' distance field: glyphs this many px tall, the field this wide (half of it either
 ## side of the edge; a glyph's quad runs the full width further out, so the wide field, for the
-## callouts' broad blur, is only used there).
+## callouts' broad blur, is only used there). The wide field stops at 0.75em out: the callouts'
+## halo is down to a few percent there, and a wider one made each glyph's quad (and its texture)
+## so big that a callout's glow covered much of the screen in overlapping quads.
 const GLOW_MSDF := 32
 const GLOW_RANGE := 32
-const GLOW_RANGE_WIDE := 80
+const GLOW_RANGE_WIDE := 48
 ## A CSS text-shadow blur: the glyphs' true distance field (the face's alpha channel) turned into
 ## a Gaussian falloff past their edge, sigma in font sizes. Colour from the draw.
 const GLOW_SHADER := """shader_type canvas_item;
@@ -66,7 +68,7 @@ void fragment() {
 	}
 }
 """
-## The layers, bottom to top, each redrawn while its group shows.
+## The layers, bottom to top, each redrawn while its group shows and moves (see _redraw).
 const GROUPS := {
 	"callout": ["callout_glow", "callout"],
 	"count": ["count_back", "count_glow", "count"],
@@ -98,10 +100,24 @@ static var _flash_tex: GradientTexture2D
 
 var _layer := {}
 var _shown := {}
-var _spans: Array[CanvasGroup] = []
+var _moving := {}
+## The end-of-fight word's pieces: each a plain node holding its three layers (glow, soft shadow,
+## the piece), faded as one (CSS opacity on the span) while it fades in or out. A fading piece is
+## drawn as a canvas group (its layers composited off screen, then faded together, so the glow
+## doesn't show through the face); once it's fully in it's drawn plainly, as a canvas group costs a
+## copy of the whole screen every frame on a phone's tiled GPU.
+var _spans: Array[Node2D] = []
+var _span_group: Array[bool] = [false, false, false]
 var _span_ctl: Array[Control] = []
 var _span_px := 100
 var _span_mat: Array[ShaderMaterial] = []
+## What the pieces were last drawn for ("" before): their layers only draw again when it changes
+## (they're moved, scaled and faded as nodes), and the pieces' widths for it.
+var _span_key := ""
+var _span_w: Array[float] = []
+## The room round each piece's layers (font sizes): glow, shadow and the glyphs' overshoot all
+## stay inside the layer's rect, so a fading piece's canvas group never cuts them off.
+const SPAN_PAD := 0.6
 # faces: the loud one italic and upright (distance field, sharp at any scale), their glow twins,
 # the upright one for small print, and the body face
 var _fi: Font
@@ -203,7 +219,7 @@ func _init() -> void:
 	for k in 3:
 		# each piece, faded as one (CSS opacity on the span): its glow, its soft drop shadow, then
 		# the piece (hard edge, depth, face)
-		var grp := CanvasGroup.new()
+		var grp := Node2D.new()
 		grp.visible = false
 		add_child(grp)
 		var mat := ShaderMaterial.new()
@@ -267,6 +283,7 @@ func _glow_mat() -> ShaderMaterial:
 
 ## style.css --broadcast (HudKit.broadcast's face) as a distance field font, so it stays sharp as
 ## it scales: italic or upright, for faces (`glow` 0) or the halos (1, or 2 reaching further).
+## Made once for the app's run (with their glyphs: warm_fonts).
 static func _loud(italic: bool, glow: int) -> Font:
 	var key := "%s%s" % [italic, glow]
 	if _fonts.has(key):
@@ -298,6 +315,54 @@ static func _small() -> Font:
 		f.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_AUTO
 		_fonts["small"] = f
 	return _fonts["small"]
+
+
+## The characters the loud faces ever draw (every call is in capitals: the callouts, the count,
+## the word's pieces, a move's name), and those the small print and the intro may.
+const LOUD_CHARS := "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 !?.,:;'&+-/#%()"
+const ALL_CHARS := " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\u00b7\u2026\u266a"
+
+
+## Make every glyph the fight's calls and its intro draw, once, before the first fight: a face's
+## glyphs are only made the first time each is drawn, on this thread, and the distance-field faces
+## take a while over each (the first countdown, the first K.O. and the first intro each stalled a
+## frame for it). The faces are kept for the app's run, so this is done once. The glyphs are drawn
+## onto a canvas item that's on no canvas (never shown) at the sizes this screen will draw them,
+## with its oversampling, so they land in the same caches the HUD then draws from. It takes a
+## moment (the distance fields): call it behind the loading screen.
+static func warm_fonts() -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
+		return
+	var root := tree.root
+	var view := root.get_visible_rect().size
+	var os := root.get_oversampling()
+	var em := HudKit.em_for(view)
+	var vh := view.y / 100.0
+	var vw := view.x / 100.0
+	# [font, size, outline, characters]
+	var list := []
+	# (a distance field face is made at its own size whatever size it's drawn at)
+	for f in [_loud(true, 0), _loud(false, 0), _loud(true, 1), _loud(false, 1), _loud(true, 2)]:
+		list.append([f, 48, 0, LOUD_CHARS])
+	# the subtitle, the band's small line and its bot (_draw_sub, _finban_geom)
+	for px in [roundi(em * 1.15), roundi(minf(2.4 * vh, 3.4 * vw)), roundi(minf(2.0 * vh, 3.0 * vw))]:
+		list.append([_small(), px, 0, ALL_CHARS])
+	# the referee's pill and pips, and the tap for the next fight (_ref_geom, _draw_restart)
+	for px in [roundi(0.85 * em), roundi(0.72 * em), roundi(em)]:
+		list.append([HudKit.body(700), px, 0, ALL_CHARS])
+	for f in FightHud.IntroView.faces(view):
+		list.append([f[0], f[1], f[2], ALL_CHARS])
+	var ci := RenderingServer.canvas_item_create()
+	for w in list:
+		var font: Font = w[0]
+		var px: int = w[1]
+		var outline: int = w[2]
+		if outline > 0:
+			font.draw_string_outline(ci, Vector2.ZERO, w[3], HORIZONTAL_ALIGNMENT_LEFT, -1, px, outline, Color.WHITE, 3, TextServer.DIRECTION_AUTO, TextServer.ORIENTATION_HORIZONTAL, os)
+		else:
+			font.draw_string(ci, Vector2.ZERO, w[3], HORIZONTAL_ALIGNMENT_LEFT, -1, px, Color.WHITE, 3, TextServer.DIRECTION_AUTO, TextServer.ORIENTATION_HORIZONTAL, os)
+	RenderingServer.free_rid(ci)
 
 
 ## A radial gradient texture (offsets 0..1 out to the edge, colours), clamped past its edge.
@@ -361,8 +426,10 @@ func stop() -> void:
 	_tap_t = 0.0
 	ref_state = ""
 	callout_on = false
-	for sp in _spans:
-		sp.visible = false
+	for k in _spans.size():
+		_spans[k].visible = false
+		_set_group(k, false)
+	_span_key = ""
 	for c in _layer.values():
 		(c as Control).queue_redraw()
 
@@ -700,21 +767,53 @@ func tick(dt: float) -> void:
 			_fb_t = -1.0
 	var tap := can_restart and (_phase == "ko" or _phase == "end")
 	_tap_t = _tap_t + dt if tap else 0.0
+	# (the line is drawn once and pulses by its node's opacity)
+	if tap:
+		(_layer.tap as Control).modulate.a = clampf(_tap_t / 0.4, 0.0, 1.0) * (0.75 + 0.2 * sin(_tap_t * 3.0))
 	_place_spans()
 	_redraw("callout", _co_t >= 0.0)
 	_redraw("count", _ct >= 0.0)
-	_redraw("finish", _fin_t >= 0.0)
+	_redraw("finish", _fin_t >= 0.0, _fin_t < _fin_settle() or _out_t >= 0.0)
 	_redraw("finban", _fb_t >= 0.0)
-	_redraw("ref", _ref_vis > 0.0 or ref_moving)
-	_redraw("tap", tap)
+	_redraw("ref", _ref_vis > 0.0 or ref_moving, ref_moving or _ref_animating())
+	_redraw("tap", tap, false)
 
 
-## Redraw a group's layers while it shows, and once more as it goes (to clear what it drew).
-func _redraw(group: String, on: bool) -> void:
-	if on or _shown.get(group, true):
+## Redraw a group's layers when what they show changes: as it comes on, every frame while it
+## `moving`, once more as it stops (to draw where it settled), and once as it goes (to clear what
+## it drew). A group that holds still (the docked title, the referee's count between numbers)
+## draws nothing; a resize redraws every layer anyway.
+func _redraw(group: String, on: bool, moving := true) -> void:
+	var was_on: bool = _shown.get(group, true)
+	var was_moving: bool = _moving.get(group, true)
+	if (on and (moving or was_moving or not was_on)) or (not on and was_on):
 		for key in GROUPS[group]:
 			(_layer[key] as Control).queue_redraw()
 	_shown[group] = on
+	_moving[group] = moving
+
+
+## When the end-of-fight word's back layers and pill have settled (docked, the flash and rings
+## gone), in seconds since it came up: after that they hold still until the word fades out.
+func _fin_settle() -> float:
+	if _st.is_empty():
+		return 0.0
+	var t := maxf(float(_st.dock_at) + 0.5, float(_st.sub_at) + 0.45)
+	if _st.fx:
+		# (the second ring's burst)
+		t = maxf(t, 0.42 + 0.75)
+	return t
+
+
+## The referee's count is mid-animation: its number popping in, a tick lighting, or the last
+## knockdown's pip blinking.
+func _ref_animating() -> bool:
+	if _ref_pop < 0.35 or _ref_last:
+		return true
+	for k in 10:
+		if _tick_on[k] >= 0.0 and _tick_on[k] < 0.2:
+			return true
+	return false
 
 
 func _kf(t: float, dur: float, stops: Array, easing = null) -> float:
@@ -1033,26 +1132,40 @@ func _draw_finish_back(ci: CanvasItem) -> void:
 
 
 ## Each piece of the word where fxSlam / fxSweep, fxShake and fxDock have it (style.css .fx-word):
-## its three layers placed and scaled as one.
+## its three layers placed, scaled and faded as one. The layers only draw again when the word or
+## its size changes.
 func _place_spans() -> void:
 	var n := _fin_word.size() if _fin_t >= 0.0 else 0
 	var oa := _out_a()
 	for k in 3:
 		if k >= n or oa <= 0.0:
-			_spans[k].visible = false
+			if _spans[k].visible:
+				_spans[k].visible = false
+				_set_group(k, false)
 	if n == 0 or oa <= 0.0:
 		return
 	var g := _word_geom()
 	var big: float = g.big
 	var px := int(round(big))
-	_span_px = px
 	var lsp := -0.02 * big
-	var ws: Array[float] = []
+	var key := "%d %s %s" % [px, _fin_kind, " ".join(_fin_word)]
+	if key != _span_key:
+		# a new word, or a new size: measure the pieces and draw their layers again
+		_span_key = key
+		_span_px = px
+		_span_w.clear()
+		var pad := SPAN_PAD * big
+		for k in n:
+			var wk := _sw(_fi, _fin_word[k], px, lsp)
+			_span_w.append(wk)
+			for j in 3:
+				var c := _span_ctl[k * 3 + j]
+				c.position = Vector2(-pad, -pad)
+				c.size = Vector2(wk, big) + Vector2(pad, pad) * 2.0
+				c.queue_redraw()
 	var total := 0.0
 	for k in n:
-		var wk := _sw(_fi, _fin_word[k], px, lsp)
-		ws.append(wk)
-		total += wk
+		total += _span_w[k]
 	var tko := _fin_kind == "TKO"
 	var t := _fin_t
 	var sh := Vector2.ZERO
@@ -1063,7 +1176,7 @@ func _place_spans() -> void:
 	var sw: float = g.s
 	var x := -total * 0.5
 	for k in n:
-		var wk: float = ws[k]
+		var wk: float = _span_w[k]
 		var ss := 1.0
 		var tx := 0.0
 		var a := 1.0
@@ -1079,15 +1192,34 @@ func _place_spans() -> void:
 		var ci := Vector2(x + wk * 0.5, 0.0)
 		var tl := Vector2(x, -big * 0.5)
 		var grp := _spans[k]
-		grp.position = cw + sw * (ci + ss * (tl - ci) + Vector2(tx, 0.0) + sh)
-		grp.scale = Vector2.ONE * (sw * ss)
-		grp.self_modulate.a = a * oa
-		grp.visible = a * oa > 0.0
-		for j in 3:
-			var c := _span_ctl[k * 3 + j]
-			c.size = Vector2(wk, big)
-			c.queue_redraw()
+		var at := cw + sw * (ci + ss * (tl - ci) + Vector2(tx, 0.0) + sh)
+		if grp.position != at:
+			grp.position = at
+		var sc := Vector2.ONE * (sw * ss)
+		if grp.scale != sc:
+			grp.scale = sc
+		var ga := a * oa
+		grp.visible = ga > 0.0
+		# (faded: composited as a group; fully in: drawn plainly, and no fade to apply)
+		var fading := ga > 0.0 and ga < 0.999
+		_set_group(k, fading)
+		var gm := ga if fading else 1.0
+		if grp.self_modulate.a != gm:
+			grp.self_modulate.a = gm
 		x += wk
+
+
+## Piece `k` drawn as a canvas group (its layers composited, then faded together) or plainly.
+## (CanvasGroup's own settings: a 10 px margin cleared and fitted round its layers.)
+func _set_group(k: int, on: bool) -> void:
+	if _span_group[k] == on:
+		return
+	_span_group[k] = on
+	var rid := _spans[k].get_canvas_item()
+	if on:
+		RenderingServer.canvas_item_set_canvas_group_mode(rid, RenderingServer.CANVAS_GROUP_MODE_CLIP_AND_DRAW, 10.0, true, 10.0, false)
+	else:
+		RenderingServer.canvas_item_set_canvas_group_mode(rid, RenderingServer.CANVAS_GROUP_MODE_DISABLED)
 
 
 ## One piece's layer (`part`): 0 its glow, 1 its soft drop shadow, 2 the piece itself (a hard
@@ -1099,7 +1231,9 @@ func _draw_span(ci: CanvasItem, k: int, part: int) -> void:
 	var s := _fin_word[k]
 	var big := float(px)
 	var lsp := -0.02 * big
-	var at := Vector2(0, (big - (_fi.get_ascent(px) + _fi.get_descent(px))) * 0.5 + _fi.get_ascent(px))
+	# (the layer's rect has SPAN_PAD round the piece)
+	var pad := SPAN_PAD * big
+	var at := Vector2(pad, pad + (big - (_fi.get_ascent(px) + _fi.get_descent(px))) * 0.5 + _fi.get_ascent(px))
 	match part:
 		0:
 			_glow(ci, _gi, at, s, px, _st.glow, big * float(_st.glow_r), lsp)
@@ -1109,7 +1243,7 @@ func _draw_span(ci: CanvasItem, k: int, part: int) -> void:
 			_str(ci, _fi, at + Vector2(0, 0.05 * big), s, px, _st.hard, lsp)
 			_str(ci, _fi, at, s, px, _st.depth, lsp)
 			var mat := _span_mat[k]
-			mat.set_shader_parameter("y0", -0.045 * big)
+			mat.set_shader_parameter("y0", pad - 0.045 * big)
 			mat.set_shader_parameter("height", big)
 			_str(ci, _fi, at - Vector2(0, 0.045 * big), s, px, Color.WHITE, lsp)
 
@@ -1440,13 +1574,13 @@ func _draw_ref_front(ci: CanvasItem) -> void:
 
 
 ## The scene on its own: a quiet line low on the screen once the fight's over (clear of the docked
-## title at the top), fading in.
+## title at the top), fading in and pulsing (by the layer's opacity, set in tick).
 func _draw_restart(ci: CanvasItem) -> void:
 	if _tap_t <= 0.0:
 		return
 	var px := int(round(em()))
 	var s := "Tap for the next fight"
-	var a := clampf(_tap_t / 0.4, 0.0, 1.0) * (0.75 + 0.2 * sin(_tap_t * 3.0))
+	# (drawn at full strength: tick fades and pulses the layer)
 	var at := Vector2(size.x * 0.5 - _sw(_b7, s, px) * 0.5, size.y * 0.8)
-	_str(ci, _b7, at + Vector2(0, 2), s, px, Color(0, 0, 0, 0.5 * a))
-	_str(ci, _b7, at, s, px, Color(1, 1, 1, a))
+	_str(ci, _b7, at + Vector2(0, 2), s, px, Color(0, 0, 0, 0.5))
+	_str(ci, _b7, at, s, px, Color.WHITE)

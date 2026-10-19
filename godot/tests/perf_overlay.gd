@@ -130,7 +130,9 @@ func _run() -> void:
 	var ov: PerfOverlay = f.hud.perf
 	_gl = RenderingServer.get_current_rendering_method() != "dummy" and DisplayServer.get_name() != "headless"
 	print("renderer: ", RenderingServer.get_current_rendering_method(), " / ", RenderingServer.get_current_rendering_driver_name(), " / ", RenderingServer.get_video_adapter_name())
-	_check(ov.visible and Perf.on, "the overlay is on by default (Performance stats)")
+	_check(not ov.visible and not Perf.on, "the overlay is off by default (Performance stats)")
+	f.settings.set_perf_stats(true)
+	_check(ov.visible and Perf.on, "Performance stats turns it on")
 	ov.set_compact(false)
 	await _cpu_sums(f)
 	await _gpu_live()

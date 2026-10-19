@@ -655,12 +655,15 @@ func _flash_white(then: Callable) -> void:
 		# (on the app's layer, so it stays up across the cut to the fight)
 		app.ui.add_child(_white)
 	app.ui.move_child(_white, -1)
+	# (hidden again once it's clear: it stays on the app's layer, over every fight after)
+	_white.visible = true
 	var tw := app.create_tween()
 	tw.tween_property(_white, "color:a", 1.0, 0.26).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
 	tw.tween_interval(0.02)
 	tw.tween_callback(then)
 	tw.tween_interval(0.17)
 	tw.tween_property(_white, "color:a", 0.0, 0.75).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
+	tw.tween_callback(_white.hide)
 
 
 ## Back to normal after the way out (or if it was cut off: app.ts endLeaving).

@@ -93,7 +93,9 @@ func _ready() -> void:
 		add_child(b)
 		_bars.append(b)
 	_bars_to(true)
-	# the burst's flash over everything
+	# the burst's flash over everything (hidden while it's clear: a clear full-screen rect still
+	# costs the GPU a pass over every pixel)
+	_flash.visible = false
 	_flash.color = Color(1, 1, 1, 0)
 	_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -155,6 +157,7 @@ func _process(dt: float) -> void:
 	if _flash_a > 0.0:
 		_flash_a = maxf(0.0, _flash_a - dt * 2.4)
 		_flash.color.a = _flash_a * _flash_a
+		_flash.visible = _flash_a > 0.0
 	if _float_t >= 0.0:
 		_float_t += dt
 		var k := smoothstep(0.6, 1.6, _float_t)

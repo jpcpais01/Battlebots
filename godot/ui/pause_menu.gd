@@ -18,6 +18,10 @@ signal resume_requested
 signal forfeit_requested
 
 var settings: Settings
+## Something over the fight steps back through its own menus too (the App): it takes Android's
+## back button (and calls back() or the fight's pause()), and Escape while the menu is closed, so
+## exactly one thing happens. Off when the fight runs on its own.
+var back_handled_above := false
 
 var _root := Control.new()
 var _dim := ColorRect.new()
@@ -220,8 +224,8 @@ func _layout() -> void:
 func _avail() -> Rect2:
 	var side := FightHud.side_margin(_root)
 	var top := 12.0
-	var screen := DisplayServer.screen_get_size()
-	var safe := DisplayServer.get_display_safe_area()
+	var screen := HudKit.screen_size()
+	var safe := HudKit.safe_area()
 	if screen.y > 0 and safe.size.y > 0:
 		top = maxf(top, safe.position.y * _root.size.y / float(screen.y))
 	var bottom := FightHud.bottom_margin(_root)
@@ -247,13 +251,17 @@ func _on_dim_input(e: InputEvent) -> void:
 
 func _unhandled_input(e: InputEvent) -> void:
 	if e is InputEventKey and e.pressed and not e.echo and e.keycode == KEY_ESCAPE:
+		# (closed, under the app: Escape is the app's, which pauses a fight or steps back a menu)
+		if back_handled_above and not _open:
+			return
 		get_viewport().set_input_as_handled()
 		_go_back()
 
 
 func _notification(what: int) -> void:
-	# Android's back button (project.godot: quit_on_go_back off, so it no longer quits)
-	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
+	# Android's back button (project.godot: quit_on_go_back off, so it no longer quits); under the
+	# app, the app routes it (App._go_back)
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST and not back_handled_above:
 		_go_back()
 
 
