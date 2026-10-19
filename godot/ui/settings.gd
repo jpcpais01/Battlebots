@@ -376,7 +376,9 @@ func _apply_rt() -> void:
 	if env != null:
 		# (the world map's shaders are unlit, so Godot's own occlusion, bounce and reflections
 		# would only cost there: the map's own trace does Heavy's work, ray_trace.gd)
-		var heavy := m == "heavy" and not (ray != null and ray.on_map())
+		# (and not on a phone: Godot's compute occlusion and bounce came out as black holes and
+		# flat white blocks on an Adreno; there the trace does Light's whole job instead, ray_trace.gd)
+		var heavy := m == "heavy" and not (ray != null and ray.on_map()) and not OS.has_feature("mobile")
 		env.ssao_enabled = heavy
 		env.ssil_enabled = heavy
 		env.ssr_enabled = heavy
