@@ -262,7 +262,7 @@ func _home_button() -> Button:
 	b.button_up.connect(func() -> void: chev.create_tween().tween_property(chev, "position:x", 0.0, 0.18).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT))
 	b.pressed.connect(func() -> void:
 		tap("back")
-		app.go("home"))
+		app.go(app.back_to()))
 	return b
 
 

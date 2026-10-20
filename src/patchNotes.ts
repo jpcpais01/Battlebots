@@ -16,6 +16,16 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-20 23:00",
+    title: "Online fights on Android",
+    notes: [
+      "Android: Online is here. Create a room and share its 4-letter code, or type a friend's code to join their room, then fight bot against bot.",
+      "Android: phones and the web game share rooms, so you can fight a friend whichever one they play on.",
+      "Android: online fights play out punch for punch the same on both screens, your coach calls land at the same moment on both, and a phone that lagged or went to the background catches straight back up.",
+      "Android: after an online fight you both vote for a rematch from the results, and the pill beside the menu button shows your connection and ping during the fight.",
+    ],
+  },
+  {
     hour: "2026-10-20 20:00",
     title: "Lighter stands and crowd on Android",
     notes: [

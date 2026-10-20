@@ -1,0 +1,15 @@
+; WebRTC for online rooms (net/), from godotengine/webrtc-native 1.1.0-stable
+; (https://github.com/godotengine/webrtc-native/releases, godot-extension-webrtc.zip): libdatachannel
+; under Godot's WebRTCPeerConnection. Only the libraries this project uses are kept: Android arm64
+; (the app) and Linux x86_64 (headless tests and the container), each for debug and release.
+[configuration]
+
+entry_symbol = "webrtc_extension_init"
+compatibility_minimum = 4.1
+
+[libraries]
+
+linux.debug.x86_64 = "lib/libwebrtc_native.linux.template_debug.x86_64.so"
+linux.release.x86_64 = "lib/libwebrtc_native.linux.template_debug.x86_64.so"
+android.debug.arm64 = "lib/libwebrtc_native.android.template_release.arm64.so"
+android.release.arm64 = "lib/libwebrtc_native.android.template_release.arm64.so"
