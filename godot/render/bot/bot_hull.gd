@@ -11,6 +11,15 @@ const GH := 0.025
 const INV_GH := 1.0 / GH
 ## The bake's units: 1/10000 m.
 const Q := 1.0 / 10000.0
+## The uniform cubic B-spline's four weights at t (B3 t^3 + B2 t^2 + B1 t + B0) and their slopes
+## (D2 t^2 + D1 t + D0), one weight per lane.
+const B3 := Vector4(-1.0, 3.0, -3.0, 1.0) / 6.0
+const B2 := Vector4(3.0, -6.0, 3.0, 0.0) / 6.0
+const B1 := Vector4(-3.0, 0.0, 3.0, 0.0) / 6.0
+const B0 := Vector4(1.0, 4.0, 1.0, 0.0) / 6.0
+const D2 := Vector4(-0.5, 1.5, -1.5, 0.5)
+const D1 := Vector4(1.0, -2.0, 1.0, 0.0)
+const D0 := Vector4(-0.5, 0.0, 0.5, 0.0)
 ## Anything under the field's ceiling (contact.ts FAR = 0.24) counts as within reach.
 const FAR_IN := 0.2399
 
@@ -24,7 +33,11 @@ var ny: int
 ## The hull's own rows in z (the off-grid test); `stride` is how many are stored.
 var nz: int
 var stride: int
+## The field while it loads (cleared after: f4 holds it).
 var f: PackedFloat32Array
+## The field, four x neighbours at a time: f4[o] = f[o .. o + 3], so the spline reads a row of
+## its 4 x 4 x 4 block in one go and folds it with the engine's own 4 x 4 maths.
+var f4: PackedVector4Array
 ## Per cell, the least of the 4 x 4 x 4 values a spline in that cell reads (a bound on it).
 var low: PackedFloat32Array
 ## Where the field is closer than FAR (local box, its centre and radius): nothing outside is touched.
@@ -75,8 +88,9 @@ static func _fetch(key: String) -> BotHull:
 	if h == null:
 		h = _load(key)
 		_cache[key] = h
-		# a couple of dozen covers two fighters and their next opponents (botModel.ts hullCache)
-		if _cache.size() > 24:
+		# a dozen covers two fighters and their next opponents (three hulls a robot; botModel.ts
+		# keeps two dozen, but a field here is held four times over: f4, ~0.85 MB)
+		if _cache.size() > 12:
 			_cache.erase(_cache.keys()[0])
 	_mutex.unlock()
 	return h
@@ -129,6 +143,9 @@ static func _load(key: String) -> BotHull:
 			h.f[i] = c[i] * Q
 	h._reach_box()
 	h._low()
+	h._rows()
+	# (only the loading reads the plain field)
+	h.f = PackedFloat32Array()
 	return h
 
 
@@ -161,6 +178,14 @@ func _low() -> void:
 		a = b
 		b = t
 	low = a
+
+
+## f4 from f (the last three entries, which no spline reads in full, stay zero).
+func _rows() -> void:
+	var n := f.size()
+	f4.resize(n)
+	for o in n - 3:
+		f4[o] = Vector4(f[o], f[o + 1], f[o + 2], f[o + 3])
 
 
 ## The box (local) outside which the field reads FAR: every margin is less, so nothing there is
@@ -214,85 +239,46 @@ func penetration(p: Vector3, margin: float) -> Vector4:
 	# the spline is a weighted mean of the 64 values round it: none under the margin, no contact
 	if low[iv * row_n + iw * nx + iu] >= margin:
 		return Vector4.ZERO
-	# uniform cubic B-spline weights and slopes (contact.ts bspline)
-	var su := 1.0 - tu
-	var u2 := tu * tu
-	var u3 := u2 * tu
-	var bu0 := su * su * su / 6.0
-	var bu1 := (3.0 * u3 - 6.0 * u2 + 4.0) / 6.0
-	var bu2 := (-3.0 * u3 + 3.0 * u2 + 3.0 * tu + 1.0) / 6.0
-	var bu3 := u3 / 6.0
-	var du0 := -0.5 * su * su
-	var du1 := 1.5 * u2 - 2.0 * tu
-	var du2 := -1.5 * u2 + tu + 0.5
-	var du3 := 0.5 * u2
-	var sw := 1.0 - tw
-	var w2 := tw * tw
-	var w3 := w2 * tw
-	var bw0 := sw * sw * sw / 6.0
-	var bw1 := (3.0 * w3 - 6.0 * w2 + 4.0) / 6.0
-	var bw2 := (-3.0 * w3 + 3.0 * w2 + 3.0 * tw + 1.0) / 6.0
-	var bw3 := w3 / 6.0
-	var dw0 := -0.5 * sw * sw
-	var dw1 := 1.5 * w2 - 2.0 * tw
-	var dw2 := -1.5 * w2 + tw + 0.5
-	var dw3 := 0.5 * w2
-	var sv := 1.0 - tv
-	var v2 := tv * tv
-	var v3 := v2 * tv
-	var bv0 := sv * sv * sv / 6.0
-	var bv1 := (3.0 * v3 - 6.0 * v2 + 4.0) / 6.0
-	var bv2 := (-3.0 * v3 + 3.0 * v2 + 3.0 * tv + 1.0) / 6.0
-	var bv3 := v3 / 6.0
-	var dv0 := -0.5 * sv * sv
-	var dv1 := 1.5 * v2 - 2.0 * tv
-	var dv2 := -1.5 * v2 + tv + 0.5
-	var dv3 := 0.5 * v2
-	var d := 0.0
-	var gx := 0.0
-	var gy := 0.0
-	var gz := 0.0
+	# uniform cubic B-spline weights and slopes (contact.ts bspline), as polynomials in t
+	var tu2 := tu * tu
+	var tv2 := tv * tv
+	var tw2 := tw * tw
+	var bu := B3 * (tu2 * tu) + B2 * tu2 + B1 * tu + B0
+	var du := D2 * tu2 + D1 * tu + D0
+	var bv := B3 * (tv2 * tv) + B2 * tv2 + B1 * tv + B0
+	var dv := D2 * tv2 + D1 * tv + D0
+	var bw := B3 * (tw2 * tw) + B2 * tw2 + B1 * tw + B0
+	var dw := D2 * tw2 + D1 * tw + D0
+	# each of the four y slices is a 4 x 4 block (z rows of x runs): folded along x by one
+	# vector-matrix product (`v * P` dots v with each column, here each row of the field), the
+	# x spline and its slope for the four rows; those four slices' rows are folded along z the
+	# same way, and the y fold is a dot. 16 reads instead of 64, the sums in the engine's maths.
 	var o := (iv - 1) * row_n + (iw - 1) * nx + iu - 1
-	var row_skip := row_n - 4 * nx
-	for c in 4:
-		# four z rows of four x samples: their x spline and slope, folded along z
-		var a0 := f[o]
-		var a1 := f[o + 1]
-		var a2 := f[o + 2]
-		var a3 := f[o + 3]
-		var l0 := a0 * bu0 + a1 * bu1 + a2 * bu2 + a3 * bu3
-		var x0 := a0 * du0 + a1 * du1 + a2 * du2 + a3 * du3
-		o += nx
-		a0 = f[o]
-		a1 = f[o + 1]
-		a2 = f[o + 2]
-		a3 = f[o + 3]
-		var l1 := a0 * bu0 + a1 * bu1 + a2 * bu2 + a3 * bu3
-		var x1 := a0 * du0 + a1 * du1 + a2 * du2 + a3 * du3
-		o += nx
-		a0 = f[o]
-		a1 = f[o + 1]
-		a2 = f[o + 2]
-		a3 = f[o + 3]
-		var l2 := a0 * bu0 + a1 * bu1 + a2 * bu2 + a3 * bu3
-		var x2 := a0 * du0 + a1 * du1 + a2 * du2 + a3 * du3
-		o += nx
-		a0 = f[o]
-		a1 = f[o + 1]
-		a2 = f[o + 2]
-		a3 = f[o + 3]
-		var l3 := a0 * bu0 + a1 * bu1 + a2 * bu2 + a3 * bu3
-		var x3 := a0 * du0 + a1 * du1 + a2 * du2 + a3 * du3
-		o += nx + row_skip
-		var s0 := l0 * bw0 + l1 * bw1 + l2 * bw2 + l3 * bw3
-		var sx := x0 * bw0 + x1 * bw1 + x2 * bw2 + x3 * bw3
-		var sz := l0 * dw0 + l1 * dw1 + l2 * dw2 + l3 * dw3
-		var wv := bv0 if c == 0 else (bv1 if c == 1 else (bv2 if c == 2 else bv3))
-		var wd := dv0 if c == 0 else (dv1 if c == 1 else (dv2 if c == 2 else dv3))
-		d += s0 * wv
-		gx += sx * wv
-		gz += sz * wv
-		gy += s0 * wd
+	var n2 := nx + nx
+	var n3 := n2 + nx
+	var m := Projection(f4[o], f4[o + nx], f4[o + n2], f4[o + n3])
+	var l0 := bu * m
+	var x0 := du * m
+	o += row_n
+	m = Projection(f4[o], f4[o + nx], f4[o + n2], f4[o + n3])
+	var l1 := bu * m
+	var x1 := du * m
+	o += row_n
+	m = Projection(f4[o], f4[o + nx], f4[o + n2], f4[o + n3])
+	var l2 := bu * m
+	var x2 := du * m
+	o += row_n
+	m = Projection(f4[o], f4[o + nx], f4[o + n2], f4[o + n3])
+	var l3 := bu * m
+	var x3 := du * m
+	var ls := Projection(l0, l1, l2, l3)
+	var s0 := bw * ls
+	var sz := dw * ls
+	var sx := bw * Projection(x0, x1, x2, x3)
+	var d := s0.dot(bv)
+	var gx := sx.dot(bv)
+	var gy := s0.dot(dv)
+	var gz := sz.dot(bv)
 	if d >= margin:
 		return Vector4.ZERO
 	gx *= INV_GH
