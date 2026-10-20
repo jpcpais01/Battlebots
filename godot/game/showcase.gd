@@ -66,6 +66,10 @@ func dispose() -> void:
 
 ## Step the showcase sim by real time `dt` and pose the model (game.ts frame: the showcase).
 func update(dt: float, time: float) -> void:
+	# (the room screen's fingerprint fight is on a worker, and the sim's scratch vectors are
+	# shared: the robot holds its pose for those seconds)
+	if NetFingerprint.busy():
+		return
 	var run := spar_run
 	flow = run.slowmo if run != null else 1.0
 	_acc += dt * flow * TMatch.impactPace(_spar_stop, _spar_span)

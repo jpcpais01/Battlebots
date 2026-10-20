@@ -19,6 +19,11 @@ const STEP_BUDGET := 0.9
 const RIMS := [[Color(1.0, 0.1946, 0.0232), Vector3(-5.5, 3.5, -2)], [Color(0.0232, 0.6867, 1.0), Vector3(5.5, 3.5, 2)]]
 ## Longest the intro waits for the booth's opening, in seconds (game.ts INTRO_MAX).
 const INTRO_MAX := 16.0
+## Extra intro seconds online, where both phones must agree on its length (game.ts
+## ONLINE_INTRO_EXTRA): the booth's opening isn't waited for.
+const ONLINE_INTRO_EXTRA := 4.0
+## Most steps one silent catch-up runs (fast_forward).
+const CATCH_UP_MAX := 240
 
 var m
 ## The robots fighting: one per side (in a tag team match, each side's legal bot's).
@@ -82,7 +87,25 @@ var time_k := 1.0
 ## The titans' own effects: dust, ground scars, footfalls (render/titan/titan_fx.gd).
 var titan_fx: TitanFx
 ## The player's fight speed: 1, 2 or 0.5 (game.ts speed; the HUD's speed button). Reset each fight.
+## Online the room's session paces the fight with it instead (OnlineSession.frame).
 var speed := 1.0
+## The fight is an online one (start_match opts.online): both phones run it from the same seed, so
+## nothing here may change the match on its own (the intro waits for nobody, a tap doesn't skip it,
+## the pause menu doesn't pause), and the player is in corner `net_me` (0 left, 1 right).
+var online := false
+var net_me := 0
+## Online: every this many steps the worker hashes the match (0: off), into net_hashes as
+## [step, hash] pairs for the session to send and compare (read on the main thread after _sync).
+var net_hash_every := 0
+var net_hashes: Array = []
+## Online: called each frame with dt while the sim is idle, before this frame's steps start (the
+## session paces the fight and may fast_forward it).
+var net_frame := Callable()
+## Online: takes the player's coach call (the session schedules it on both phones); otherwise it
+## goes in at the next step for corner 0.
+var on_coach := Callable()
+var _ff_view := Director.View.new()
+var _quiet := false
 var _time := 0.0
 ## Places building on worker threads (prefetch_place): id -> [task, {node}].
 var _prefetch := {}
@@ -300,7 +323,9 @@ func _notification(what: int) -> void:
 	elif what == NOTIFICATION_APPLICATION_PAUSED:
 		# sent to the background: pause, as the web does when its page is hidden (app.ts
 		# visibilitychange), and keep what the booth has said in case Android ends the app there
-		pause()
+		# (an online fight can't pause: it plays on, and this phone catches up when it's back)
+		if not online:
+			pause()
 		if booth != null:
 			booth._save()
 	elif what == NOTIFICATION_PREDELETE:
@@ -316,6 +341,10 @@ func _notification(what: int) -> void:
 func pause() -> void:
 	if m == null or get_tree().paused:
 		return
+	if online:
+		# online fights pause for nobody: the menu offers a way out instead (app.ts netMenu)
+		pause_menu.open_online()
+		return
 	_sync()
 	get_tree().paused = true
 	# the frozen scene doesn't need 120 frames a second behind the menu (battery)
@@ -325,6 +354,8 @@ func pause() -> void:
 
 func resume() -> void:
 	pause_menu.close()
+	if online:
+		return
 	get_tree().paused = false
 	Engine.max_fps = Display.cap
 
@@ -353,6 +384,8 @@ func _run_steps(n: int) -> void:
 	# carried out, as game.ts keeps stepping in the end phase)
 	for i in n:
 		m.step(SIM_DT)
+		if net_hash_every > 0:
+			_net_hash()
 		if _sim_slow > 0:
 			var until := Time.get_ticks_usec() + _sim_slow
 			while Time.get_ticks_usec() < until:
@@ -388,6 +421,42 @@ func _step_budget(dt: float) -> int:
 	return n
 
 
+## Online: the match's state hash every net_hash_every steps (session.ts stepped).
+func _net_hash() -> void:
+	if int(m.frame) % net_hash_every == 0:
+		net_hashes.append([int(m.frame), SimHash.of(m)])
+
+
+## Run the match ahead `n` steps at once, without its sound (game.ts fastForward: an online fight
+## catching up with the other phone after a stall or a trip to the background). The camera directs
+## along step by step, the HUD and the robots take every event (a part torn off on the way comes
+## off), and the fight carries on from there. Stops at the end. Called while the sim is idle.
+func fast_forward(n: int) -> void:
+	_sync()
+	if m == null:
+		return
+	_quiet = true
+	for i in mini(n, CATCH_UP_MAX):
+		if m.phase == "end":
+			break
+		var e0 := _events.size()
+		m.step(SIM_DT)
+		if net_hash_every > 0:
+			_net_hash()
+		for k in range(e0, _events.size()):
+			_camera_event(_events[k][0], _events[k][1])
+		_ff_view.capture(m)
+		director.step(_ff_view, SIM_DT / maxf(1e-6, m.pace * time_k))
+	var events := _events
+	_events = []
+	for e in events:
+		_on_event(e[0], e[1])
+		match_event.emit(e[0], e[1])
+	_quiet = false
+	_acc = 0.0
+	_mv.capture(m)
+
+
 func _queue_event(type: String, data) -> void:
 	_events.append([type, data])
 
@@ -407,8 +476,19 @@ func new_fight() -> void:
 ## Start a fight between bots a (the player's corner, filmed screen-left) and b from `seed` (game.ts
 ## startMatch, offline). The sim is deterministic: the same bots and seed give the same fight.
 ## `partners` ({a, b}: a bot each) makes it a tag team match, two a side.
-func start_match(a, b, seed: float, partners = null) -> void:
+##
+## `opts`: {online: true, me: 0 or 1} for an online fight (the room's session follows it: see online).
+func start_match(a, b, seed: float, partners = null, opts := {}) -> void:
 	_sync()
+	# (the room screen's fingerprint fight shares the sim's scratch vectors: it finishes first)
+	NetFingerprint.wait()
+	online = bool(opts.get("online", false))
+	net_me = int(opts.get("me", 0)) if online else 0
+	net_hashes.clear()
+	if not online:
+		net_hash_every = 0
+		net_frame = Callable()
+		on_coach = Callable()
 	if place != "arena":
 		set_place("arena")
 	show_bot(null)
@@ -435,10 +515,14 @@ func start_match(a, b, seed: float, partners = null) -> void:
 	BotModel.warm(all.map(func(sp): return JS.get_field(sp, "skin")))
 	# the walkout: each robot rides its corner lift up and makes its entrance (BB_SKIPINTRO=1: straight
 	# to the countdown, for quick checks)
-	if OS.get_environment("BB_SKIPINTRO") != "":
+	if OS.get_environment("BB_SKIPINTRO") != "" and not online:
 		m.skipIntro()
-	# the booth's welcome (game.ts startMatch: booth.begin, offline)
-	booth.begin(m, false)
+	# online both phones keep one fixed intro, long enough for the booth's opening; offline it
+	# waits for the booth instead (see _process)
+	if online:
+		m.introLength += ONLINE_INTRO_EXTRA
+	# the booth's welcome (game.ts startMatch: booth.begin)
+	booth.begin(m, online)
 	if m.tag != null:
 		# all four robots, in tag.ts order; each side's starter fights first
 		for mb in m.tag.members:
@@ -453,6 +537,8 @@ func start_match(a, b, seed: float, partners = null) -> void:
 	speed = 1.0
 	hud.game = self
 	hud.cam = cam
+	hud.me = net_me
+	hud.online = online
 	hud.start(m)
 	referee.start(m)
 	_mv.capture(m)
@@ -485,7 +571,8 @@ func start_match(a, b, seed: float, partners = null) -> void:
 	_ground_prev = [false, false]
 	_entry_prev = [-INF, -INF]
 	director.mode = "match"
-	director.player = 0
+	# (online the player may be in the right corner: the camera keeps their robot on the left)
+	director.player = net_me
 	director.begin(m)
 	director.snap()
 	crowd_audio.ambience(1.0)
@@ -553,6 +640,15 @@ func end_match() -> void:
 		_gate_on = false
 		arena.gate_hit(null)
 	m = null
+	online = false
+	net_me = 0
+	net_hash_every = 0
+	net_hashes.clear()
+	net_frame = Callable()
+	on_coach = Callable()
+	speed = 1.0
+	if pause_menu.is_open() and not get_tree().paused:
+		pause_menu.close()
 	_end_time = -1.0
 	hud.stop()
 	hud.visible = false
@@ -865,6 +961,9 @@ func preview_emote(id: String) -> void:
 
 
 func _on_event(type: String, data) -> void:
+	if _quiet:
+		_quiet_event(type, data)
+		return
 	# the crowd you hear (game.ts onEvent: sfx.crowdEvent), then FIGHT! shouted with the screen
 	# (hud.ts onEvent fightStart: sfx.countdown(0) -> crowd "count" 0)
 	crowd_audio.event(type, data)
@@ -883,6 +982,18 @@ func _on_event(type: String, data) -> void:
 		titan_fx.event(type, data)
 	_bot_event(type, data)
 	_sound_event(type, data)
+
+
+## An event in a silent catch-up (fast_forward, game.ts quiet): what it does to the fight's state
+## on screen (the HUD, the referee, the robots' wear and torn-off parts), with no sound and none
+## of the sparks.
+func _quiet_event(type: String, data) -> void:
+	crowd_mood.event(type, data)
+	hud.on_event(type, data)
+	referee.on_event(type, data)
+	if type == "detach":
+		effects.on_event(type, data)
+	_bot_event(type, data)
 
 
 ## The sound kit's side of a sim event (game.ts onEvent's sfx calls, tearOff, finisherBlow, and
@@ -1122,20 +1233,28 @@ func _process(dt: float) -> void:
 	# the booth (game.ts frame: booth.tick); offline the countdown waits for the opening speech
 	# to finish, up to INTRO_MAX (written here, before this frame's steps start, as game.ts does)
 	booth.tick(dt, crowd_mood.excite, true)
-	if m.phase == "intro" and booth.busy and m.phaseTime >= m.introLength - 0.1 and m.phaseTime < INTRO_MAX:
+	if not online and m.phase == "intro" and booth.busy and m.phaseTime >= m.introLength - 0.1 and m.phaseTime < INTRO_MAX:
 		m.introLength = m.phaseTime + 0.2
 	Perf.lap(Perf.AUDIO)
 	if m.phase == "end" and _end_time < 0:
 		_end_time = _time
-	# the coach call the player tapped goes in at the next step (app.ts hud.onCoach: queueCoach)
+	# online: the room's pacing and hashes, and a catch-up when this phone fell behind
+	if net_frame.is_valid():
+		net_frame.call(dt)
+	# the coach call the player tapped goes in at the next step (app.ts hud.onCoach: queueCoach),
+	# or online at a step both phones agree on
 	var call := hud.take_coach()
 	if call != "":
-		m.queueCoach(0.0, call)
+		if on_coach.is_valid():
+			on_coach.call(call)
+		else:
+			m.queueCoach(0.0, call)
 	# ...and the TAG button: the bot makes for its corner if its partner is ready (tag team)
 	if m.tag != null and hud.has_method("take_tag") and hud.take_tag():
 		m.queueTag(0.0)
-	# ...and a tap on the intro skips to the countdown (hud.ts skipIntro)
-	if hud.take_skip() and m.phase == "intro":
+	# ...and a tap on the intro skips to the countdown (hud.ts skipIntro; never online, where both
+	# phones have to show the same moment)
+	if hud.take_skip() and m.phase == "intro" and not online:
 		m.skipIntro()
 	_view = hud.capture(m)
 	# (the alpha the view's bodies are drawn at: the one left over by the steps that made them)

@@ -26,7 +26,12 @@ var back_handled_above := false
 var _root := Control.new()
 var _dim := ColorRect.new()
 var _card := PanelContainer.new()
+## An online fight's card instead (app.ts netMenu): the fight plays on behind it.
+var _net_card := PanelContainer.new()
+## The card the menu opened on (the Paused one, or the online one).
+var _main: Control = _card
 var _sound: Button
+var _net_sound: Button
 var _screen: SettingsScreen
 ## The card on show (the Paused one or Settings).
 var _cur: Control
@@ -107,11 +112,55 @@ func _build_card() -> void:
 	quit.pressed.connect(func() -> void: forfeit_requested.emit())
 	v.add_child(quit)
 	_root.add_child(_card)
+	_build_net_card()
 	_sync_sound()
 
 
+## app.ts netMenu: an online fight pauses for nobody, so its menu says so, and offers the fight, the
+## sound, Settings and a way out of the room.
+func _build_net_card() -> void:
+	_net_card.theme_type_variation = &"Box"
+	_net_card.custom_minimum_size.x = 17.0 * UiTheme.EM
+	_net_card.visible = false
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override(&"separation", 9)
+	_net_card.add_child(v)
+	var h2 := Label.new()
+	h2.text = "Online fight"
+	h2.theme_type_variation = &"H2"
+	v.add_child(h2)
+	var note := Label.new()
+	note.text = "The fight keeps going on both screens."
+	note.add_theme_color_override(&"font_color", UiTheme.TEXT_2)
+	note.add_theme_font_size_override(&"font_size", int(0.9 * UiTheme.EM))
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var m := MarginContainer.new()
+	m.add_theme_constant_override(&"margin_bottom", 4)
+	m.add_child(note)
+	v.add_child(m)
+	var back_ := UiTheme.button("Back to the fight", "play", &"BtnPrimary")
+	back_.name = "Resume"
+	back_.pressed.connect(func() -> void: resume_requested.emit())
+	v.add_child(back_)
+	_net_sound = UiTheme.button("Sound on", "sound", &"BtnSmall")
+	_net_sound.pressed.connect(func() -> void:
+		settings.set_sound(not settings.sound)
+		blip("tap"))
+	v.add_child(_net_sound)
+	var gear := UiTheme.button("Settings", "gear", &"BtnSmall")
+	gear.pressed.connect(open_settings)
+	v.add_child(gear)
+	var leave := UiTheme.button("Leave room", "exit", &"BtnDanger")
+	leave.name = "Leave"
+	leave.pressed.connect(func() -> void: forfeit_requested.emit())
+	v.add_child(leave)
+	_root.add_child(_net_card)
+
+
 func _sync_sound() -> void:
-	UiTheme.set_button(_sound, "Sound on" if settings.sound else "Sound off", "sound" if settings.sound else "mute")
+	for b in [_sound, _net_sound]:
+		if b != null:
+			UiTheme.set_button(b, "Sound on" if settings.sound else "Sound off", "sound" if settings.sound else "mute")
 
 
 ## A menu blip ("tap", "select" or "back": sfx.ts ui), at the clip's own level.
@@ -130,8 +179,18 @@ func is_open() -> bool:
 
 ## Show the Paused card over the (already paused) fight.
 func open() -> void:
+	_open_on(_card)
+
+
+## Show the online fight's card over the fight, which plays on under it (nothing is paused).
+func open_online() -> void:
+	_open_on(_net_card)
+
+
+func _open_on(c: Control) -> void:
 	if _open:
 		return
+	_main = c
 	_open = true
 	visible = true
 	if _fade != null:
@@ -140,7 +199,7 @@ func open() -> void:
 	_root.modulate.a = 0.0
 	_fade = _tween()
 	_fade.tween_property(_root, "modulate:a", 1.0, 0.2)
-	_show(_card)
+	_show(_main)
 	blip("tap")
 
 
@@ -176,16 +235,16 @@ func back() -> void:
 	if not _open:
 		return
 	if _cur == _screen:
-		_show(_card)
+		_show(_main)
 	else:
 		resume_requested.emit()
 
 
 func _show(c: Control) -> void:
-	for k in [_card, _screen]:
+	for k in [_card, _net_card, _screen]:
 		k.visible = k == c
 	_cur = c
-	if c == _card:
+	if c != _screen:
 		_sync_sound()
 	_layout()
 	# .modal .box boxIn: up 0.8em out of nothing, from 97%, over 0.35s, cubic-bezier(0.2, 0.8, 0.2, 1)

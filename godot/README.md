@@ -67,6 +67,42 @@ and constant indices use GDScript ints, which index arrays faster than floats. `
 five fights; `tests/perf_hitches.gd` plays real-time fights and prints any slow frame by part
 (`BB_SIM_SLOW=<us>` makes each sim step that much slower, to see what a slow phone gets).
 
+## Online rooms
+
+Online play (`net/`, the Online screen in `app/online/`) is the web game's `src/net` spoken from
+Godot: the same PeerJS broker (0.peerjs.com), room ids and messages, over WebRTC data channels
+from the [webrtc-native](https://github.com/godotengine/webrtc-native) extension in
+`addons/webrtc` (Android arm64 and Linux x86_64 libraries). So a phone and a browser can share a
+room. Both sides run the whole fight from one seed; only pacing, coach calls and state hashes
+cross the wire.
+
+Players can only meet when their sims agree: `net/fp_data.gd` holds the web game's data hash.
+After changing the web game's data or sim (with the ts2gd step above), write it again:
+
+```sh
+THREE_MODULE=node_modules/three/build/three.module.js \
+  node --experimental-transform-types --no-warnings --import ./godot/tools/node/register.mjs \
+  godot/tools/net/fingerprint.ts
+godot --headless --path godot -s res://tests/net/fingerprint.gd   # SAME: the app's equals the web's
+```
+
+Tests, all on a local PeerJS server (`BB_PEER=host:port` points the app at one):
+
+```sh
+godot --headless --path godot -s res://tests/net/net_flow.gd < /dev/null     # rooms, sync, drift, rematch
+godot --headless --path godot -s res://tests/net/app_online.gd < /dev/null   # the app's screens, host
+BB_GUEST_HOST=1 godot --headless --path godot -s res://tests/net/app_online.gd < /dev/null   # ...guest
+```
+
+Against the web game in Chromium: run `godot --headless --path godot -s
+res://tests/net/peer_server_main.gd -- 9124 300`, `node godot/tools/net/crossplay/server.mjs`
+(with `XP_PEERJS` a clone of peerjs at v1.5.5, `XP_THREE` three's `build/`), then one side each:
+`node godot/tools/net/crossplay/run.mjs host` and `BB_PEER=127.0.0.1:9124 BB_XP_ROLE=guest
+BB_XP_CODE=<file> godot --headless --path godot -s res://tests/net/crossplay.gd` (or the other
+way round). The room code goes between them through the page server: `curl -s
+localhost:8790/code > <file>` for a web host, `curl --data-binary @<file> localhost:8790/code` for
+a Godot one. Both print the same step, coach log and state hash at the end.
+
 ## Building the APK
 
 ```sh

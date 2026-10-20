@@ -5,6 +5,9 @@
 ## side with the better one lit and a bar under each line split in the bots' colours, a map
 ## event's prize money (the career's reward view), and what to do next.
 ##
+## An online fight's card (info.net) offers a rematch through the room instead, both players voting
+## (app.ts netResults).
+##
 ## The App makes one per fight (App._show_results) and calls show_results(info); App.close_results
 ## frees it. Replays aren't ported yet, so the web's Replay and Save replay buttons aren't here.
 class_name ResultsView
@@ -20,6 +23,9 @@ var _rise: Rise
 var _scroll := ScrollContainer.new()
 var _col := VBoxContainer.new()
 var _wash := TextureRect.new()
+## Online: the Rematch button and the line over it (sync_net).
+var _rematch: Button
+var _net_note: Label
 
 
 func _init() -> void:
@@ -87,6 +93,8 @@ func show_results(info_: Dictionary) -> void:
 		kicker = "%s · %s" % [ev.e.name_, "Final" if rd == n - 1 else "Round %d of %d" % [rd + 1, n]]
 	elif tag:
 		kicker = "Tag team · %d seconds" % roundi(float(m.fightTime))
+	elif info.has("net"):
+		kicker = "Online · %d seconds" % roundi(float(m.fightTime))
 	else:
 		kicker = "%d seconds" % roundi(float(m.fightTime))
 	var how := {"Decision": "on points", "TKO": "by TKO", "KO": "by knockout", "Dismantled": "by tearing it apart"}.get(str(kind) if kind != null else "", "")
@@ -142,7 +150,7 @@ func show_results(info_: Dictionary) -> void:
 			if view is Control:
 				_col.add_child(view)
 
-	_col.add_child(_actions(ev, won, draw))
+	_col.add_child(_net_actions() if info.has("net") else _actions(ev, won, draw))
 	_layout()
 	# .results fadeIn 0.5s; .res-card cardIn 0.55s 0.1s, from 1.5em to the right
 	modulate.a = 0.0
@@ -205,6 +213,68 @@ func _actions(ev, won: bool, draw: bool) -> Control:
 	row.add_child(home)
 	box.add_child(row)
 	return box
+
+
+## Online (app.ts netResults): a rematch both players vote for, the room, and leaving it. The line
+## over them says how the vote stands, or that the other player left.
+func _net_actions() -> Control:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override(&"separation", int(round(0.45 * EM)))
+	if info.get("drifted", false):
+		var d := MenuKit.label("Your screens drifted apart, so the host's result counts.", 0.86 * EM, 600, UiTheme.TEXT_2)
+		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		d.custom_minimum_size.x = 10.0 * EM
+		box.add_child(d)
+	_net_note = MenuKit.label("", 0.9 * EM, 650, Color(1.0, 0.82, 0.48))
+	_net_note.name = "NetNote"
+	_net_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_net_note.custom_minimum_size.x = 10.0 * EM
+	box.add_child(_net_note)
+	_rematch = _btn("Rematch", "swords", &"BtnPrimary", func() -> void:
+		var s = info.get("net")
+		if is_instance_valid(s):
+			app.tap("select")
+			s.vote_rematch())
+	_rematch.name = "Primary"
+	box.add_child(_rematch)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override(&"separation", int(round(0.45 * EM)))
+	var room := _btn("Room", "globe", &"Btn", func() -> void:
+		app.tap("select")
+		app.close_results()
+		app.go(app.back_to()))
+	room.name = "Room"
+	row.add_child(room)
+	var leave := _btn("Leave room", "exit", &"BtnSmall", func() -> void:
+		app.tap("back")
+		app.close_results()
+		app.go("home"))
+	leave.name = "Home"
+	leave.size_flags_horizontal = Control.SIZE_SHRINK_END
+	row.add_child(leave)
+	box.add_child(row)
+	sync_net()
+	return box
+
+
+## The room changed (a vote, the other player leaving): the Rematch button and its line follow it.
+func sync_net() -> void:
+	if _rematch == null:
+		return
+	var s = info.get("net")
+	var them := String(info.m.specs[1 - int(info.me)].name_)
+	if not is_instance_valid(s) or app.net != s or not s.connected:
+		_rematch.disabled = true
+		UiTheme.set_button(_rematch, "Rematch", "swords")
+		_net_note.text = "%s left the room." % them
+		_net_note.visible = true
+		return
+	var mine: bool = s.rematch[s.me]
+	var theirs: bool = s.rematch[1 - s.me]
+	_rematch.disabled = mine
+	UiTheme.set_button(_rematch, "Ready" if mine else "Rematch", "swords")
+	_net_note.text = "%s wants a rematch!" % them if theirs and not mine else "Waiting for %s…" % them if mine else ""
+	_net_note.visible = _net_note.text != ""
 
 
 func _btn(text: String, icon_name: String, variant: StringName, on: Callable) -> Button:
@@ -460,12 +530,12 @@ func _layout() -> void:
 
 
 func _unhandled_input(e: InputEvent) -> void:
-	# back: home
+	# back: home (or the room, in one)
 	if e.is_action_pressed("ui_cancel") and is_visible_in_tree() and app != null:
 		get_viewport().set_input_as_handled()
 		app.tap("back")
 		app.close_results()
-		app.go("home")
+		app.go(app.back_to())
 
 
 ## The split bar under a stats line (.stats-table .cmp): the first bot's colour up to its share, a
