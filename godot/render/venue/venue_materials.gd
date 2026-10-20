@@ -64,16 +64,24 @@ func make(rec: Dictionary, node: Dictionary, scene: BakedScene) -> Array:
 
 
 ## ClearView (clearView.ts apply): every material of something rising above the floor may
-## dissolve when it stands between the lens and the robots; floor-level ones never do.
+## dissolve when it stands between the lens and the robots; floor-level ones never do. The venue
+## (the stands, the crowd, the rig) stays out, as on the web (game.ts): it starts past the
+## farthest the camera ever goes, and the dither's discard would only cost the biggest surfaces
+## on screen their early depth test (every hidden pixel of the stands shaded) and its maths.
 func mark_clear(scene: BakedScene) -> void:
 	var world: Array[Transform3D] = []
 	world.resize(scene.nodes.size())
+	var venue := PackedByteArray()
+	venue.resize(scene.nodes.size())
 	for i in scene.nodes.size():
 		var n: Node3D = scene.nodes[i]
-		var p: int = scene.json.nodes[i].parent
+		var rec: Dictionary = scene.json.nodes[i]
+		var p: int = rec.parent
 		world[i] = n.transform if p < 0 else world[p] * n.transform
+		# (parents come before their children in the bake)
+		venue[i] = 1 if rec.name == "venue" or (p >= 0 and venue[p] == 1) else 0
 		var mi := n as MeshInstance3D
-		if mi == null or mi.mesh == null:
+		if mi == null or mi.mesh == null or venue[i] == 1:
 			continue
 		if (world[i] * mi.mesh.get_aabb()).end.y < 0.3:
 			continue

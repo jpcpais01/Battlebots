@@ -32,11 +32,14 @@ uniform vec3 skin[7];
 uniform vec3 pants[8];
 
 varying vec4 v_uv;
-varying vec3 v_shirt;
-varying vec3 v_hair;
-varying vec3 v_skin;
-varying vec3 v_pants;
-varying vec3 v_accent;
+// a fan's colours, lit, and the fog over them: the same at all four corners (all from the fan's
+// seat and seed), so flat, which costs no interpolation per pixel
+varying flat vec3 v_shirt;
+varying flat vec3 v_hair;
+varying flat vec3 v_skin;
+varying flat vec3 v_pants;
+varying flat vec3 v_accent;
+varying flat vec4 v_fog;
 // the figure's cell coordinates (atlas x 0..1, height 0..1) and its tight bounds in this pose
 varying vec2 v_cell;
 varying flat vec4 v_bb;
@@ -238,6 +241,8 @@ void vertex() {
 	v_skin = bot ? CUSTOM2.rgb * (0.45 + 1.2 * L) : skin[int(CUSTOM1.a * 255.0 + 0.5)] * L;
 	v_pants = pants[int(CUSTOM2.a * 255.0 + 0.5)] * L;
 	v_accent = CUSTOM3.rgb * L;
+	// (from the middle of the fan: across a body the fog changes by a hair's breadth of a level)
+	v_fog = bb_fog((VIEW_MATRIX * vec4(ipos + vec3(0.0, SPR_H * s * 0.5, 0.0), 1.0)).xyz);
 	VERTEX = p;
 }
 
@@ -294,5 +299,5 @@ void fragment() {
 	// after the stands: kept in the opaque pass, the fans hide the stands' pixels behind them)
 	if (a < 0.5) discard;
 	ALBEDO = c;
-	FOG = bb_fog(VERTEX);
+	FOG = v_fog;
 }

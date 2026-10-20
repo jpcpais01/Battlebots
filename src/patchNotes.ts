@@ -16,6 +16,14 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-20 20:00",
+    title: "Lighter stands and crowd on Android",
+    notes: [
+      "Android: the stands in the indoor arena draw much more cheaply: the graphics card skips the parts hidden behind the fans, the ring and the robots instead of painting them first, as on the web game.",
+      "Android: the crowd's colours and haze are worked out once per fan instead of on every pixel, so the packed stands cost less to draw with the same look.",
+    ],
+  },
+  {
     hour: "2026-10-20 19:00",
     title: "Lighter ray tracing on Android",
     notes: [
