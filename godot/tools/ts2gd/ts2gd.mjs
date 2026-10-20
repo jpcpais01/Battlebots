@@ -13,6 +13,7 @@
  */
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -165,6 +166,18 @@ function moduleOf(sf) {
   return MODULES.get(rel(sf));
 }
 /** GDScript type annotation for a TS type, or '' to leave it untyped (Variant). */
+/** The default a constructor parameter of GDScript type `ann` gets for a blank instance. */
+function blankValue(ann) {
+  if (ann === 'float') return '0.0';
+  if (ann === 'int') return '0';
+  if (ann === 'bool') return 'false';
+  if (ann === 'String') return '""';
+  if (ann === 'Dictionary') return '{}';
+  if (ann.startsWith('Array')) return '[]';
+  if (ann.startsWith('Packed')) return `${ann}()`;
+  return 'null';
+}
+
 function gdType(t, { nullableOk = true } = {}) {
   if (isAny(t)) return '';
   const nullable = isNullable(t);
@@ -602,9 +615,10 @@ class ModuleEmitter {
       if (ctor) this.prepareFunction(ctor, scope);
       for (const m of fieldInits) this.prepareFunction(m.initializer, scope);
       const ctx = this.ctx(scope, { cls: cd });
-      const params = ctor ? this.params(ctor, ctx) : '';
+      const params = ctor ? this.params(ctor, ctx, 0, true) : '';
       body.push(`func _init(${params}) -> void:`);
-      const inner = [];
+      // (JS.BLANK, on the thread that set it: a blank instance for SimSnap to fill in, nothing run)
+      const inner = ['if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:', '\treturn'];
       let stmts = ctor ? [...ctor.body.statements] : [];
       // super(...) first
       const superIdx = stmts.findIndex((s) => ts.isExpressionStatement(s) && ts.isCallExpression(s.expression) && s.expression.expression.kind === ts.SyntaxKind.SuperKeyword);
@@ -743,7 +757,7 @@ class ModuleEmitter {
     return !EXTERNAL.has(r) && !r.endsWith('three.d.ts') && !!moduleOf(decl.getSourceFile());
   }
 
-  params(fn, ctx, padTo = 0) {
+  params(fn, ctx, padTo = 0, blank = false) {
     const ps = fn.parameters.map((p, i) => {
       if (p.dotDotDotToken) fail(p, 'rest parameters');
       let nm;
@@ -761,6 +775,8 @@ class ModuleEmitter {
         return `${nm} = null`;
       }
       if (p.questionToken) return `${nm} = null`;
+      // a constructor's parameters all have defaults, so SimSnap can make a blank instance
+      if (blank) return `${nm}${ann ? ': ' + ann : ''} = ${blankValue(ann)}`;
       return `${nm}${ann ? ': ' + ann : ''}`;
     });
     while (ps.length < padTo) ps.push(`_a${ps.length} = null`);
@@ -2574,6 +2590,16 @@ for (const [src, cls] of MODULES) {
     '\t\treturn (v as Array).map(to_json)',
     '\treturn v',
   ];
+  // the build's fight, as a number (saved replays keep it: another one may not play out the same)
+  const sim = createHash('sha1');
+  for (const f of fs.readdirSync(OUT).filter((f) => f.endsWith('.gd') && f !== 'init.gd').sort()) sim.update(f).update(fs.readFileSync(path.join(OUT, f)));
+  lines.push(
+    '',
+    '',
+    '## A fingerprint of every translated module as generated (the fight sim, the parts, the',
+    '## loadouts): saved replays keep it, and one saved on another one may not play out the same.',
+    `const SIM_HASH := ${parseInt(sim.digest('hex').slice(0, 8), 16)}`,
+  );
   fs.writeFileSync(path.join(OUT, 'init.gd'), lines.join('\n') + '\n');
 }
 if (errors) {

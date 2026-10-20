@@ -60,6 +60,8 @@ class Rng extends RefCounted:
 			return s
 	
 	func _init(seed_ = null) -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		if seed_ == null:
 			seed_ = JS.ushr(((randf() * float(4294967296))), 0.0)
 		self.s = JS.ushr(seed_, 0.0)
@@ -105,7 +107,9 @@ class Rng extends RefCounted:
 class Noise1 extends RefCounted:
 	var vals: PackedFloat32Array
 	
-	func _init(rng: TMath.Rng, size_: float = 64.0) -> void:
+	func _init(rng: TMath.Rng = null, size_: float = 64.0) -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.vals = JS.f32(size_)
 		var i: int = 0
 		while (i < size_):
@@ -173,6 +177,8 @@ class SpringVec extends RefCounted:
 	var damping: float
 	
 	func _init(stiffness: float = 120.0, damping: float = 14.0) -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.stiffness = stiffness
 		self.damping = damping
 		self.v = V3.new()
@@ -206,6 +212,8 @@ class Spring1 extends RefCounted:
 	var us: float
 	
 	func _init() -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.v = 0.0
 		self.vel = 0.0
 		self.cx = NAN
@@ -269,6 +277,8 @@ class SpringNum extends RefCounted:
 	var damping: float
 	
 	func _init(stiffness: float = 120.0, damping: float = 14.0) -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.stiffness = stiffness
 		self.damping = damping
 		self.v = 0.0

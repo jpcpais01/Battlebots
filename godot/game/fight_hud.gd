@@ -10,6 +10,8 @@ extends CanvasLayer
 
 ## The pause button was pressed (hud.ts onPause).
 signal pause_pressed
+## A replay's Results button (hud.ts onReplayResults).
+signal replay_results
 
 ## The parts, bottom to top (hud.ts: visor, dmgLayer, callout/count/finish/finBan/refEl, then
 ## build()'s hud-top, hud-bl/hud-br and the coach bar).
@@ -20,7 +22,12 @@ var bars := HudBars.new()
 var controls := HudControls.new()
 var coach := HudCoach.new()
 var team := HudTag.new()
-var parts: Array[HudPart] = [visor, floats, calls, bars, controls, coach, team]
+## A replay's media controls (game/hud/hud_replay.gd).
+var replay_bar := HudReplay.new()
+var parts: Array[HudPart] = [visor, floats, calls, bars, controls, coach, team, replay_bar]
+## The fight on screen is a replay (hud.ts attach's replay): the coach's calls, the TAG button
+## and the speed button give way to the replay's controls. The Game sets it before start().
+var replay := false
 var _intro := IntroView.new()
 ## The Game this HUD is in (director, sfx, speed, cam), or a stand-in with the same fields in tests.
 var game: Node
@@ -77,6 +84,7 @@ func _init() -> void:
 	_pause.pressed.connect(func() -> void: pause_pressed.emit())
 	add_child(_pause)
 	bars.resized.connect(_place_pause)
+	replay_bar.results_pressed.connect(func() -> void: replay_results.emit())
 
 
 ## The strip down each side the HUD never draws in: 3% of the width (curved screen edges), or
@@ -233,6 +241,9 @@ func update_hud(view: Dictionary, can_restart: bool, dt: float) -> void:
 	for p in [bars, controls, coach, team] as Array[HudPart]:
 		p.modulate.a = 1.0 - k
 		p.visible = k < 0.999
+	# (a replay plays the corner's calls back: no buttons for them)
+	if replay:
+		coach.visible = false
 	bars.position.y = -1.5 * em * k
 	controls.position.y = 1.5 * em * k
 	coach.position.y = 1.5 * em * k

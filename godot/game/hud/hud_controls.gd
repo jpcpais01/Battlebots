@@ -96,6 +96,8 @@ func _sync() -> void:
 func tick(_dt: float) -> void:
 	# (the pause menu's settings may change the zoom too)
 	_sync()
+	# (a replay has its own speeds, in its controls)
+	_speed.visible = not hud.replay
 	var e := em()
 	if e == _em and size.x == _w and size.y == _h:
 		return

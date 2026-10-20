@@ -29,6 +29,8 @@ class Parts extends RefCounted:
 			return (((1.0 if armOut(0.0) else 0.0)) + ((1.0 if armOut(1.0) else 0.0)))
 	
 	func _init(loadout = null, tough = null) -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.cond = JS.fill(JS.f32(TDamage.PART_COUNT), 1.0)
 		self.off = JS.filled(TDamage.PART_COUNT, 0.0)
 		self.lost = []

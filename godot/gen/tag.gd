@@ -98,7 +98,9 @@ class TagMember extends RefCounted:
 	var ropeW: float
 	var reachW: float
 	
-	func _init(f: TFighter.Fighter, brain: TBrain.Brain, show: TEmote.Showman, spec, side: float, slot: float) -> void:
+	func _init(f: TFighter.Fighter = null, brain: TBrain.Brain = null, show: TEmote.Showman = null, spec = null, side: float = 0.0, slot: float = 0.0) -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.out = false
 		self.spot = 0.0
 		self.t = 0.0
@@ -157,7 +159,9 @@ class TagTeam extends RefCounted:
 	var tags: Array
 	var hype: Array
 	
-	func _init(m: TMatch.Match, members: Array, seed_: float) -> void:
+	func _init(m: TMatch.Match = null, members: Array = [], seed_: float = 0.0) -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.legal = [0.0, 2.0]
 		self.paused = false
 		self.breakT = 0.0

@@ -190,6 +190,9 @@ func tick(dt: float) -> void:
 		if lit:
 			_glows[i].modulate.a = 0.45 + 0.55 * HudBars._pulse(_now, 0.55)
 	_btn.tick(dt)
+	# (a replay plays the TAG button's taps back: no button)
+	if hud.replay:
+		_btn.visible = false
 
 
 func _layout() -> void:

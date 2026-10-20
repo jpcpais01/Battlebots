@@ -67,3 +67,8 @@ static func to_json(v: Variant) -> Variant:
 	if v is Array:
 		return (v as Array).map(to_json)
 	return v
+
+
+## A fingerprint of every translated module as generated (the fight sim, the parts, the
+## loadouts): saved replays keep it, and one saved on another one may not play out the same.
+const SIM_HASH := 4245677192

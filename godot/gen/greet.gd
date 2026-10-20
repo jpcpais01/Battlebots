@@ -11,7 +11,9 @@ class Greeting extends RefCounted:
 	var done: bool
 	var m: TMatch.Match
 	
-	func _init(m: TMatch.Match) -> void:
+	func _init(m: TMatch.Match = null) -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.m = m
 		self.t = 0.0
 		self.bumpAt = -1.0
