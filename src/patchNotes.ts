@@ -16,6 +16,14 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-20 17:00",
+    title: "Smoother robots on Android",
+    notes: [
+      "Android: the robots' limbs slide off armour (theirs and their opponent's) at about half the CPU cost, with no more occasional slow frames from it, leaving more room for 120 FPS.",
+      "Android: the performance overlay splits the ring into its canvas, ropes and glow strips, truss, corner lifts and the rest, so a costly ring shows which part costs.",
+    ],
+  },
+  {
     hour: "2026-10-19 05:00",
     title: "A living, detailed city",
     notes: [

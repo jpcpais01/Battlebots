@@ -14,4 +14,4 @@ if [ ! -f "$VK/libvulkan.so.1" ]; then
 fi
 flock /tmp/bb-godot-import.lock timeout 120 godot --headless --path "$GD" --import >/dev/null 2>&1
 s=$1; shift
-VK_ICD_FILENAMES=$ICD LD_LIBRARY_PATH=$VK timeout ${BB_TIMEOUT:-900} xvfb-run -a -s "-screen 0 1280x720x24" godot --path "$GD" --rendering-method mobile --rendering-driver vulkan --resolution 1280x720 -s "$s" -- "$@" 2>&1 | grep -v "^$\|ALSA\|audio\|init_output\|ObjectDB\|resources still\|at: cleanup\|at: clear\|dummy driver\|status < 0\|same texture in framebuffer\|draw_list_bind_uniform_set"
+VK_ICD_FILENAMES=$ICD LD_LIBRARY_PATH=$VK timeout ${BB_TIMEOUT:-900} xvfb-run -a -s "-screen 0 1280x720x24" godot --path "$GD" --rendering-method mobile --rendering-driver vulkan --resolution ${BB_RES:-1280x720} -s "$s" -- "$@" 2>&1 | grep -v "^$\|ALSA\|audio\|init_output\|ObjectDB\|resources still\|at: cleanup\|at: clear\|dummy driver\|status < 0\|same texture in framebuffer\|draw_list_bind_uniform_set"

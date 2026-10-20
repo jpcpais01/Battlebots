@@ -1174,12 +1174,14 @@ func _process(dt: float) -> void:
 		var em = f.emote
 		var look = _v(em.gaze) if em != null and em.gazeOn else _v(_mv.fighters[1 - i].body.pos[3])
 		models[i].begin(f, pose_alpha, look)
-	# the two limb contact passes (most of the robots' frame) at once: the second on a worker
+	# the two limb contact passes, one after the other on this thread. (Each reads only the hulls
+	# both robots placed in begin, so the order doesn't matter. Handing the second to a worker
+	# took twice as long as doing both here: the worker's wake-up, and two threads fighting over
+	# the shared armour fields' and hulls' reference counts, cost more than the pass itself.)
 	var who := [stretcher.puppet if carried == 0 else _mv.fighters[0], stretcher.puppet if carried == 1 else _mv.fighters[1]]
 	if gone < 0:
-		var other := WorkerThreadPool.add_task(models[1].solve.bind(who[1], _time, models[0]), true, "contacts")
 		models[0].solve(who[0], _time, models[1])
-		WorkerThreadPool.wait_for_task_completion(other)
+		models[1].solve(who[1], _time, models[0])
 	else:
 		models[1 - gone].solve(who[1 - gone], _time, null)
 	for i in 2:

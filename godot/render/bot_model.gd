@@ -601,7 +601,7 @@ func end(f, time: float, opp: BotModel = null, solved := false) -> void:
 
 ## The limb contact pass on its own (the dear part of `end`). It writes only this robot's limb
 ## joints and reads the hulls both robots placed in `begin`, so the fight runs both robots' passes
-## at once, one on a worker thread, then calls `end(..., true)` for each.
+## one after the other, then calls `end(..., true)` for each.
 func solve(f, time: float, opp: BotModel = null) -> void:
 	_solve_contacts(f, opp, time)
 
