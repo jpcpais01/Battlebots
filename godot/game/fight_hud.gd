@@ -64,6 +64,13 @@ var _pause_em := -1.0
 ## A map event's rival for the next fight, billed in the intro: {style, taunt}, or null (hud.ts
 ## rivalIntro; App sets it before each fight starts).
 var rival_intro = null
+## The player's corner (0 left, 1 right: online the guest fights from the right), and whether the
+## fight is an online one (hud.ts attach's online: the coach calls are this corner's, the cards say
+## You and Opponent, the intro can't be skipped, and there's no speed button). Set before start().
+var me := 0
+var online := false
+## Online: how the connection to the other player is (hud.ts net-pill), beside the menu button.
+var _net := NetPill.new()
 
 
 func _init() -> void:
@@ -83,6 +90,8 @@ func _init() -> void:
 	_pause.theme = UiTheme.theme()
 	_pause.pressed.connect(func() -> void: pause_pressed.emit())
 	add_child(_pause)
+	_net.visible = false
+	add_child(_net)
 	bars.resized.connect(_place_pause)
 	replay_bar.results_pressed.connect(func() -> void: replay_results.emit())
 
@@ -124,7 +133,7 @@ func _size_pause() -> void:
 	_pause_em = em
 	var px := 2.6 * em
 	var glyph := maxi(8, roundi(1.2 * em))
-	_pause.icon = UiTheme.icon("pause", glyph)
+	_pause.icon = UiTheme.icon("menu" if online else "pause", glyph)
 	_pause.add_theme_constant_override(&"icon_max_width", glyph)
 	for st in [&"normal", &"hover", &"pressed", &"hover_pressed", &"disabled", &"focus"]:
 		var sb := _pause.get_theme_stylebox(st) as StyleBoxFlat
@@ -138,6 +147,16 @@ func _size_pause() -> void:
 func _place_pause() -> void:
 	var at := Vector2(side_margin(bars), bars.size.y - bottom_margin(bars) - _pause.size.y)
 	_pause.position = at + Vector2(0, 1.5 * em * maxf(_pause_k, 0.0))
+	# (.hud-bl: the pill beside the button, 0.5em on, centred on it)
+	_net.size = Vector2.ZERO
+	_net.size = _net.get_combined_minimum_size()
+	_net.position = _pause.position + Vector2(_pause.size.x + 0.5 * em, (_pause.size.y - _net.size.y) * 0.5)
+
+
+## Online: the connection's state in the pill (hud.ts setNet): its words and "ok", "warn" or "bad".
+func set_net(text: String, kind: String) -> void:
+	if _net.set_state(text, kind, em):
+		_place_pause()
 
 
 ## A new fight on screen (hud.ts attach; sim idle).
@@ -155,9 +174,15 @@ func start(m) -> void:
 	for p in parts:
 		p.m = m
 		p.start(m)
+	# online the menu button opens the room's menu, not a pause (app.ts netMenu)
+	_pause_em = -1.0
+	_net.visible = online
+	if online:
+		_net.set_state("Online", "ok", em)
 	# (the cards' part pictures come from the game: Game.thumbs)
 	_intro.game = game
 	_intro.rival = rival_intro
+	_intro.tags = (["You", "Opponent"] if me == 0 else ["Opponent", "You"]) if online else ["Your bot", "Challenger"]
 	_intro.start(m)
 	_intro_k = 1.0 if m.phase == "intro" else 0.0
 
@@ -253,11 +278,13 @@ func update_hud(view: Dictionary, can_restart: bool, dt: float) -> void:
 		_pause_k = k
 		_pause.modulate.a = 1.0 - k
 		_pause.visible = k < 0.999
+		_net.modulate.a = 1.0 - k
+		_net.visible = online and k < 0.999
 		_place_pause()
 	# (only tappable once the intro is over, as the web's pointer-events: none)
 	_pause.mouse_filter = Control.MOUSE_FILTER_IGNORE if target > 0.0 else Control.MOUSE_FILTER_STOP
-	# a tap during the intro skips to the countdown
-	_skip.mouse_filter = Control.MOUSE_FILTER_STOP if _phase == "intro" else Control.MOUSE_FILTER_IGNORE
+	# a tap during the intro skips to the countdown (never online: both phones show the same moment)
+	_skip.mouse_filter = Control.MOUSE_FILTER_STOP if _phase == "intro" and not online else Control.MOUSE_FILTER_IGNORE
 	calls.can_restart = can_restart
 	for p in parts:
 		p.tick(dt)
@@ -281,6 +308,8 @@ class IntroView extends Control:
 	## The game the HUD is in (the cards' part pictures), and this fight's rival billing.
 	var game
 	var rival = null
+	## The cards' tags, left and right (FightHud.start).
+	var tags := ["Your bot", "Challenger"]
 	## Each robot's card (botCard.ts), sliding in on its corner's side while it's presented.
 	var _cards: Array[BotCard] = []
 	var _specs := []
@@ -364,7 +393,7 @@ class IntroView extends Control:
 			_styles.append(style)
 			_taunts.append(str(rv.taunt) if rv != null else "")
 			# hud.ts showVs: the card, its parts popping in from 0.3s
-			var card := BotCard.make(game, spec, m.fighters[i].build, "r" if i == 1 else "l", "Challenger" if i == 1 else "Your bot", 0.3)
+			var card := BotCard.make(game, spec, m.fighters[i].build, "r" if i == 1 else "l", tags[i], 0.3)
 			card.visible = false
 			add_child(card)
 			_cards.append(card)
@@ -586,3 +615,61 @@ class IntroView extends Control:
 	static func _ease_back(x: float) -> float:
 		var c := 1.9
 		return 1.0 + (c + 1.0) * pow(x - 1.0, 3.0) + c * pow(x - 1.0, 2.0)
+
+
+## The connection pill (style.css .net-pill): a glowing dot (green, amber pulsing, red) and a few
+## words, on a dark round pill.
+class NetPill extends Control:
+	const BG := Color(12 / 255.0, 15 / 255.0, 23 / 255.0, 0.72)
+	var text := ""
+	var kind := "ok"
+	var _em := 16.0
+	var _t := 0.0
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	## Whether anything changed (the pill's size may have).
+	func set_state(text_: String, kind_: String, em_: float) -> bool:
+		if text_ == text and kind_ == kind and em_ == _em:
+			return false
+		text = text_
+		kind = kind_
+		_em = em_
+		update_minimum_size()
+		queue_redraw()
+		return true
+
+	func _font() -> Font:
+		return HudKit.body(600)
+
+	func _get_minimum_size() -> Vector2:
+		var fs := 0.8 * _em
+		var w := _font().get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(fs)).x
+		# padding 0.4em 0.9em, the 0.55em dot 0.45em before the words
+		return Vector2(w + fs * (0.9 * 2.0 + 0.55 + 0.45), fs * (1.25 + 0.8))
+
+	func _process(dt: float) -> void:
+		if kind == "warn" and visible:
+			_t += dt
+			queue_redraw()
+
+	func _draw() -> void:
+		var fs := 0.8 * _em
+		var r := Rect2(Vector2.ZERO, size)
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = BG
+		sb.set_corner_radius_all(int(size.y * 0.5) - 1)
+		sb.border_color = UiTheme.LINE
+		sb.set_border_width_all(1)
+		draw_style_box(sb, r)
+		var c := HudKit.GREEN if kind == "ok" else HudKit.AMBER if kind == "warn" else HudKit.RED
+		# (ghostDot: the amber one breathes)
+		var a := 0.45 + 0.55 * (0.5 + 0.5 * cos(_t * TAU)) if kind == "warn" else 1.0
+		var at := Vector2(fs * 0.9 + fs * 0.275, size.y * 0.5)
+		for k in 4:
+			draw_circle(at, fs * 0.275 + k * fs * 0.12, Color(c, 0.12 * a * (4 - k) / 4.0))
+		draw_circle(at, fs * 0.275, Color(c, a))
+		var f := _font()
+		var base := (size.y - f.get_height(roundi(fs))) * 0.5 + f.get_ascent(roundi(fs))
+		draw_string(f, Vector2(fs * (0.9 + 0.55 + 0.45), base), text, HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(fs), UiTheme.TEXT_2)

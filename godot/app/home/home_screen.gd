@@ -567,7 +567,7 @@ func _build_actions() -> void:
 	replays.disabled = true
 	_dim(replays)
 	small.add_child(replays)
-	# (online play is phase 5: the room screen isn't here yet)
+	# online rooms (app/online): fight a friend, on a phone or the web game
 	var online := UiTheme.button("Online", "globe", &"BtnSmall")
 	MenuKit.pad_button(online, 0.6 * _em, 2.4 * 0.86 * _em)
 	MenuKit.button_text(online, 0.86 * _em, 700, 1.2 * 0.86 * _em)

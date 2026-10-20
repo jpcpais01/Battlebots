@@ -15,6 +15,7 @@ const SCREENS := {
 	"map": "res://app/career/map_screen.gd",
 	"vault": "res://app/gacha/vault_screen.gd",
 	"tagteam": "res://app/tagteam/tag_team_screen.gd",
+	"online": "res://app/online/online_screen.gd",
 }
 ## The results card (app.ts showResults), a ResultsView.
 const RESULTS := "res://app/results/results_view.gd"
@@ -76,6 +77,12 @@ var _results_at := -1.0
 var _results_for = null
 ## The Skip button while the loser is carried out (app.ts skipBtn), or null.
 var _skip_btn: Control = null
+## The online room the player is in (OnlineSession), or null. It stays up through the garage, the
+## room's fights and their results, and closes on the way home (app.ts online.leave).
+var net: OnlineSession = null
+## The room the fight on screen (and its results) belongs to, or null for a fight against the AI.
+## (Freed once its room closes: is_instance_valid before use.)
+var net_fight = null
 ## The part slot the garage opens on, set by the home screen's part tiles ("" for its default).
 var garage_slot := ""
 var _clock := 0.0
@@ -246,7 +253,7 @@ func _unhandled_input(e: InputEvent) -> void:
 		game.pause()
 	elif current != "home" and current != "fight" and results == null:
 		tap("back")
-		go("home")
+		go(back_to())
 		get_viewport().set_input_as_handled()
 
 
@@ -285,6 +292,12 @@ func _playing() -> bool:
 
 # ------------------------------------------------------------------------------ navigation
 
+## Where a screen's Home leads: the room while the player is in one (app.ts garage home-btn), else
+## home.
+func back_to() -> String:
+	return "online" if net != null and current != "online" and screens.has("online") else "home"
+
+
 ## Show a screen (app.ts go): the world moves to its place (dipping through black when the place
 ## changes), the camera and the crowd take their setting, and the old screen goes.
 func go(id: String) -> void:
@@ -297,10 +310,17 @@ func go(id: String) -> void:
 		was.exit()
 		was.visible = false
 	current = id
+	# home is out of the room (app.ts go: online.leave)
+	if id == "home":
+		net_leave()
 	if id != "fight":
+		_drop_net_fight()
 		game.end_match()
 		if id == "home" or id == "map" or id == "tagteam":
 			game.show_bot(player)
+		elif id == "online":
+			# (the ring stands empty behind the room: the bots are on its cards)
+			game.show_bot(null)
 	var place: String = PLACE.get(id, "arena")
 	if id == "home" and home_place != "arena":
 		place = "home"
@@ -349,6 +369,17 @@ func _camera(id: String) -> void:
 			d.mode = "menu"
 			d.shift_x = 0.0
 			game.crowd_audio.ambience(0.4)
+		"online":
+			# high over the empty ring, the house beyond it, turning slowly (OnlineScreen.tick)
+			d.mode = "scene"
+			d.scene_pos = Vector3(0.0, 4.1, 10.6)
+			d.scene_look = Vector3(0.0, 0.7, 0.0)
+			d.scene_fov = 1.0
+			d.scene_roll = 0.0
+			d.scene_lambda = 1.5
+			d.menu_turn = 0.6
+			d.shift_x = 0.0
+			game.crowd_audio.ambience(0.4)
 		"vault":
 			# the vault flies its own camera (render/vault/vault_stage.gd), out in space
 			d.mode = "scene"
@@ -380,6 +411,9 @@ func tap(kind := "tap") -> void:
 ## The player's bot changed (a part fitted, paint, a name): save it and show it.
 func commit_player() -> void:
 	Store.save_player(player)
+	# (in a room, the other player sees the new bot)
+	if net != null:
+		net.set_bot(player)
 	if current != "fight":
 		game.show_bot(player)
 	changed.emit()
@@ -466,6 +500,12 @@ func make_opponent():
 ## round of an event).
 ## `titans`: a titan battle (render/titan) instead of a fight in the indoor arena.
 func fight(same_opponent := false, titans := false) -> void:
+	if net != null and screens.has("online"):
+		# in a room: fights start from there (app.ts fight)
+		tap("select")
+		close_results()
+		go("online")
+		return
 	if not same_opponent:
 		event_run = null
 	titan_run = titans
@@ -595,7 +635,11 @@ func _drop_skip() -> void:
 
 
 ## Pause menu Forfeit (app.ts pause): a loss, and walking out of an event's round ends the run.
+## Online it's Leave room: no loss counted, just out of the room (app.ts netMenu).
 func _on_forfeit() -> void:
+	if game.online:
+		go("home")
+		return
 	var tag := is_tag()
 	if game.m != null and game.m.phase != "end":
 		tally(false, false)
@@ -657,6 +701,9 @@ func _show_results() -> void:
 	var m = game.m
 	if m == null or m != _results_for or current != "fight" or results != null:
 		return
+	if game.online:
+		_show_net_results(m)
+		return
 	var winner: int = int(m.winner.index) if m.winner != null else -1
 	var draw := winner < 0
 	var won := winner == 0
@@ -705,3 +752,130 @@ func _plain_results(info: Dictionary) -> Control:
 		go("home"))
 	box.add_child(home)
 	return box
+
+
+# ------------------------------------------------------------------------------ online
+
+## Open a room (the room screen's Create room).
+func net_host() -> void:
+	if net == null:
+		_adopt(OnlineSession.host(player))
+
+
+## Join the room with this code (the room screen's Join).
+func net_join(code: String) -> void:
+	if net == null:
+		_adopt(OnlineSession.join(code, player))
+
+
+## Leave the room, if in one (home, Leave, the online pause menu's Leave room).
+func net_leave() -> void:
+	var s := net
+	net = null
+	if s != null:
+		s.close()
+		_net_changed()
+
+
+func _adopt(s: OnlineSession) -> void:
+	net = s
+	add_child(s)
+	s.changed.connect(_net_changed)
+	s.start.connect(func(a, b, seed: float) -> void:
+		if net == s:
+			fight_online(s, a, b, seed))
+	s.ended.connect(_net_gone.bind(s))
+	s.failed.connect(_net_gone.bind(s))
+	_net_changed()
+
+
+## The room ended under the player (the host closed it, the link died) or never opened: the room
+## screen says why. A fight on screen plays out; its results say the other player left.
+func _net_gone(why: String, s: OnlineSession) -> void:
+	if net != s:
+		return
+	net = null
+	var os = screens.get("online")
+	if os != null:
+		os.show_error(why)
+	_net_changed()
+
+
+## The room changed: redraw the room screen, the results' rematch line, and start the other
+## player's skin compiling before any fight needs it.
+func _net_changed() -> void:
+	if net != null and net.peer_bot != null and net.peer_bot.get("skin") != null:
+		BotModel.warm([net.peer_bot.get("skin")])
+	if current == "online":
+		screens.online.refresh()
+	if results != null and results.has_method("sync_net"):
+		results.sync_net()
+
+
+## The room's fight starts (the host's Fight, or both voted for a rematch): both phones run it from
+## the same bots and seed, the player in their own corner (app.ts fightOnline).
+func fight_online(s: OnlineSession, a, b, seed: float) -> void:
+	tap("start")
+	close_results()
+	_drop_net_fight()
+	_results_at = -1.0
+	_drop_skip()
+	event_run = null
+	titan_run = false
+	if "rival_intro" in game.hud:
+		game.hud.rival_intro = null
+	# copies, so a later trip to the garage can't change the fight a replay shows
+	last_fight = {"a": a.duplicate(true), "b": b.duplicate(true), "seed": seed, "arena": "grand", "online": true, "me": s.me}
+	if game.has_method("set_arena"):
+		game.set_arena("grand")
+	if game.pause_menu.is_open() and not get_tree().paused:
+		game.pause_menu.close()
+	game.start_match(a, b, seed, null, {"online": true, "me": s.me})
+	net_fight = s
+	s.watch(game, game.m)
+	game.net_frame = _net_frame
+	game.on_coach = s.coach
+	go("fight")
+
+
+## The room stops following the fight that was on screen.
+func _drop_net_fight() -> void:
+	if net_fight != null and is_instance_valid(net_fight):
+		net_fight.unwatch()
+	net_fight = null
+
+
+## Every frame of an online fight (Game.net_frame): keep pace with the other phone, and the link's
+## health in the HUD's pill (app.ts netFrame).
+func _net_frame(dt: float) -> void:
+	var s = net_fight
+	if s == null or not is_instance_valid(s):
+		game.speed = 1.0
+		game.hud.set_net("Opponent left", "bad")
+		return
+	s.frame(dt)
+	if net != s or not s.connected:
+		game.hud.set_net("Opponent left", "bad")
+	elif s.peer_lost:
+		game.hud.set_net("Connection lost", "warn")
+	elif s.desynced:
+		game.hud.set_net("Out of sync" if s.role == "host" else "Out of sync · host's result counts", "warn")
+	else:
+		game.hud.set_net("Online · %d ms" % roundi(s.rtt), "ok")
+
+
+## An online fight's results: by the host's word if the screens drifted apart, from this player's
+## corner, and off the win record (that's for fights against the AI) (app.ts showResults).
+func _show_net_results(m) -> void:
+	var s = net_fight if net_fight != null and is_instance_valid(net_fight) else null
+	var me: int = game.net_me
+	var out: Dictionary = s.outcome(m) if s != null else {"winner": int(m.winner.index) if m.winner != null else -1, "kind": m.result}
+	var winner: int = out.winner
+	var info := {"m": m, "me": me, "winner": winner, "won": winner == me and winner >= 0, "draw": winner < 0, "kind": out.kind, "event": null, "net": s, "drifted": s != null and s.desynced and s.role == "guest"}
+	if game.pause_menu.is_open() and not get_tree().paused:
+		game.pause_menu.close()
+	results = load(RESULTS).new()
+	results.app = self
+	ui.add_child(results)
+	results.show_results(info)
+	game.director.shift_x = 0.2
