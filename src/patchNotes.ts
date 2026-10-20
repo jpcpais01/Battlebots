@@ -16,6 +16,14 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-20 19:00",
+    title: "Lighter ray tracing on Android",
+    notes: [
+      "Android: Ray tracing no longer traces shade and bounce light onto the stands, the crowd and the rig overhead in the indoor arena, where it barely showed, so close shots by the ropes cost noticeably less.",
+      "Android: the ring's traced reflections share their blur between neighbouring pixels: the same soft reflections for about a third of the work.",
+    ],
+  },
+  {
     hour: "2026-10-20 17:00",
     title: "Smoother robots on Android",
     notes: [

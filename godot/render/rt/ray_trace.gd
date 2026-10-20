@@ -25,6 +25,16 @@ const FLOORS := {
 	"rooftop": Vector3(0.65, 0.25, -0.62),
 	"falls": Vector3(0.35, 0.6, -0.62),
 }
+## The stage the light pass runs on in the indoor arena (ray_trace.gdshader `zone`): the bowl's
+## outline (bowl.ts: straight runs AX - RC by AZ - RC, corners of radius RC 7) with the trace fading
+## out from 1.5 m to 0.5 m short of the first row, so the floor staff, the barrier boards' feet
+## and a robot thrown out of the ring keep it; and above the robots, below the truss and the
+## screens (zone_top). Other venues are laid out their own way (and the titans stand far taller):
+## traced everywhere.
+const BOWL_ZONE := Vector4(6.0, 3.0, 5.5, 6.5)
+const BOWL_TOP := Vector2(4.5, 5.5)
+const NO_ZONE := Vector4(0.0, 0.0, 1e6, 2e6)
+const NO_TOP := Vector2(1e6, 2e6)
 ## How much of each part shows, per mode: occlusion, bounce, contact shadows, reflections (rt.ts
 ## AO_STRENGTH, BOUNCE_STRENGTH).
 const AMOUNTS := {
@@ -135,3 +145,6 @@ func _sync() -> void:
 	_mat.set_shader_parameter("amounts", k)
 	_mat.set_shader_parameter("canvas_look", CANVAS_GLOSS if arena else Vector2.ZERO)
 	_mat.set_shader_parameter("floor_look", FLOORS.get(_arena_id, Vector3(0.0, 0.5, -0.62)) if arena else Vector3.ZERO)
+	var bowl := arena and _arena_id == "grand"
+	_mat.set_shader_parameter("zone", BOWL_ZONE if bowl else NO_ZONE)
+	_mat.set_shader_parameter("zone_top", BOWL_TOP if bowl else NO_TOP)
