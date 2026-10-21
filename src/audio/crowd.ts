@@ -192,6 +192,29 @@ export class CrowdMood {
         this.cues.push({ kind: 'whistle', gain: 0.5, delay: 1.5 });
         this.clap(1, 5);
         break;
+      // a tag team match: a tag brings the house up, a bot knocked out of the match brings it down on them
+      case 'tag':
+        this.bump(0.5);
+        this.hold = Math.max(this.hold, 1);
+        this.cue('cheer', 0.75, 0.05, 0.5);
+        this.clap(0.7, 1.5);
+        break;
+      case 'eliminated':
+        this.excite = 1;
+        this.hold = Math.max(this.hold, 3.5);
+        this.cue('ooh', 0.85, 0);
+        this.cue('cheer', 1, 0.3, 0);
+        this.cues.push({ kind: 'whistle', gain: 0.5, delay: 0.8 });
+        break;
+      case 'assist':
+        this.excite = 1;
+        this.hold = Math.max(this.hold, 2.5);
+        this.cue('ooh', 0.7, 0);
+        break;
+      case 'tagResume':
+        this.bump(0.3);
+        this.cue('cheer', 0.5, 0, 1);
+        break;
       case 'decision':
         this.excite = Math.max(this.excite, 0.8);
         this.hold = 2;

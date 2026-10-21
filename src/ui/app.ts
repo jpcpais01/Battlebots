@@ -5,7 +5,7 @@ import type { FpsCap } from '../render/pacer';
 import { enterLandscape, fullscreenSupported, isFullscreen, onFullscreenChange, toggleFullscreen } from '../fullscreen';
 import { Rng } from '../sim/math';
 import { MOVES, type MoveId } from '../sim/moves';
-import type { Fighter } from '../sim/fighter';
+import type { Fighter, FighterStats } from '../sim/fighter';
 import type { Match } from '../sim/match';
 import {
   computeBuild,
@@ -38,7 +38,7 @@ import { makerLogo, PartsMenu } from './garageParts';
 import { forceUpdate } from '../update';
 import { OnlineScreen } from './online';
 import type { OnlineSession } from '../net/session';
-import { loadPlayer, loadQuality, loadRecord, loadSaves, loadZoom, MAX_SAVES, savePlayer, saveSaves, saveQuality, saveRecord, saveZoom, setOnSaved, type Record_, type Zoom } from './store';
+import { loadPlayer, loadQuality, loadRecord, loadSaves, loadTagTally, loadZoom, MAX_SAVES, savePlayer, saveSaves, saveQuality, saveRecord, saveTagTally, saveZoom, setOnSaved, type Record_, type Zoom } from './store';
 import { bytesOf, canVoiceToday, isVoiced, voicedNames, voiceName, voicesLeftToday } from '../audio/nameVoice';
 import { MAX_REPLAYS, ReplayShelf, isSaved, outdated, type SavedReplay } from './replays';
 import { Account, PASSWORD_MIN, USERNAME_MAX, type SyncState } from '../net/account';
@@ -51,6 +51,8 @@ import { MapScreen } from './mapScreen';
 import { byShowOrder, checkWorn, giftReady, opponentSkin, ownsSkin, rivalSkin } from '../game/gacha';
 import { SKIN_RARITY_COL, SKIN_RARITY_NAME, SKINS, skinOf, skinSwatch } from '../game/skins';
 import { SkinCard, VaultScreen } from './vault';
+import { TagTeamScreen, type TagSetup } from './tagTeam';
+import { makeRivals, teamName } from '../game/tagTeam';
 
 type PaintPage = 'skins' | 'schemes' | 'primary' | 'secondary' | 'accent' | 'finish';
 const PAINT_PAGES: [PaintPage, string][] = [
@@ -67,7 +69,7 @@ const PAINT_HINT: Record<'primary' | 'secondary' | 'accent', string> = {
   accent: 'Glow: visor, lights and trim, and the trail of your strikes.',
 };
 
-type ScreenId = 'home' | 'garage' | 'fight' | 'online' | 'map' | 'vault';
+type ScreenId = 'home' | 'garage' | 'fight' | 'online' | 'map' | 'vault' | 'tagteam';
 
 /** Where the home screen happens: an animated place, or the arena as before. */
 type HomePlace = 'beach' | 'gym' | 'lounge' | 'arena';
@@ -183,6 +185,12 @@ export class App {
   private map: MapScreen;
   /** The Skin Vault (skins won with career credits), and the home button with a dot while a free pull waits. */
   private vault: VaultScreen;
+  private tagTeam: TagTeamScreen;
+  /**
+   * The tag team the player last sent out, and who it faced (null before the first tag team
+   * fight). The results' Next fight and Rematch play tag team again from it.
+   */
+  private tagSetup: TagSetup | null = null;
   private skinsBtn: HTMLButtonElement | null = null;
   private giftT = 0;
   /** The fight on screen is a round of a map event: which event, which round, which title defence. */
@@ -274,6 +282,13 @@ export class App {
       if (this.netFight) this.netFight.coach(kind);
       else m.queueCoach(0, kind);
     };
+    this.hud.onTag = () => {
+      const m = this.game.match;
+      if (!m?.tag || this.replaying || this.netFight) return;
+      // the next step; the tape keeps the step so its replay taps on the same one
+      m.queueTag(0);
+      this.lastFight?.tags?.push({ side: 0, frame: m.frame });
+    };
     this.online = new OnlineScreen({
       game,
       player: () => this.player,
@@ -310,6 +325,14 @@ export class App {
       modal: (title, fill) => this.openModal(title, fill),
       home: () => this.go('home'),
     });
+    this.tagTeam = new TagTeamScreen({
+      player: () => this.player,
+      saves: () => loadSaves(),
+      tap: (k) => this.tap(k),
+      home: () => this.go('home'),
+      fight: (setup) => this.startTagFight(setup),
+      last: () => this.tagSetup,
+    });
     this.screens = {
       home: this.buildHome(),
       garage: this.buildGarage(),
@@ -317,12 +340,14 @@ export class App {
       online: this.online.root,
       map: this.map.root,
       vault: this.vault.root,
+      tagteam: this.tagTeam.root,
     };
     this.ui.appendChild(this.screens.home);
     this.ui.appendChild(this.screens.garage);
     this.ui.appendChild(this.screens.online);
     this.ui.appendChild(this.screens.map);
     this.ui.appendChild(this.screens.vault);
+    this.ui.appendChild(this.screens.tagteam);
     el('div', 'rotate', `<div>${ICON.rotate}<p>Turn your phone sideways<span class="muted">Battlebots plays in landscape</span></p></div>`, this.ui);
     this.fade = el('div', 'scene-fade');
     this.ui.prepend(this.fade);
@@ -417,11 +442,12 @@ export class App {
     if (id === 'home') this.online.leave();
     if (id === 'online') this.online.show();
     else this.online.hide();
-    if (id === 'home' || id === 'online' || id === 'map') {
+    if (id === 'home' || id === 'online' || id === 'map' || id === 'tagteam') {
       this.game.endMatch();
       this.hud.detach();
       this.game.showBot(this.player);
       this.refreshHome();
+      if (id === 'tagteam') this.tagTeam.enter();
     } else if (id === 'garage') {
       this.focus = null;
       // (a skin tried on in the vault comes off)
@@ -466,7 +492,7 @@ export class App {
       d.menuLive = false;
       this.spin.vel = 0;
       this.spin.idle = 0;
-    } else if (id === 'home' || id === 'online') {
+    } else if (id === 'home' || id === 'online' || id === 'tagteam') {
       d.mode = 'menu';
       d.shiftX = 0;
       d.menuTurn = 0;
@@ -585,6 +611,11 @@ export class App {
     this.careerBtn = button('btn wide map-btn', '', () => {
       this.tap('select');
       this.go('map');
+    }, sub);
+    // two bots a side: the team sheet
+    button('btn small tag-home-btn', `${ICON.team}Tag Team<span class="badge">2 v 2</span>`, () => {
+      this.tap('select');
+      this.go('tagteam');
     }, sub);
     button('btn small', `${ICON.globe}Online`, () => {
       this.tap('select');
@@ -1559,6 +1590,52 @@ export class App {
     this.go('fight');
   }
 
+  /**
+   * A tag team match (the Tag Team screen): the player's bot and its partner against the rival
+   * pair, two a side in the indoor arena.
+   */
+  private startTagFight(setup: TagSetup) {
+    this.closeResults();
+    this.eventRun = null;
+    void enterLandscape();
+    const t = structuredClone(setup);
+    this.tagSetup = t;
+    this.opponent = t.rivals[0];
+    const seed = (Math.random() * 2 ** 32) >>> 0;
+    const partners = { a: structuredClone(t.partner), b: structuredClone(t.rivals[1]) };
+    this.lastFight = { a: structuredClone(this.player), b: structuredClone(t.rivals[0]), seed, cut: -1, coach: [], end: -1, marks: [], arena: 'grand', partners, tags: [], teams: [...t.names] };
+    this.replaying = false;
+    this.game.setArena('grand');
+    const m = this.game.startMatch(this.player, t.rivals[0], seed, false, 0, partners);
+    this.hud.rivalIntro = null;
+    this.hud.resetSpeed();
+    this.hud.attach(m);
+    this.go('fight');
+  }
+
+  /** The results' Next fight (new rivals) or Rematch (the same ones) after a tag team fight. */
+  private tagFight(sameRivals: boolean) {
+    const s = this.tagSetup;
+    if (!s) return this.fight(sameRivals);
+    this.tap('start');
+    const rivals = sameRivals ? s.rivals : makeRivals(this.player, s.partner, this.rng);
+    let names = s.names;
+    if (!sameRivals) {
+      names = [s.names[0], teamName(this.rng)];
+      while (names[1] === names[0]) names[1] = teamName(this.rng);
+    }
+    this.startTagFight({ partner: s.partner, rivals, names });
+  }
+
+  /** Count a tag team fight on its own tally as well as the record's. */
+  private tagTally(won: boolean, draw: boolean) {
+    const t = loadTagTally();
+    if (draw) t.draws++;
+    else if (won) t.wins++;
+    else t.losses++;
+    saveTagTally(t);
+  }
+
   /** The next round of a map event: its rival for that round, then into the arena. */
   private fightEvent(e: EventDef) {
     if (this.online.active || this.venueWait) return;
@@ -1635,6 +1712,9 @@ export class App {
         // this player's bot first (online they may have fought from the right corner)
         const me = t.me ?? 0;
         const [mine, theirs] = me === 1 ? [t.b, t.a] : [t.a, t.b];
+        // (a tag team fight: both teams' bots)
+        const pt = t.partners;
+        const names = pt ? `${esc(mine.name)} &amp; ${esc(pt.a.name)} vs ${esc(theirs.name)} &amp; ${esc(pt.b.name)}` : `${esc(mine.name)} vs ${esc(theirs.name)}`;
         const row = el('div', 'save-row replay-row', '', rows);
         row.style.setProperty('--paint', paintOf(mine));
         const verdict = r.winner < 0 ? 'Draw' : r.winner === me ? 'Win' : 'Loss';
@@ -1642,7 +1722,7 @@ export class App {
         const date = new Date(r.saved).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
         const old = outdated(r) ? '<em class="old">Older version</em>' : '';
         const net = t.online ? `${ICON.globe} ` : '';
-        el('div', 'save-name', `<b>${esc(mine.name)} vs ${esc(theirs.name)}</b><span class="${r.winner < 0 ? '' : r.winner === me ? 'win' : 'loss'}">${net}${verdict}${how} · ${r.secs}s · ${date}${old}</span>`, row);
+        el('div', 'save-name', `<b>${names}</b><span class="${r.winner < 0 ? '' : r.winner === me ? 'win' : 'loss'}">${net}${verdict}${how} · ${r.secs}s · ${date}${old}</span>`, row);
         button('btn small primary', `${ICON.play}Watch`, () => void this.watchSaved(r), row);
         const del = button('icon-btn small', ICON.close, () => {
           if (!del.classList.contains('armed')) {
@@ -1673,8 +1753,10 @@ export class App {
       if (go !== 1) return;
     }
     this.lastFight = structuredClone(r.tape);
-    // Rematch on its results fights the same opponent
+    // Rematch on its results fights the same opponent (a tag team fight's, the same rival team)
     this.opponent = structuredClone(r.tape.me === 1 ? r.tape.a : r.tape.b);
+    const t = r.tape;
+    if (t.partners) this.tagSetup = { partner: structuredClone(t.partners.a), rivals: [structuredClone(t.b), structuredClone(t.partners.b)], names: t.teams ? [...t.teams] : ['', ''] };
     this.replay();
   }
 
@@ -1693,7 +1775,7 @@ export class App {
     const m = this.game.match;
     const t = this.lastFight;
     if (!m || !t || m.phase === 'end') return;
-    const kind = type === 'ko' ? 'ko' : type === 'detach' ? 'tear' : type === 'knockdown' && m.phase === 'fight' ? 'kd' : null;
+    const kind = type === 'ko' || type === 'eliminated' ? 'ko' : type === 'detach' ? 'tear' : type === 'knockdown' && m.phase === 'fight' ? 'kd' : null;
     if (!kind) return;
     if (kind === 'kd' && (data as { defender: Fighter }).defender.state === 'ko') return;
     t.marks.push({ frame: m.frame, kind });
@@ -1710,12 +1792,15 @@ export class App {
       this.soundRow(box);
       button('btn small danger', `${ICON.exit}Forfeit`, () => {
         this.closeModal();
+        const tag = !!this.game.match?.tag;
         if (this.game.match && this.game.match.phase !== 'end') {
           this.tally(false, false);
+          if (tag) this.tagTally(false, false);
           // walking out of an event's round ends the run (and pays nothing)
           this.eventResult(false, false, null, true);
         }
-        this.go(this.eventRun ? 'map' : 'home');
+        // (out of a tag team fight, back to the team sheet)
+        this.go(this.eventRun ? 'map' : tag ? 'tagteam' : 'home');
       }, box);
     }, () => {
       this.game.paused = false;
@@ -2132,9 +2217,12 @@ export class App {
     if (!m || this.current !== 'fight' || this.results) return;
     this.dropSkip();
     this.hud.closeReplayBar();
-    const [a, b] = m.fighters;
     const net = this.netFight;
     const tape = this.lastFight;
+    // a tag team fight: each team's numbers together, under its name
+    const tag = m.tag;
+    const teams = tag ? (tape?.teams ?? this.tagSetup?.names ?? ['', '']) : ['', ''];
+    const [a, b] = tag ? [0, 1].map((side) => teamStats(m, side, teams[side])) : m.fighters;
     // a replay of an online fight, watched straight after it, still answers to its room
     const room = net ?? (this.replaying && tape?.online ? this.online.session : null);
     // online, this player may be in either corner; offline it's always the left one
@@ -2145,7 +2233,10 @@ export class App {
     // a round of a map event: how the run stands now
     const ev = !net && !this.replaying && this.eventRun ? this.eventResult(won, draw, out.kind ?? null) : null;
     // the win record is for fights against the AI (and a replay was already counted)
-    if (!net && !this.replaying) this.tally(won, draw);
+    if (!net && !this.replaying) {
+      this.tally(won, draw);
+      if (tag) this.tagTally(won, draw);
+    }
     if (!this.replaying && tape) {
       tape.cut = m.introCut;
       // (online, both corners' calls: they all went through the match)
@@ -2154,11 +2245,16 @@ export class App {
       // the replay runs to here
       tape.end = m.frame;
     }
-    const verdict = ev?.title ? (ev.e.kind === 'cup' ? 'CUP WINNER' : 'CHAMPION') : draw ? 'DRAW' : won ? 'VICTORY' : 'DEFEAT';
-    const kicker = ev ? `${esc(ev.e.name)} · ${ev.round === ev.e.rivals.length - 1 ? 'Final' : `Round ${ev.round + 1} of ${ev.e.rivals.length}`}` : `${Math.round(m.fightTime)} seconds`;
+    const verdict = (tag && !draw ? 'TEAM ' : '') + (ev?.title ? (ev.e.kind === 'cup' ? 'CUP WINNER' : 'CHAMPION') : draw ? 'DRAW' : won ? 'VICTORY' : 'DEFEAT');
+    const kicker = ev ? `${esc(ev.e.name)} · ${ev.round === ev.e.rivals.length - 1 ? 'Final' : `Round ${ev.round + 1} of ${ev.e.rivals.length}`}` : `${tag ? 'Tag team · ' : ''}${Math.round(m.fightTime)} seconds`;
     const how = out.kind === 'Decision' ? 'on points' : out.kind === 'TKO' ? 'by TKO' : out.kind === 'KO' ? 'by knockout' : out.kind === 'Dismantled' ? 'by tearing it apart' : '';
-    const who = draw ? 'Split down the middle' : `<b>${esc(m.fighters[out.winner].name)}</b> wins ${how}`;
-    const acc = (f: Fighter) => (f.stats.thrown ? `${Math.round((f.stats.landed / f.stats.thrown) * 100)}%` : '–');
+    const last = draw ? null : m.fighters[out.winner];
+    const who = !last
+      ? 'Split down the middle'
+      : tag
+        ? `<b>${esc(teams[out.winner] || `${last.name}'s team`)}</b> win it ${how}, <b>${esc(last.name)}</b> landing the last blow`
+        : `<b>${esc(last.name)}</b> wins ${how}`;
+    const acc = (f: { stats: FighterStats }) => (f.stats.thrown ? `${Math.round((f.stats.landed / f.stats.thrown) * 100)}%` : '–');
     const row = (label: string, va: number | string, vb: number | string, higher = true) => {
       const na = typeof va === 'number' ? va : parseFloat(va);
       const nb = typeof vb === 'number' ? vb : parseFloat(vb);
@@ -2179,6 +2275,7 @@ export class App {
     card.style.setProperty('--cb', cb);
     card.innerHTML = `
       <div class="head"><span class="kicker">${kicker}</span><div class="verdict${won || draw ? '' : ' lose'}${ev?.title ? ' title' : ''}">${verdict}</div><div class="who">${who}</div></div>
+      ${tag ? rosterHtml(m) : ''}
       <div class="stats-table">
         <span class="h a">${esc(a.name)}</span><span class="h l">vs</span><span class="h b">${esc(b.name)}</span>
         ${row('Damage', Math.round(a.stats.dealt), Math.round(b.stats.dealt))}
@@ -2217,11 +2314,21 @@ export class App {
         button('btn primary', `${ICON.swords}${label}`, () => this.fightEvent(e), actions);
         button('btn', `${ICON.map}Map`, () => this.toMap(), actions);
       }
+    } else if (tag) {
+      // tag team again: new rivals, the same ones, or back to the team sheet
+      button('btn primary', `${ICON.swords}Next fight`, () => this.tagFight(false), actions);
+      button('btn', `${ICON.refresh}Rematch`, () => this.tagFight(true), actions);
     } else {
       button('btn primary', `${ICON.swords}Next fight`, () => this.fight(), actions);
       button('btn', `${ICON.refresh}Rematch`, () => this.fight(true), actions);
     }
     keep();
+    if (tag)
+      button('btn', `${ICON.team}Team`, () => {
+        this.tap('select');
+        this.closeResults();
+        this.go('tagteam');
+      }, actions);
     button('btn', `${ICON.wrench}Garage`, () => {
       this.tap('select');
       this.closeResults();
@@ -2457,4 +2564,41 @@ function syncText(s: SyncState, at: number) {
     default:
       return 'Saved to your account.';
   }
+}
+
+/** A tag team's numbers together, shaped as a fighter's for the results: the sums, and the biggest single shot either landed. */
+function teamStats(m: Match, side: number, team: string) {
+  const st: FighterStats = { dealt: 0, landed: 0, thrown: 0, blocked: 0, dodged: 0, knockdowns: 0, takedowns: 0, biggest: 0, biggestMove: '', counters: 0 };
+  const names: string[] = [];
+  for (const mb of m.tag!.members) {
+    if (mb.side !== side) continue;
+    names.push(mb.f.name);
+    const fs = mb.f.stats;
+    for (const k of ['dealt', 'landed', 'thrown', 'blocked', 'dodged', 'knockdowns', 'takedowns', 'counters'] as const) st[k] += fs[k];
+    if (fs.biggest > st.biggest) {
+      st.biggest = fs.biggest;
+      st.biggestMove = fs.biggestMove;
+    }
+  }
+  return { name: team || names.join(' & '), stats: st };
+}
+
+/** The two teams' bots: each bot's colour, its name, how it came out of the fight, and each team's tags. */
+function rosterHtml(m: Match) {
+  const t = m.tag!;
+  const side = (s: number) => {
+    const n = t.tags[s];
+    const won = !!m.winner && m.winner.index === s;
+    const bots = t.members
+      .filter((mb) => mb.side === s)
+      .map((mb) => {
+        // (out of the match, or the last bot standing for the losers when it ended inside the distance)
+        const last = !!m.winner && m.result !== 'Decision' && mb.f === m.fighters[1 - m.winner.index];
+        const down = mb.out || last || mb.f.hp <= 0;
+        return `<div class="tag-bot${down ? ' out' : ''}" style="--paint:${barColors(mb.spec.paint)[0]}"><i></i><b>${esc(mb.f.name)}</b><span>${down ? 'Knocked out' : `${Math.round(mb.f.hpRatio * 100)}% left`}</span></div>`;
+      })
+      .join('');
+    return `<div class="tag-side${won ? ' win' : ''}"><h4><span>${s ? 'Rivals' : 'Your team'}</span><em>${n} tag${n === 1 ? '' : 's'}</em></h4>${bots}</div>`;
+  };
+  return `<div class="tag-roster">${side(0)}${side(1)}</div>`;
 }

@@ -77,3 +77,22 @@ export const loadSaves = (): BotSpec[] => {
   return Array.isArray(raw) ? raw.slice(0, MAX_SAVES).map(sanitizeBot) : [];
 };
 export const saveSaves = (s: BotSpec[]) => write('bb.saves', s.slice(0, MAX_SAVES));
+
+/** The tag team tally (this device's). */
+export interface TagTally {
+  wins: number;
+  losses: number;
+  draws: number;
+}
+export function loadTagTally(): TagTally {
+  const t = read<Partial<TagTally> | null>('bb.tagRecord', null);
+  const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0);
+  return { wins: n(t?.wins), losses: n(t?.losses), draws: n(t?.draws) };
+}
+export const saveTagTally = (t: TagTally) => write('bb.tagRecord', t);
+/** The saved bot last picked as the tag team partner (its name; '' for a recruit). */
+export const loadTagPartner = (): string => {
+  const v = read<unknown>('bb.tagPartner', '');
+  return typeof v === 'string' ? v : '';
+};
+export const saveTagPartner = (name: string) => write('bb.tagPartner', name);

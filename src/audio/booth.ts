@@ -507,6 +507,15 @@ export class Booth {
         // the finishing hit is reported right after this, so the call waits for it
         this.koPending = data as Booth['koPending'];
         break;
+      // a tag team match (no lines of its own yet: the nearest ones)
+      case 'tag': {
+        const d = data as { to: Fighter; elim?: boolean };
+        if (m.phase === 'fight' && !d.elim) this.say({ chain: ['brain.rally'], prio: 60, about: d.to, name: 0.5 }, 0.6);
+        break;
+      }
+      case 'eliminated':
+        this.say({ chain: ['knockdown.any'], prio: 92, about: (data as { loser: Fighter }).loser }, 0.3);
+        break;
       case 'decision': {
         const d = data as { winner: Fighter | null };
         this.say({ chain: ['decision.time'], prio: 100, voice: 'p' }, 0.3);
