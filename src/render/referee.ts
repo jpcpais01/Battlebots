@@ -754,6 +754,17 @@ export class Referee {
       case 'finisherBlow':
         this.flinch(data.point, 1);
         break;
+      // a tag team match: it applauds a tag, a bot knocked out of the match, and waves the fight on again
+      case 'tag':
+        if (!data.elim) this.gesture('clap', 0.8);
+        break;
+      case 'eliminated':
+        this.gesture('whoa', 1.6);
+        this.wide = 1.6;
+        break;
+      case 'tagResume':
+        this.gesture('chop', 1.0);
+        break;
     }
   }
 

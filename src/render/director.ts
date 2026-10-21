@@ -577,7 +577,8 @@ export class Director {
       this.koSnap = false;
       this.koAng = this.koBase(match);
     }
-    const ph = match.phase;
+    // (a tag team match stopped for an elimination is filmed as a knockout)
+    const ph = match.tag?.paused ? 'ko' : match.phase;
     const sh = this.shot;
     sh.t += dt;
     // both bots shown and the booth still talking: cut around the arena until the countdown
@@ -784,7 +785,7 @@ export class Director {
 
   /** Whether fighter i can look at the other for a bot's-eye shot right now. */
   private povOk(match: Match, i: number) {
-    if (i < 0 || match.phase !== 'fight' || match.fin) return false;
+    if (i < 0 || match.phase !== 'fight' || match.fin || match.tag?.paused) return false;
     const me = match.fighters[i], opp = match.fighters[1 - i];
     if (me.isDown || opp.isDown || me.parts.off[P.Head]) return false;
     return this.sep > POV_SEP[0] * me.size && this.sep < POV_SEP[1];

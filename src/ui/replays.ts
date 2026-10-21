@@ -72,6 +72,17 @@ function sanitizeTape(raw: unknown): Tape | null {
     out.online = true;
     out.me = t.me === 1 ? 1 : 0;
   }
+  // a tag team match: each side's partner, the TAG button's taps, and the teams' names
+  const pt = t.partners as { a?: unknown; b?: unknown } | undefined;
+  if (pt && typeof pt === 'object' && pt.a && pt.b) {
+    out.partners = { a: sanitizeBot(pt.a), b: sanitizeBot(pt.b) };
+    out.tags = (Array.isArray(t.tags) ? t.tags : [])
+      .filter((c): c is { frame: number; side: number } => !!c && typeof c === 'object')
+      .slice(0, 400)
+      .map((c) => ({ frame: int(c.frame), side: c.side === 1 ? 1 : 0 }));
+    const tn = Array.isArray(t.teams) ? t.teams : [];
+    out.teams = [0, 1].map((k) => (typeof tn[k] === 'string' ? (tn[k] as string).slice(0, 60) : '')) as [string, string];
+  }
   return out;
 }
 

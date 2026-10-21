@@ -4145,7 +4145,7 @@ button:focus-visible {
   position: absolute;
   inset: 0;
   box-shadow: inset 0 0 14vh color-mix(in srgb, var(--fc) 70%, transparent);
-  animation: fbEdge 2.6s ease-out both;
+  animation: fbEdge calc(var(--fbo, 2.3s) + 0.3s) ease-out both;
 }
 .fb-band {
   position: absolute;
@@ -4167,7 +4167,7 @@ button:focus-visible {
   );
   border-top: 2px solid color-mix(in srgb, var(--fc) 60%, #fff);
   border-bottom: 2px solid color-mix(in srgb, var(--fc) 60%, #fff);
-  animation: fbIn 0.42s cubic-bezier(0.2, 1.3, 0.4, 1) both, fbOut 0.45s 2.3s ease-in forwards;
+  animation: fbIn 0.42s cubic-bezier(0.2, 1.3, 0.4, 1) both, fbOut 0.45s var(--fbo, 2.3s) ease-in forwards;
 }
 .finban.p2 .fb-band {
   animation-name: fbInR, fbOut;
@@ -4710,6 +4710,225 @@ button:focus-visible {
   color: var(--orange);
 }
 
+/* a tag team match: each side's partner on a chip beside its abilities */
+.tchip {
+  --c1: var(--cyan);
+  --c2: var(--cyan);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.22em;
+  width: 10.5em;
+  max-width: 34vw;
+  height: 2.05em;
+  margin-inline-start: 0.25em;
+  padding: 0 0.55em 0 0.75em;
+  background: rgba(12, 15, 23, 0.76);
+  border: 1px solid var(--line);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 0.5em) 100%, 0 100%);
+  transition: border-color 0.2s ease, opacity 0.3s ease;
+}
+.tchip.r {
+  margin-inline-start: 0;
+  margin-inline-end: 0.25em;
+  padding: 0 0.75em 0 0.55em;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0.5em 100%);
+}
+.tchip .tc-paint {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0.32em;
+  background: linear-gradient(var(--c1), var(--c2));
+}
+.tchip.r .tc-paint {
+  left: auto;
+  right: 0;
+}
+.tchip .tc-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  min-width: 0;
+}
+.tchip.r .tc-row {
+  flex-direction: row-reverse;
+}
+.tchip .tc-nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.74em;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.tchip.r .tc-nm {
+  text-align: right;
+}
+.tchip .tc-st {
+  flex: none;
+  font-size: 0.5em;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  color: var(--text-2);
+}
+.tchip .tc-st[data-s='amber'] {
+  color: var(--amber);
+}
+.tchip .tc-st[data-s='red'] {
+  color: var(--red);
+}
+.tchip .tc-st[data-s='green'] {
+  color: var(--green);
+}
+.tchip .tc-hp {
+  position: relative;
+  height: 0.26em;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.tchip .tc-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--c2), var(--c1));
+  transform-origin: left;
+  transition: transform 0.15s linear;
+}
+.tchip.r .tc-fill {
+  background: linear-gradient(90deg, var(--c1), var(--c2));
+  transform-origin: right;
+}
+.tchip.low .tc-fill {
+  box-shadow: inset 0 0 0 99px rgba(255, 71, 102, 0.45);
+}
+.tchip.ready {
+  border-color: color-mix(in srgb, var(--amber) 85%, transparent);
+  animation: tcReady 1.1s ease-in-out infinite alternate;
+}
+.tchip.out {
+  opacity: 0.6;
+  border-color: color-mix(in srgb, var(--red) 45%, transparent);
+}
+.tchip.out .tc-nm {
+  text-decoration: line-through;
+  text-decoration-color: var(--red);
+  text-decoration-thickness: 2px;
+}
+.tchip.pop {
+  animation: tcPop 0.3s ease-out;
+}
+.tchip.ready.pop {
+  animation: tcPop 0.3s ease-out, tcReady 1.1s 0.3s ease-in-out infinite alternate;
+}
+@keyframes tcPop {
+  from {
+    transform: scale(1.12);
+  }
+}
+@keyframes tcReady {
+  from {
+    background: rgba(12, 15, 23, 0.76);
+  }
+  to {
+    background: color-mix(in srgb, var(--amber) 22%, rgba(12, 15, 23, 0.8));
+  }
+}
+/* the player's TAG button, beside the coach's calls: TAG over the partner's name */
+.tag-btn {
+  --tc: var(--cyan);
+  position: absolute;
+  right: calc(100% + 0.6em);
+  bottom: 0;
+  width: 5.6em;
+  height: 3.1em;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.05em;
+  border-radius: 999px;
+  background: rgba(12, 15, 23, 0.74);
+  border: 1.5px solid color-mix(in srgb, var(--tc) 40%, transparent);
+  color: var(--muted);
+  font-size: 0.84em;
+  touch-action: manipulation;
+  transition: opacity 0.3s ease, transform 0.1s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.tag-btn b {
+  font-family: var(--broadcast);
+  font-weight: 400;
+  font-size: 1.3em;
+  line-height: 1;
+  letter-spacing: 0.06em;
+}
+.tag-btn small {
+  max-width: 90%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.55em;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+}
+.tag-btn.ready {
+  color: #fff;
+  border-color: var(--tc);
+  background: color-mix(in srgb, var(--tc) 28%, rgba(18, 23, 37, 0.9));
+  animation: tagReady 0.6s ease-in-out infinite alternate;
+}
+.tag-btn.ready small {
+  color: color-mix(in srgb, var(--tc) 55%, #fff);
+}
+.tag-btn.ready:active {
+  transform: scale(0.92);
+}
+.tag-btn.run {
+  color: #fff;
+  border-color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 25%, rgba(18, 23, 37, 0.9));
+  animation: tagRun 0.4s ease-in-out infinite alternate;
+}
+.tag-btn.run small {
+  color: var(--amber);
+}
+.tag-btn.gone {
+  opacity: 0;
+  pointer-events: none;
+}
+@keyframes tagReady {
+  from {
+    box-shadow: 0 0 6px color-mix(in srgb, var(--tc) 30%, transparent);
+  }
+  to {
+    box-shadow: 0 0 16px color-mix(in srgb, var(--tc) 70%, transparent);
+    background: color-mix(in srgb, var(--tc) 40%, rgba(18, 23, 37, 0.9));
+  }
+}
+@keyframes tagRun {
+  from {
+    box-shadow: 0 0 6px color-mix(in srgb, var(--amber) 40%, transparent);
+  }
+  to {
+    box-shadow: 0 0 16px color-mix(in srgb, var(--amber) 70%, transparent);
+    background: color-mix(in srgb, var(--amber) 40%, rgba(18, 23, 37, 0.9));
+  }
+}
+
+@media (max-width: 760px) {
+  /* no room beside the calls: over them, at the left */
+  .tag-btn {
+    right: auto;
+    left: 0;
+    bottom: calc(100% + 0.5em);
+  }
+}
 @media (max-width: 560px) {
   .scene-btn {
     width: 2.6em;
