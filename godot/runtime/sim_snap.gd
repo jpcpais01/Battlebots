@@ -142,7 +142,9 @@ static func dispose(m) -> void:
 	var conts := {}
 	var stack := [m]
 	var holders := []
-	var owned := []
+	# [object, field] holding an object or a lambda, found while everything is still in place (a
+	# field with a getter reads others: it can't be read once they're let go)
+	var links := []
 	while not stack.is_empty():
 		var v = stack.pop_back()
 		var t := typeof(v)
@@ -153,12 +155,13 @@ static func dispose(m) -> void:
 			if s == null or s == V3:
 				continue
 			objs[v] = true
-			owned.append(v)
 			for f in _fields_of(s):
 				var x = v.get(f)
 				var xt := typeof(x)
 				if xt == TYPE_OBJECT or xt == TYPE_ARRAY or xt == TYPE_DICTIONARY:
 					stack.append(x)
+				if (xt == TYPE_OBJECT and x != null) or xt == TYPE_CALLABLE:
+					links.append([v, f, xt])
 			continue
 		if v.is_read_only():
 			continue
@@ -191,20 +194,41 @@ static func dispose(m) -> void:
 			holders.append(v)
 	for v in holders:
 		v.clear()
-	for o in owned:
-		for f in _fields_of(o.get_script()):
-			var x = o.get(f)
-			var xt := typeof(x)
-			if xt == TYPE_OBJECT and x != null:
-				o.set(f, null)
-			elif xt == TYPE_CALLABLE:
-				o.set(f, Callable())
+	for l in links:
+		l[0].set(l[1], null if l[2] == TYPE_OBJECT else Callable())
 
 
-## dispose() on a worker thread, a moment later (the frame that let it go may still be reading it).
+## dispose() on a worker thread, a moment later (the frame that let it go, and the next, may still
+## be reading it: a view of it, the room's last look).
 static func dispose_later(m) -> void:
-	if m != null:
-		WorkerThreadPool.add_task(dispose.bind(m), false, "dispose match")
+	if m == null:
+		return
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		dispose(m)
+		return
+	tree.create_timer(0.5, true, false, true).timeout.connect(func() -> void:
+		# (the modules' shared data is collected here, once, not by two workers at a time)
+		_setup()
+		_reap()
+		_disposing.append(WorkerThreadPool.add_task(dispose.bind(m), false, "dispose match")))
+
+
+## Wait for the matches being let go (the app is closing: nothing may run on after it).
+static func finish_disposing() -> void:
+	for t in _disposing:
+		WorkerThreadPool.wait_for_task_completion(t)
+	_disposing.clear()
+
+
+static var _disposing: Array[int] = []
+
+
+static func _reap() -> void:
+	for t in _disposing.duplicate():
+		if WorkerThreadPool.is_task_completed(t):
+			WorkerThreadPool.wait_for_task_completion(t)
+			_disposing.erase(t)
 
 
 # ------------------------------------------------------------------------------ the wiring

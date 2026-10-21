@@ -9,11 +9,12 @@
 ## Sideways drags spin the bot in the ring (menu camera).
 ##
 ## The web's refresh, fullscreen and account buttons have no place on Android (the account is
-## phase 5), so they're left out; Online and Replays stand disabled until they're ported.
+## phase 5), so they're left out. Replays opens the saved replays (app/replays/replays_menu.gd).
 class_name HomeScreen
 extends AppScreen
 
 const PLACES := ["beach", "gym", "lounge", "arena"]
+const REPLAYS := preload("res://app/replays/replays_menu.gd")
 ## The Titans button's icon: a towering robot, a fan at its feet.
 const TITAN_SVG := '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="10" y="2" width="7" height="5" rx="1.2"/><path d="M9 9.5h9M13.5 7v7.5M11 22l2.5-7.5L16 22M9 9.5l-1.2 5M18 9.5l1.2 5"/><circle cx="4.5" cy="17.6" r="1.1"/><path d="M4.5 19.5V22"/></svg>'
 const PLACE_NAME := {"beach": "Beach", "gym": "Gym", "lounge": "Lounge", "arena": "Arena"}
@@ -555,7 +556,7 @@ func _build_actions() -> void:
 	# (built ahead, so the first titan fight starts straight away)
 	if app != null and app.game != null and app.game.has_method("load_venue"):
 		app.game.load_venue("titan")
-	# (replays come later: the shelf isn't ported yet)
+	# the saved replays: watch one again, or delete it
 	var small := HBoxContainer.new()
 	small.add_theme_constant_override(&"separation", int(round(0.45 * _em)))
 	small.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -564,8 +565,10 @@ func _build_actions() -> void:
 	MenuKit.pad_button(replays, 0.6 * _em, 2.4 * 0.86 * _em)
 	MenuKit.button_text(replays, 0.86 * _em, 700, 1.2 * 0.86 * _em)
 	replays.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	replays.disabled = true
+	replays.name = "Replays"
+	replays.disabled = app == null
 	_dim(replays)
+	replays.pressed.connect(func() -> void: REPLAYS.open(app))
 	small.add_child(replays)
 	# online rooms (app/online): fight a friend, on a phone or the web game
 	var online := UiTheme.button("Online", "globe", &"BtnSmall")

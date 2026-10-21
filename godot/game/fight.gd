@@ -348,6 +348,7 @@ func _notification(what: int) -> void:
 	elif what == NOTIFICATION_PREDELETE:
 		_sync()
 		_stop_jobs()
+		SimSnap.finish_disposing()
 		if booth != null:
 			booth.end()
 
@@ -367,7 +368,11 @@ func pause() -> void:
 	get_tree().paused = true
 	# the frozen scene doesn't need 120 frames a second behind the menu (battery)
 	Engine.max_fps = 30 if Display.cap == 0 or Display.cap > 30 else Display.cap
-	pause_menu.open()
+	# (a replay's menu: app.ts replayMenu)
+	if replay != null:
+		pause_menu.open_replay()
+	else:
+		pause_menu.open()
 
 
 func resume() -> void:
@@ -388,11 +393,15 @@ func forfeit() -> void:
 		forfeited.emit()
 
 
-## Wait for the sim steps running on the worker, if any.
+## Wait for the sim steps running on the worker, if any (and a checkpoint being taken of the
+## match: nothing may step it meanwhile).
 func _sync() -> void:
 	if _task >= 0:
 		WorkerThreadPool.wait_for_task_completion(_task)
 		_task = -1
+	if _snap_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_snap_task)
+		_snap_task = -1
 
 
 func _run_steps(n: int) -> void:
@@ -535,6 +544,8 @@ func start_match(a, b, seed: float, partners = null, opts := {}) -> void:
 	_free_models()
 	stretcher.clear()
 	tag_cam.stop()
+	# (the last fight's match, let go of: see SimSnap.dispose)
+	SimSnap.dispose_later(m)
 	m = TMatch.Match.new(a, b, seed, partners)
 	# (the uid counter the match started with: each match has its own, see _run_steps)
 	_uid = TFighter.UID
@@ -586,6 +597,21 @@ func start_replay(t: Dictionary, tl: ReplayTimeline = null) -> void:
 ## Whether the fight on screen is a replay.
 func replaying() -> bool:
 	return replay != null and m != null
+
+
+## The fight's results are up (App._show_results): the rest of its tape (ReplayTape.finish), and a
+## checkpoint of the step they came up at, kept (the replay's Results and a seek to its end land
+## there at once). Taken on the worker, as the opportunistic ones are: the picture holds a frame.
+func finish_tape() -> void:
+	if m == null or replay != null:
+		return
+	_sync()
+	ReplayTape.finish(tape, m, booth.said_script)
+	var f := int(m.frame)
+	timeline.keep = f
+	var s := timeline.before(f)
+	if (s == null or s.frame != f) and _snap_task < 0 and SimSnap.can_take(m):
+		_snap_task = WorkerThreadPool.add_task(_take_snap, true, "checkpoint")
 
 
 ## The booth's script for a replay (null: a live fight, or a tape without one).
@@ -683,6 +709,7 @@ func _land(mm, uid: float) -> void:
 	_hiss_seen.clear()
 	_sfx_count = -1
 	_crowd_count = -1
+	SimSnap.dispose_later(m)
 	m = mm
 	_uid = uid
 	m.listeners = []
@@ -809,6 +836,7 @@ func end_match() -> void:
 	if _gate_on:
 		_gate_on = false
 		arena.gate_hit(null)
+	SimSnap.dispose_later(m)
 	m = null
 	online = false
 	net_me = 0
@@ -1479,6 +1507,9 @@ func _process(dt: float) -> void:
 			replay.owed -= steps
 			_acc = 0.0
 			whole = true
+		elif replay.owed > 0:
+			# (a frame step waits on no prefetch: it lets go within a step)
+			replay.yield_worker()
 		# a replay stops on the step the fight's results came up (game.ts frame)
 		steps = clampi(steps, 0, replay.end - int(m.frame))
 		if int(m.frame) + steps >= replay.end:

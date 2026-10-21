@@ -2590,14 +2590,16 @@ for (const [src, cls] of MODULES) {
     '\t\treturn (v as Array).map(to_json)',
     '\treturn v',
   ];
-  // the build's fight, as a number (saved replays keep it: another one may not play out the same)
+  // the build's fight, as a number (saved replays keep it: another one may not play out the same):
+  // the sim and the parts' numbers, not the menus' modules (the patch notes change every merge)
+  const notSim = new Set(['init.gd', 'career.gd', 'events.gd', 'loadout.gd', 'paint.gd', 'patchNotes.gd', 'saves.gd', 'walkOns.gd']);
   const sim = createHash('sha1');
-  for (const f of fs.readdirSync(OUT).filter((f) => f.endsWith('.gd') && f !== 'init.gd').sort()) sim.update(f).update(fs.readFileSync(path.join(OUT, f)));
+  for (const f of fs.readdirSync(OUT).filter((f) => f.endsWith('.gd') && !notSim.has(f)).sort()) sim.update(f).update(fs.readFileSync(path.join(OUT, f)));
   lines.push(
     '',
     '',
-    '## A fingerprint of every translated module as generated (the fight sim, the parts, the',
-    '## loadouts): saved replays keep it, and one saved on another one may not play out the same.',
+    '## A fingerprint of the translated fight sim and parts as generated: saved replays keep it, and',
+    '## one saved on another may not play out the same.',
     `const SIM_HASH := ${parseInt(sim.digest('hex').slice(0, 8), 16)}`,
   );
   fs.writeFileSync(path.join(OUT, 'init.gd'), lines.join('\n') + '\n');

@@ -48,7 +48,7 @@ static func summary(m) -> Dictionary:
 	for f in m.fighters:
 		fs.append(_fighter(f))
 	var out := {
-		"fighters": fs, "specs": [{"paint": m.specs[0].paint.duplicate(true)}, {"paint": m.specs[1].paint.duplicate(true)}],
+		"fighters": fs, "specs": [{"name_": String(m.specs[0].name_), "paint": m.specs[0].paint.duplicate(true)}, {"name_": String(m.specs[1].name_), "paint": m.specs[1].paint.duplicate(true)}],
 		"winner": fs[int(m.winner.index)] if m.winner != null else null,
 		"result": str(m.result) if m.result != null else null, "fightTime": float(m.fightTime), "tag": null,
 	}
@@ -81,7 +81,8 @@ static func _summary(raw) -> Variant:
 	var specs := []
 	for i in 2:
 		var sp = raw.get("specs")[i] if raw.get("specs") is Array and raw.specs.size() == 2 else null
-		specs.append({"paint": TSaves.sanitizeBot({"paint": sp.get("paint")}).paint if sp is Dictionary else TSaves.sanitizeBot(null).paint})
+		var bot = TSaves.sanitizeBot({"name_": sp.get("name_"), "paint": sp.get("paint")} if sp is Dictionary else null)
+		specs.append({"name_": String(bot.name_), "paint": bot.paint})
 	var w = raw.get("winner")
 	var wi := int(w.get("index", -1)) if w is Dictionary and _num(w.get("index")) else -1
 	var out := {
@@ -120,16 +121,17 @@ static func _fighter_of(f: Dictionary, index: int) -> Dictionary:
 	}
 
 
-## A big moment for the scrubber (app.ts markMoment), from a sim event as it happens.
-static func mark(t: Dictionary, m, type: String, data) -> void:
-	if m.phase == "end":
+## A big moment for the scrubber (app.ts markMoment), from a sim event as it's handled: the step
+## it happened at, and the phase the fight is in now.
+static func mark(t: Dictionary, frame: int, phase: String, type: String, data) -> void:
+	if phase == "end":
 		return
-	var kind := "ko" if type == "ko" or type == "eliminated" else "tear" if type == "detach" else "kd" if type == "knockdown" and m.phase == "fight" else ""
+	var kind := "ko" if type == "ko" or type == "eliminated" else "tear" if type == "detach" else "kd" if type == "knockdown" and phase == "fight" else ""
 	if kind == "":
 		return
 	if kind == "kd" and data != null and data.get("defender") != null and data.defender.state == "ko":
 		return
-	t.marks.append({"frame": int(m.frame), "kind": kind})
+	t.marks.append({"frame": frame, "kind": kind})
 
 
 ## How the player's corner did, the fight's length, for the shelf's list: {winner, kind, secs}.
@@ -158,6 +160,10 @@ static func sanitize(raw) -> Variant:
 	if not raw is Dictionary:
 		return null
 	var t: Dictionary = raw
+	# (read back through TInit.from_json, "seed" comes as the translated code's "seed_")
+	if t.has("seed_") and not t.has("seed"):
+		t = t.duplicate()
+		t.seed = t.seed_
 	if not (t.get("seed") is float or t.get("seed") is int) or not (t.get("end") is float or t.get("end") is int) or int(t.end) <= 0:
 		return null
 	var coach := []

@@ -97,6 +97,9 @@ func poll(g) -> bool:
 			seek_to = -1
 			progress = 1.0
 			g._land(j.m, j.uid)
+		elif j.land:
+			# (overtaken by another seek)
+			SimSnap.dispose_later(j.m)
 	if _task >= 0:
 		return true
 	if seek_to >= 0:
@@ -126,6 +129,9 @@ func yield_worker() -> void:
 
 
 func _start(g, frame: int, land: bool, every := ReplayTimeline.SPACING, from_live := true) -> void:
+	# (the Game's last steps may still be running on the worker: the match on screen is read
+	# from here on, so they finish first)
+	g._sync()
 	var j := Job.new()
 	j.tl = tl
 	j.tape = tape
@@ -238,3 +244,7 @@ class Job:
 		uid = TFighter.UID
 		if not land and not cancel and tl.wants(_at, every):
 			tl.add(SimSnap.take(m, uid))
+		# (a prefetch's copy is done with)
+		if not land:
+			SimSnap.dispose(m)
+			m = null

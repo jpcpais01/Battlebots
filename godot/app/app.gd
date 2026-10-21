@@ -56,7 +56,9 @@ var event_run = null
 ## The fights are titan battles (the home screen's Titans): the bots 30 m tall in the Titan
 ## Colosseum. The results' Next fight and Rematch stay titan.
 var titan_run := false
-## The last fight against the AI, enough to play it again (app.ts lastFight: a, b, seed, arena).
+## The last fight, to watch it again (app.ts lastFight): {tape, timeline}, its tape (ReplayTape)
+## and the checkpoints and wear it left (ReplayTimeline: seeks in its replay are quick at once;
+## null for a saved replay's). Null before the first fight.
 var last_fight = null
 ## The tag team the player last sent out, and who it faced: {partner, rivals: [their starter, their
 ## partner], names: [ours, theirs]} (null before the first tag team fight). The results' Next fight
@@ -131,6 +133,14 @@ func _setup() -> void:
 	game.pause_menu.back_handled_above = true
 	game.match_event.connect(_on_match_event)
 	game.forfeited.connect(_on_forfeit)
+	# a replay's Results (its controls, and its pause menu's Skip to the result) and Room
+	game.hud.replay_results.connect(replay_results)
+	game.pause_menu.results_requested.connect(func() -> void:
+		game.resume()
+		replay_results())
+	game.pause_menu.room_requested.connect(func() -> void:
+		game.resume()
+		go("online" if net != null and screens.has("online") else "home"))
 	if boot != null:
 		await boot.step("screens")
 	ui = CanvasLayer.new()
@@ -238,6 +248,11 @@ func _process(dt: float) -> void:
 		_results_at = -1.0
 		_drop_skip()
 		_show_results()
+	# a replay's Results once its seek to the end has landed
+	var r = game.replay if game.replaying() else null
+	if r != null and r.results_after and not r.seeking() and int(game.m.frame) >= r.end:
+		r.results_after = false
+		_show_replay_results()
 	var s = screens.get(current)
 	if s != null:
 		s.tick(dt)
@@ -532,11 +547,11 @@ func start_fight(same_opponent: bool) -> void:
 			rv = rivals[int(event_run.round)]
 	if "rival_intro" in game.hud:
 		game.hud.rival_intro = {"style": rv.style, "taunt": rv.taunt} if rv != null else null
-	# copies, so a later trip to the garage can't change the fight a replay shows
-	last_fight = {"a": player.duplicate(true), "b": opponent.duplicate(true), "seed": seed, "arena": arena}
 	if game.has_method("set_arena"):
 		game.set_arena(arena)
-	game.start_match(player, opponent, seed)
+	game.start_match(player, opponent, seed, null, {"arena": arena})
+	# (the tape holds copies, so a later trip to the garage can't change the fight a replay shows)
+	last_fight = {"tape": game.tape, "timeline": game.timeline}
 	go("fight")
 
 
@@ -551,11 +566,11 @@ func start_tag_fight(partner, rivals: Array, names := ["", ""]) -> void:
 	opponent = rivals[0]
 	if "rival_intro" in game.hud:
 		game.hud.rival_intro = null
-	# (the replay shelf is one on one: a tag team fight isn't kept for it)
-	last_fight = null
 	if game.has_method("set_arena"):
 		game.set_arena("grand")
-	game.start_match(player, rivals[0], float(randi()), {"a": partner, "b": rivals[1]})
+	game.start_match(player, rivals[0], float(randi()), {"a": partner, "b": rivals[1]}, {"arena": "grand"})
+	game.tape.teams = [String(names[0]), String(names[1])]
+	last_fight = {"tape": game.tape, "timeline": game.timeline}
 	go("fight")
 
 
@@ -606,7 +621,8 @@ func fight_event(e) -> void:
 
 
 func _on_match_event(type: String, _data) -> void:
-	if type == "end" and current == "fight":
+	# (a replay stops on its own last step, with its controls up: Results is on them)
+	if type == "end" and current == "fight" and not game.replaying():
 		_queue_results()
 
 
@@ -637,7 +653,7 @@ func _drop_skip() -> void:
 ## Pause menu Forfeit (app.ts pause): a loss, and walking out of an event's round ends the run.
 ## Online it's Leave room: no loss counted, just out of the room (app.ts netMenu).
 func _on_forfeit() -> void:
-	if game.online:
+	if game.online or game.replaying():
 		go("home")
 		return
 	var tag := is_tag()
@@ -701,6 +717,11 @@ func _show_results() -> void:
 	var m = game.m
 	if m == null or m != _results_for or current != "fight" or results != null:
 		return
+	if game.replaying():
+		_show_replay_results()
+		return
+	# the rest of the fight's tape, for its Replay (app.ts showResults)
+	game.finish_tape()
 	if game.online:
 		_show_net_results(m)
 		return
@@ -716,6 +737,7 @@ func _show_results() -> void:
 	# a tag team fight's team names (ours, theirs)
 	if m.tag != null:
 		info["teams"] = tag_setup.names if tag_setup != null else ["", ""]
+	info["tape"] = game.tape
 	if ResourceLoader.exists(RESULTS):
 		results = load(RESULTS).new()
 		results.app = self
@@ -725,6 +747,95 @@ func _show_results() -> void:
 		results = _plain_results(info)
 		ui.add_child(results)
 	# (the card sits right of centre: the fight's last shot moves over for it)
+	game.director.shift_x = 0.2
+
+
+# ------------------------------------------------------------------------------ replays
+
+## The results' Replay (app.ts replay, playTape): watch the last fight again, from the walkout to
+## the celebration, in its own venue. It counts for nothing (the fight was counted), and online
+## it's watched on this phone only: the room stays open, its rematch vote waiting on the results.
+func replay() -> void:
+	if last_fight == null:
+		return
+	var t: Dictionary = last_fight.tape
+	if int(t.end) <= 0:
+		return
+	tap("start")
+	close_results()
+	_results_at = -1.0
+	_drop_skip()
+	_drop_net_fight()
+	# (Rematch on its results is a plain one, the same opponent: the event's run has moved on)
+	event_run = null
+	var arena := String(t.get("arena", "grand"))
+	titan_run = arena == "titan"
+	if "rival_intro" in game.hud:
+		game.hud.rival_intro = null
+	if game.has_method("set_arena"):
+		game.set_arena(arena)
+	if game.pause_menu.is_open() and not get_tree().paused:
+		game.pause_menu.close()
+	game.pause_menu.room_button = bool(t.online) and net != null
+	game.start_replay(t, last_fight.get("timeline"))
+	# (watched again, it starts from the checkpoints this viewing leaves)
+	last_fight.timeline = game.timeline
+	go("fight")
+
+
+## Watch a tape off the replay shelf (app.ts watchSaved). Rematch on its results fights the same
+## opponent (a tag team fight's, the same rival team, the player's partner from the tape).
+func watch_tape(t: Dictionary) -> void:
+	last_fight = {"tape": t, "timeline": null}
+	opponent = (t.a if int(t.me) == 1 else t.b).duplicate(true)
+	if t.partners != null:
+		tag_setup = {"partner": t.partners.a.duplicate(true), "rivals": [t.b.duplicate(true), t.partners.b.duplicate(true)], "names": t.teams.duplicate()}
+	replay()
+
+
+## The replay's Results (its controls, or Skip to the result in its menu: app.ts replayResults).
+## Straight after the fight its end is a checkpoint, so it goes there and the card comes up over
+## the celebration; a saved replay's card comes up over the replay where it is, held still (the
+## tape has the numbers), rather than run the sim to the end on the phone first.
+func replay_results() -> void:
+	var r = game.replay if game.replaying() else null
+	if r == null or results != null or current != "fight":
+		return
+	if not r.seeking() and int(game.m.frame) >= r.end:
+		_show_replay_results()
+		return
+	var s: SimSnap = game.timeline.before(r.end)
+	var near: bool = s != null and r.end - s.frame <= ReplayTimeline.SPACING * 2
+	if game.tape.get("result") != null and not near:
+		r.paused = true
+		_show_replay_results()
+		return
+	r.results_after = true
+	game.seek(r.end)
+
+
+## A replay's results (app.ts showResults while replaying): the numbers the tape kept, nothing
+## counted, from the corner the player fought in.
+func _show_replay_results() -> void:
+	if results != null or current != "fight" or not game.replaying():
+		return
+	var t: Dictionary = game.tape
+	var m = t.result if t.get("result") != null else game.m
+	var me := int(t.get("me", 0))
+	var winner: int = int(m.winner.index) if m.winner != null else -1
+	var info := {"m": m, "me": me, "winner": winner, "won": winner == me and winner >= 0, "draw": winner < 0, "kind": m.result, "event": null, "tape": t, "replay": true}
+	if m.tag != null:
+		info["teams"] = t.get("teams", ["", ""])
+	# a replay of an online fight, watched straight after it, still answers to its room
+	if bool(t.online) and net != null:
+		info["net"] = net
+	if game.pause_menu.is_open() and not get_tree().paused:
+		game.pause_menu.close()
+	game.hud.replay_bar.stop()
+	results = load(RESULTS).new()
+	results.app = self
+	ui.add_child(results)
+	results.show_results(info)
 	game.director.shift_x = 0.2
 
 
@@ -824,13 +935,12 @@ func fight_online(s: OnlineSession, a, b, seed: float) -> void:
 	titan_run = false
 	if "rival_intro" in game.hud:
 		game.hud.rival_intro = null
-	# copies, so a later trip to the garage can't change the fight a replay shows
-	last_fight = {"a": a.duplicate(true), "b": b.duplicate(true), "seed": seed, "arena": "grand", "online": true, "me": s.me}
 	if game.has_method("set_arena"):
 		game.set_arena("grand")
 	if game.pause_menu.is_open() and not get_tree().paused:
 		game.pause_menu.close()
-	game.start_match(a, b, seed, null, {"online": true, "me": s.me})
+	game.start_match(a, b, seed, null, {"online": true, "me": s.me, "arena": "grand"})
+	last_fight = {"tape": game.tape, "timeline": game.timeline}
 	net_fight = s
 	s.watch(game, game.m)
 	game.net_frame = _net_frame
@@ -871,7 +981,7 @@ func _show_net_results(m) -> void:
 	var me: int = game.net_me
 	var out: Dictionary = s.outcome(m) if s != null else {"winner": int(m.winner.index) if m.winner != null else -1, "kind": m.result}
 	var winner: int = out.winner
-	var info := {"m": m, "me": me, "winner": winner, "won": winner == me and winner >= 0, "draw": winner < 0, "kind": out.kind, "event": null, "net": s, "drifted": s != null and s.desynced and s.role == "guest"}
+	var info := {"m": m, "me": me, "winner": winner, "won": winner == me and winner >= 0, "draw": winner < 0, "kind": out.kind, "event": null, "net": s, "drifted": s != null and s.desynced and s.role == "guest", "tape": game.tape}
 	if game.pause_menu.is_open() and not get_tree().paused:
 		game.pause_menu.close()
 	results = load(RESULTS).new()
