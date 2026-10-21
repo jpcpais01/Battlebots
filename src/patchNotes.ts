@@ -17,8 +17,9 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-21 02:00",
-    title: "Titan battles on the web",
+    title: "Titans and follow spots on the web",
     notes: [
+      "Web: two follow spots up in the rigging now track the robots through the fight, so both bots stay well lit from any camera angle (medium and high graphics).",
       "Web: Titan battles are here. Tap Titans on the home screen and your bots fight as 30 m giants in the Titan Colosseum, a sunlit stadium packed with fans in both teams' colours.",
       "Web: titans move at their own giant pace. Their footsteps raise dust and shake the camera, heavy falls leave scars in the turf, and every hit booms deep and arrives late from across the stadium.",
     ],

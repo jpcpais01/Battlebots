@@ -43,6 +43,7 @@ import { PartThumbs } from '../render/partPreview';
 import { walkOnFor } from '../audio/walkOn';
 import { ENTRY, hatchXZ } from '../sim/entrance';
 import { TagCam } from '../render/tagCam';
+import { FollowSpots } from '../render/followSpots';
 
 /** Where the 3D scene is: the fight arena (home, fights) or the workshop (garage). */
 export type Place = 'arena' | 'garage' | 'home' | 'map';
@@ -242,6 +243,12 @@ export class Game {
   /** A tag team match's own camera moments (tags, eliminations, double teams), over the director's. */
   private tagCam = new TagCam();
   /**
+   * The two follow spots in the rigging, one on each robot, so the fight reads from any angle
+   * (none on low quality: two more lights cost every lit pixel).
+   */
+  private follow: FollowSpots | null = null;
+  private spotLit = [false, false];
+  /**
    * Per side: a tag lights up its corner in the colours of the bot coming in (the rim light hanging
    * over it flares, as for its entrance), fading from 1. Its colour is the incoming bot's accent.
    */
@@ -351,6 +358,10 @@ export class Game {
     house.apply(this.arena.venue.group);
     if (import.meta.env.DEV) warnNonFinite(this.stage.scene);
     this.fx = new Fx();
+    if (quality !== 'low') {
+      this.follow = new FollowSpots();
+      this.stage.scene.add(this.follow.group);
+    }
     this.fx.bits.onClink = (p, k) => this.sfx?.tink(k, this.pan(p));
     this.stage.scene.add(this.fx.group);
     this.stage.scene.add(this.debris.group);
@@ -622,6 +633,8 @@ export class Game {
     this.arena.setVenue(v);
     v.group.visible = this.place === 'arena';
     outerGround.y = v.outer;
+    // (bright daylight venues want less of the follow spots)
+    if (this.follow) this.follow.level = v.look ? Math.min(1, Math.max(0.4, 1.25 - 0.75 * v.look.hemi.intensity)) : 1;
     this.setTitan('titan' in v && v.titan ? (v as TitanVenue) : null);
     if (this.place === 'arena') {
       this.stage.applyLook(this.look);
@@ -1675,6 +1688,14 @@ export class Game {
     // (a robot still down in its lift shaft casts nothing on the canvas, nor one carried off)
     const away = m && this.stretcher.gone ? this.stretcher.loser : -1;
     for (let i = 0; i < 2; i++) contactAO.set(i, i === away || (m && this.arena.corners.drop(m, i) < -0.3) ? null : (shown[i]?.joints ?? null), shown[i]?.size);
+    // a follow spot on each robot from the rigging, once it is up out of its lift, until it is carried off
+    // (the titans' stadium has the sun)
+    if (this.follow) {
+      if (m && this.models.length === 2 && this.place === 'arena' && !this.titanV) {
+        for (let i = 0; i < 2; i++) this.spotLit[i] = i !== away && this.arena.corners.drop(m, i) >= -0.6;
+        this.follow.track(still ? 0 : dt, [this.models[0].joints[J.Chest], this.models[1].joints[J.Chest]], this.spotLit);
+      } else this.follow.off();
+    }
     // (a tag team's partners, wherever they are)
     for (let i = 0; i < 2; i++) contactAO.set(2 + i, m && this.bench[i] ? this.bench[i].joints : null, this.bench[i]?.size);
     // (a titan's sparks and smoke drift down slowly, at the titans' scale)
