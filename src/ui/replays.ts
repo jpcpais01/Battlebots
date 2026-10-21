@@ -67,7 +67,7 @@ function sanitizeTape(raw: unknown): Tape | null {
     } else if (typeof q.x === 'number') talk.push({ f: int(q.f), x: int(q.x), fade: typeof q.fade === 'number' ? Math.max(0, q.fade) : 0 });
   }
   const out: Tape = { a: sanitizeBot(t.a), b: sanitizeBot(t.b), seed: t.seed >>> 0, cut: int(t.cut, -1), coach, end: int(t.end), marks, talk };
-  if (typeof t.arena === 'string' && ARENAS.includes(t.arena as ArenaId)) out.arena = t.arena as ArenaId;
+  if (typeof t.arena === 'string' && (t.arena === 'titan' || ARENAS.includes(t.arena as ArenaId))) out.arena = t.arena as ArenaId | 'titan';
   if (t.online === true) {
     out.online = true;
     out.me = t.me === 1 ? 1 : 0;

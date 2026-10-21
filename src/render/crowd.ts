@@ -107,6 +107,8 @@ const HAT = VARIANTS.map((v) => v.hair === 'cap' || v.hair === 'beanie');
 /** Sheet columns of the robot fans. */
 const BOT0 = VARIANTS.findIndex((v) => v.bot);
 const BOT1 = BOT0 + VARIANTS.filter((v) => v.bot).length;
+/** The figure sheet's layout, for other crowds drawn from it (the Titan Colosseum's). */
+export const CROWD_SHEET = { cols: COLS, poses: POSES, bot0: BOT0, bot1: BOT1 } as const;
 
 const SHOULDER = [0.19, 0.215, 0.245];
 const WAIST = [0.15, 0.17, 0.2];
@@ -1495,6 +1497,14 @@ export class Crowd {
     // (nobody holds a phone light up in broad daylight)
     pts.visible = daylight.day < 0.5;
     this.group.add(pts);
+  }
+
+  /**
+   * The fans' shared uniforms (the figure sheet, the mood, the wave), for another crowd shader to
+   * be driven by this one (the Titan Colosseum's draws no fans of this crowd's own).
+   */
+  get uniforms() {
+    return this.mat.uniforms;
   }
 
   setPixelScale(h: number) {

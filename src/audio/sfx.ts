@@ -7,6 +7,8 @@ import { HomeSound, type HomeSoundKind } from './homeSound';
 import { GACHA_RATE, GACHA_SOUNDS, makeGachaSound, type GachaSoundId } from './gachaSound';
 
 const MASTER = 0.7;
+/** How much deeper a titan's impacts play (Sfx.titan). */
+const TITAN_RATE = 0.62;
 /** The rate sounds made before audio may start are made at (the usual output rate; any other resamples them on play). */
 const PRE_RATE = 48000;
 const idle = (fn: () => void, timeout = 500) => ('requestIdleCallback' in window ? window.requestIdleCallback(fn, { timeout }) : setTimeout(fn, 30));
@@ -481,10 +483,22 @@ export class Sfx {
     return (this.bankJob = { jobs, make, done });
   }
 
+  /**
+   * Titan battles (render/venues/titan.ts): every impact, step and thud plays deeper (a thing
+   * fifteen times the size rings lower), and from far away it arrives late (titanDelay, set each
+   * frame from the lens's distance to the fight: sound crossing the stadium).
+   */
+  titan = false;
+  titanDelay = 0;
+
   /** Plays a random variation of an impact (never the same one twice in a row). */
   private impact(kind: ImpactKind, gain: number, rate: number, pan = 0, when = 0) {
     const list = this.bank[kind];
     if (!list?.length) return;
+    if (this.titan) {
+      rate *= TITAN_RATE;
+      when += this.titanDelay;
+    }
     let buf = list[(Math.random() * list.length) | 0];
     if (buf === this.lastPick[kind] && list.length > 1) buf = list[(list.indexOf(buf) + 1) % list.length];
     this.lastPick[kind] = buf;

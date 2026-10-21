@@ -151,6 +151,8 @@ export class App {
   private leaving = false;
   /** An event whose venue is being put up before its fight starts. */
   private venueWait: string | null = null;
+  /** The fights are titan battles (the home screen's Titans): the results' Next fight and Rematch stay titan. */
+  private titanRun = false;
   private homeCard: HTMLElement | null = null;
   private homeRecord: HTMLElement | null = null;
   private soundBtns: HTMLButtonElement[] = [];
@@ -617,6 +619,10 @@ export class App {
       this.tap('select');
       this.go('tagteam');
     }, sub);
+    // titan battles: 30 m robots in the Titan Colosseum
+    button('btn small', `${ICON.titan}Titans`, () => this.fight(false, true), sub);
+    // (its venue is built ahead, once the game is up, so the first titan fight starts straight away)
+    window.setTimeout(() => void this.game.loadVenue('titan').catch(() => {}), 4000);
     button('btn small', `${ICON.globe}Online`, () => {
       this.tap('select');
       this.go('online');
@@ -1536,7 +1542,8 @@ export class App {
     return best!;
   }
 
-  private fight(sameOpponent = false) {
+  /** The Fight button, or with `titans` the Titans button (a titan battle). */
+  private fight(sameOpponent = false, titans = false) {
     if (!sameOpponent) this.eventRun = null;
     if (this.online.active) {
       // in a room: fights start from there
@@ -1544,7 +1551,8 @@ export class App {
       this.go('online');
       return;
     }
-    if (this.leaving) return;
+    if (this.leaving || this.venueWait) return;
+    this.titanRun = titans;
     this.tap('start');
     void enterLandscape();
     if (this.current === 'home' && this.game.place === 'home') {
@@ -1561,21 +1569,35 @@ export class App {
         this.fade.classList.add('white', 'on');
         window.setTimeout(() => {
           if (!this.leaving) return this.fade.classList.remove('white', 'on');
-          this.startFight(sameOpponent);
+          this.launchFight(sameOpponent);
           window.setTimeout(() => this.fade.classList.remove('white'), 900);
         }, 280);
       });
       return;
     }
-    this.startFight(sameOpponent);
+    this.launchFight(sameOpponent);
+  }
+
+  /** startFight, once a titan battle's Colosseum is up (a fight can't change venue halfway). */
+  private launchFight(sameOpponent: boolean) {
+    if (!this.titanRun || this.eventRun) return this.startFight(sameOpponent);
+    const from = this.current;
+    this.venueWait = 'titan';
+    const go = () => {
+      if (this.venueWait !== 'titan') return;
+      this.venueWait = null;
+      if (this.current === from) this.startFight(sameOpponent);
+    };
+    this.game.loadVenue('titan').then(go, go);
   }
 
   private startFight(sameOpponent: boolean) {
     this.closeResults();
     if (!sameOpponent || !this.opponent) this.opponent = this.makeOpponent();
     const seed = (Math.random() * 2 ** 32) >>> 0;
-    // an event's rounds are fought in its own venue, everything else indoors
-    const arena = (this.eventRun && EVENT_BY_ID.get(this.eventRun.id)?.arena) || 'grand';
+    // an event's rounds are fought in its own venue, titans in the Titan Colosseum, everything else indoors
+    if (this.eventRun) this.titanRun = false;
+    const arena = (this.eventRun && EVENT_BY_ID.get(this.eventRun.id)?.arena) || (this.titanRun ? 'titan' : 'grand');
     // copies, so a later trip to the garage can't change the fight a replay shows
     this.lastFight = { a: structuredClone(this.player), b: structuredClone(this.opponent), seed, cut: -1, coach: [], end: -1, marks: [], arena };
     this.replaying = false;
@@ -1597,6 +1619,7 @@ export class App {
   private startTagFight(setup: TagSetup) {
     this.closeResults();
     this.eventRun = null;
+    this.titanRun = false;
     void enterLandscape();
     const t = structuredClone(setup);
     this.tagSetup = t;
@@ -1642,6 +1665,7 @@ export class App {
     const round = progressOf(this.record.events, e.id).run;
     const defence = defenceOf(this.record.events, e);
     this.eventRun = { id: e.id, round, defence };
+    this.titanRun = false;
     this.opponent = rival(e, round, this.player, defence);
     // the final's rival wears an Epic skin, the semi-final's a Rare
     const skin = rivalSkin(e.id, round, e.rivals.length);
@@ -1686,6 +1710,7 @@ export class App {
     this.leaveNetFight();
     this.replaying = true;
     this.resultsAfterSeek = false;
+    this.titanRun = r.arena === 'titan';
     const m = this.game.startReplay(r);
     this.hud.rivalIntro = null;
     this.hud.resetSpeed();
@@ -1721,7 +1746,7 @@ export class App {
         const how = r.kind && r.kind !== 'Draw' ? ` by ${r.kind === 'Decision' ? 'decision' : r.kind}` : '';
         const date = new Date(r.saved).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
         const old = outdated(r) ? '<em class="old">Older version</em>' : '';
-        const net = t.online ? `${ICON.globe} ` : '';
+        const net = t.online ? `${ICON.globe} ` : t.arena === 'titan' ? 'Titans · ' : '';
         el('div', 'save-name', `<b>${names}</b><span class="${r.winner < 0 ? '' : r.winner === me ? 'win' : 'loss'}">${net}${verdict}${how} · ${r.secs}s · ${date}${old}</span>`, row);
         button('btn small primary', `${ICON.play}Watch`, () => void this.watchSaved(r), row);
         const del = button('icon-btn small', ICON.close, () => {
@@ -2319,8 +2344,10 @@ export class App {
       button('btn primary', `${ICON.swords}Next fight`, () => this.tagFight(false), actions);
       button('btn', `${ICON.refresh}Rematch`, () => this.tagFight(true), actions);
     } else {
-      button('btn primary', `${ICON.swords}Next fight`, () => this.fight(), actions);
-      button('btn', `${ICON.refresh}Rematch`, () => this.fight(true), actions);
+      // (after a titan battle, titans again)
+      const titans = this.titanRun;
+      button('btn primary', `${ICON.swords}Next fight`, () => this.fight(false, titans), actions);
+      button('btn', `${ICON.refresh}Rematch`, () => this.fight(true, titans), actions);
     }
     keep();
     if (tag)
@@ -2454,6 +2481,7 @@ export class App {
     this.closeResults();
     this.leaveNetFight();
     this.eventRun = null;
+    this.titanRun = false;
     this.game.setArena('grand');
     const m = this.game.startMatch(a, b, seed, true, s.me);
     this.hud.rivalIntro = null;

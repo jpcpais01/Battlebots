@@ -17,8 +17,17 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-21 02:00",
-    title: "Tag Team on the web",
+    title: "Titan battles on the web",
     notes: [
+      "Web: Titan battles are here. Tap Titans on the home screen and your bots fight as 30 m giants in the Titan Colosseum, a sunlit stadium packed with fans in both teams' colours.",
+      "Web: titans move at their own giant pace. Their footsteps raise dust and shake the camera, heavy falls leave scars in the turf, and every hit booms deep and arrives late from across the stadium.",
+    ],
+  },
+  {
+    hour: "2026-10-21 02:00",
+    title: "Tag Team and titans on the web",
+    notes: [
+      "Web: the camera films titans from the ground looking up, and now and then cuts to a fan's phone in the stands. Next fight and Rematch stay titans, and titan fights replay and save.",
       "Web: Tag Team is here. Pick a partner from your saved bots or roll a recruit, then take on a pair of rivals two against two, one bot in the ring at a time.",
       "Web: tap TAG when your bot is in trouble and it runs to its corner to bring the partner in. A knocked-out bot is out of the match, and its partner storms the ring.",
       "Web: partners can double-team a finisher, one holding the victim while the other lands it, and the camera, commentators, referee and crowd all call the tags and eliminations.",
