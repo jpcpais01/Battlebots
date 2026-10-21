@@ -362,7 +362,7 @@ export class App {
       else if (this.current === 'garage') this.garageTick(dt);
       else if (this.current === 'map') this.map.tick();
       else if (this.current === 'vault') {
-        this.garageTick(dt);
+        this.vaultTick(dt);
         this.vault.tick(dt);
       } else this.homeTick(dt);
     };
@@ -466,7 +466,7 @@ export class App {
     if (id === 'map') this.map.show();
     else this.map.hide();
     // the garage, the map and the home scenes are their own places: switching to or from one dips through black
-    const place: Place = id === 'garage' || id === 'vault' ? 'garage' : id === 'map' ? 'map' : id === 'home' && this.sceneHome() ? 'home' : 'arena';
+    const place: Place = id === 'garage' ? 'garage' : id === 'vault' ? 'vault' : id === 'map' ? 'map' : id === 'home' && this.sceneHome() ? 'home' : 'arena';
     clearTimeout(this.placeTimer);
     const apply = () => {
       const moved = this.game.place !== place;
@@ -519,16 +519,13 @@ export class App {
       // the arena crowd is far away from the workshop
       this.game.sfx?.ambience(0.04);
     } else if (id === 'vault') {
-      // the workshop again, the bot standing to the right of the vault's panel
-      d.mode = 'garage';
-      d.garageYaw = 0.45;
-      d.shiftX = -0.24;
+      // the vault flies its own camera (render/vault/vaultStage.ts), out in space
+      d.mode = 'scene';
+      d.menuTurn = 0;
+      d.menuLive = false;
       this.spin.vel = 0;
       this.spin.idle = 0;
-      const z = this.player.size ?? 1;
-      d.garageTarget.set(OVERVIEW[0] * z, OVERVIEW[1] * z, OVERVIEW[2] * z);
-      d.garageDist = OVERVIEW[3] * z;
-      this.game.sfx?.ambience(0.04);
+      this.game.sfx?.ambience(0);
     } else {
       d.shiftX = 0;
       this.game.sfx?.ambience(1);
@@ -1459,7 +1456,8 @@ export class App {
       const now = performance.now();
       const d = (e.clientX - lastX) * 0.012;
       const dir = this.game.director;
-      if (this.current === 'garage' || this.current === 'vault') dir.garageYaw -= d;
+      if (this.current === 'garage') dir.garageYaw -= d;
+      else if (this.current === 'vault') this.vaultTurn(-d);
       else {
         dir.menuTurn -= d;
         dir.menuLive = true;
@@ -1496,6 +1494,20 @@ export class App {
     // showroom drift once nobody has touched it for a while
     const drift = s.idle > 5 ? Math.min(1, (s.idle - 5) / 3) * 0.06 : 0;
     this.game.director.garageYaw += turn + drift * dt;
+  }
+
+  /** The vault: coast after a swipe round the robot, then a slow drift once nobody has touched it for a while. */
+  private vaultTick(dt: number) {
+    const s = this.spin;
+    if (s.dragging) return;
+    const turn = this.flingStep(dt);
+    const drift = s.idle > 3 ? Math.min(1, (s.idle - 3) / 3) * 0.12 : 0;
+    this.vaultTurn(turn + drift * dt);
+  }
+
+  private vaultTurn(by: number) {
+    const v = this.game.vaultStage;
+    if (v && v.mode === 'idle' && !this.vault.busy) v.yaw += by;
   }
 
   /** Home screen: coast after a swipe, then glide back to the slow showcase orbit. */

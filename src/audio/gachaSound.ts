@@ -2,10 +2,11 @@
  * The Skin Vault's own sounds, synthesized once on first use (no clips to ship), the same as the
  * Android app's (godot/app/gacha/gacha_sound.gd): the capsule's rising charge, the seam's crack
  * and burst, a chime per rarity (a bell for a Common, a bright run up for a Rare, a full
- * shimmering chord for an Epic), a card flipping, the paint-on hiss and a coin.
+ * shimmering chord for an Epic), a card flipping, the paint-on hiss and a coin; and the gumball
+ * machine's: its crank ratcheting round, its chute's flap clunking open, a capsule popping.
  */
-export type GachaSoundId = 'riser' | 'crack' | 'burst' | 'chime0' | 'chime1' | 'chime2' | 'flip' | 'paint' | 'coin';
-export const GACHA_SOUNDS: GachaSoundId[] = ['riser', 'crack', 'burst', 'chime0', 'chime1', 'chime2', 'flip', 'paint', 'coin'];
+export type GachaSoundId = 'crank' | 'chute' | 'pop' | 'riser' | 'crack' | 'burst' | 'chime0' | 'chime1' | 'chime2' | 'flip' | 'paint' | 'coin';
+export const GACHA_SOUNDS: GachaSoundId[] = ['crank', 'chute', 'pop', 'riser', 'crack', 'burst', 'chime0', 'chime1', 'chime2', 'flip', 'paint', 'coin'];
 export const GACHA_RATE = 22050;
 
 const TAU = Math.PI * 2;
@@ -136,9 +137,81 @@ function paint() {
   return d;
 }
 
+/** The machine's crank turning: a ratchet's clicks closing up as it speeds up, over a low mechanical rumble. */
+function crank(secs: number) {
+  const d = buf(secs);
+  const rnd = lcg(5150);
+  let lp = 0;
+  let tc = 0;
+  let gap = 0.11;
+  while (tc < secs - 0.05) {
+    const start = Math.floor(tc * GACHA_RATE);
+    const f = 1500 + (Math.floor(tc * 1000) % 3) * 180;
+    for (let i = start; i < Math.min(start + Math.floor(0.05 * GACHA_RATE), d.length); i++) {
+      const u = (i - start) / GACHA_RATE;
+      const n = noiseOf(rnd());
+      d[i] += (n * Math.exp(-u * 260) * 0.7 + Math.sin(TAU * f * u) * Math.exp(-u * 90) * 0.35) * 0.75;
+    }
+    tc += gap;
+    gap = Math.max(0.055, gap * 0.93);
+  }
+  for (let i = 0; i < d.length; i++) {
+    const t = i / GACHA_RATE;
+    const n = noiseOf(rnd());
+    lp += (n - lp) * 0.02;
+    const env = Math.min(1, t * 6) * (1 - smooth(secs - 0.25, secs, t));
+    d[i] = d[i] * (1 - smooth(secs - 0.2, secs, t)) + (lp * 1.6 + Math.sin(TAU * 55 * t) * 0.08) * env * 0.5;
+  }
+  return d;
+}
+
+/** The chute's flap swinging open: a heavy clunk, then the whoosh of the capsule rolling out. */
+function chute() {
+  const d = buf(0.9);
+  const rnd = lcg(8080);
+  let bp = 0, bp2 = 0, ph = 0;
+  for (let i = 0; i < d.length; i++) {
+    const t = i / GACHA_RATE;
+    const n = noiseOf(rnd());
+    ph += (TAU * (90 + 60 * Math.exp(-t * 30))) / GACHA_RATE;
+    const clunk = (Math.sin(ph) * 0.8 + n * 0.3 * Math.exp(-t * 80)) * Math.exp(-t * 16);
+    const k = 0.04 + 0.2 * smooth(0.1, 0.6, t);
+    bp += (n - bp) * k;
+    bp2 += (bp - bp2) * k;
+    const whoosh = (bp - bp2) * Math.sin(Math.PI * Math.min(1, Math.max(0, (t - 0.08) / 0.8))) * 2.2;
+    d[i] = clunk * 0.8 + whoosh * 0.45;
+  }
+  return d;
+}
+
+/** A capsule popping open: a cork's pop, a bright squeak up and a fizz of sparkle. */
+function pop() {
+  const d = buf(0.6);
+  const rnd = lcg(6060);
+  let hp = 0, last = 0, ph = 0;
+  for (let i = 0; i < d.length; i++) {
+    const t = i / GACHA_RATE;
+    const n = noiseOf(rnd());
+    hp = 0.85 * (hp + n - last);
+    last = n;
+    ph += (TAU * (320 + 900 * smooth(0, 0.07, t))) / GACHA_RATE;
+    const p = Math.sin(ph) * Math.exp(-t * 28);
+    const click = n * Math.exp(-t * 400);
+    const fizz = hp * Math.exp(-t * 7) * (0.5 + 0.5 * Math.sin(TAU * 47 * t)) * smooth(0, 0.03, t);
+    d[i] = p * 0.7 + click * 0.6 + fizz * 0.25;
+  }
+  return d;
+}
+
 /** One sound's samples (mono, GACHA_RATE). */
 export function makeGachaSound(id: GachaSoundId): Float32Array<ArrayBuffer> {
   switch (id) {
+    case 'crank':
+      return crank(1.5);
+    case 'chute':
+      return chute();
+    case 'pop':
+      return pop();
     case 'riser':
       return riser(1.9);
     case 'crack':

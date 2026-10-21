@@ -3,7 +3,6 @@ import type { BotSpec } from '../game/loadout';
 import type { Record_ } from '../game/saves';
 import { credits } from '../game/career';
 import {
-  bestOf,
   byShowOrder,
   clock,
   DUPE_SHARDS,
@@ -33,7 +32,8 @@ import type { GachaSoundId } from '../audio/gachaSound';
 import { button, el, esc } from './dom';
 import { ICON } from './icons';
 import { coins } from './careerUi';
-import { CapsuleView, Gl2D, rgb, SkinOrb } from './vaultGl';
+import { CapsuleView, rgb, SkinOrb } from './vaultGl';
+import type { VaultBeat, VaultStage } from '../render/vault/vaultStage';
 import './vault.css';
 
 /** What the vault needs from the App. */
@@ -135,8 +135,9 @@ const FILTERS: [number, string][] = [
 ];
 
 /**
- * The Skin Vault: where skins are won. The player's bot stands on the workshop lift on the right
- * (drag to turn it); the panel on the left has two tabs.
+ * The Skin Vault: where skins are won. The vault is its own place out in space
+ * (render/vault/vaultStage.ts): the player's bot on a glowing turntable on the right (drag to turn
+ * round it) in front of a giant gumball machine full of capsules; the panel on the left has two tabs.
  *   Vault: today's featured Epic turning in its halo, the rates and how close the Epic pity is,
  *   the capsule waiting over its pool of light, the free pull (or when it's back), and the pulls
  *   (one, or ten with a Rare or better in them), paid in career credits. The first visit has a
@@ -144,7 +145,7 @@ const FILTERS: [number, string][] = [
  *   Collection: every skin as a card (the ones not owned yet veiled), by rarity. Tapping one
  *   paints it onto the bot with a sweep of light: one owned goes on for good, one not owned is
  *   only tried on, with the shards it costs.
- * Credits and shards sit top right. Pulls play out in PullShow.
+ * Credits and shards sit top right. Pulls play out on the machine (PullShow).
  */
 export class VaultScreen {
   readonly root: HTMLElement;
@@ -408,6 +409,12 @@ export class VaultScreen {
     void paid;
     document.body.appendChild(this.show.root);
     this.refresh();
+    this.panelShown(false);
+  }
+
+  /** The panel and the wallet out of the way while a pull plays on the machine, or back. */
+  private panelShown(on: boolean) {
+    this.root.classList.toggle('pulling', !on);
   }
 
   private closeShow() {
@@ -416,6 +423,12 @@ export class VaultScreen {
     this.show = null;
     this.host.game.sfx?.gachaStop();
     s.close();
+    // the machine at rest again, the player's own bot back on the turntable (a 10-pull's card may
+    // have left another skin on it), and the panel back
+    const game = this.host.game;
+    game.vaultStage?.finish();
+    if (game.shown !== this.host.player()) this.host.show(null);
+    this.panelShown(true);
   }
 
   /** A pull is playing over everything (the App leaves keys and taps to it). */
@@ -595,191 +608,132 @@ export class VaultScreen {
 
 // ------------------------------------------------------------------ a pull, played out
 
-/** When the capsule lands, and how long it charges for each best rarity. */
-const LAND = 0.72;
-const CHARGE = [1.2, 1.85, 2.6];
-
-interface Particle {
+interface Streak {
   x: number;
   y: number;
   vx: number;
   vy: number;
-  age: number;
+  len: number;
+  w: number;
   life: number;
-  size: number;
-  rot: number;
-  spin: number;
-  damp: number;
-  col: string;
 }
 
-/** One-shot bursts of glowing sparks (and, for a Rare or an Epic, slower tumbling confetti), on a 2D canvas. */
-class Bursts {
-  private sparks: Particle[] = [];
-  private confetti: Particle[] = [];
-  private sparkCol = [1, 1, 1];
-  private dot: HTMLCanvasElement;
+/**
+ * Bursts of sparks off the cards as they turn over on a Rare or better: streaks in the rarity's
+ * colour flying out from the card's edge and a ring growing off it, drawn additively on one 2D
+ * canvas, each gone in under a second.
+ */
+class CardSparks {
+  private bursts: { rect: DOMRect; col: string; ring: string; t: number; sparks: Streak[] }[] = [];
 
-  constructor(private ctx: CanvasRenderingContext2D, private k: number) {
-    // a soft round dot, drawn once
-    this.dot = document.createElement('canvas');
-    this.dot.width = this.dot.height = 48;
-    const d = this.dot.getContext('2d')!;
-    const gr = d.createRadialGradient(24, 24, 0, 24, 24, 24);
-    gr.addColorStop(0, 'rgba(255,255,255,1)');
-    gr.addColorStop(0.25, 'rgba(255,255,255,0.9)');
-    gr.addColorStop(1, 'rgba(255,255,255,0)');
-    d.fillStyle = gr;
-    d.fillRect(0, 0, 48, 48);
-  }
+  constructor(private ctx: CanvasRenderingContext2D) {}
 
-  spark(x: number, y: number, n: number, col: number[]) {
-    const k = this.k;
-    this.sparkCol = col;
+  add(rect: DOMRect, tier: number) {
+    const c = rgb(SKIN_RARITY_COL[tier]);
+    const css = (k: number) => `rgb(${c.map((v) => Math.round((v + (1 - v) * k) * 255)).join(' ')})`;
+    const n = tier <= RARE ? 18 : 34;
+    const mx = rect.left + rect.width / 2, my = rect.top + rect.height / 2;
+    const sparks: Streak[] = [];
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
-      const v = (260 + Math.random() * 840) * k;
-      this.sparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, age: 0, life: 1.5 * (0.6 + Math.random() * 0.4), size: (0.25 + Math.random() * 0.65) * 48 * k, rot: 0, spin: 0, damp: (40 + Math.random() * 120) * k, col: '' });
+      const dx = Math.cos(a), dy = Math.sin(a);
+      // from the card's edge, roughly: its border along that direction
+      const k = Math.min((rect.width * 0.5) / Math.max(Math.abs(dx), 1e-3), (rect.height * 0.5) / Math.max(Math.abs(dy), 1e-3));
+      const sp = (0.6 + Math.random() * 0.4) * rect.width * (tier > RARE ? 2.2 : 1.6);
+      sparks.push({ x: mx + dx * k * 0.92, y: my + dy * k * 0.92, vx: dx * sp, vy: dy * sp, len: (0.05 + Math.random() * 0.06) * rect.width, w: 1.2 + Math.random() * 1.2, life: (0.55 + Math.random() * 0.45) * 0.85 });
     }
-  }
-
-  confettiAt(x: number, y: number, n: number, col: string) {
-    const k = this.k;
-    const cols = [col, '#ff73bf', '#59d9ff', '#ffffff'];
-    for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const v = (200 + Math.random() * 500) * k;
-      this.confetti.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, age: 0, life: 2.6 * (0.7 + Math.random() * 0.3), size: (0.5 + Math.random() * 0.5) * k, rot: Math.random() * 6, spin: ((Math.random() * 2 - 1) * 540 * Math.PI) / 180, damp: (40 + Math.random() * 120) * k, col: cols[i % 4] });
-    }
+    this.bursts.push({ rect, col: css(0.55), ring: css(0.3), t: 0, sparks });
   }
 
   get alive() {
-    return this.sparks.length + this.confetti.length > 0;
+    return this.bursts.length > 0;
   }
 
   step(dt: number, w: number, h: number) {
     const c = this.ctx;
     c.clearRect(0, 0, w, h);
-    const move = (p: Particle, g: number) => {
-      p.age += dt;
-      const sp = Math.hypot(p.vx, p.vy);
-      if (sp > 0) {
-        const s = Math.max(0, sp - p.damp * dt) / sp;
-        p.vx *= s;
-        p.vy *= s;
-      }
-      p.vy += g * dt;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.rot += p.spin * dt;
-    };
-    // a size curve: full, easing to 70%, then gone
-    const curve = (t: number) => (t < 0.7 ? 1 - (t / 0.7) * 0.3 : 0.7 * (1 - (t - 0.7) / 0.3));
+    if (!this.bursts.length) return;
     c.globalCompositeOperation = 'lighter';
-    const [r, g, b] = this.sparkCol;
-    this.sparks = this.sparks.filter((p) => {
-      move(p, 620 * this.k);
-      const t = p.age / p.life;
-      if (t >= 1) return false;
-      // white, then the rarity's colour, fading out
-      const k = Math.min(1, t / 0.3);
-      const cr = Math.round((1 + (r - 1) * k) * 255), cg = Math.round((1 + (g - 1) * k) * 255), cb = Math.round((1 + (b - 1) * k) * 255);
-      c.globalAlpha = t < 0.3 ? 1 : 1 - (t - 0.3) / 0.7;
-      const s = p.size * curve(t);
-      c.filter = 'none';
-      c.drawImage(this.tinted(cr, cg, cb), p.x - s / 2, p.y - s / 2, s, s);
-      return true;
-    });
-    c.globalCompositeOperation = 'source-over';
-    this.confetti = this.confetti.filter((p) => {
-      move(p, 380 * this.k);
-      const t = p.age / p.life;
-      if (t >= 1) return false;
-      const s = curve(t);
-      c.globalAlpha = 1;
-      c.save();
-      c.translate(p.x, p.y);
-      c.rotate(p.rot);
-      // a flake turning over: narrower as it tumbles
-      c.scale(Math.cos(p.rot * 1.7) * s * p.size, s * p.size);
-      c.fillStyle = p.col;
-      c.fillRect(-7, -11, 14, 22);
-      c.restore();
+    c.lineCap = 'round';
+    this.bursts = this.bursts.filter((b) => {
+      b.t += dt;
+      const k = b.t / 0.85;
+      if (k >= 1) return false;
+      // the ring off the card's edge
+      const g = k * b.rect.width * 0.35;
+      c.globalAlpha = (1 - k) * (1 - k) * 0.7;
+      c.strokeStyle = b.ring;
+      c.lineWidth = 2.5 * (1 - k) + 0.5;
+      c.strokeRect(b.rect.left - g, b.rect.top - g, b.rect.width + g * 2, b.rect.height + g * 2);
+      c.strokeStyle = b.col;
+      for (const s of b.sparks) {
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+        const d = 1 - Math.min(1, dt * 3.2);
+        s.vx *= d;
+        s.vy *= d;
+        const f = b.t / s.life;
+        if (f >= 1) continue;
+        const sp = Math.hypot(s.vx, s.vy) || 1;
+        const tl = s.len * (1 - f * 0.5);
+        c.globalAlpha = (1 - f) * (1 - f);
+        c.lineWidth = s.w;
+        c.beginPath();
+        c.moveTo(s.x - (s.vx / sp) * tl, s.y - (s.vy / sp) * tl);
+        c.lineTo(s.x, s.y);
+        c.stroke();
+      }
       return true;
     });
     c.globalAlpha = 1;
-  }
-
-  private tints = new Map<string, HTMLCanvasElement>();
-  /** The dot in a colour (cached by a coarse key, so a burst makes a handful). */
-  private tinted(r: number, g: number, b: number) {
-    const key = `${r >> 4},${g >> 4},${b >> 4}`;
-    let t = this.tints.get(key);
-    if (!t) {
-      t = document.createElement('canvas');
-      t.width = t.height = 48;
-      const x = t.getContext('2d')!;
-      x.drawImage(this.dot, 0, 0);
-      x.globalCompositeOperation = 'source-in';
-      x.fillStyle = `rgb(${r},${g},${b})`;
-      x.fillRect(0, 0, 48, 48);
-      this.tints.set(key, t);
-    }
-    return t;
+    c.globalCompositeOperation = 'source-over';
   }
 }
 
 /**
- * A pull, played out (the Skin Vault's big moment). The screen falls dark and a paint capsule
- * drops into a pool of light. It charges, its seam leaking light: a Common's cool blue; a Rare
- * cracks it over to violet; an Epic holds, shakes and blows through to gold. It bursts in a flash,
- * a ring of light and a shower of sparks, and what was inside comes out:
- *   one pull: the skin's swatch rises, its rarity, its name, NEW or the shards a copy gave;
- *   ten: ten cards fan out face down, each edge already glowing its colour, and turn over one
- *   by one (an Epic holds its breath first). A card tapped afterwards opens on its own.
- * A tap before the burst skips to it; a tap while the cards turn turns the rest. `done` says
- * what the player picked: 'done', 'again' (the same pull again) or 'wear' (with the id).
+ * A pull, played out (the Skin Vault's big moment), over the vault's own place out in space: the
+ * giant gumball machine does the work in 3D (render/vault/vaultStage.ts) and this puts the words,
+ * the flashes and the buttons over it. Black bars slide in like a film's while the crank turns.
+ *   one pull: a capsule drops out of the chute, rolls out, rises and charges (a Rare teases violet
+ *   through its seam, an Epic holds, shakes and blows through to gold) and bursts; the camera cuts
+ *   to the robot as a beam paints the skin onto it, and its rarity, name and NEW (or the shards a
+ *   copy gave) come in beside it.
+ *   ten: ten capsules shoot out of the chute into an arc and pop one by one into lights of their
+ *   rarity's colour, a pip lighting along the bottom for each (an Epic trembles first); then ten
+ *   cards deal out and turn over, the best last. A card tapped shows that skin on the robot.
+ * A tap skips ahead (to the burst, to the lights, the cards all turned). `done` says what the
+ * player picked: 'done', 'again' (the same pull again) or 'wear' (with the id).
  */
 class PullShow {
   readonly root: HTMLElement;
-  private gl: Gl2D | null = null;
-  private glCanvas: HTMLCanvasElement;
-  private fx: CanvasRenderingContext2D;
-  private bursts: Bursts;
-  private stage: HTMLElement;
+  private stage: VaultStage | null;
+  private phase: 'in' | 'reveal' | 'cards' | 'dealt' = 'in';
+  private shade: HTMLElement;
+  private veil: HTMLElement;
+  private cardBox: HTMLElement;
   private ui: HTMLElement;
-  private best: PullResult;
-  private tier: number;
-  private t = 0;
-  private phase: 'in' | 'charge' | 'burst' | 'dealt' = 'in';
-  private raf = 0;
-  private lastT = 0;
-  private vw = 0;
-  private vh = 0;
-  private scale = 1;
-  private cap = { x: 0, y: 0, w: 0, h: 0, sx: 1, sy: 1, rot: 0, visible: true };
-  private halves: { x: number; y: number; dx: number; dy: number; rot: number; rot1: number; a: number; half: number; t: number }[] = [];
-  private seam: [number, number, number];
-  private shownTier = 0;
-  private charge = 0;
-  private crack = 0;
-  private power = 0;
-  private rays = 0;
-  private bgAlpha = 0;
-  private bgAt: [number, number] = [0.5, 0.47];
-  private tint: [number, number, number];
-  private shake = 0;
-  private flash = 0;
-  private ring = -1;
-  private cracked = [false, false];
+  private bars: HTMLElement[] = [];
+  private flashEl: HTMLElement;
+  private flashA = 0;
+  private hint: HTMLElement;
+  private pipRow: HTMLElement | null = null;
+  private pips: HTMLElement[] = [];
+  private fxCanvas: HTMLCanvasElement;
+  private sparks: CardSparks;
   private cards: SkinCard[] = [];
+  /** Where each card sits once dealt, and seconds since they all turned (they float a little then). */
+  private homes: { x: number; y: number; w: number; h: number }[] = [];
+  private floatT = -1;
+  private flipTimers: number[] = [];
   private timers: number[] = [];
   private detail: HTMLElement | null = null;
+  private raf = 0;
+  private lastT = 0;
   private onKey = (e: KeyboardEvent) => {
     if (e.key !== 'Escape') return;
     e.preventDefault();
     if (this.detail) this.closeDetail();
-    else if (this.phase === 'dealt' || (this.phase === 'burst' && this.results.length === 1)) this.done('done');
+    else if (this.phase === 'dealt' || this.phase === 'reveal') this.done('done');
     else this.skip();
   };
 
@@ -790,41 +744,40 @@ class PullShow {
     private againOk: boolean,
     private done: (action: 'done' | 'again' | 'wear', id?: string) => void,
   ) {
-    this.best = bestOf(results);
-    this.tier = this.best.skin.r;
-    this.seam = [...RCOL[0]];
-    this.tint = [...RCOL[0]];
     const r = (this.root = el('div', 'pull-show'));
-    this.stage = el('div', 'ps-stage', '', r);
-    this.glCanvas = el('canvas', 'ps-gl', '', this.stage) as HTMLCanvasElement;
-    const fxc = el('canvas', 'ps-fx', '', this.stage) as HTMLCanvasElement;
+    // a shade down the left for the words (kept off until there are words), the veil the ten deal out over
+    this.shade = el('div', 'ps-shade', '', r);
+    this.veil = el('div', 'ps-veil', '', r);
+    this.cardBox = el('div', 'ps-cards', '', r);
     this.ui = el('div', 'ps-ui', '', r);
-    el('div', 'ps-hint', 'Tap to skip', this.ui);
-    try {
-      this.gl = new Gl2D(this.glCanvas);
-      this.gl.warm(['bg', 'capsule', 'orb']);
-    } catch {
-      this.gl = null;
-    }
-    this.vw = innerWidth;
-    this.vh = innerHeight;
+    this.fxCanvas = el('canvas', 'ps-fx', '', r) as HTMLCanvasElement;
     const dpr = Math.min(1.5, devicePixelRatio || 1);
-    this.scale = dpr;
-    this.glCanvas.width = fxc.width = Math.round(this.vw * dpr);
-    this.glCanvas.height = fxc.height = Math.round(this.vh * dpr);
-    this.fx = fxc.getContext('2d')!;
-    this.fx.scale(dpr, dpr);
-    this.bursts = new Bursts(this.fx, this.vh / 720);
-    this.cap.h = this.vh * 0.62;
-    this.cap.w = this.cap.h * 0.75;
-    this.cap.x = this.vw * 0.5;
-    this.cap.y = -this.cap.h * 0.5;
+    this.fxCanvas.width = Math.round(innerWidth * dpr);
+    this.fxCanvas.height = Math.round(innerHeight * dpr);
+    const ctx = this.fxCanvas.getContext('2d')!;
+    ctx.scale(dpr, dpr);
+    this.sparks = new CardSparks(ctx);
+    // the film's black bars, and the burst's flash over everything
+    for (let i = 0; i < 2; i++) this.bars.push(el('div', `ps-bar ${i === 0 ? 'top' : 'bottom'}`, '', r));
+    this.flashEl = el('div', 'ps-flash', '', r);
+    this.hint = el('div', 'ps-hint', 'Tap to skip', r);
+    if (results.length > 1) this.buildPips();
+    // (one frame on, so the bars slide in rather than appear)
+    requestAnimationFrame(() => this.barsTo(true));
     r.addEventListener('pointerdown', (e) => {
       if ((e.target as HTMLElement).closest('button')) return;
       this.skip();
     });
     window.addEventListener('keydown', this.onKey);
     host.tap('start');
+    this.stage = host.game.vaultStage;
+    if (this.stage) {
+      this.stage.onBeat = (what, data) => this.onBeat(what, data);
+      this.stage.play(results, host.player());
+    } else {
+      // (no vault to play it on: straight to what came out)
+      this.later(200, () => (results.length === 1 ? this.onBeat('reveal', results[0]) : this.onBeat('cards')));
+    }
     this.lastT = performance.now();
     this.raf = requestAnimationFrame((t) => this.frame(t));
   }
@@ -833,183 +786,106 @@ class PullShow {
     this.host.game.sfx?.gacha(id, gain, rate);
   }
 
-  private later(ms: number, fn: () => void) {
-    this.timers.push(window.setTimeout(fn, ms));
+  private later(ms: number, fn: () => void, list = this.timers) {
+    list.push(window.setTimeout(fn, ms));
   }
 
   close() {
     cancelAnimationFrame(this.raf);
     this.raf = 0;
-    for (const t of this.timers) clearTimeout(t);
+    for (const t of [...this.timers, ...this.flipTimers]) clearTimeout(t);
     window.removeEventListener('keydown', this.onKey);
+    if (this.stage) this.stage.onBeat = null;
     this.root.style.pointerEvents = 'none';
     const a = this.root.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 250, fill: 'forwards' });
-    a.onfinish = () => {
-      this.root.remove();
-      (this.gl?.gl.getExtension('WEBGL_lose_context') as WEBGL_lose_context | null)?.loseContext();
-    };
+    a.onfinish = () => this.root.remove();
   }
 
-  // ------------------------------------------------------------ the timeline
+  private barsTo(on: boolean) {
+    for (const b of this.bars) b.classList.toggle('on', on);
+    this.hint.classList.toggle('up', on && !!this.pipRow);
+  }
+
+  /** Ten pips along the bottom bar, one lighting for each capsule as it pops. */
+  private buildPips() {
+    this.pipRow = el('div', 'ps-pips', '', this.root);
+    for (let i = 0; i < this.results.length; i++) this.pips.push(el('i', '', '', this.pipRow));
+  }
+
+  private pip(i: number, tier: number, quiet = false) {
+    const p = this.pips[i];
+    if (!p || p.classList.contains('lit')) return;
+    p.classList.add('lit');
+    p.style.setProperty('--rc', SKIN_RARITY_COL[tier]);
+    if (!quiet) p.animate([{ transform: `scale(${1.9 + 0.4 * tier})` }, { transform: 'scale(1)' }], { duration: 350, easing: ease.back });
+  }
+
+  private flashOf(tier: number, a: number) {
+    const c = rgb(SKIN_RARITY_COL[tier]).map((v) => Math.round((v + (1 - v) * 0.5) * 255));
+    this.flashEl.style.background = `rgb(${c.join(' ')})`;
+    this.flashA = a;
+  }
+
+  // ------------------------------------------------------------ the stage's beats
 
   private frame(now: number) {
     this.raf = requestAnimationFrame((t) => this.frame(t));
     const dt = Math.min(0.05, (now - this.lastT) / 1000);
     this.lastT = now;
-    this.t += dt;
-    const chargeLen = CHARGE[this.tier];
-    const burstAt = LAND + chargeLen;
-    if (this.phase === 'in' || this.phase === 'charge') {
-      this.bgAlpha = Math.min(1, this.t / 0.3);
-      if (this.t < LAND) {
-        // the drop: falling faster and faster into the light
-        const k = Math.min(1, Math.max(0, (this.t - 0.12) / (LAND - 0.12)));
-        this.cap.y = -this.cap.h * 0.5 + (this.vh * 0.47 + this.cap.h * 0.5) * k * k;
-        this.cap.sx = k > 0 ? 0.94 : 1;
-        this.cap.sy = k > 0 ? 1.08 : 1;
-      } else {
-        if (this.phase === 'in') {
-          this.phase = 'charge';
-          this.shake = 14;
-          this.host.game.sfx?.thud(0.9);
-          this.sound('riser', 0.9, 1.9 / chargeLen);
-        }
-        this.chargeStep((this.t - LAND) / chargeLen, dt);
+    if (this.flashA > 0) this.flashA = Math.max(0, this.flashA - dt * 2.4);
+    this.flashEl.style.opacity = (this.flashA * this.flashA).toFixed(3);
+    this.flashEl.style.display = this.flashA > 0 ? '' : 'none';
+    if (this.floatT >= 0) {
+      this.floatT += dt;
+      const k = smooth(0.6, 1.6, this.floatT);
+      this.cards.forEach((c, i) => (c.el.style.translate = `0 ${(Math.sin(this.floatT * 1.7 + i * 0.9) * 2.5 * k).toFixed(2)}px`));
+    }
+    if (this.sparks.alive || this.fxDirty) {
+      this.fxDirty = this.sparks.alive;
+      this.sparks.step(dt, innerWidth, innerHeight);
+    }
+  }
+  private fxDirty = false;
+
+  private onBeat(what: VaultBeat, data?: unknown) {
+    switch (what) {
+      case 'burst':
+        this.flashOf(data as number, 0.75 + 0.1 * (data as number));
+        break;
+      case 'reveal':
+        this.phase = 'reveal';
+        this.hint.style.display = 'none';
+        this.reveal(data as PullResult, false);
+        break;
+      case 'pop': {
+        const [i, tier] = data as [number, number];
+        this.pip(i, tier);
+        if (tier === EPIC) this.flashOf(EPIC, 0.6);
+        break;
       }
-      if (this.t >= burstAt) this.burst();
+      case 'cards':
+        this.phase = 'cards';
+        this.results.forEach((r, i) => this.pip(i, r.skin.r, true));
+        this.deal();
+        break;
     }
-    // the burst's afterglow, the ring rushing out, the halves flying apart
-    if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * 2.6);
-    if (this.ring >= 0) {
-      this.ring += dt * 1.5;
-      if (this.ring > 2.5) this.ring = -1;
-    }
-    for (const h of this.halves) h.t += dt;
-    // the shake settles
-    this.shake = Math.max(0, this.shake - dt * 30);
-    const s = (this.shake * this.vh) / 720;
-    this.stage.style.transform = s > 0.05 ? `translate(${((Math.random() * 2 - 1) * s).toFixed(1)}px, ${((Math.random() * 2 - 1) * s).toFixed(1)}px)` : '';
-    this.draw();
-    this.bursts.step(dt, this.vw, this.vh);
-  }
-
-  private chargeStep(k: number, dt: number) {
-    k = Math.min(1, Math.max(0, k));
-    // the tease: violet breaks through for a Rare or better, then gold for an Epic
-    if (this.tier >= 1 && k > 0.42 && !this.cracked[0]) {
-      this.cracked[0] = true;
-      this.shake = 10;
-      this.sound('crack', 0.8, 1);
-      this.shownTier = 1;
-    }
-    if (this.tier >= 2 && k > 0.72 && !this.cracked[1]) {
-      this.cracked[1] = true;
-      this.shake = 18;
-      this.flash = 0.35;
-      this.sound('crack', 1, 1.35);
-      this.shownTier = 2;
-    }
-    this.seam = mixRgb(this.seam, RCOL[this.shownTier], Math.min(1, dt * 10));
-    this.tint = this.seam;
-    // it comes to life: a pulse quickening, the light growing, a shudder building
-    const pulse = 0.5 + 0.5 * Math.sin(this.t * (8 + k * 30));
-    const power = 0.15 + k * 0.7 + pulse * 0.15 * k;
-    this.charge = power;
-    this.crack = smooth(0.55, 1, k) * (0.4 + 0.3 * this.shownTier);
-    this.power = power * (0.6 + 0.2 * this.shownTier);
-    this.rays = k * (0.3 + 0.35 * this.shownTier);
-    this.shake = Math.max(this.shake, k * k * (3 + 4 * this.shownTier));
-    this.cap.rot = Math.sin(this.t * 37) * 0.02 * k * (1 + this.shownTier);
-    // landed: a squash that springs back
-    const since = this.t - LAND;
-    const sq = Math.exp(-since * 9) * Math.cos(since * 26) * 0.12;
-    const grow = 1 + k * 0.04 + pulse * 0.015 * k;
-    this.cap.sx = (1 + sq) * grow;
-    this.cap.sy = (1 - sq) * grow;
-    this.cap.y = this.vh * 0.47;
-  }
-
-  private draw() {
-    const g = this.gl;
-    if (!g) return;
-    const gl = g.gl;
-    const W = this.glCanvas.width, H = this.glCanvas.height;
-    gl.viewport(0, 0, W, H);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    const k = this.scale;
-    g.draw('bg', W, H, [W / 2, H / 2, W, H], {
-      uAt: this.bgAt,
-      uTint: this.tint,
-      uPower: this.power,
-      uRays: this.rays,
-      uRing: this.ring,
-      uFlash: this.flash * this.flash,
-      uAlpha: this.bgAlpha,
-      uAspect: W / H,
-    });
-    const c = this.cap;
-    if (c.visible) {
-      g.draw('capsule', W, H, [c.x * k, c.y * k, c.w * k, c.h * k], { uSeam: this.seam, uCharge: this.charge, uCrack: this.crack, uHalf: 0, uAspect: 0.75, uAlpha: 1 }, c.rot, c.sx, c.sy);
-    }
-    for (const h of this.halves) {
-      // flying apart, tumbling, and fading
-      const m = Math.min(1, h.t / 0.8);
-      const e = 1 - (1 - m) * (1 - m);
-      const a = 1 - Math.min(1, Math.max(0, (h.t - 0.15) / 0.6));
-      if (a <= 0) continue;
-      g.draw('capsule', W, H, [(h.x + h.dx * e) * k, (h.y + h.dy * e) * k, c.w * k, c.h * k], { uSeam: this.seam, uCharge: 0, uCrack: 0, uHalf: h.half, uAspect: 0.75, uAlpha: a }, h.rot + (h.rot1 - h.rot) * m);
-    }
-  }
-
-  private burst() {
-    if (this.phase === 'burst' || this.phase === 'dealt') return;
-    this.phase = 'burst';
-    this.shownTier = this.tier;
-    this.seam = [...RCOL[this.tier]];
-    this.tint = this.seam;
-    this.flash = 1;
-    this.ring = 0;
-    this.shake = 22 + 8 * this.tier;
-    this.host.game.sfx?.gachaStop();
-    this.sound('burst', 0.9);
-    this.sound(`chime${this.tier}` as GachaSoundId, 0.8);
-    this.power = 0.5 + 0.2 * this.tier;
-    this.rays = 0.5 + 0.3 * this.tier;
-    this.charge = 0;
-    this.crack = 0;
-    this.ui.querySelector('.ps-hint')?.remove();
-    // the capsule splits: the halves fly apart, tumbling, and fade
-    const c = this.cap;
-    c.visible = false;
-    for (const half of [1, 2]) {
-      const dir = half === 1 ? [-0.6, -1] : [0.7, 1];
-      this.halves.push({ x: c.x, y: c.y, dx: dir[0] * this.vh * 0.7, dy: dir[1] * this.vh * 0.7, rot: 0, rot1: half === 1 ? -0.9 : 1.1, a: 1, half, t: 0 });
-    }
-    const col = SKIN_RARITY_COL[this.tier];
-    this.bursts.spark(c.x, c.y, 110 + 70 * this.tier, RCOL[this.tier]);
-    if (this.tier >= 1) this.bursts.confettiAt(c.x, c.y, this.tier === 1 ? 50 : 110, col);
-    if (this.results.length === 1) this.later(120, () => this.reveal(this.results[0], false));
-    else this.later(100, () => this.deal());
   }
 
   // ------------------------------------------------------------ one skin
 
   /**
-   * The skin comes out: its swatch rising in its halo, its rarity, its name, what it gave. On its
+   * The skin on the robot: its rarity, its name, what it gave and the buttons, in beside it. On its
    * own (`detail` false: the single pull's result) or opened from a 10-pull card.
    */
   private reveal(r: PullResult, detail: boolean) {
     const s = r.skin;
-    const box = el('div', `ps-reveal${detail ? ' detail' : ''}`, '', this.ui);
+    const box = el('div', 'ps-reveal', '', this.ui);
     box.style.setProperty('--rc', SKIN_RARITY_COL[s.r]);
     if (detail) this.detail = box;
-    this.tint = [...RCOL[s.r]];
+    this.shade.classList.add('on');
+    this.barsTo(false);
+    const tag = el('div', `pr-tag${r.new ? ' new' : ''}`, r.new ? 'NEW SKIN' : `DUPLICATE &nbsp;+${r.shards} SHARDS`, box);
     const word = el('div', 'pr-word', SKIN_RARITY_NAME[s.r].toUpperCase(), box);
-    const orbWrap = el('div', 'pr-orb', '', box);
-    const orb = new SkinOrb(s, { fps: 60, spin: 0.08 });
-    orbWrap.appendChild(orb.el);
-    const tag = el('div', `pr-tag${r.new ? ' new' : ''}`, r.new ? 'NEW SKIN' : `DUPLICATE · +${r.shards} SHARDS`, orbWrap);
     const name = el('div', 'pr-name', esc(s.name), box);
     const blurb = el('div', 'pr-blurb', esc(s.blurb), box);
     const row = el('div', 'pr-buttons', '', box);
@@ -1019,90 +895,93 @@ class PullShow {
       if (this.againText) button('btn', `${ICON.refresh}${esc(this.againText)}`, () => this.done('again'), row).disabled = !this.againOk;
       button('btn', `${ICON.check}Done`, () => this.done('done'), row);
     }
-    // in they come: the swatch springs up out of the burst, the words after it
-    orbWrap.animate([{ transform: 'scale(0)' }, { transform: 'scale(1)' }], { duration: 750, easing: ease.back, fill: 'both' });
-    const t0 = performance.now();
-    const target = 0.35 + 0.3 * s.r;
-    const halo = () => {
-      const k = Math.min(1, (performance.now() - t0) / 1400);
-      orb.setHalo(1.6 + (target - 1.6) * (1 - (1 - k) * (1 - k)));
-      if (k < 1 && orb.el.isConnected) requestAnimationFrame(halo);
-    };
-    halo();
-    [word, name, blurb, row].forEach((c, i) => c.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 350, delay: 250 + i * 120, fill: 'both' }));
-    word.animate([{ transform: 'scale(1.6)' }, { transform: 'scale(1)' }], { duration: 450, delay: 250, easing: ease.back, fill: 'both' });
-    // the tag stamps down
-    tag.animate([{ opacity: 0, transform: 'rotate(-7deg) scale(2.2)' }, { opacity: 1, transform: 'rotate(-7deg) scale(1)' }], { duration: 280, delay: 700, easing: ease.back, fill: 'both' });
-    if (r.new && !detail) {
-      this.later(800, () => {
-        this.shake = 6;
-        this.sound('coin', 0.6);
-      });
-    }
+    // in they come: the word slams in, the rest slides after it, the tag stamps down
+    [word, name, blurb, row].forEach((c, i) =>
+      c.animate([{ opacity: 0, translate: '-40px 0' }, { opacity: 1, translate: '0 0' }], { duration: 450, delay: 350 + i * 100, easing: ease.out, fill: 'both' }),
+    );
+    word.animate([{ transform: 'scale(1.5)' }, { transform: 'scale(1)' }], { duration: 500, delay: 350, easing: ease.back, fill: 'both' });
+    tag.animate([{ opacity: 0, transform: 'rotate(-3.4deg) scale(2.2)' }, { opacity: 1, transform: 'rotate(-3.4deg) scale(1)' }], { duration: 280, delay: 850, easing: ease.back, fill: 'both' });
+    if (r.new && !detail) this.later(950, () => this.sound('coin', 0.6));
   }
 
+  /** Back from a card's skin on the robot to the ten. */
   private closeDetail() {
     const d = this.detail;
     if (!d) return;
     this.host.tap('back');
     this.detail = null;
     d.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, fill: 'forwards' }).onfinish = () => d.remove();
-    this.tint = [...RCOL[this.tier]];
+    this.shade.classList.remove('on');
+    this.stage?.backToOrbs();
+    this.cardsShown(true);
   }
 
   // ------------------------------------------------------------ ten
 
-  /** Ten cards fan out of the burst into two rows, face down, their edges glowing what's under. */
+  /**
+   * Ten cards fly up out of the pips into two rows, face down, their edges glowing what's under,
+   * and turn over one by one from the Commons up, so the best is always the last to land (an Epic
+   * holds its breath first).
+   */
   private deal() {
-    const vw = this.vw, vh = this.vh;
+    const vw = innerWidth, vh = innerHeight;
+    this.hint.style.display = 'none';
+    this.veil.classList.add('on');
     const gap = vh * 0.025;
-    const ch = Math.min((vh * 0.7 - gap) * 0.5, ((vw * 0.86 - gap * 4) / 5) * 1.4);
+    // (between the film's bars, clear of the buttons that come up under them)
+    const ch = Math.min((vh * 0.62 - gap) * 0.5, ((vw * 0.8 - gap * 4) / 5) * 1.4);
     const cw = ch / 1.4;
     const x0 = (vw - (cw * 5 + gap * 4)) * 0.5;
-    const y0 = vh * 0.08;
-    const grid = el('div', 'ps-cards', '', this.ui);
-    grid.style.setProperty('--cw', `${cw}px`);
+    const y0 = vh * 0.085 + gap * 1.5;
+    this.cardBox.style.setProperty('--cw', `${cw}px`);
     this.results.forEach((r, i) => {
       const c = new SkinCard(r.skin, { fps: 30, spin: 0.05 });
       c.setFace(false);
       c.el.classList.add('dealt');
       const tx = x0 + (i % 5) * (cw + gap), ty = y0 + Math.floor(i / 5) * (ch + gap);
+      this.homes.push({ x: tx, y: ty, w: cw, h: ch });
       Object.assign(c.el.style, { left: `${tx}px`, top: `${ty}px`, width: `${cw}px`, height: `${ch}px` });
-      grid.appendChild(c.el);
+      this.cardBox.appendChild(c.el);
       this.cards.push(c);
-      // out of the burst: from the capsule, small and spinning
-      const fx = this.cap.x - cw / 2 - tx, fy = this.cap.y - ch / 2 - ty;
-      const rot = (Math.random() * 2.4 - 1.2).toFixed(2);
+      // out of its pip: small and spinning
+      const pb = this.pips[i]?.getBoundingClientRect();
+      const fx = (pb ? pb.left + pb.width / 2 : vw / 2) - cw / 2 - tx, fy = (pb ? pb.top + pb.height / 2 : vh / 2) - ch / 2 - ty;
+      const rot = (Math.random() * 1.6 - 0.8).toFixed(2);
       c.el.animate(
         [
-          { transform: `translate(${fx}px, ${fy}px) scale(0.2) rotate(${rot}rad)`, opacity: 0 },
+          { transform: `translate(${fx}px, ${fy}px) scale(0.15) rotate(${rot}rad)`, opacity: 0 },
           { opacity: 1, offset: 0.3 },
           { transform: 'none', opacity: 1 },
         ],
-        { duration: 500, delay: i * 55, easing: ease.back, fill: 'backwards' },
+        { duration: 500, delay: i * 50, easing: ease.back, fill: 'backwards' },
       );
-      this.later(i * 55, () => this.sound('flip', 0.35, 1.3));
+      this.later(i * 50, () => this.sound('flip', 0.3, 1.3), this.flipTimers);
       c.el.addEventListener('click', () => this.openCard(i));
     });
-    this.bgAt = [0.5, 0.42];
-    this.power = 0.25;
-    this.rays = 0.25;
-    // then they turn over, one by one
-    let at = 500 + this.results.length * 55;
-    this.results.forEach((r, i) => {
-      if (r.skin.r === EPIC) {
-        // an Epic holds its breath: it trembles and its edge flares before it turns
+    // turned over from the Commons up, so the best is always the last one to land
+    const order = this.results.map((_, i) => i).sort((a, b) => this.results[a].skin.r - this.results[b].skin.r || a - b);
+    let at = 450 + this.results.length * 50;
+    for (const i of order) {
+      const t = this.results[i].skin.r;
+      if (t === EPIC) {
         const c = this.cards[i];
         this.later(at, () => {
-          this.sound('riser', 0.5, 3.4);
+          this.sound('riser', 0.45, 3.4);
           c.el.classList.add('tremble');
-        });
+          const t0 = performance.now();
+          const glow = () => {
+            const k = Math.min(1, (performance.now() - t0) / 450);
+            c.setGlow(1 + 1.6 * k);
+            if (k < 1 && !c.faceUp) requestAnimationFrame(glow);
+          };
+          glow();
+        }, this.flipTimers);
         at += 450;
       }
-      this.later(at, () => this.flip(i));
-      at += r.skin.r === 0 ? 160 : 320;
-    });
-    this.later(at, () => this.dealt());
+      this.later(at, () => this.flip(i), this.flipTimers);
+      at += t === 0 ? 120 : t === RARE ? 300 : 500;
+    }
+    this.later(at, () => this.dealt(), this.flipTimers);
   }
 
   private flip(i: number) {
@@ -1118,51 +997,88 @@ class PullShow {
       c.setGlow(1);
       if (r.new) c.setBadge('NEW');
       else c.setBadge(`+${r.shards}`, 'glass');
-      const frames = t >= RARE ? [{ transform: 'scaleX(0)' }, { transform: 'scale(1.12)', offset: 0.4 }, { transform: 'scale(1)' }] : [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }];
-      c.el.animate(frames, { duration: t >= RARE ? 440 : 120, easing: t >= RARE ? ease.back : 'ease-out' });
+      if (t >= RARE) {
+        const h = this.homes[i];
+        if (h) this.sparks.add(new DOMRect(h.x, h.y, h.w, h.h), t);
+        const t0 = performance.now();
+        const to = 0.35 + 0.3 * t;
+        const halo = () => {
+          const k = Math.min(1, (performance.now() - t0) / 700);
+          c.orb.setHalo(1.6 + (to - 1.6) * k);
+          if (k < 1 && c.el.isConnected) requestAnimationFrame(halo);
+        };
+        halo();
+      }
+      const frames = t >= RARE ? [{ transform: 'scaleX(0)' }, { transform: 'scale(1)', offset: 0.35 }, { transform: 'scale(1.12)', offset: 0.55 }, { transform: 'scale(1)' }] : [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }];
+      c.el.animate(frames, { duration: t >= RARE ? 440 : 120, easing: t >= RARE ? ease.out : 'ease-out' });
     };
-    this.sound('flip', 0.6);
-    if (t === RARE) this.sound('chime1', 0.45);
+    this.sound('flip', 0.55);
+    if (t === RARE) this.sound('chime1', 0.4);
     else if (t === EPIC) {
-      this.sound('chime2', 0.75);
-      this.shake = 12;
-      this.flash = 0.45;
-      this.tint = [...RCOL[2]];
-      const b = c.el.getBoundingClientRect();
-      this.bursts.spark(b.left + b.width / 2, b.top + b.height / 2, 120, RCOL[2]);
+      this.sound('chime2', 0.7);
+      this.flashOf(EPIC, 0.45);
     }
   }
 
-  /** Every card is up: the buttons, and the cards open on a tap. */
+  /** Every card is up: what the ten came to, the buttons, and the cards open on a tap. */
   private dealt() {
     if (this.phase === 'dealt') return;
     this.phase = 'dealt';
-    for (const t of this.timers) clearTimeout(t);
-    this.timers = [];
+    for (const t of this.flipTimers) clearTimeout(t);
+    this.flipTimers = [];
     for (let i = 0; i < this.cards.length; i++) this.flip(i);
     for (const c of this.cards) c.el.classList.add('open');
-    const foot = el('div', 'ps-foot', '<div class="ps-hint2">Tap a card to look closer</div>', this.ui);
+    this.barsTo(false);
+    this.pipRow?.classList.add('gone');
+    this.floatT = 0;
+    const box = el('div', 'ps-dealt', '', this.cardBox);
+    this.summary(box);
+    const foot = el('div', 'ps-foot', '<div class="ps-hint2">Tap a card to see it on your robot</div>', box);
     const row = el('div', 'pr-buttons', '', foot);
     if (this.againText) button('btn', `${ICON.refresh}${esc(this.againText)}`, () => this.done('again'), row).disabled = !this.againOk;
     button('btn primary', `${ICON.check}Done`, () => this.done('done'), row);
-    foot.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, fill: 'both' });
+    box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, fill: 'both' });
+  }
+
+  /** What the ten came to, over the cards: a chip per rarity drawn (best first) and how many are new. */
+  private summary(box: HTMLElement) {
+    const n = [0, 0, 0];
+    let fresh = 0;
+    for (const r of this.results) {
+      n[r.skin.r]++;
+      if (r.new) fresh++;
+    }
+    const row = el('div', 'ps-summary', '', box);
+    for (const t of [EPIC, RARE, 0]) {
+      if (!n[t]) continue;
+      el('span', 'ps-chip', `${n[t]} ${SKIN_RARITY_NAME[t].toUpperCase()}`, row).style.setProperty('--rc', SKIN_RARITY_COL[t]);
+    }
+    if (fresh) el('span', 'ps-chip new', `${fresh} NEW`, row);
+    const top = this.homes[0]?.y ?? innerHeight * 0.12;
+    row.style.top = `${Math.max(4, top * 0.5 - 4)}px`;
   }
 
   private openCard(i: number) {
     if (this.phase !== 'dealt' || this.detail) return;
     this.host.tap('select');
+    this.cardsShown(false);
+    this.stage?.showOnRobot(this.results[i].skin.id);
     this.reveal(this.results[i], true);
+  }
+
+  /** The cards (and their veil and buttons) out of the way while a skin is shown on the robot, or back. */
+  private cardsShown(on: boolean) {
+    this.cardBox.classList.toggle('away', !on);
+    this.veil.classList.toggle('on', on);
   }
 
   // ------------------------------------------------------------ taps
 
   private skip() {
-    if (this.phase === 'in' || this.phase === 'charge') {
-      // straight to the burst
-      this.t = LAND + CHARGE[this.tier];
-      this.cap.y = this.vh * 0.47;
-      this.burst();
-    } else if (this.phase === 'burst' && this.cards.length) {
+    if (this.phase === 'in') {
+      // straight to the burst (one) or the lights (ten)
+      this.stage?.skip();
+    } else if (this.phase === 'cards') {
       // turn the rest over at once
       this.dealt();
     }
