@@ -149,6 +149,81 @@ function terrainMaterial(u: MapUniforms) {
         return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
       }
 
+      // the lane centre (across, from the street's middle) of the lane at |o| = a, where tyres wear
+      // their tracks and the arrows are painted; 0 off the lanes (the parking bays, the median)
+      float laneMid(bool av, float a) {
+        if (av) return a < 1.6 ? 0.0 : a < 3.8 ? 2.7 : a < 6.1 ? 4.93 : 8.3;
+        return a < 4.3 ? 2.15 : 0.0;
+      }
+
+      // A carriageway's wear and repairs, on top of its paint: polished tyre tracks and an oily strip
+      // down every lane (darkest where cars queue at the lights), patched trenches with their tar
+      // seams, cracks, manhole covers, drain grates at the kerb, and arrows before the junctions.
+      // e: metres past the cross street's kerb line (< 0 in the junction, 1e4 with none); toward: this
+      // side of the street drives toward that junction. The small things fade out as pixels grow.
+      vec3 streetWear(vec3 c, bool av, float o, float s, float hw, float e, bool toward, vec2 xz, vec2 pa, float px) {
+        float a = abs(o);
+        if (a > hw || (av && a < 1.6)) return c;
+        float fine = smoothstep(0.3, 0.07, px);
+        float lm = laneMid(av, a);
+        float u = a - lm;
+        bool lanes = e > 0.0;
+        if (lm > 0.0 && lanes) {
+          float queue = toward ? smoothstep(40.0, 6.0, e) : 0.0;
+          c *= 1.0 - 0.11 * fband(abs(u), 0.45, 0.95, pa.x);
+          vec4 oil = texture(uNoise, vec2(s / 6.0, o / 1.5));
+          c *= 1.0 - (0.12 + 0.2 * queue) * fband(u, -0.32, 0.32, pa.x) * (0.4 + 0.6 * oil.b);
+        }
+        // patched trenches: rectangles of newer (darker) or older (paler) asphalt, a seam of tar round them
+        vec2 cell = vec2(13.0, av ? 3.5 : 3.25);
+        vec2 q = vec2(s, o) / cell;
+        vec2 id = floor(q);
+        float h = hash12(id + 41.0);
+        if (h < 0.16) {
+          vec2 hp = vec2(hash12(id + 7.3), hash12(id + 2.9));
+          vec2 hb = cell * vec2(0.12 + 0.24 * hp.x, 0.3 + 0.15 * hp.y);
+          vec2 d = abs((fract(q) - 0.5) * cell - (hp - 0.5) * (cell * 0.5 - hb)) - hb;
+          float sd = max(d.x, d.y);
+          c *= mix(1.0, h < 0.09 ? 0.8 : 1.22, fband(sd, -1e4, 0.0, px));
+          c *= 1.0 - 0.45 * fband(sd, -0.06, 0.06, px) * fine;
+        }
+        // cracks, in the older stretches: a crazed network where the noise crosses its middle
+        vec4 cn = texture(uNoise, xz / 7.0);
+        float cw = fwidth(cn.b) + 1e-4;
+        float crack = (1.0 - smoothstep(0.0, cw * 1.4, abs(cn.b - 0.5))) * smoothstep(0.52, 0.6, cn.g);
+        c *= 1.0 - 0.45 * crack * fine;
+        if (!lanes || e < 5.0) return c;
+        // a manhole cover every 37 m or so, in one lane or the other
+        float k = floor(s / 37.0 + 0.5);
+        float hk = hash12(vec2(k, hw) + 5.0);
+        float mo = (av ? (hk < 0.5 ? 2.7 : 4.93) : 2.15) * (fract(hk * 7.0) < 0.5 ? -1.0 : 1.0);
+        vec2 md = vec2(o - mo, s - k * 37.0 - (hk - 0.5) * 10.0);
+        float r = length(md);
+        if (r < 0.5) {
+          float grid = mix(0.5, max(fpulse(md.x / 0.09, 0.4, pa.x / 0.09), fpulse(md.y / 0.09, 0.4, pa.y / 0.09)), fine);
+          vec3 lid = vec3(0.12, 0.115, 0.11) * (0.8 + 0.5 * grid);
+          lid = mix(lid, vec3(0.2, 0.19, 0.18), fband(r, 0.3, 0.36, px) * fine);
+          c = mix(c, lid, fband(r, -1.0, 0.36, px));
+          c *= 1.0 - 0.4 * fband(r, 0.36, 0.42, px) * fine;
+        }
+        // a drain grate in the gutter every 24 m, its slots across the flow
+        float gs = s - (floor(s / 24.0 + 0.5) * 24.0) + 3.0 * sign(o);
+        float grate = fband(a, hw - 0.48, hw - 0.06, pa.x) * fband(gs, -0.42, 0.42, pa.y);
+        if (grate > 0.0) {
+          float slot = mix(0.6, fpulse(gs / 0.11, 0.55, pa.y / 0.11), fine);
+          c = mix(c, mix(vec3(0.17, 0.16, 0.15), vec3(0.01), slot * fband(a, hw - 0.42, hw - 0.12, pa.x)), grate);
+        }
+        // an arrow down each lane before the junction, pointing at it
+        if (toward && lm > 0.0 && e < 13.0) {
+          float v = e - 7.6;
+          float shaft = fband(u, -0.13, 0.13, pa.x) * fband(v, 1.2, 4.8, pa.y);
+          float head = fband(abs(u) - 0.5 * v / 1.3, -1e4, 0.0, pa.x) * fband(v, 0.0, 1.3, pa.y);
+          vec3 paint = R_WHITE * (0.82 + 0.1 * cn.r);
+          c = mix(c, paint, max(shaft, head) * (0.75 + 0.25 * cn.a));
+        }
+        return c;
+      }
+
       void main() {
         vec3 base = vCol;
         vec3 w = vWorld;
@@ -182,6 +257,10 @@ function terrainMaterial(u: MapUniforms) {
         float park = clamp((vMask.z - 0.5) / mz + 0.5, 0.0, 1.0);
         if (vMask.x > 0.3) {
           vec3 paving = vec3(0.38, 0.33, 0.27) * (0.86 + 0.2 * nz.r + 0.1 * (nz2.g - 0.5));
+          // big square slabs, each its own shade, with their joints
+          vec2 pq = w.xz / 2.4;
+          paving *= 0.94 + 0.12 * mix(hash12(floor(pq) + 5.0), 0.5, smoothstep(0.1, 0.5, px));
+          paving *= 1.0 - 0.16 * max(fpulse(pq.x, 0.025, px / 2.4), fpulse(pq.y, 0.025, px / 2.4));
           float paved = fband(cityIn, 0.0, 1e4, px) * (1.0 - park);
           base = mix(base, paving, paved);
           base = mix(base, R_KERB * 0.9, fband(cityIn, 0.0, 0.35, px) * (1.0 - park));
@@ -222,6 +301,8 @@ function terrainMaterial(u: MapUniforms) {
               road = mix(road, R_WHITE * 0.9, (zebra + stop) * lanes);
             }
           }
+          bool junction = x2.y > 0.0 && x2.z <= 0.0;
+          road = streetWear(road, av, o, s, hw, junction ? e : 1e4, junction && (onX ? 1.0 : -1.0) * o * x2.x >= 0.0, w.xz, pa, px);
           vec3 c = mix(base, rPave(w.xz, nz, px), fband(min(d1, d2), -1e4, 3.0, px) * (1.0 - park));
           c = mix(c, road * (1.0 - 0.3 * fband(sd, -0.35, 0.0, px)), fband(sd, -1e4, 0.0, px));
           c = mix(c, R_KERB, fband(sd, 0.0, 0.3, px));
