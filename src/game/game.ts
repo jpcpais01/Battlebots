@@ -37,6 +37,8 @@ import { HOME_SCENES, HomeStage, type HomeSceneId } from '../render/home/homeSta
 import type { WorldMap } from '../render/map/world';
 import type { VenueLike } from '../render/venue';
 import type { ArenaId } from './events';
+import type { TitanFx } from '../render/titanFx';
+import type { TitanVenue } from '../render/venues/titan';
 import { PartThumbs } from '../render/partPreview';
 import { walkOnFor } from '../audio/walkOn';
 import { ENTRY, hatchXZ } from '../sim/entrance';
@@ -62,6 +64,16 @@ export interface GameCallbacks {
  * the coach's calls, and how many steps the fight ran until its results showed. Marks are
  * the big moments (for the scrubber), by step.
  */
+/** Where a fight is: indoors ('grand'), a world map event's venue, or titan battles' Titan Colosseum. */
+export type VenueId = ArenaId | 'titan';
+
+/**
+ * How fast titan time runs in each phase of a titan battle (Game.timeK): the walk-outs and the
+ * countdown nearer real time, the fighting itself at half speed (a body fifteen times the size
+ * swings about four times slower; the titans meet it halfway).
+ */
+const TITAN_TIME: Record<string, number> = { intro: 0.8, countdown: 0.75, greet: 0.6, fight: 0.5, ko: 0.5, end: 0.6 };
+
 export interface Tape {
   a: BotSpec;
   b: BotSpec;
@@ -76,7 +88,7 @@ export interface Tape {
   online?: boolean;
   me?: number;
   /** Where it was fought (none: the indoor arena). */
-  arena?: ArenaId;
+  arena?: VenueId;
   /** A tag team match: each side's partner, the TAG button's taps by step, and the teams' names. */
   partners?: TagPartners;
   tags?: { side: number; frame: number }[];
@@ -282,9 +294,20 @@ export class Game {
   private world: WorldMap | null = null;
   private worldBuild: Promise<WorldMap> | null = null;
   /** The world map events' own venues, built on first use. */
-  private venues = new Map<ArenaId, Promise<VenueLike>>();
+  private venues = new Map<VenueId, Promise<VenueLike>>();
+  /** The ones already up (setArena switches to them at once, before the fight's first frame). */
+  private built = new Map<VenueId, VenueLike>();
+  /**
+   * Titan battles (render/venues/titan.ts): the Titan Colosseum is up and the robots are 30 m
+   * titans. The sim is the same; the world round it is built to their scale, and the fight runs
+   * slower (timeK), filmed and heard like giants (Director.titan, Sfx.titan, TitanFx).
+   */
+  private titanV: TitanVenue | null = null;
+  private titanFx: TitanFx | null = null;
+  /** How fast the fight's time runs against the clock on the wall: 1, or slower for titans. */
+  private timeK = 1;
   /** The venue fights are in now. */
-  private arenaId: ArenaId = 'grand';
+  private arenaId: VenueId = 'grand';
   /** The animated home screen places (beach, gym), built on first use. */
   private home: HomeStage | null = null;
   /** A home scene failed: the home screen stays in the arena from now on. */
@@ -551,14 +574,16 @@ export class Game {
   }
 
   /** Build a world map event's venue (once; later calls get the same one). */
-  loadVenue(id: ArenaId): Promise<VenueLike> {
+  loadVenue(id: VenueId): Promise<VenueLike> {
     if (id === 'grand') return Promise.resolve(this.arena.indoor);
     let p = this.venues.get(id);
     if (!p) {
       // (their own chunk, downloaded the first time someone fights an event)
-      p = import('../render/venues').then(({ buildVenue }) => {
-        const v = buildVenue(id, this.stage.quality, this.arena.uniforms);
+      p = import('../render/venues').then(({ buildVenue, TitanFx }) => {
+        const v = buildVenue(id, this.stage.quality, { ...this.arena.uniforms, ropeU: this.arena.ropeU });
         if (!v) return this.arena.indoor;
+        if (id === 'titan' && !this.titanFx) this.titanFx = new TitanFx(this.fx, (k) => this.director.shake(k), () => this.stage.camera.position);
+        this.built.set(id, v);
         Arena.layers(v);
         v.group.visible = false;
         v.setPixelScale(this.stage.renderer.getDrawingBufferSize(_size).y);
@@ -577,9 +602,11 @@ export class Game {
    * Fight in this venue from now on. One not built yet (see loadVenue) goes up when it's ready;
    * if it can't be built, fights stay indoors.
    */
-  setArena(id: ArenaId) {
+  setArena(id: VenueId) {
     this.arenaId = id;
     if (id === 'grand') return this.useVenue(this.arena.indoor);
+    const up = this.built.get(id);
+    if (up) return this.useVenue(up);
     this.loadVenue(id)
       .then((v) => this.arenaId === id && this.useVenue(v))
       .catch((e) => {
@@ -595,12 +622,42 @@ export class Game {
     this.arena.setVenue(v);
     v.group.visible = this.place === 'arena';
     outerGround.y = v.outer;
+    this.setTitan('titan' in v && v.titan ? (v as TitanVenue) : null);
     if (this.place === 'arena') {
       this.stage.applyLook(this.look);
       this.director.far = v.far;
     }
     // its shaders are built on the next frame, before anything of it is seen
     this.stage.warmUp([v.group]);
+  }
+
+  /**
+   * Fight titan battles or not, as the Titan Colosseum goes up round the ring or gives way to
+   * another venue: the indoor ring's stage, posts and ropes give way to the titans' deck, pylons
+   * and energy ropes, and the camera, the sound and the effects go titan scale.
+   */
+  private setTitan(v: TitanVenue | null) {
+    if (v === this.titanV) return;
+    this.titanV = v;
+    const on = !!v;
+    this.arena.setRingHidden(on);
+    this.director.titan = on;
+    outerGround.flat = on;
+    if (this.titanFx) {
+      this.titanFx.scars = v ? v.scars.value : null;
+      this.titanFx.clear();
+    }
+    this.timeK = 1;
+    const m = this.match;
+    if (v && m) this.titanStart(m);
+  }
+
+  /** A titan battle starts: the Colosseum dresses in the two titans' colours, the ground is clean. */
+  private titanStart(m: Match) {
+    const v = this.titanV!;
+    v.setTeams(m.specs[0].paint.accent, m.specs[1].paint.accent);
+    this.titanFx?.clear();
+    this.timeK = TITAN_TIME[m.phase] ?? 0.5;
   }
 
   /** Build the world map (once; later calls get the same one), reporting progress 0..1. */
@@ -929,6 +986,8 @@ export class Game {
     this.keys = [0, 1];
     // each corner's entrance is lit in its bot's colours, to its own walk-on music
     this.arena.corners.setAccents(a.paint.accent, b.paint.accent);
+    if (this.titanV) this.titanStart(m);
+    else this.timeK = 1;
     this.arena.corners.onCue = (i, cue) => {
       if (this.quiet || this.seeking) return;
       const at = this.match?.fighters[i].body.pos[J.Pelvis];
@@ -1248,6 +1307,7 @@ export class Game {
     this.crowdMood.event(type, data);
     this.arena.venue.event(type, data);
     this.tagCam.event(type, data, this.match, this.crew);
+    if (this.titanV) this.titanFx?.event(type, data, this.models);
     switch (type) {
       case 'hit': {
         const h = data as HitInfo;
@@ -1476,7 +1536,9 @@ export class Game {
     if (m && !still) {
       // match time this frame (none while a seek runs the sim)
       // (each hit dips it for a moment: see Match.pace)
-      let flow = dt * this.speed * m.pace;
+      // (a titan battle eases towards its phase's slower pace: no jolt between phases)
+      if (this.titanV) this.timeK += ((TITAN_TIME[m.phase] ?? 0.5) - this.timeK) * (1 - Math.exp(-dt * 1.5));
+      let flow = dt * this.speed * m.pace * this.timeK;
       if (seeking) {
         this.seekSlice(m);
         flow = 0;
@@ -1535,7 +1597,11 @@ export class Game {
         flow,
         this.fx,
         this.feet,
-        (p, sp) => this.sfx?.thud(Math.min(0.7, sp / 6), this.pan(p)),
+        (p, sp) => {
+          this.sfx?.thud(Math.min(0.7, sp / 6), this.pan(p));
+          // (a titan's torn-off plate is the size of a house: it lands in a cloud of dust)
+          if (this.titanV) this.titanFx?.land(p, sp);
+        },
         (p, k, first) => {
           this.arena.venue.crowd.stir(p, k);
           if (!first) return;
@@ -1611,7 +1677,22 @@ export class Game {
     for (let i = 0; i < 2; i++) contactAO.set(i, i === away || (m && this.arena.corners.drop(m, i) < -0.3) ? null : (shown[i]?.joints ?? null), shown[i]?.size);
     // (a tag team's partners, wherever they are)
     for (let i = 0; i < 2; i++) contactAO.set(2 + i, m && this.bench[i] ? this.bench[i].joints : null, this.bench[i]?.size);
-    this.fx.update(still ? 0 : dt, this.stage.camera);
+    // (a titan's sparks and smoke drift down slowly, at the titans' scale)
+    this.fx.update(still ? 0 : dt * (m && this.titanV ? this.timeK : 1), this.stage.camera);
+    if (this.titanV) {
+      const tv = this.titanV;
+      if (m && !still && !seeking) this.titanFx?.update(m);
+      tv.flare = this.arena.flash;
+      tv.fanSeat.copy(this.director.crowdSeat);
+      // the fight's sound crosses the stadium to the lens (sound's speed at the titans' scale,
+      // eased so a blow never lags its picture by much)
+      if (this.sfx && m) {
+        const p0 = m.fighters[0].body.pos[J.Pelvis], p1 = m.fighters[1].body.pos[J.Pelvis];
+        _v.set((p0.x + p1.x) / 2, 1, (p0.z + p1.z) / 2);
+        this.sfx.titanDelay = Math.min(0.35, this.stage.camera.position.distanceTo(_v) * 0.026);
+      }
+    }
+    if (this.sfx) this.sfx.titan = !!this.titanV && !!m && this.place === 'arena';
     this.stage.ripples.update(still ? 0 : dt);
     perf.lap('fx');
     // (a tag team's partners lean on them too, on the apron and ducking through)

@@ -29,6 +29,18 @@ const HOLD_TEAR = 0.7;
  * at 10 m along the short side of the bowl).
  */
 const FREE_R = 9;
+/**
+ * Titan battles (render/venues/titan.ts): the lens may roam the much bigger stadium floor, and
+ * now and then cuts to a fan's phone in the lower tier (the 'crowd' shot): a gap of CROWD_GAP s
+ * since the last, then a CROWD_CHANCE on each cut. CROWD_TIER: the lower tier's first row radius,
+ * depth a row, first tread height and rise a row (titanBuild TIERS[0]); CROWD_EYE: the fan's eye
+ * above their tread (1.6 m at the titans' 1/15).
+ */
+const TITAN_FREE_R = 19;
+const CROWD_GAP = 9;
+const CROWD_CHANCE = 0.35;
+const CROWD_TIER = [21.8, 0.06, 1.55, 0.038] as const;
+const CROWD_EYE = 0.105;
 /** Joints used to frame a fighter. */
 const FRAME_JOINTS = [J.Head, J.Chest, J.Pelvis, J.HandL, J.HandR, J.KneeL, J.KneeR, J.FootL, J.FootR];
 /** How much of the half-frame each joint may use (heads keep headroom, swinging limbs may graze the edge). */
@@ -53,7 +65,7 @@ function reach(mx: number, mz: number, dx: number, dz: number, r: number) {
   return disc < 0 ? 0 : Math.max(0, -md + Math.sqrt(disc));
 }
 
-type ShotKind = 'wide' | 'medium' | 'low' | 'ots' | 'orbit' | 'high' | 'down' | 'ko' | 'win' | 'intro' | 'greet' | 'fin' | 'pov';
+type ShotKind = 'wide' | 'medium' | 'low' | 'ots' | 'orbit' | 'high' | 'down' | 'ko' | 'win' | 'intro' | 'greet' | 'fin' | 'pov' | 'crowd';
 
 /** A camera setup, described relative to the line between the fighters so it follows them around the ring. */
 interface Shot {
@@ -91,6 +103,15 @@ const WEIGHTS: [ShotKind, number, number][] = [
   ['orbit', 1.8, 1.2],
   ['high', 0.6, 0.4],
 ];
+
+/** A titan fight's shots: longer lenses from further off and lower down, looking up at them (a giant seen by a cameraman on the ground). */
+function titanize(s: Shot) {
+  s.fovK *= 0.85;
+  if (s.kind === 'wide') s.el *= 0.7;
+  else if (s.kind === 'medium') s.el = s.el * 0.5 - 0.04;
+  else if (s.kind === 'low') s.el -= 0.06;
+  else if (s.kind === 'orbit' || s.kind === 'ots') s.el *= 0.6;
+}
 
 function makeShot(kind: ShotKind, r: () => number): Shot {
   const sgn = r() < 0.5 ? -1 : 1;
@@ -233,6 +254,19 @@ export class Director {
   private povBy = -1;
   /** Seconds since the last bot's-eye shot ended. */
   private povGap = 0;
+  /**
+   * Filming titans: the fighters are 30 m tall in a stadium 1.5 km across, so the lens works
+   * from the ground with longer lenses, and cuts to a fan's view from the stands now and then.
+   */
+  titan = false;
+  /**
+   * While the crowd shot is on: where the fan filming it stands (x, z), the radius of fans round
+   * them on their feet, and how wildly they cheer (w, 0..1); the stadium's crowd reads it. w is 0 otherwise.
+   */
+  readonly crowdSeat = new THREE.Vector4();
+  private crowdGap = 0;
+  private crowdEye = new THREE.Vector3();
+  private crowdLook = new THREE.Vector3();
   /** Smoothed eye and gaze for the bot's-eye shot, so the head's bob and snap don't shake the lens. */
   private povEye = new THREE.Vector3();
   private povLook = new THREE.Vector3();
@@ -328,7 +362,9 @@ export class Director {
     this.beat = '';
     this.povBy = -1;
     this.povGap = 0;
-    if (this.shot.kind === 'pov') this.shot = makeShot('wide', this.r);
+    this.crowdGap = 0;
+    this.crowdSeat.set(0, 0, 0, 0);
+    if (this.shot.kind === 'pov' || this.shot.kind === 'crowd') this.shot = makeShot('wide', this.r);
   }
 
   /**
@@ -627,8 +663,11 @@ export class Director {
       this.direct(dt, match);
     }
     if (sh.kind !== 'pov') this.povGap += dt;
+    if (sh.kind !== 'crowd') this.crowdGap += dt;
+    if (this.shot.kind !== 'crowd') this.crowdSeat.w = 0;
     if (ph !== 'intro' && ph !== 'countdown') {
       if (this.shot.kind === 'pov') this.povFrame(dt, match);
+      else if (this.shot.kind === 'crowd') this.crowdFrame(dt, match);
       else this.frame(dt, match);
     }
   }
@@ -661,6 +700,10 @@ export class Director {
         return;
       }
     }
+    if (sh.kind === 'crowd') {
+      if (sh.t > sh.dur || match.fin) this.cut(match);
+      return;
+    }
     if (sh.kind === 'pov') {
       // past its locked-in first seconds, a bot's-eye shot cuts the moment it stops working, and
       // never outstays POV_MAX (a knockdown's own shot already waiting on the cutIn above goes first)
@@ -687,6 +730,11 @@ export class Director {
     const wasPov = this.shot.kind === 'pov';
     this.endPov();
     if (!kind && !wasPov && this.povGap > POV_GAP && this.r() < POV_CHANCE && this.startPov(match)) return;
+    if (this.titan && this.shot.kind === 'crowd') this.crowdGap = 0;
+    else if (this.titan && !kind && this.crowdGap > CROWD_GAP && this.r() < CROWD_CHANCE && match.phase === 'fight') {
+      this.startCrowd(match);
+      return;
+    }
     const prevYaw = this.yaw, prevDist = this.dist, prevKind = this.shot.kind, prevSide = this.side;
     const home = this.homeSide;
     const r = this.r;
@@ -714,6 +762,7 @@ export class Director {
         }
       }
       const s = this.special(makeShot(k, r));
+      if (this.titan) titanize(s);
       // stay on the player's side of the line (player on the left); every third candidate
       // tries the reverse angle, which only wins when the home side is badly cramped
       const side = i % 3 === 2 ? -home : home;
@@ -816,6 +865,66 @@ export class Director {
     this.fov = this.povFov;
     this.povFrame(0, match);
     return true;
+  }
+
+  /**
+   * Hard cut to a fan's view of the fight: a seat in the lower tier on the player's side of the
+   * fight line, the fans round them up on their feet, the titans out on the deck past their heads.
+   */
+  private startCrowd(match: Match) {
+    const r = this.r;
+    const s = makeShot('crowd', r);
+    s.dur = 3.2 + r() * 1.8;
+    s.wobble = 0;
+    const home = this.homeSide;
+    this.side = home;
+    if (this.sep > 0.3) this.axisAng = this.rawAxis;
+    let a = wrap(this.axisAng + home * (Math.PI / 2 + (r() - 0.5) * 0.9));
+    // not in front of the titans' gates (on the x axis)
+    if (Math.abs(Math.sin(a)) < 0.2) a = wrap(a + (Math.sin(a) >= 0 ? 0.24 : -0.24) * (Math.cos(a) >= 0 ? 1 : -1));
+    const row = Math.floor(6 + r() * 30);
+    const rad = CROWD_TIER[0] + (row + 0.3) * CROWD_TIER[1];
+    this.crowdEye.set(Math.cos(a) * rad, CROWD_TIER[2] + row * CROWD_TIER[3] + CROWD_EYE, Math.sin(a) * rad);
+    this.shot = s;
+    this.cuts++;
+    this.cutIn = -1;
+    this.nextShot = null;
+    this.kick.set(0, 0, 0);
+    this.crampedFor = 0;
+    this.alignedFor = 0;
+    this.crowdLook.copy(this.crowdTarget(match));
+    this.roll = (r() - 0.5) * 0.06;
+    this.crowdFrame(0, match);
+  }
+
+  /** Where the fan's lens points: just over the titans, tilted down so the rows in front come into the bottom of the picture. */
+  private crowdTarget(match: Match) {
+    const c = this.rel.copy(match.fighters[0].body.pos[J.Chest]).add(match.fighters[1].body.pos[J.Chest]).multiplyScalar(0.5);
+    const e = this.crowdEye;
+    const tx = c.x - e.x, ty = c.y - e.y, tz = c.z - e.z;
+    const flat = Math.hypot(tx, tz) || 1;
+    const len = Math.hypot(tx, ty, tz);
+    const pitch = Math.atan2(ty, flat) - 0.15;
+    return c.set(e.x + (tx / flat) * Math.cos(pitch) * len, e.y + Math.sin(pitch) * len, e.z + (tz / flat) * Math.cos(pitch) * len);
+  }
+
+  /** The fan's view: a phone held up in the stands, following the titans, a little unsteady. */
+  private crowdFrame(dt: number, match: Match) {
+    const g = this.crowdTarget(match);
+    const cl = this.crowdLook;
+    cl.set(damp(cl.x, g.x, 3, dt), damp(cl.y, g.y, 2, dt), damp(cl.z, g.z, 3, dt));
+    const shake = 0.012 + 0.02 * clamp(this.heat, 0, 1);
+    const n = this.noise, t = this.ft;
+    this.pos.set(n.at(t * 0.9 + 51), n.at(t * 1.1 + 57) * 0.6, n.at(t * 0.9 + 63)).multiplyScalar(shake * 0.3).add(this.crowdEye);
+    this.look.set(n.at(t * 0.7 + 71), n.at(t * 0.8 + 77), n.at(t * 0.7 + 83)).multiplyScalar(shake).add(cl).addScaledVector(this.kick, 0.3);
+    this.fov = 46 * ZOOM[this.zoom].fov;
+    this.roll = damp(this.roll, n.at(t * 0.3 + 91) * 0.03, 2, dt);
+    this.crowdSeat.set(this.crowdEye.x, this.crowdEye.z, 1.4, Math.min(1, 0.6 + this.heat * 0.4));
+    // keep the polar state on this side of the fighters, so the next cut judges its jump from here
+    const p0 = match.fighters[0].body.pos[J.Pelvis], p1 = match.fighters[1].body.pos[J.Pelvis];
+    const c = this.center.set((p0.x + p1.x) / 2, 1, (p0.z + p1.z) / 2);
+    this.yaw = Math.atan2(this.pos.z - c.z, this.pos.x - c.x);
+    this.dist = Math.max(0.5, Math.hypot(this.pos.x - c.x, this.pos.z - c.z));
   }
 
   private endPov() {
@@ -927,7 +1036,9 @@ export class Director {
     const ce = Math.cos(this.el);
     const d = this.dir.set(Math.cos(this.yaw) * ce, Math.sin(this.el), Math.sin(this.yaw) * ce);
     this.pos.copy(this.center).addScaledVector(d, this.dist);
-    this.pos.y = Math.max(0.35, this.pos.y);
+    // a titan is filmed from the ground: down on the plain beyond the deck, on the deck's turf
+    if (this.titan) this.pos.y = Math.max(Math.hypot(this.pos.x, this.pos.z) < 5.6 ? 0.25 : -0.42, this.pos.y);
+    else this.pos.y = Math.max(0.35, this.pos.y);
     const wob = s.wobble;
     this.look.set(
       this.center.x + this.kick.x + this.noise.at(this.ft * 0.6 + 3) * wob,
@@ -1124,7 +1235,7 @@ export class Director {
     }
     const dist = Math.max(safe, fit * z.dist);
     // how far back the arena lets us go along this direction (the ring itself is no limit)
-    const cap = reach(c.x, c.z, Math.cos(this.yaw), Math.sin(this.yaw), FREE_R) / Math.max(0.2, ce);
+    const cap = reach(c.x, c.z, Math.cos(this.yaw), Math.sin(this.yaw), this.titan ? TITAN_FREE_R : FREE_R) / Math.max(0.2, ce);
     this.fit.dist = dist;
     this.fit.norm = Math.max(safe, fit);
     this.fit.cap = Math.max(s.kind === 'ko' ? 1.2 : 1.6, cap);

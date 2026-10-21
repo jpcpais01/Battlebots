@@ -262,6 +262,8 @@ const ease = (u: number) => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
 export class Corners {
   readonly group = new THREE.Group();
   private corners: Corner[] = [];
+  /** The corner posts' pads and the CO2 cannons (gone in the Titan Colosseum: setBare). */
+  private dressing: THREE.Object3D[] = [];
   /** Each fighter's accent colour: the light show of its entrance is in its own colours. */
   private accents: [THREE.Color, THREE.Color] = [new THREE.Color(CORNER_COLOR[0]), new THREE.Color(CORNER_COLOR[1])];
   /** Beats of an entrance, for the sound. */
@@ -364,6 +366,7 @@ export class Corners {
       pad.rotation.y = Math.atan2(Math.cos(a), Math.sin(a));
       pad.castShadow = true;
       this.group.add(pad);
+      this.dressing.push(pad);
       // CO2 cannons either side of the post, on the canvas edge
       const tx = -Math.sin(a), tz = Math.cos(a);
       const jets = [-1, 1].map((s) => new THREE.Vector3(px * 0.97 + tx * s * 0.42, 0.06, pz * 0.97 + tz * s * 0.42));
@@ -393,8 +396,15 @@ export class Corners {
       });
     }
     // all four nozzles in one draw
-    this.group.add(new THREE.Mesh(mergeGeometries(nozzles)!, new THREE.MeshStandardMaterial({ color: 0x30353d, metalness: 0.9, roughness: 0.3 })));
+    const cannons = new THREE.Mesh(mergeGeometries(nozzles)!, new THREE.MeshStandardMaterial({ color: 0x30353d, metalness: 0.9, roughness: 0.3 }));
+    this.group.add(cannons);
+    this.dressing.push(cannons);
     this.pose(null);
+  }
+
+  /** Just the lifts, without the ring's corner pads and cannons (titan battles: no posts to pad). */
+  setBare(bare: boolean) {
+    for (const o of this.dressing) o.visible = !bare;
   }
 
   /** Each fighter's accent colour (the light show of its entrance). */

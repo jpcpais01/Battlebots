@@ -64,15 +64,17 @@ function bowlD(x: number, z: number) {
  */
 /**
  * Out of doors: the height of whatever lies past the top of the lower tier (the venue sets it), or
- * null in the indoor bowl.
+ * null in the indoor bowl; `flat` when there is no bowl round the ring at all, just the floor.
  */
-export const outerGround = { y: null as number | null };
+export const outerGround = { y: null as number | null, flat: false };
 
 export function groundAt(x: number, z: number): number {
   const side = ropeSide(x, z);
   const oct = x * SIDE_NX[side] + z * SIDE_NZ[side];
   if (oct < CANVAS) return 0;
   if (oct < BASE) return -0.12;
+  // (the Titan Colosseum: a flat plain all round the deck, its stands far beyond any part's reach)
+  if (outerGround.flat) return FLOOR;
   const d = bowlD(x, z);
   if (d < -0.6) return FLOOR;
   // the barrier with its ad boards (open at the tunnel mouths)
@@ -293,7 +295,7 @@ export class Debris {
         }
       } else p.ropeOut = past;
       // off the stage: into the crowd's hands
-      if (!p.loose && bowlD(o.position.x, o.position.z) > -2.5 && low <= floor + 0.05) {
+      if (!p.loose && !outerGround.flat && bowlD(o.position.x, o.position.z) > -2.5 && low <= floor + 0.05) {
         p.loose = true;
         p.stir = 6;
         onCrowd?.(o.position, 1, true);
