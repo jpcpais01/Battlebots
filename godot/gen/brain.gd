@@ -114,7 +114,9 @@ class Brain extends RefCounted:
 		get:
 			return TFighter.rangeScale(opp, me)
 	
-	func _init(me: TFighter.Fighter, opp: TFighter.Fighter, rng: TMath.Rng) -> void:
+	func _init(me: TFighter.Fighter = null, opp: TFighter.Fighter = null, rng: TMath.Rng = null) -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.buf = []
 		self.head = 0.0
 		self.filled = 0.0

@@ -17,6 +17,27 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-21 00:00",
+	"title": "Fight replays on Android",
+	"notes": [
+	"Android: Replays are here. Tap Replay on the results to watch the fight again from the walkout, every punch exactly as it happened.",
+	"Android: the replay bar scrubs through the fight with its knockdowns, torn-off parts and the knockout marked on it, jumps 5 seconds, steps frame by frame while paused, and plays from a quarter speed up to four times.",
+	"Android: jump anywhere in a replay and the robots carry every dent and torn-off part the fight had given them by then.",
+	"Android: Save replay keeps up to 30 fights on your phone. Watch them again or delete them from Replays on the home screen.",
+	"Android: tag team, titan and online fights replay too, the commentators call it again, and the replay's menu can skip straight to the result."
+]
+},
+	{
+	"hour": "2026-10-20 23:00",
+	"title": "Online fights on Android",
+	"notes": [
+	"Android: Online is here. Create a room and share its 4-letter code, or type a friend's code to join their room, then fight bot against bot.",
+	"Android: phones and the web game share rooms, so you can fight a friend whichever one they play on.",
+	"Android: online fights play out punch for punch the same on both screens, your coach calls land at the same moment on both, and a phone that lagged or went to the background catches straight back up.",
+	"Android: after an online fight you both vote for a rematch from the results, and the pill beside the menu button shows your connection and ping during the fight."
+]
+},
+	{
 	"hour": "2026-10-20 20:00",
 	"title": "Lighter stands and crowd on Android",
 	"notes": [

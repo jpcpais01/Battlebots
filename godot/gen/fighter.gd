@@ -165,6 +165,8 @@ class Foot extends RefCounted:
 	var toYaw: float
 	
 	func _init() -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.pos = V3.new()
 		self.from = V3.new()
 		self.to = V3.new()
@@ -367,7 +369,9 @@ class Fighter extends RefCounted:
 		get:
 			return ((hooks.time if hooks != null else null) if (hooks.time if hooks != null else null) != null else 0.0)
 	
-	func _init(index: float, name_: String, build, rng: TMath.Rng) -> void:
+	func _init(index: float = 0.0, name_: String = "", build = null, rng: TMath.Rng = null) -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.root = V3.new()
 		self.rootVel = V3.new()
 		self.yaw = 0.0

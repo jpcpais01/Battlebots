@@ -315,6 +315,25 @@ func tear_off(d) -> void:
 
 
 ## A grey box standing in for a torn part (only for a BotModel that can't hand its metal over).
+## A part torn off before a replay's seek landed (game.ts seekSlice: tearOff(d, true)): the
+## piece flies off as it did, with no sparks or oil (settle() lets it come to rest), and its
+## socket smokes on. `benched`: side `side`'s bot it came off is out of the ring now (tag team).
+func land_piece(piece: Node3D, side: int, part: int, dir: Vector3, strength: float, benched := false) -> void:
+	if piece != null:
+		debris.spawn(piece, dir, strength, true, side)
+	var stump: Array = [STUMP.get(part, J_CHEST), 0.0]
+	if benched and _benched[side] != null:
+		_benched[side][1].append(stump)
+	else:
+		_stumps[side].append(stump)
+
+
+## Let the pieces torn off before a seek landed come to rest on the canvas (game.ts seekSlice).
+func settle() -> void:
+	for k in 120:
+		debris.update(1.0 / 30.0, fx, [])
+
+
 static func _stand_in(at: Vector3) -> Node3D:
 	var node := Node3D.new()
 	node.position = at

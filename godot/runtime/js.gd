@@ -5,6 +5,11 @@ class_name JS
 extends RefCounted
 
 const TWO32 := 4294967296.0
+## Set while SimSnap makes blank instances of the translated classes on thread BLANK_THREAD:
+## their constructors return at once there (every one starts with this check), and SimSnap
+## fills the fields in itself. (Other threads construct as usual meanwhile.)
+static var BLANK := false
+static var BLANK_THREAD := -1
 
 
 static func i32(x: float) -> int:

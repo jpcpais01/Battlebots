@@ -64,7 +64,9 @@ class Body extends RefCounted:
 	var post2: PackedFloat64Array
 	var size_: float
 	
-	func _init(restPose: Array, size_: float = 1.0) -> void:
+	func _init(restPose: Array = [], size_: float = 1.0) -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.pos = []
 		self.prev = []
 		self.last = []

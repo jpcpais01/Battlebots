@@ -8,8 +8,12 @@
 ## An online fight's card (info.net) offers a rematch through the room instead, both players voting
 ## (app.ts netResults).
 ##
+## Every fight's card (and a replay's) offers it again: Replay, and Save replay onto the shelf
+## (app.ts keep, saveReplayBtn). A replay's card shows the numbers its tape kept (info.m is
+## ReplayTape.summary's copy of the match) and counts nothing.
+##
 ## The App makes one per fight (App._show_results) and calls show_results(info); App.close_results
-## frees it. Replays aren't ported yet, so the web's Replay and Save replay buttons aren't here.
+## frees it.
 class_name ResultsView
 extends Control
 
@@ -68,7 +72,7 @@ func _init() -> void:
 
 ## Build the card for a finished fight. `info`: {m, me, winner, won, draw, kind, event} with event
 ## null or {e, round, title, reward} (App._show_results); a tag team fight adds teams (the teams'
-## names, ours first).
+## names, ours first); tape, the fight's tape for Replay and Save replay; replay, it's a replay's.
 func show_results(info_: Dictionary) -> void:
 	info = info_
 	var m = info.m
@@ -187,6 +191,9 @@ func _actions(ev, won: bool, draw: bool) -> Control:
 		row.add_child(_btn("Rematch", "refresh", &"Btn", func() -> void: app.fight(true, titans)))
 	primary.name = "Primary"
 	box.add_child(primary)
+	var keep := _keep_row()
+	if keep != null:
+		box.add_child(keep)
 	if info.m.tag != null and app.screens.has("tagteam"):
 		var team := _btn("Team", "", &"Btn", func() -> void:
 			app.tap("select")
@@ -237,6 +244,9 @@ func _net_actions() -> Control:
 			s.vote_rematch())
 	_rematch.name = "Primary"
 	box.add_child(_rematch)
+	var keep := _keep_row()
+	if keep != null:
+		box.add_child(keep)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override(&"separation", int(round(0.45 * EM)))
 	var room := _btn("Room", "globe", &"Btn", func() -> void:
@@ -275,6 +285,40 @@ func sync_net() -> void:
 	UiTheme.set_button(_rematch, "Ready" if mine else "Rematch", "swords")
 	_net_note.text = "%s wants a rematch!" % them if theirs and not mine else "Waiting for %s…" % them if mine else ""
 	_net_note.visible = _net_note.text != ""
+
+
+## Replay (the fight again, from the walkout) and Save replay (Saved once it's on the shelf; a
+## full shelf says so) (app.ts keep, saveReplayBtn). Null without a tape to play.
+func _keep_row() -> Control:
+	var t = info.get("tape")
+	if not t is Dictionary or int(t.end) <= 0:
+		return null
+	var row := HBoxContainer.new()
+	row.name = "Keep"
+	row.add_theme_constant_override(&"separation", int(round(0.45 * EM)))
+	var again := _btn("Replay", "replay", &"Btn", func() -> void: app.replay())
+	again.name = "Replay"
+	row.add_child(again)
+	var how := {"winner": int(info.winner), "kind": str(info.kind) if info.kind != null else "", "secs": roundi(float(info.m.fightTime))}
+	# (lambdas capture by value: the button through this holder)
+	var hold: Array[Button] = [null]
+	var mark := func() -> void:
+		var saved := ReplayShelf.is_saved(t)
+		UiTheme.set_button(hold[0], "Saved" if saved else "Save replay", "check" if saved else "star")
+		hold[0].disabled = saved
+	var save := _btn("Save replay", "star", &"Btn", func() -> void:
+		if hold[0].disabled:
+			return
+		app.tap("select")
+		if not ReplayShelf.save(t, how):
+			Modal.ask(app.ui, "Replays full", "You can keep %d replays. Delete one from Replays on the home screen to save this fight." % ReplayShelf.MAX, [["cyan", "OK"]])
+			return
+		mark.call())
+	hold[0] = save
+	save.name = "SaveReplay"
+	row.add_child(save)
+	mark.call()
+	return row
 
 
 func _btn(text: String, icon_name: String, variant: StringName, on: Callable) -> Button:

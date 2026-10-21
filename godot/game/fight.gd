@@ -86,9 +86,26 @@ var titan := false
 var time_k := 1.0
 ## The titans' own effects: dust, ground scars, footfalls (render/titan/titan_fx.gd).
 var titan_fx: TitanFx
-## The player's fight speed: 1, 2 or 0.5 (game.ts speed; the HUD's speed button). Reset each fight.
-## Online the room's session paces the fight with it instead (OnlineSession.frame).
+## The player's fight speed: 1, 2 or 0.5 (game.ts speed; the HUD's speed button; a replay's from a
+## quarter to four times). Reset each fight. Online the room's session paces the fight with it
+## instead (OnlineSession.frame).
 var speed := 1.0
+## The fight on screen's tape (game/replay/replay_tape.gd): what a replay needs to play it again,
+## recorded as a live fight goes, or the one a replay plays.
+var tape := {}
+## Its checkpoints and the robots' wear (game/replay/replay_timeline.gd), kept as it steps.
+var timeline: ReplayTimeline
+## The replay on screen (game/replay/replay_run.gd), or null in a live fight.
+var replay: ReplayRun
+## The match's uid counter (TFighter.UID, the sim's one module-level counter: each match keeps its
+## own, set while it steps).
+var _uid := 1.0
+var _rec: ReplayTimeline.Recorder
+## A checkpoint being taken of the match on the worker (-1: none): the frame only reads it.
+var _snap_task := -1
+## Below this pace (the moment after a big hit) the fight is near enough still that a frame or
+## two without steps, while a checkpoint is taken, doesn't show.
+const SNAP_PACE := 0.45
 ## The fight is an online one (start_match opts.online): both phones run it from the same seed, so
 ## nothing here may change the match on its own (the intro waits for nobody, a tap doesn't skip it,
 ## the pause menu doesn't pause), and the player is in corner `net_me` (0 left, 1 right).
@@ -330,6 +347,8 @@ func _notification(what: int) -> void:
 			booth._save()
 	elif what == NOTIFICATION_PREDELETE:
 		_sync()
+		_stop_jobs()
+		SimSnap.finish_disposing()
 		if booth != null:
 			booth.end()
 
@@ -349,7 +368,11 @@ func pause() -> void:
 	get_tree().paused = true
 	# the frozen scene doesn't need 120 frames a second behind the menu (battery)
 	Engine.max_fps = 30 if Display.cap == 0 or Display.cap > 30 else Display.cap
-	pause_menu.open()
+	# (a replay's menu: app.ts replayMenu)
+	if replay != null:
+		pause_menu.open_replay()
+	else:
+		pause_menu.open()
 
 
 func resume() -> void:
@@ -370,20 +393,26 @@ func forfeit() -> void:
 		forfeited.emit()
 
 
-## Wait for the sim steps running on the worker, if any.
+## Wait for the sim steps running on the worker, if any (and a checkpoint being taken of the
+## match: nothing may step it meanwhile).
 func _sync() -> void:
 	if _task >= 0:
 		WorkerThreadPool.wait_for_task_completion(_task)
 		_task = -1
+	if _snap_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_snap_task)
+		_snap_task = -1
 
 
 func _run_steps(n: int) -> void:
 	var t0 := Time.get_ticks_usec()
 	var done := 0
+	TFighter.UID = _uid
 	# (the match steps on after the final bell too: the winner celebrates while the loser is
 	# carried out, as game.ts keeps stepping in the end phase)
 	for i in n:
 		m.step(SIM_DT)
+		_rec.stepped()
 		if net_hash_every > 0:
 			_net_hash()
 		if _sim_slow > 0:
@@ -394,6 +423,7 @@ func _run_steps(n: int) -> void:
 		_step_marks.append(_events.size())
 		_step_pace.append(m.pace)
 		done += 1
+	_uid = TFighter.UID
 	# (read on the main thread after _sync, so no lock)
 	_step_us = Time.get_ticks_usec() - t0
 	_step_n = done
@@ -436,21 +466,25 @@ func fast_forward(n: int) -> void:
 	if m == null:
 		return
 	_quiet = true
+	TFighter.UID = _uid
 	for i in mini(n, CATCH_UP_MAX):
 		if m.phase == "end":
 			break
 		var e0 := _events.size()
 		m.step(SIM_DT)
+		_rec.stepped()
 		if net_hash_every > 0:
 			_net_hash()
 		for k in range(e0, _events.size()):
 			_camera_event(_events[k][0], _events[k][1])
 		_ff_view.capture(m)
 		director.step(_ff_view, SIM_DT / maxf(1e-6, m.pace * time_k))
+	_uid = TFighter.UID
 	var events := _events
 	_events = []
 	for e in events:
 		_on_event(e[0], e[1])
+		ReplayTape.mark(tape, e[2], m.phase, e[0], e[1])
 		match_event.emit(e[0], e[1])
 	_quiet = false
 	_acc = 0.0
@@ -458,7 +492,7 @@ func fast_forward(n: int) -> void:
 
 
 func _queue_event(type: String, data) -> void:
-	_events.append([type, data])
+	_events.append([type, data, int(m.frame)])
 
 
 ## A fight between two random bots (the scene on its own: see auto; BB_TAG=1 makes it two a side).
@@ -477,9 +511,12 @@ func new_fight() -> void:
 ## startMatch, offline). The sim is deterministic: the same bots and seed give the same fight.
 ## `partners` ({a, b}: a bot each) makes it a tag team match, two a side.
 ##
-## `opts`: {online: true, me: 0 or 1} for an online fight (the room's session follows it: see online).
+## `opts`: {online: true, me: 0 or 1} for an online fight (the room's session follows it: see
+## online); "arena", the venue's id for the fight's tape; "replay", a tape to play back instead
+## (start_replay), with "timeline".
 func start_match(a, b, seed: float, partners = null, opts := {}) -> void:
 	_sync()
+	_stop_jobs()
 	# (the room screen's fingerprint fight shares the sim's scratch vectors: it finishes first)
 	NetFingerprint.wait()
 	online = bool(opts.get("online", false))
@@ -507,37 +544,107 @@ func start_match(a, b, seed: float, partners = null, opts := {}) -> void:
 	_free_models()
 	stretcher.clear()
 	tag_cam.stop()
+	# (the last fight's match, let go of: see SimSnap.dispose)
+	SimSnap.dispose_later(m)
 	m = TMatch.Match.new(a, b, seed, partners)
+	# (the uid counter the match started with: each match has its own, see _run_steps)
+	_uid = TFighter.UID
+	var t = opts.get("replay")
+	replay = null
+	if t != null:
+		# a replay: the fight as the tape has it (game.ts startReplay)
+		tape = t
+		timeline = opts.get("timeline") if opts.get("timeline") != null else ReplayTimeline.new()
+		replay = ReplayRun.new(tape, timeline)
+		ReplayRun.apply_tape(m, tape, 0)
+	else:
+		tape = ReplayTape.make(a, b, seed, partners, opts.get("arena", "grand"))
+		timeline = ReplayTimeline.new()
 	m.on(_queue_event)
+	_listen()
+	# the walkout's checkpoint: every seek back to the start runs from it
+	if timeline.before(0) == null:
+		timeline.add(SimSnap.take(m, _uid))
 	# every robot's plating shader compiling on worker threads while the rest is set up (a no-op
 	# for those already made: the player's at boot, the opponent's when it was picked)
 	var all := [a, b] + ([partners.a, partners.b] if partners != null else [])
 	BotModel.warm(all.map(func(sp): return JS.get_field(sp, "skin")))
 	# the walkout: each robot rides its corner lift up and makes its entrance (BB_SKIPINTRO=1: straight
 	# to the countdown, for quick checks)
-	if OS.get_environment("BB_SKIPINTRO") != "" and not online:
+	if OS.get_environment("BB_SKIPINTRO") != "" and replay == null and not online:
 		m.skipIntro()
+		tape.cut = 0
 	# online both phones keep one fixed intro, long enough for the booth's opening; offline it
 	# waits for the booth instead (see _process)
 	if online:
 		m.introLength += ONLINE_INTRO_EXTRA
-	# the booth's welcome (game.ts startMatch: booth.begin)
-	booth.begin(m, online)
+		tape.online = true
+		tape.me = net_me
+	# the booth's welcome (game.ts startMatch: booth.begin); a replay's says what it said
+	booth.begin(m, online, true, _talk())
+	speed = 1.0
+	_attach_view(true)
+	# both walk-on themes ready before the entrances (game.ts startMatch: primeWalkOn)
+	sfx.prime_walk_on(Sfx.walk_on_for(a), Sfx.walk_on_for(b))
+
+
+## Play a fight back from its tape (game.ts startReplay), with the timeline the live fight left
+## (its checkpoints and wear: seeks are quick at once) or a new one (a saved replay's).
+func start_replay(t: Dictionary, tl: ReplayTimeline = null) -> void:
+	start_match(t.a, t.b, float(t.seed), t.get("partners"), {"replay": t, "timeline": tl})
+
+
+## Whether the fight on screen is a replay.
+func replaying() -> bool:
+	return replay != null and m != null
+
+
+## The fight's results are up (App._show_results): the rest of its tape (ReplayTape.finish), and a
+## checkpoint of the step they came up at, kept (the replay's Results and a seek to its end land
+## there at once). Taken on the worker, as the opportunistic ones are: the picture holds a frame.
+func finish_tape() -> void:
+	if m == null or replay != null:
+		return
+	_sync()
+	ReplayTape.finish(tape, m, booth.said_script)
+	var f := int(m.frame)
+	timeline.keep = f
+	var s := timeline.before(f)
+	if (s == null or s.frame != f) and _snap_task < 0 and SimSnap.can_take(m):
+		_snap_task = WorkerThreadPool.add_task(_take_snap, true, "checkpoint")
+
+
+## The booth's script for a replay (null: a live fight, or a tape without one).
+func _talk():
+	return tape.talk if replay != null and not (tape.get("talk", []) as Array).is_empty() else null
+
+
+## The match records its blows and torn parts into the timeline as it steps.
+func _listen() -> void:
+	_rec = ReplayTimeline.Recorder.new(timeline, m)
+	_rec.listen()
+
+
+## Put the match on screen (a new fight, or a replay's seek landing mid-fight: `fresh` false):
+## its robots, the HUD, the referee, the effects, the corners and the camera.
+func _attach_view(fresh: bool) -> void:
 	if m.tag != null:
-		# all four robots, in tag.ts order; each side's starter fights first
+		# all four robots, in tag.ts order; each side's legal bot in the ring
 		for mb in m.tag.members:
 			crew.append(_add_model(mb.spec))
-		models.append_array([crew[0], crew[2]])
-		bench.append_array([crew[1], crew[3]])
-		_legal = PackedInt32Array([0, 2])
+		for side in 2:
+			var l := int(m.tag.legal[side])
+			_legal[side] = l
+			models.append(crew[l])
+			bench.append(crew[side * 2 + (1 if l == side * 2 else 0)])
 	else:
 		for i in 2:
 			models.append(_add_model(m.specs[i]))
 	hud.visible = OS.get_environment("BB_NOHUD") == ""
-	speed = 1.0
 	hud.game = self
 	hud.cam = cam
-	hud.me = net_me
+	hud.replay = replay != null
+	hud.me = net_me if online else int(tape.get("me", 0))
 	hud.online = online
 	hud.start(m)
 	referee.start(m)
@@ -546,13 +653,13 @@ func start_match(a, b, seed: float, partners = null, opts := {}) -> void:
 	# (the effects read the frame's view of the match: they run while the sim steps)
 	effects.m = _mv
 	# each corner's entrance is lit in its robot's colours (game.ts startMatch)
-	arena.corners.set_accents(int(a.paint.accent), int(b.paint.accent))
+	arena.corners.set_accents(int(tape.a.paint.accent), int(tape.b.paint.accent))
 	# the Titan Colosseum dresses in the two titans' colours: fans, flags, banners, gates
 	if titan:
 		var tv = venues.current
-		tv.set_teams(_lin(int(a.paint.accent)), _lin(int(b.paint.accent)))
+		tv.set_teams(_lin(int(tape.a.paint.accent)), _lin(int(tape.b.paint.accent)))
 		titan_fx.start()
-		time_k = TITAN_TIME.intro
+		time_k = TITAN_TIME.get(m.phase, 0.5)
 	else:
 		time_k = 1.0
 	arena.corners.on_cue = func(i: int, cue: String) -> void:
@@ -560,22 +667,110 @@ func start_match(a, b, seed: float, partners = null, opts := {}) -> void:
 		sfx.lift(cue, Sfx.pan_of(cam, _v(_mv.fighters[i].body.pos[0])))
 		if cue == "arrive":
 			arena.excite(1.1)
-	# both walk-on themes ready before the entrances (game.ts startMatch: primeWalkOn)
-	sfx.prime_walk_on(Sfx.walk_on_for(a), Sfx.walk_on_for(b))
 	_acc = 0.0
+	_alpha = 0.0
 	_end_time = -1.0
 	_hype = 0.3
-	# the director films the new fight from its first step, the player's robot on the left
+	# the director films the fight from this step on, the player's robot on the left
 	_step_marks.clear()
 	_step_pace.clear()
 	_ground_prev = [false, false]
-	_entry_prev = [-INF, -INF]
+	for i in 2:
+		_entry_prev[i] = -INF if fresh else TEntrance.entryTime(m.phase, m.phaseTime, float(i))
 	director.mode = "match"
-	# (online the player may be in the right corner: the camera keeps their robot on the left)
-	director.player = net_me
+	# (online, or a replay of an online fight, the player may be in the right corner: the camera
+	# keeps their robot on the left)
+	director.player = net_me if online else int(tape.get("me", 0))
 	director.begin(m)
+	if not fresh and m.winner != null and (m.phase == "ko" or m.phase == "end"):
+		director.focus_ko(1 - int(m.winner.index))
 	director.snap()
 	crowd_audio.ambience(1.0)
+
+
+## A replay's seek landed (replay_run.gd): `mm` is the fight at the step sought, made on the
+## worker from a checkpoint, and `uid` its uid counter. It goes on screen as a fight started
+## there would (game.ts seekSlice): new robots wearing every dent and torn part the fight gave
+## them up to here, and the HUD, the referee, the camera and the booth picking it up from here.
+func _land(mm, uid: float) -> void:
+	_sync()
+	_events.clear()
+	booth.end()
+	sfx.walk_on_stop(0.2)
+	_free_models()
+	stretcher.clear()
+	tag_cam.stop()
+	_tag_glow = 0.0
+	_tag_light.visible = false
+	if _gate_on:
+		_gate_on = false
+		arena.gate_hit(null)
+	_thud_prev = [[false, false, false], [false, false, false]]
+	_hiss_seen.clear()
+	_sfx_count = -1
+	_crowd_count = -1
+	SimSnap.dispose_later(m)
+	m = mm
+	_uid = uid
+	m.listeners = []
+	m.on(_queue_event)
+	_listen()
+	_attach_view(false)
+	_rewear()
+	# the booth picks the fight up from here (the welcome only from the very start)
+	booth.begin(m, false, m.phase == "intro" and m.phaseTime < 0.5, _talk())
+
+
+## Every dent and torn part the fight gave the robots up to the step on screen, from the wear
+## log (game.ts seekSlice): each dent made with the robot posed as it stood when the blow landed
+## (worked out once and kept on its entry: the next seek only puts it in), each part torn off as
+## it was and left to come to rest on the canvas.
+func _rewear() -> void:
+	var who: Array[BotModel] = crew if not crew.is_empty() else models
+	var torn := false
+	for e in timeline.wear_until(int(m.frame)):
+		var i := int(e.who)
+		if i >= who.size():
+			continue
+		var md := who[i]
+		if int(e.t) == ReplayTimeline.HIT:
+			if not e.has("job"):
+				md.pose_still(e.pose)
+				e.job = md.dent_find(e.h)
+			md.dent_place(e.job)
+			continue
+		md.pose_still(e.pose)
+		var side := int(e.side)
+		var piece := md.detach_piece(int(e.part))
+		effects.land_piece(piece, side, int(e.part), e.dir, float(e.strength), md != models[side])
+		md.socket_wrench(int(e.part))
+		md.grime += 0.12
+		torn = true
+	if torn:
+		effects.settle()
+
+
+## Stop the replay's work on the worker and any checkpoint being taken (the fight is going).
+func _stop_jobs() -> void:
+	if replay != null:
+		replay.stop()
+	if _snap_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_snap_task)
+		_snap_task = -1
+
+
+## Seek the replay to step `frame` (its controls).
+func seek(frame: int) -> void:
+	if replaying():
+		replay.seek(frame, m)
+		# (the booth goes quiet while the picture holds)
+		booth.end()
+		sfx.walk_on_stop(0.2)
+
+
+## A checkpoint of the match now, on the worker (the main thread only reads it till it's done).
+func _take_snap() -> void:
+	timeline.add(SimSnap.take(m, _uid))
 
 
 ## How fast titan time runs in each phase of the fight (time_k): the walk-outs and the
@@ -626,6 +821,8 @@ func end_match() -> void:
 	if m == null:
 		return
 	_sync()
+	_stop_jobs()
+	replay = null
 	_events.clear()
 	booth.end()
 	sfx.walk_on_stop(0.4)
@@ -639,6 +836,7 @@ func end_match() -> void:
 	if _gate_on:
 		_gate_on = false
 		arena.gate_hit(null)
+	SimSnap.dispose_later(m)
 	m = null
 	online = false
 	net_me = 0
@@ -1204,6 +1402,16 @@ func _process(dt: float) -> void:
 	if m == null:
 		_idle_frame(dt)
 		return
+	# a checkpoint being taken of the match, or a replay's seek running: the picture holds
+	if _snap_task >= 0:
+		if not WorkerThreadPool.is_task_completed(_snap_task):
+			_hold_frame(dt)
+			return
+		WorkerThreadPool.wait_for_task_completion(_snap_task)
+		_snap_task = -1
+	if replay != null and replay.poll(self):
+		_hold_frame(dt)
+		return
 	# the fight holds still from here until the next steps start
 	var budget := _step_budget(dt)
 	var w0 := Time.get_ticks_usec()
@@ -1225,15 +1433,19 @@ func _process(dt: float) -> void:
 	_events = []
 	for e in events:
 		_on_event(e[0], e[1])
+		# the scrubber's big moments, as they happen (app.ts markMoment)
+		if replay == null:
+			ReplayTape.mark(tape, e[2], m.phase, e[0], e[1])
 		# (listeners mustn't end or start a match from here: the frame goes on with this one)
 		match_event.emit(e[0], e[1])
 	Perf.lap(Perf.SIM)
 	_direct_steps(events)
 	Perf.lap(Perf.CAMERA)
 	# the booth (game.ts frame: booth.tick); offline the countdown waits for the opening speech
-	# to finish, up to INTRO_MAX (written here, before this frame's steps start, as game.ts does)
+	# to finish, up to INTRO_MAX (written here, before this frame's steps start, as game.ts does;
+	# a replay's intro is as long as the fight's was)
 	booth.tick(dt, crowd_mood.excite, true)
-	if not online and m.phase == "intro" and booth.busy and m.phaseTime >= m.introLength - 0.1 and m.phaseTime < INTRO_MAX:
+	if replay == null and not online and m.phase == "intro" and booth.busy and m.phaseTime >= m.introLength - 0.1 and m.phaseTime < INTRO_MAX:
 		m.introLength = m.phaseTime + 0.2
 	Perf.lap(Perf.AUDIO)
 	if m.phase == "end" and _end_time < 0:
@@ -1241,21 +1453,31 @@ func _process(dt: float) -> void:
 	# online: the room's pacing and hashes, and a catch-up when this phone fell behind
 	if net_frame.is_valid():
 		net_frame.call(dt)
-	# the coach call the player tapped goes in at the next step (app.ts hud.onCoach: queueCoach),
-	# or online at a step both phones agree on
-	var call := hud.take_coach()
-	if call != "":
-		if on_coach.is_valid():
-			on_coach.call(call)
-		else:
-			m.queueCoach(0.0, call)
-	# ...and the TAG button: the bot makes for its corner if its partner is ready (tag team)
-	if m.tag != null and hud.has_method("take_tag") and hud.take_tag():
-		m.queueTag(0.0)
-	# ...and a tap on the intro skips to the countdown (hud.ts skipIntro; never online, where both
-	# phones have to show the same moment)
-	if hud.take_skip() and m.phase == "intro" and not online:
-		m.skipIntro()
+	if replay == null:
+		# the coach call the player tapped goes in at the next step (app.ts hud.onCoach:
+		# queueCoach), or online at a step both phones agree on
+		var call := hud.take_coach()
+		if call != "":
+			if on_coach.is_valid():
+				on_coach.call(call)
+			else:
+				m.queueCoach(0.0, call)
+		# ...and the TAG button: the bot makes for its corner if its partner is ready (tag team);
+		# the tape keeps the step, as the sim keeps no log of it
+		if m.tag != null and hud.has_method("take_tag") and hud.take_tag():
+			m.queueTag(0.0)
+			tape.tags.append({"side": 0, "frame": int(m.frame)})
+		# ...and a tap on the intro skips to the countdown (hud.ts skipIntro; never online, where
+		# both phones have to show the same moment)
+		if hud.take_skip() and m.phase == "intro" and not online:
+			m.skipIntro()
+			tape.cut = int(m.frame)
+	else:
+		hud.take_coach()
+		hud.take_tag()
+		# (a replay's intro is cut where the fight's was: a tap on it skips to there)
+		if hud.take_skip() and m.phase == "intro":
+			replay.seek(_intro_end(), m)
 	_view = hud.capture(m)
 	# (the alpha the view's bodies are drawn at: the one left over by the steps that made them)
 	var pose_alpha := _alpha
@@ -1265,18 +1487,53 @@ func _process(dt: float) -> void:
 	var steps := 0
 	if titan:
 		time_k = _titan_time(dt)
-	_acc += dt * speed * m.pace * time_k
-	steps = mini(budget, int(_acc / SIM_DT))
-	_acc -= steps * SIM_DT
-	if _acc >= SIM_DT:
+	var still := replay != null and replay.still(m)
+	if still:
+		# a paused replay: no time passes (a frame step runs its steps at once)
 		_acc = 0.0
-	_alpha = _acc / SIM_DT
+	elif replay != null and replay.owed > 0:
+		steps = 0
+	else:
+		_acc += dt * speed * m.pace * time_k
+		steps = mini(budget, int(_acc / SIM_DT))
+		_acc -= steps * SIM_DT
+		if _acc >= SIM_DT:
+			_acc = 0.0
+	# (a paused picture, or a frame step's, is the step itself: game.ts poses it at alpha 1)
+	var whole := still
+	if replay != null:
+		if replay.owed > 0 and not replay.busy():
+			steps = mini(replay.owed, MAX_STEPS)
+			replay.owed -= steps
+			_acc = 0.0
+			whole = true
+		elif replay.owed > 0:
+			# (a frame step waits on no prefetch: it lets go within a step)
+			replay.yield_worker()
+		# a replay stops on the step the fight's results came up (game.ts frame)
+		steps = clampi(steps, 0, replay.end - int(m.frame))
+		if int(m.frame) + steps >= replay.end:
+			_acc = 0.0
+		# (nothing else steps while the worker fills in checkpoints: it lets go within a step)
+		if steps > 0 and replay.busy():
+			replay.yield_worker()
+			steps = 0
+		if steps == 0 and not still:
+			_acc = minf(_acc, SIM_DT)
+	_alpha = 1.0 if whole else _acc / SIM_DT
+	if not whole and m.pace < SNAP_PACE and (replay == null or not replay.busy()) and timeline.wants(int(m.frame)) and SimSnap.can_take(m):
+		# the fight all but stands still a moment (a big hit): a checkpoint now, these steps next frame
+		_snap_task = WorkerThreadPool.add_task(_take_snap, true, "checkpoint")
+		_acc += steps * SIM_DT
+		steps = 0
 	if steps > 0:
 		_task = WorkerThreadPool.add_task(_run_steps.bind(steps), true, "sim")
 	Perf.lap(Perf.SIM)
 	_pose_alpha = pose_alpha
+	# (a paused replay holds still: the robots, the camera, the sparks and the smoke)
+	var fdt := 0.0 if still else dt
 	# the loser's ride out: from the stretcher's deck, not its body (game.ts frame: carry)
-	var flow := dt * speed * _mv.pace * time_k
+	var flow := fdt * speed * _mv.pace * time_k
 	var carried := _carry(flow)
 	# the loser once the stretcher has carried it off is drawn no more: nor posed, nor solved
 	var gone := -1
@@ -1311,7 +1568,7 @@ func _process(dt: float) -> void:
 			stretcher.dress(models[i])
 	if not bench.is_empty():
 		_pose_bench(pose_alpha)
-	BotWear.update(models, _mv, dt)
+	BotWear.update(models, _mv, fdt)
 	# riding the corner lift up in the intro (game.ts: model.root.position.y = drop)
 	var drops := [arena.corners.drop(_mv, 0), arena.corners.drop(_mv, 1)]
 	for i in 2:
@@ -1333,9 +1590,9 @@ func _process(dt: float) -> void:
 		md.ao_masks(contact_ao)
 	# sparks, smoke, vapour and oil off the wrecked parts, the debris, the trails (the view's)
 	# (a titan's sparks and smoke drift down slowly, at the titans' scale)
-	effects.update(dt * time_k, flow, cam)
+	effects.update(fdt * time_k, flow, cam)
 	if titan:
-		titan_fx.update(dt, flow, _mv, models)
+		titan_fx.update(fdt, flow, _mv, models)
 		# the fight's sound crosses the stadium to the lens (sound's speed at the titans' scale,
 		# eased so a blow never lags its picture by much), and the sun's shadows follow the
 		# graphics settings as the key spot's do
@@ -1412,7 +1669,7 @@ func _process(dt: float) -> void:
 	if stretcher.posed or _gate_on:
 		_gate_on = stretcher.posed
 		arena.gate_hit(stretcher.at if stretcher.posed else null)
-	_frame_camera(dt, false)
+	_frame_camera(fdt, false)
 	if not bench.is_empty():
 		_bench_clear()
 	# ropes, posts and rigging between the lens and the robots dissolve; the house exposes for the ring
@@ -1446,6 +1703,32 @@ func _carry(flow: float) -> int:
 	# carried off: its model goes with the stretcher, and stays gone once that has left
 	models[loser].visible = not st.gone() and not NO_BOTS
 	return loser if (st.posed or st.gone()) and st.joints.size() == 16 else -1
+
+
+## A frame that leaves the match alone (a replay's seek runs on the worker, or a checkpoint is
+## being taken of it there): the robots stay as they were last posed, the camera eases on, the
+## building and the HUD carry on.
+func _hold_frame(dt: float) -> void:
+	Perf.lap(Perf.SIM)
+	effects.update(0.0, 0.0, cam)
+	Perf.lap(Perf.FX)
+	crowd_audio.tick(dt, _crowd_state)
+	Perf.lap(Perf.AUDIO)
+	arena.crowd.update(dt, crowd_mood.excite, _mv.phase == "fight" or _mv.phase == "greet")
+	arena.update(dt, _time)
+	Perf.lap(Perf.ARENA)
+	_frame_camera(dt if replay == null or not replay.seeking() else 0.0, false)
+	Perf.lap(Perf.CAMERA)
+	hud.update_hud(_view, false, dt)
+	Perf.lap(Perf.HUD)
+
+
+## The step a replay's intro ends at (its tape's cut, or the length the fight's ran).
+func _intro_end() -> int:
+	if int(tape.cut) >= 0:
+		return int(tape.cut)
+	var length: float = float(tape.intro) if float(tape.intro) > 0.0 else float(m.introLength)
+	return ceili(length / SIM_DT) + 1
 
 
 ## A frame with no fight on (game.ts frame without a match): the showcase bot idles, the arena,

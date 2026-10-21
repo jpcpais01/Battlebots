@@ -14,8 +14,13 @@ extends CanvasLayer
 signal pause_requested
 ## Resume tapped, or back on the card.
 signal resume_requested
-## Forfeit tapped: end this fight (here: start the next, as there's no home screen yet).
+## Forfeit tapped: end this fight (here: start the next, as there's no home screen yet). A
+## replay's Home is this too: it ends nothing, just leaves.
 signal forfeit_requested
+## A replay's Skip to the result.
+signal results_requested
+## A replay of an online fight: back to its room (room_button).
+signal room_requested
 
 var settings: Settings
 ## Something over the fight steps back through its own menus too (the App): it takes Android's
@@ -28,10 +33,16 @@ var _dim := ColorRect.new()
 var _card := PanelContainer.new()
 ## An online fight's card instead (app.ts netMenu): the fight plays on behind it.
 var _net_card := PanelContainer.new()
-## The card the menu opened on (the Paused one, or the online one).
+## A replay's card instead (app.ts replayMenu): Resume, Sound, Settings, Skip to the result, Home.
+var _replay_card := PanelContainer.new()
+## The replay card's Room button shows (a replay of an online fight, its room still open).
+var room_button := false
+var _room: Button
+## The card the menu opened on (the Paused one, the online one or the replay's).
 var _main: Control = _card
 var _sound: Button
 var _net_sound: Button
+var _replay_sound: Button
 var _screen: SettingsScreen
 ## The card on show (the Paused one or Settings).
 var _cur: Control
@@ -113,6 +124,7 @@ func _build_card() -> void:
 	v.add_child(quit)
 	_root.add_child(_card)
 	_build_net_card()
+	_build_replay_card()
 	_sync_sound()
 
 
@@ -157,8 +169,51 @@ func _build_net_card() -> void:
 	_root.add_child(_net_card)
 
 
+## app.ts replayMenu: the replay holds behind it, playing or paused as it was; Skip to the result
+## runs it to its end for the results, Home leaves (nothing to forfeit: it was counted).
+func _build_replay_card() -> void:
+	_replay_card.theme_type_variation = &"Box"
+	_replay_card.custom_minimum_size.x = 17.0 * UiTheme.EM
+	_replay_card.visible = false
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override(&"separation", 9)
+	_replay_card.add_child(v)
+	var h2 := Label.new()
+	h2.text = "Replay"
+	h2.theme_type_variation = &"H2"
+	var m := MarginContainer.new()
+	m.add_theme_constant_override(&"margin_bottom", 4)
+	m.add_child(h2)
+	v.add_child(m)
+	var resume := UiTheme.button("Resume", "play", &"BtnPrimary")
+	resume.name = "Resume"
+	resume.pressed.connect(func() -> void: resume_requested.emit())
+	v.add_child(resume)
+	_replay_sound = UiTheme.button("Sound on", "sound", &"BtnSmall")
+	_replay_sound.pressed.connect(func() -> void:
+		settings.set_sound(not settings.sound)
+		blip("tap"))
+	v.add_child(_replay_sound)
+	var gear := UiTheme.button("Settings", "gear", &"BtnSmall")
+	gear.pressed.connect(open_settings)
+	v.add_child(gear)
+	var skip := UiTheme.button("Skip to the result", "forward", &"BtnSmall")
+	skip.name = "SkipToResult"
+	skip.pressed.connect(func() -> void: results_requested.emit())
+	v.add_child(skip)
+	_room = UiTheme.button("Room", "globe", &"BtnSmall")
+	_room.name = "Room"
+	_room.pressed.connect(func() -> void: room_requested.emit())
+	v.add_child(_room)
+	var home := UiTheme.button("Home", "exit", &"BtnSmall")
+	home.name = "Home"
+	home.pressed.connect(func() -> void: forfeit_requested.emit())
+	v.add_child(home)
+	_root.add_child(_replay_card)
+
+
 func _sync_sound() -> void:
-	for b in [_sound, _net_sound]:
+	for b in [_sound, _net_sound, _replay_sound]:
 		if b != null:
 			UiTheme.set_button(b, "Sound on" if settings.sound else "Sound off", "sound" if settings.sound else "mute")
 
@@ -185,6 +240,12 @@ func open() -> void:
 ## Show the online fight's card over the fight, which plays on under it (nothing is paused).
 func open_online() -> void:
 	_open_on(_net_card)
+
+
+## Show a replay's card over the (already paused) replay.
+func open_replay() -> void:
+	_room.visible = room_button
+	_open_on(_replay_card)
 
 
 func _open_on(c: Control) -> void:
@@ -241,7 +302,7 @@ func back() -> void:
 
 
 func _show(c: Control) -> void:
-	for k in [_card, _net_card, _screen]:
+	for k in [_card, _net_card, _replay_card, _screen]:
 		k.visible = k == c
 	_cur = c
 	if c != _screen:
