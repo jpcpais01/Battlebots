@@ -44,9 +44,10 @@ import { walkOnFor } from '../audio/walkOn';
 import { ENTRY, hatchXZ } from '../sim/entrance';
 import { TagCam } from '../render/tagCam';
 import { FollowSpots } from '../render/followSpots';
+import { VaultStage, VAULT_LOOK } from '../render/vault/vaultStage';
 
 /** Where the 3D scene is: the fight arena (home, fights) or the workshop (garage). */
-export type Place = 'arena' | 'garage' | 'home' | 'map';
+export type Place = 'arena' | 'garage' | 'home' | 'map' | 'vault';
 
 export interface GameCallbacks {
   onMatchEvent?: (type: string, data: unknown) => void;
@@ -317,6 +318,8 @@ export class Game {
   private arenaId: VenueId = 'grand';
   /** The animated home screen places (beach, gym), built on first use. */
   private home: HomeStage | null = null;
+  /** The Skin Vault out in space (built the first time it's opened). */
+  private vault: VaultStage | null = null;
   /** A home scene failed: the home screen stays in the arena from now on. */
   homeBroken = false;
   /** The robot the home and garage show (kept for the home scenes' own actor). */
@@ -412,6 +415,7 @@ export class Game {
     if (p === 'garage' && this.garage) return { roots: [this.garage.group, this.fx.group, ...shown], extras: [] };
     if (p === 'home' && this.home) return { roots: [this.home.group, this.fx.group], extras: [] };
     if (p === 'map' && this.world) return { roots: [this.world.group], extras: [] };
+    if (p === 'vault' && this.vault) return { roots: [this.vault.group, this.fx.group, ...shown], extras: [] };
     return { roots: [], extras: [] };
   }
 
@@ -441,7 +445,7 @@ export class Game {
     if (back === 'arena' || back === 'map') visits.push({ p: back });
     else if (back === 'home') visits.push({ p: 'home', scene: shownHome });
     const WEIGHT: Partial<Record<Place, number>> = { arena: 4, map: 6, garage: 2, home: 3 };
-    const NAME: Record<Place, string> = { arena: 'Lighting the arena', map: 'Drawing the world map', garage: 'Opening the garage', home: 'Setting the scene' };
+    const NAME: Record<Place, string> = { arena: 'Lighting the arena', map: 'Drawing the world map', garage: 'Opening the garage', home: 'Setting the scene', vault: 'Opening the Skin Vault' };
     const plan = [{ w: 0.6, what: 'Warming up' }, ...visits.map((v) => ({ w: WEIGHT[v.p] ?? 2, what: NAME[v.p] }))];
     const total = plan.reduce((a, s) => a + s.w, 0);
     let before = 0;
@@ -543,6 +547,7 @@ export class Game {
     const was = this.place;
     this.place = p;
     if (was === 'home') this.home?.exit();
+    if (was === 'vault') this.vault?.exit();
     const inGarage = p === 'garage';
     if (inGarage && !this.garage) {
       this.garage = new Garage(this.stage.quality);
@@ -558,16 +563,24 @@ export class Game {
     this.referee.group.visible = inArena;
     this.director.far = inArena ? this.arena.venue.far : 120;
     if (this.showcase) this.showcase.model.root.visible = p !== 'home' && p !== 'map';
+    const inVault = p === 'vault';
+    const firstVault = inVault && !this.vault;
+    if (firstVault) this.vault = this.buildVault();
     const inMap = p === 'map' && !!this.world;
     if (this.world) this.world.group.visible = inMap;
     this.director.clip = inMap ? this.world!.cam.clip : null;
     if (inGarage) this.garage!.enter(this.stage);
     else {
       this.garage?.exit();
-      this.stage.applyLook(inMap ? this.world!.look : this.look);
+      this.stage.applyLook(inMap ? this.world!.look : inVault ? VAULT_LOOK : this.look);
     }
     // the arena reflects its own photograph (see syncEnv); everywhere else starts from the studio
-    if (!inArena) this.stage.useEnv(null);
+    if (!inArena) this.stage.useEnv(inVault ? this.vault!.env : null);
+    if (inVault) {
+      this.vault!.enter();
+      // (all its shaders on its first frame, not piecemeal as each thing first comes into view)
+      if (firstVault) this.stage.warmUp(this.placeRoots('vault').roots);
+    }
     if (p === 'home') {
       try {
         const h = this.homeStage();
@@ -753,9 +766,30 @@ export class Game {
     this.garage?.setBot(name, power, paint.accent);
   }
 
-  /** Light sweep up the robot in the workshop (a part was fitted). */
+  /** Light sweep up the robot in the workshop (a part was fitted), or on the vault's turntable. */
   garagePulse() {
-    this.garage?.pulse();
+    if (this.place === 'vault') this.vault?.pulse();
+    else this.garage?.pulse();
+  }
+
+  private buildVault() {
+    const v = new VaultStage(this.stage.renderer, {
+      fx: this.fx,
+      director: this.director,
+      sfx: () => this.sfx,
+      bot: () => this.showcase?.model.root ?? null,
+      shown: () => this.shownSpec,
+      showBot: (spec) => this.showBot(spec),
+      paintOn: (was) => this.paintOn(was),
+    });
+    this.stage.scene.add(v.group);
+    this.probe.tag(v.group, 'venue');
+    return v;
+  }
+
+  /** The Skin Vault's stage, once it's been opened (the pulls play out on it). */
+  get vaultStage(): VaultStage | null {
+    return this.vault;
   }
 
   /** The bot on show paints its skin on with a sweep up from its feet, over `was` (the skin it had, if any). */
@@ -812,7 +846,8 @@ export class Game {
     const model = new BotModel(spec.loadout, spec.paint, spec.size, spec.skin);
     this.probe.tag(model.root, 'bots');
     this.stage.scene.add(model.root);
-    model.root.visible = this.place !== 'home' && this.place !== 'map';
+    // (in the vault the robot steps off its turntable while the machine plays)
+    model.root.visible = this.place !== 'home' && this.place !== 'map' && (this.place !== 'vault' || !!this.vault?.robotOn);
     this.showcase = { fighter, dummy, model, show: new Showman(fighter, dummy, null), spec };
   }
 
@@ -1747,6 +1782,8 @@ export class Game {
         d.sceneLambda = 200;
         d.clip = w.cam.clip;
       }
+    } else if (this.place === 'vault') {
+      this.vault!.update(dt, this.time, this.stage.camera);
     } else if (this.place === 'home') {
       try {
         this.home!.update(dt, this.time);

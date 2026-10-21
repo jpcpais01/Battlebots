@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------ the Skin Vault */
-/* the panel on the left, the bot on the workshop lift on the right */
+/* the panel on the left, the bot on its turntable out in space on the right */
 .screen.vault {
   --vw: min(47vw, 38em);
 }
@@ -632,12 +632,17 @@
   box-shadow: var(--ring);
 }
 
-/* ------------------------------------------------------------ a pull, played out */
+/* ------------------------------------------------------------ a pull, played out (over the vault in 3D) */
+.screen.vault.pulling {
+  opacity: 0;
+  transform: none;
+}
+.screen.vault.pulling * {
+  pointer-events: none !important;
+}
 .pull-show {
   position: fixed;
   inset: 0;
-  /* (behind the stage, so its shake never shows the game at an edge) */
-  background: #03040a;
   z-index: 60;
   pointer-events: auto;
   user-select: none;
@@ -645,118 +650,196 @@
   touch-action: none;
   color: var(--text);
   font-size: var(--fs);
-  animation: ps-in 0.25s ease both;
+  overflow: hidden;
+  --u: min(100vh, 60vw);
 }
-@keyframes ps-in {
-  from {
-    opacity: 0;
-  }
-}
-.ps-stage,
-.ps-ui {
+.ps-shade,
+.ps-veil,
+.ps-cards,
+.ps-ui,
+.ps-fx,
+.ps-flash {
   position: absolute;
   inset: 0;
+  pointer-events: none;
 }
-.ps-gl,
 .ps-fx {
-  position: absolute;
-  inset: 0;
   width: 100%;
   height: 100%;
 }
-.ps-gl {
-  /* without WebGL: the fall into darkness at least */
-  background: rgba(3, 4, 8, 0.85);
+/* the shade behind the words: deep violet on the left, fading out to the right */
+.ps-shade {
+  right: 38%;
+  background: linear-gradient(90deg, rgba(5, 0, 13, 0.73), rgba(5, 0, 13, 0.52) 25%, rgba(5, 0, 13, 0.18) 50%, rgba(5, 0, 13, 0.02) 75%, transparent);
+  opacity: 0;
+  transition: opacity 0.4s ease;
 }
-.ps-hint,
-.ps-hint2 {
+.ps-shade.on {
+  opacity: 1;
+}
+.ps-veil {
+  background: rgb(5 0 15 / 0.55);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+.ps-veil.on {
+  opacity: 1;
+}
+.ps-cards {
+  transition: opacity 0.25s ease;
+}
+.ps-cards.away {
+  opacity: 0;
+}
+.ps-cards.away * {
+  pointer-events: none !important;
+}
+.ps-flash {
+  mix-blend-mode: screen;
+  opacity: 0;
+}
+/* the film's black bars */
+.ps-bar {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: calc(var(--bottom) + 0.5em);
+  height: 8.5vh;
+  background: #000;
+  pointer-events: none;
+  transition: transform 0.45s cubic-bezier(0.55, 0, 0.75, 0.2);
+}
+.ps-bar.top {
+  top: 0;
+  transform: translateY(-100%);
+}
+.ps-bar.bottom {
+  bottom: 0;
+  transform: translateY(100%);
+}
+.ps-bar.on {
+  transform: none;
+  transition-timing-function: cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.ps-hint,
+.ps-hint2 {
   text-align: center;
   font-size: 0.78em;
-  color: var(--muted);
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.5);
   letter-spacing: 0.08em;
   animation: ps-blink 1.6s ease-in-out infinite;
 }
+.ps-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(4.25vh - 0.6em);
+  pointer-events: none;
+}
+.ps-hint.up {
+  bottom: calc(4.25vh + max(12px, 2.2vh) * 0.9 + 0.2em);
+}
 .ps-hint2 {
-  position: static;
   margin-bottom: 0.6em;
+  color: rgba(255, 255, 255, 0.62);
 }
 @keyframes ps-blink {
   50% {
     opacity: 0.45;
   }
 }
+/* ten pips along the bottom bar, one lighting for each capsule as it pops */
+.ps-pips {
+  position: absolute;
+  left: 50%;
+  bottom: 4.25vh;
+  transform: translate(-50%, 50%);
+  display: flex;
+  gap: calc(max(12px, 2.2vh) * 0.9);
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.ps-pips.gone {
+  opacity: 0;
+}
+.ps-pips i {
+  width: max(12px, 2.2vh);
+  height: max(12px, 2.2vh);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+}
+.ps-pips i.lit {
+  background: color-mix(in srgb, var(--rc) 85%, white);
+  border: 2px solid color-mix(in srgb, var(--rc) 40%, white);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--rc) 70%, transparent);
+}
+/* the skin on the robot: its rarity, name and what it gave, beside it on the left */
 .ps-reveal {
   position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.2em;
-  padding: var(--top) var(--padr) var(--bottom) var(--pad);
-  text-align: center;
+  left: max(28px, 7vw);
+  top: 25vh;
+  width: 46vw;
+  pointer-events: none;
 }
-.ps-reveal.detail {
-  background: rgba(3, 4, 8, 0.82);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-.pr-word {
-  font-family: var(--broadcast);
-  font-size: 1.5em;
-  letter-spacing: 0.3em;
-  padding-left: 0.3em;
-  background: linear-gradient(180deg, #fff, var(--rc));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: drop-shadow(0 0 14px color-mix(in srgb, var(--rc) 70%, transparent));
-}
-.pr-orb {
-  position: relative;
-  width: min(42vh, 60vw);
-  height: min(42vh, 60vw);
+.ps-reveal button {
+  pointer-events: auto;
 }
 .pr-tag {
   position: absolute;
-  right: 4%;
-  bottom: 12%;
-  padding: 0.3em 0.75em;
-  border-radius: 0.4em;
-  font-family: var(--broadcast);
-  font-size: 0.8em;
-  letter-spacing: 0.08em;
-  color: #e2ccff;
-  background: rgba(10, 6, 20, 0.75);
-  border: 1px solid rgba(199, 155, 255, 0.5);
+  bottom: calc(100% + var(--u) * 0.02);
+  left: 0;
+  padding: 0.3em 0.9em;
+  border-radius: 999px;
+  font-size: max(12px, calc(var(--u) * 0.026));
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--line-2, rgba(255, 255, 255, 0.2));
+  transform-origin: left center;
 }
 .pr-tag.new {
   color: #1a1000;
   background: #ffc23d;
-  border-color: #fff3c4;
-  box-shadow: 0 0 22px rgba(255, 194, 61, 0.7);
+  border-color: transparent;
+  box-shadow: 0 0 22px rgba(255, 194, 61, 0.6);
+}
+.pr-word {
+  font-family: var(--broadcast);
+  font-size: calc(var(--u) * 0.12);
+  line-height: 1.2;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rc) 40%, white), var(--rc));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 14px color-mix(in srgb, var(--rc) 60%, transparent));
+  transform-origin: left center;
 }
 .pr-name {
   font-family: var(--broadcast);
-  font-size: 2.1em;
-  line-height: 1.1;
-  text-shadow: 0 0 24px color-mix(in srgb, var(--rc) 60%, transparent), 0 3px 12px rgba(0, 0, 0, 0.6);
+  font-size: calc(var(--u) * 0.075);
+  line-height: 1.15;
+  margin-top: calc(var(--u) * 0.01);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
 }
 .pr-blurb {
-  max-width: 30em;
+  max-width: 85%;
+  margin-top: calc(var(--u) * 0.012);
   color: var(--text-2);
-  font-size: 0.92em;
+  font-size: max(14px, calc(var(--u) * 0.03));
+  font-weight: 500;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
 }
 .pr-buttons {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.6em;
-  margin-top: 0.8em;
+  gap: 12px;
+  margin-top: calc(var(--u) * 0.035);
+}
+.pr-buttons .btn {
+  pointer-events: auto;
 }
 .ps-cards .skin-card.dealt {
   position: absolute;
@@ -767,17 +850,45 @@
 .ps-cards .skin-card.dealt.open {
   pointer-events: auto;
 }
+.ps-dealt {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.ps-summary {
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  gap: 8px;
+}
+.ps-chip {
+  padding: 0.25em 0.8em;
+  border-radius: 999px;
+  font-size: max(11px, 1.9vh);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: color-mix(in srgb, var(--rc) 75%, white);
+  background: color-mix(in srgb, var(--rc) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--rc) 70%, transparent);
+}
+.ps-chip.new {
+  color: #1a1000;
+  background: #ffc23d;
+  border-color: transparent;
+}
 .ps-foot {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: var(--bottom);
+  bottom: max(16px, 4vh);
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 .ps-foot .pr-buttons {
   margin-top: 0;
+  justify-content: center;
 }
 
 /* ------------------------------------------------------------ Skins on home and in the garage */

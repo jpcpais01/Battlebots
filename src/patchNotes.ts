@@ -16,6 +16,15 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-21 03:00",
+    title: "The Skin Vault goes to space on the web",
+    notes: [
+      "Web: the Skin Vault is now its own place out in space. Your robot stands on a glowing turntable in front of a giant gumball machine full of capsules, under a ringed planet. Drag to walk round it.",
+      "Web: a pull plays out on the machine. The crank turns, a capsule drops out of the chute, charges up (violet cracks for a Rare, gold for an Epic) and bursts, and the skin paints onto your robot in a beam of light.",
+      "Web: a ×10 pull shoots ten capsules into an arc that pop one by one into lights of their rarity, then the cards deal out with the best turned last. Tap a card to see that skin on your robot.",
+    ],
+  },
+  {
     hour: "2026-10-21 02:00",
     title: "Titans and follow spots on the web",
     notes: [
