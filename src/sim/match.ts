@@ -145,6 +145,8 @@ export class Match {
   private hitSpan = 0;
   /** Suggested slow-motion factor for the renderer's clock. */
   slowmo = 1;
+  /** Tools only (the motion lab): the brains and showmen sit still while a script drives the fighters. */
+  puppets = false;
   winner: Fighter | null = null;
   result: FinishKind | 'Decision' | 'Draw' | null = null;
   /** For a 'Dismantled' finish: what was lost. */
@@ -413,7 +415,7 @@ export class Match {
     }
 
     if (this.phase === 'greet') this.greet.update(dt);
-    else if (this.phase !== 'intro' && this.phase !== 'countdown' && !this.fin) {
+    else if (this.phase !== 'intro' && this.phase !== 'countdown' && !this.fin && !this.puppets) {
       const g = this.grapple && this.grapple.live ? this.grapple : null;
       for (const br of this.brains) br.grip = g && g.involves(br.me) ? g : null;
       const t0 = perf.now();
@@ -421,8 +423,8 @@ export class Match {
       if (!tag || !tag.brainOff(1)) this.brains[1].update(dt, this.time);
       perf.add('ai', t0);
     }
-    if (!tag || !tag.showOff(0)) this.shows[0].update(dt, this);
-    if (!tag || !tag.showOff(1)) this.shows[1].update(dt, this);
+    if (!this.puppets && (!tag || !tag.showOff(0))) this.shows[0].update(dt, this);
+    if (!this.puppets && (!tag || !tag.showOff(1))) this.shows[1].update(dt, this);
     const g = this.grapple;
     if (g) {
       g.update(dt);
@@ -532,7 +534,12 @@ export class Match {
     // (in a clinch they're pressed together; a shot or a throw goes right through)
     if (g && g.phase !== 'clinch') return;
     this.separateParts(a, b, J.Chest, (g ? 0.4 : 0.5) * pair);
-    this.separateParts(a, b, J.Head, (g ? 0.24 : 0.4) * pair);
+    // (a shot ducks its head in beside theirs)
+    let shot = false;
+    const sa = a.strike, sb = b.strike;
+    if (sa && sa.move.path === 'shoot' && sa.phase === 'active') shot = true;
+    if (sb && sb.move.path === 'shoot' && sb.phase === 'active') shot = true;
+    this.separateParts(a, b, J.Head, (g ? 0.24 : shot ? 0.3 : 0.4) * pair);
   }
 
   /** Push the roots apart (softly) when two body parts get closer than min horizontally. */
@@ -947,6 +954,8 @@ export class Match {
     if (shielded) kb *= 0.4;
     def.rootVel.addScaledVector(_a, kb);
     if (blocked) att.rootVel.addScaledVector(_a, -0.5);
+    // the feet go with it: a catch step the way it was driven
+    def.stumble(_a.x, _a.z, kb);
 
     // physical reaction
     const force = (2 + dmg * 0.05 + speed * 0.12) * (shielded ? 0.3 : 1);
