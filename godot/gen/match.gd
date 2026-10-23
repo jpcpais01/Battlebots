@@ -40,6 +40,7 @@ class Match extends RefCounted:
 	var hitstop: float
 	var hitSpan: float
 	var slowmo: float
+	var puppets: bool
 	var winner: TFighter.Fighter
 	var result
 	var lossReason
@@ -79,6 +80,7 @@ class Match extends RefCounted:
 		self.hitstop = 0.0
 		self.hitSpan = 0.0
 		self.slowmo = 1.0
+		self.puppets = false
 		self.winner = null
 		self.result = null
 		self.lossReason = null
@@ -288,7 +290,7 @@ class Match extends RefCounted:
 			pass
 		if (phase == "greet"):
 			greet.update(dt)
-		elif (((phase != "intro") and (phase != "countdown")) and (not (self.fin != null))):
+		elif ((((phase != "intro") and (phase != "countdown")) and (not (self.fin != null))) and (not puppets)):
 			var g: TGrapple.Grapple = (grapple if ((grapple != null) and grapple.live) else null)
 			for br: TBrain.Brain in brains:
 				br.grip = (g if ((g != null) and g.involves(br.me)) else null)
@@ -298,9 +300,9 @@ class Match extends RefCounted:
 			if ((not (tag != null)) or (not tag.brainOff(1.0))):
 				brains[1].update(dt, time)
 			TPerf.add("ai", t0_2)
-		if ((not (tag != null)) or (not tag.showOff(0.0))):
+		if ((not puppets) and ((not (tag != null)) or (not tag.showOff(0.0)))):
 			shows[0].update(dt, self)
-		if ((not (tag != null)) or (not tag.showOff(1.0))):
+		if ((not puppets) and ((not (tag != null)) or (not tag.showOff(1.0)))):
 			shows[1].update(dt, self)
 		var g_2: TGrapple.Grapple = grapple
 		if (g_2 != null):
@@ -412,7 +414,14 @@ class Match extends RefCounted:
 		if ((g != null) and (g.phase != "clinch")):
 			return
 		separateParts(a, b, 1.0, (((0.4 if (g != null) else 0.5)) * pair))
-		separateParts(a, b, 3.0, (((0.24 if (g != null) else 0.4)) * pair))
+		var shot: bool = false
+		var sa = a.strike
+		var sb = b.strike
+		if (((sa != null) and (sa.move.path == "shoot")) and (sa.phase == "active")):
+			shot = true
+		if (((sb != null) and (sb.move.path == "shoot")) and (sb.phase == "active")):
+			shot = true
+		separateParts(a, b, 3.0, (((0.24 if (g != null) else (0.3 if shot else 0.4))) * pair))
 	
 	func separateParts(a: TFighter.Fighter, b: TFighter.Fighter, j: float, min_: float) -> void:
 		var pa: V3 = a.body.pos[j]
@@ -831,6 +840,7 @@ class Match extends RefCounted:
 			__v8.x += _h_a.x * -0.5
 			__v8.y += _h_a.y * -0.5
 			__v8.z += _h_a.z * -0.5
+		def.stumble(_h_a.x, _h_a.z, kb)
 		var force: float = ((((2.0 + (dmg * 0.05)) + (speed * 0.12))) * ((0.3 if shielded else 1.0)))
 		var body: TBody.Body = def.body
 		var _h_b: V3 = TMatch._b

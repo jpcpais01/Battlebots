@@ -17,6 +17,17 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-23 12:00",
+	"title": "Fights that move like real fighters",
+	"notes": [
+	"Robots now fight from a real athletic stance: knees bent, chin tucked behind the guard, weight forward, breathing and rocking while they look for an opening.",
+	"Punches carry the whole body. Hips and shoulders turn into every shot, the back heel pivots, and the feet step in with each punch of a combination instead of sliding.",
+	"Kicks flow in one motion: the knee lifts and the leg whips through, then the foot lands and the body settles. Low kicks chop low, and the arms swing to balance the hips.",
+	"Hits land with weight. Heads snap back, bodies fold and twist away from the blow, and a robot takes a catch step the way it was hit. A rocked robot lurches on unsteady feet.",
+	"Footwork is planted: robots no longer skate across the canvas. Their feet step under them as they move, dodge and recover, and a robot that has just come into the ring no longer strides across it to find its feet."
+]
+},
+	{
 	"hour": "2026-10-23 11:00",
 	"title": "Clearer performance stats",
 	"notes": ["Android app: the performance stats now count ray tracing's own work in its row, so the ring, robots and venue rows show only what they cost to draw."]
