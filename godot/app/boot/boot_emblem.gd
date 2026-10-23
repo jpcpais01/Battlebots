@@ -1,23 +1,26 @@
-## The app's icon, big and alive, on the loading screen: the boxer in the spotlight behind its
-## guard (assets/icons is the same picture made small for the launcher). Each piece of it is its
-## own layer, all drawn over the icon's whole 1024-unit square (tools/icon/icon.svg), so they line
-## up as they are and only need moving about their own pivots.
+## The boxer from the app's icon, big and alive on the loading screen, on its own (no tile: João).
+## Each piece of it is its own layer, all drawn over the icon's whole 1024-unit square
+## (tools/icon/icon.svg), so they line up as they are and only need moving about their own pivots.
+## Only the band of the square the robot fills is shown (TOP..BOTTOM): the control is that tall.
 ##
-## It comes up with a bounce and its eyes power on; then it bobs on its toes, blinks, throws a jab
-## or a one-two now and then, and the tile catches a glint. `finale()` is the double punch the
-## loading screen lifts away on, `fail()` the slump if the game can't start.
+## It comes up with a bounce and its eyes power on; then it bobs on its toes, blinks and throws a
+## jab or a one-two now and then. `finale()` is the double punch the loading screen lifts away on,
+## `fail()` the slump if the game can't start.
 ##
 ## Like the rest of the loading screen it stands alone: no other game scripts.
 extends Control
 
-const TILE := preload("res://assets/boot/tile.png")
 const HEAD := preload("res://assets/boot/head.png")
 const EYES := preload("res://assets/boot/eyes.png")
 const FIST_L := preload("res://assets/boot/fist_l.png")
 const FIST_R := preload("res://assets/boot/fist_r.png")
 
-## The icon's art units across.
+## The icon's art units across, and the band of it the robot fills (art units, top and bottom).
 const ART := 1024.0
+const TOP := 190.0
+const BOTTOM := 850.0
+## The control's height for its width.
+const TALL := (BOTTOM - TOP) / ART
 ## Where the pieces turn (art units): the head on its neck, the eyes' line, each fist's middle.
 const NECK := Vector2(512, 640)
 const EYE_LINE := Vector2(512, 436)
@@ -35,12 +38,11 @@ const BACK := 0.58
 
 var _t := 0.0
 var _halo: TextureRect
-var _tile: TextureRect
+## The robot's pieces sit on this (it springs in and shakes on a punch).
+var _tile: Control
 var _head: TextureRect
 var _eyes: TextureRect
 var _fists: Array[TextureRect] = []
-var _gloss: TextureRect
-var _gloss_mat: ShaderMaterial
 var _fx: Control
 
 ## The jabs under way: {side, t0, power}; the next one's time and side.
@@ -48,7 +50,6 @@ var _jabs := []
 var _next_jab := 2.0
 var _side := 0
 var _blink_at := 2.6
-var _glint_at := 1.5
 ## Impact rings: {p (px, local), t0, big}.
 var _rings := []
 var _shake := 0.0
@@ -74,20 +75,18 @@ func _init() -> void:
 	gt.width = 256
 	gt.height = 256
 	_halo = _layer(gt, self)
-	_tile = _layer(TILE, self)
+	_tile = Control.new()
+	_tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_tile)
 	_head = _layer(HEAD, _tile)
 	_eyes = _layer(EYES, _head)
 	_fists.append(_layer(FIST_L, _tile))
 	_fists.append(_layer(FIST_R, _tile))
-	_gloss = _layer(TILE, _tile)
-	_gloss_mat = ShaderMaterial.new()
-	_gloss_mat.shader = preload("res://app/boot/boot_gloss.gdshader")
-	_gloss.material = _gloss_mat
 	_fx = Control.new()
 	_fx.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_fx.draw.connect(_draw_fx)
 	add_child(_fx)
-	_tile.modulate.a = 0.0
+	_head.modulate.a = 0.0
 	_eyes.modulate.a = 0.0
 	resized.connect(_place)
 
@@ -109,18 +108,25 @@ func _k() -> float:
 
 func _place() -> void:
 	var k := _k()
-	for r in [_tile, _head, _eyes, _fists[0], _fists[1], _gloss]:
+	var sq := Vector2(size.x, size.x)
+	for r in [_tile, _head, _eyes, _fists[0], _fists[1]]:
 		r.position = Vector2.ZERO
-		r.size = size
-	_tile.pivot_offset = size * 0.5
+		r.size = sq
+	# (the square's band TOP..BOTTOM in view; it springs in about the robot's middle)
+	_tile.pivot_offset = Vector2(ART * 0.5, (TOP + BOTTOM) * 0.5) * k
 	_head.pivot_offset = NECK * k
 	_eyes.pivot_offset = EYE_LINE * k
 	for i in 2:
 		_fists[i].pivot_offset = FISTS[i] * k
-	_halo.size = size * 1.9
-	_halo.position = (size - _halo.size) * 0.5
+	_halo.size = sq * 1.5
+	_halo.position = Vector2(size.x - _halo.size.x, size.y - _halo.size.y) * 0.5
 	_halo.pivot_offset = _halo.size * 0.5
 	_fx.size = size
+	_base = Vector2(0.0, -TOP * k)
+
+
+## Where the robot's pieces sit at rest (the band TOP..BOTTOM at the top of the control).
+var _base := Vector2.ZERO
 
 
 # ---------------------------------------------------------------------------------- moments
@@ -182,10 +188,9 @@ func _process(dt: float) -> void:
 	var k := _k()
 	if k <= 0.0:
 		return
-	# coming up: the tile springs in, the head drops onto it, the fists rise into guard
+	# coming up: the robot springs in, its head dropping into place, its fists rising into guard
 	var u_tile := clampf(_t / 0.75, 0.0, 1.0)
-	_tile.modulate.a = clampf(_t / 0.3, 0.0, 1.0)
-	_tile.scale = Vector2.ONE * lerpf(0.55, 1.0, _back_out(u_tile, 1.4))
+	_tile.scale = Vector2.ONE * lerpf(0.7, 1.0, _back_out(u_tile, 1.4))
 	var u_head := clampf((_t - 0.12) / 0.6, 0.0, 1.0)
 	var u_fist := [clampf((_t - 0.3) / 0.55, 0.0, 1.0), clampf((_t - 0.4) / 0.55, 0.0, 1.0)]
 	_head.modulate.a = clampf(u_head * 3.0, 0.0, 1.0)
@@ -273,21 +278,12 @@ func _process(dt: float) -> void:
 		_flash = maxf(_flash, 0.5)
 	_eyes.modulate = Color(1.0, 0.32, 0.38) if _failed else Color(1, 1, 1).lerp(Color(1.6, 1.6, 1.6), _flash)
 	_eyes.modulate.a = eye
-	# a glint across the tile every few seconds
-	if _t >= _glint_at:
-		var g := (_t - _glint_at) / 0.95
-		if g >= 1.0:
-			_glint_at = _t + 3.6 + randf() * 1.6
-			_gloss_mat.set_shader_parameter("strength", 0.0)
-		else:
-			_gloss_mat.set_shader_parameter("pos", lerpf(-0.25, 1.25, g))
-			_gloss_mat.set_shader_parameter("strength", 0.42 * sin(g * PI))
-	# a punch shakes the tile
+	# a punch shakes the robot
 	_shake = maxf(0.0, _shake - dt)
 	var sh := _shake / 0.16
-	_tile.position = Vector2(sin(_t * 97.0), cos(_t * 83.0)) * 10.0 * sh * sh * k
+	_tile.position = _base + Vector2(sin(_t * 97.0), cos(_t * 83.0)) * 10.0 * sh * sh * k
 	# the glow breathes, and flares on a hit
-	_halo.modulate.a = clampf(_tile.modulate.a * (0.6 + 0.12 * sin(_t * 1.7) + 0.45 * _flash), 0.0, 1.0)
+	_halo.modulate.a = clampf(clampf(_t / 0.4, 0.0, 1.0) * (0.42 + 0.1 * sin(_t * 1.7) + 0.45 * _flash), 0.0, 1.0)
 	_halo.scale = Vector2.ONE * (_tile.scale.x * (1.0 + 0.05 * _flash))
 	if not _rings.is_empty():
 		_rings = _rings.filter(func(r) -> bool: return _t - r.t0 < 0.42)
