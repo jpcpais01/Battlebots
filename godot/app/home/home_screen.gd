@@ -62,8 +62,13 @@ var _pic_wait := 0.0
 
 
 func _ready() -> void:
+	# (a frame between the pieces while the loading screen is up: App.breathe)
 	_build_top()
+	if app != null:
+		await app.breathe()
 	_build_hero()
+	if app != null:
+		await app.breathe()
 	_build_actions()
 	resized.connect(_layout)
 	# (the pills wrap once the card knows its width: lay out again whenever its content settles)

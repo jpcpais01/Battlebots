@@ -251,7 +251,7 @@ func _ready() -> void:
 	if stagger:
 		await get_tree().process_frame
 	# the loser's ride out after the fight (game.ts stretcher)
-	stretcher = Stretcher.new()
+	stretcher = _take("stretcher", Stretcher)
 	add_child(stretcher)
 	if stagger:
 		await get_tree().process_frame
@@ -265,18 +265,18 @@ func _ready() -> void:
 		_step_views.append(Director.View.new())
 	if stagger:
 		await get_tree().process_frame
-	drones = Drones.new()
+	drones = _take("drones", Drones)
 	add_child(drones)
-	referee = Referee.new()
+	referee = _take("referee", Referee)
 	add_child(referee)
 	if stagger:
 		await get_tree().process_frame
-	contact_ao = ContactAO.new()
+	contact_ao = _take("contact_ao", ContactAO)
 	add_child(contact_ao)
 	# the Ray tracing setting's traced light and reflections (hidden while it's off)
 	if stagger:
 		await get_tree().process_frame
-	ray = RayTrace.new()
+	ray = _take("ray", RayTrace)
 	add_child(ray)
 	# (a test may have handed in its own, e.g. tests/crowd_record.gd's logging one)
 	if crowd_audio == null:
@@ -325,7 +325,7 @@ func _ready() -> void:
 				titan_fx.land(p, sp))
 	if stagger:
 		await get_tree().process_frame
-	hud = FightHud.new()
+	hud = _take("hud", FightHud)
 	hud.visible = OS.get_environment("BB_NOHUD") == ""
 	add_child(hud)
 	# (the overlay's GPU Measure redraws this scene part by part)
@@ -994,6 +994,13 @@ func show_bot(spec) -> void:
 		_showcase_due = true
 		return
 	_make_showcase(spec)
+
+
+## A piece of the world built ahead by the loading screen (made[key]), or a new `cls`.
+func _take(key: String, cls) -> Node:
+	var n = made.get(key)
+	made.erase(key)
+	return n if n != null else cls.new()
 
 
 ## Build the showcase robot for `spec` on a worker thread (it's off the scene tree until

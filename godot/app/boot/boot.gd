@@ -5,8 +5,10 @@
 ##   2. A worker builds the heavy parts of the world ahead (the arena, the fight effects, the beach):
 ##      they're all built away from the scene tree, so this thread only has to add them in.
 ##   3. The app sets itself up (saves, the world, the screens), handing back between steps.
-##   4. The arena and then the beach are drawn a moment each behind the screen, so their looks
-##      are ready, and the screen lifts away onto the beach.
+##   4. The arena and then the beach are drawn a few frames each behind the screen, small, so
+##      their looks are ready, and the screen lifts away onto the beach.
+## The 3D world isn't drawn otherwise while the screen is up: the screen covers it, and drawing
+## the arena every frame behind it was most of what made the screen stutter on a phone.
 ## This script uses no other game script directly: it's up before they've loaded.
 extends Node
 
@@ -18,11 +20,25 @@ const MAIN := "res://app/main.tscn"
 const RENDERER_CFG := "user://renderer.cfg"
 const TRIAL := "user://renderer_trial"
 const SETTINGS := "user://settings.cfg"
-## Built ahead on the worker thread: Game.made.
+## Frames each place is drawn behind the screen to warm it up, and the 3D resolution they're
+## drawn at (the looks, shaders and pipelines are made the same at any size; the GPU's cost per
+## frame is mostly per pixel).
+const WARM_FRAMES := 4
+const WARM_SCALE := 0.25
+## Built ahead on the worker thread: Game.made. The arena and its effects, the beach, then the
+## fight's other pieces (Game._take) and the app's screens (App._setup, "screen:<id>"): made off
+## the scene tree, so this thread only has to add them in. (Their first making also loads what
+## they use, which held the screen up for a while each when it was done on this thread.)
 const AHEAD := [
-	["arena", "res://render/venue/arena.gd", "Building the arena"],
-	["effects", "res://render/fx/fight_fx.gd", "Building the arena"],
-	["home:beach", "res://render/home/beach.gd", "Setting up the beach"],
+	["arena", "res://render/venue/arena.gd"],
+	["effects", "res://render/fx/fight_fx.gd"],
+	["home:beach", "res://render/home/beach.gd"],
+	["hud", "res://game/fight_hud.gd"],
+	["ray", "res://render/rt/ray_trace.gd"],
+	["drones", "res://render/drones.gd"],
+	["referee", "res://render/referee/referee.gd"],
+	["stretcher", "res://render/stretcher/stretcher.gd"],
+	["contact_ao", "res://render/ao/contact_ao.gd"],
 ]
 
 ## The world's parts built ahead (the app hands them to the Game).
@@ -34,10 +50,14 @@ var _phase := -1
 var _clock := 0.0
 ## What the start loaded ahead for the app (kept loaded until it's used).
 var _kept := []
+## What's built ahead: AHEAD, then the app's screens (App.SCREENS: id -> script).
+var _ahead := []
+var _screens := {}
 
 
 func _ready() -> void:
 	_guard_renderer()
+	get_viewport().disable_3d = true
 	_layer = CanvasLayer.new()
 	_layer.layer = 100
 	add_child(_layer)
@@ -102,15 +122,23 @@ func _start() -> void:
 	# the translated game data's tables (TInit), which the arena's corners read as it's built
 	load("res://gen/init.gd").run()
 	# 2. the heavy parts of the world, on a worker
+	_ahead = AHEAD.duplicate()
+	for id in _screens:
+		_ahead.append(["screen:" + id, _screens[id]])
 	var task := WorkerThreadPool.add_task(_build_ahead, true, "build ahead")
 	var shown := -1
 	while not WorkerThreadPool.is_task_completed(task):
 		if _phase != shown and _phase >= 0:
 			shown = _phase
-			var job := "beach" if AHEAD[_phase][0] == "home:beach" else "arena"
-			if job == "beach":
+			# (the arena is most of the first job; the beach about half of the second, the rest
+			# shared out)
+			if _phase < 2:
+				screen.set_job("arena", 0.0 if _phase == 0 else 0.7, 0.7 if _phase == 0 else 1.0)
+			else:
 				screen.done("arena")
-			screen.set_job(job, 0.15 if _phase == 1 else 0.0, 1.0 if _phase != 0 else 0.7)
+				var n := maxf(1.0, _ahead.size() - 3)
+				var k0 := 0.0 if _phase == 2 else 0.5 + 0.5 * (_phase - 3) / n
+				screen.set_job("beach", k0, 0.5 if _phase == 2 else 0.5 + 0.5 * (_phase - 2) / n)
 		await get_tree().process_frame
 	WorkerThreadPool.wait_for_task_completion(task)
 	screen.done("arena")
@@ -128,7 +156,8 @@ func _start() -> void:
 func _by_path() -> Array:
 	var paths := ["res://game/fight.tscn", "res://gen/init.gd"]
 	var consts := (load("res://app/app.gd") as Script).get_script_constant_map()
-	for p in (consts.get("SCREENS", {}) as Dictionary).values():
+	_screens = consts.get("SCREENS", {})
+	for p in _screens.values():
 		paths.append(p)
 	if consts.has("RESULTS"):
 		paths.append(consts.RESULTS)
@@ -141,14 +170,14 @@ func _by_path() -> Array:
 	return paths.filter(func(p: String) -> bool: return ResourceLoader.exists(p))
 
 
-## Build the arena, the fight effects and the beach scene (on a worker thread: none of them is
-## in the scene tree yet).
+## Build the arena, the fight effects, the beach scene, the fight's other pieces and the screens
+## (on a worker thread: none of them is in the scene tree yet).
 func _build_ahead() -> void:
-	for i in AHEAD.size():
+	for i in _ahead.size():
 		_phase = i
-		var path: String = AHEAD[i][1]
+		var path: String = _ahead[i][1]
 		if ResourceLoader.exists(path):
-			made[AHEAD[i][0]] = load(path).new()
+			made[_ahead[i][0]] = load(path).new()
 
 
 ## The app's next step (App._setup): "screens" (the world is made), "arena" (the screens are
@@ -161,7 +190,7 @@ func step(what: String) -> void:
 		"arena":
 			screen.done("app")
 			screen.set_job("warm", 0.0, 0.35)
-			await _frames(10, 0.5)
+			await _warm()
 			screen.set_job("warm", 0.35, 0.5)
 		"home":
 			# (the app dips through black to the beach: wait for it to arrive)
@@ -169,18 +198,22 @@ func step(what: String) -> void:
 			while app.game.place != "home" and _clock - t0 < 3.0:
 				await get_tree().process_frame
 			screen.set_job("warm", 0.5, 1.0)
-			await _frames(16, 0.9)
+			await _warm()
 			screen.done("warm")
 			_finish()
 
 
-## At least `n` frames and `secs` seconds drawn behind the screen.
-func _frames(n: int, secs: float) -> void:
-	var t0 := _clock
-	var i := 0
-	while i < n or _clock - t0 < secs:
-		i += 1
+## The world drawn a few frames behind the screen, small (WARM_FRAMES, WARM_SCALE), then hidden
+## again.
+func _warm() -> void:
+	var vp := get_viewport()
+	var scale := vp.scaling_3d_scale
+	vp.scaling_3d_scale = WARM_SCALE
+	vp.disable_3d = false
+	for i in WARM_FRAMES:
 		await get_tree().process_frame
+	vp.disable_3d = true
+	vp.scaling_3d_scale = scale
 
 
 func _guard_renderer() -> void:
@@ -212,6 +245,8 @@ func _finish() -> void:
 	_remove(TRIAL)
 	# the home screen's words rise in as the loading screen lifts off them
 	screen.lifting.connect(func() -> void:
+		# the world shows again as the screen lifts off it
+		get_viewport().disable_3d = false
 		var s = app.screens.get(app.current)
 		if s != null and app.current == "home":
 			s.enter())
