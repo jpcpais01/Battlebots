@@ -68,6 +68,9 @@ var _pan_scale := 1.0
 ## lens's distance to the fight: sound crosses the stadium at 343 m/s).
 var titan := false
 var titan_delay := 0.0
+## The instant replay's slow motion: the blows and the whooshes play this much lower and longer
+## (1: as they are).
+var slow_rate := 1.0
 const TITAN_RATE := 0.62
 # (set while the queue replays a layer that already had the titans' pitch and delay applied)
 var _titan_done := false
@@ -175,6 +178,8 @@ func _play(clip: String, bus: StringName, gain: float, rate := 1.0, pan := 0.0, 
 		if titan_delay > 0.03:
 			_queue.append([_now + titan_delay, clip, bus, gain, rate, pan, true])
 			return null
+	if slow_rate != 1.0 and (bus == FX or bus == HITS):
+		rate *= slow_rate
 	var info: Array = SfxBank.CLIPS[clip]
 	var ears := _ears(pan)
 	var sum := ears.x + ears.y

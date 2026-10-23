@@ -16,6 +16,14 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-24 00:00",
+    title: "Instant replay of every knockout",
+    notes: [
+      "Android app: every knockout now gets a TV-style instant replay. Once the winner has had its moment, the broadcast wipes to the finishing blow and plays it again in slow motion from a low, close angle.",
+      "Android app: the replay crawls as the blow lands, stamps the move's name across the screen and booms deeper in slow motion, then wipes back to the ring for the stretcher and the results. Tap to skip it, or turn KO replays off in Settings.",
+    ],
+  },
+  {
     hour: "2026-10-23 22:00",
     title: "The crowd rates every fight",
     notes: [

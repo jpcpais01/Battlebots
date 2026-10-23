@@ -108,6 +108,13 @@ var _uid := 1.0
 var _rec: ReplayTimeline.Recorder
 ## A checkpoint being taken of the match on the worker (-1: none): the frame only reads it.
 var _snap_task := -1
+## The knockout's instant replay (game/replay/instant_replay.gd), its broadcast graphics, and the
+## step the match was on when this frame's steps started (the replay camera reads it then).
+var instant := InstantReplay.new()
+var instant_view: HudInstant
+var _frame_now := 0
+## How much lower the blows sound in the instant replay's slow motion.
+const SLOW_SOUND := 0.78
 ## Below this pace (the moment after a big hit) the fight is near enough still that a frame or
 ## two without steps, while a checkpoint is taken, doesn't show.
 const SNAP_PACE := 0.45
@@ -330,6 +337,8 @@ func _ready() -> void:
 	add_child(hud)
 	# (the overlay's GPU Measure redraws this scene part by part)
 	hud.perf.scene = self
+	instant_view = HudInstant.new()
+	add_child(instant_view)
 	# the saved settings, in force before the first fight (the booth's welcome checks commentary)
 	if stagger:
 		await get_tree().process_frame
@@ -424,6 +433,9 @@ func resume() -> void:
 ## one; under the app, the app decides where to go (forfeited).
 func forfeit() -> void:
 	resume()
+	# (out of the knockout's replay: the fight as it ended is the one walked out of)
+	if instant.on():
+		_instant_out()
 	if auto:
 		new_fight()
 	else:
@@ -451,7 +463,10 @@ func _run_steps(n: int) -> void:
 		m.step(SIM_DT)
 		_rec.stepped()
 		if net_hash_every > 0:
-			_net_hash()
+			if instant.on():
+				instant.hash(m, net_hash_every)
+			else:
+				_net_hash()
 		if _sim_slow > 0:
 			var until := Time.get_ticks_usec() + _sim_slow
 			while Time.get_ticks_usec() < until:
@@ -464,6 +479,11 @@ func _run_steps(n: int) -> void:
 	# (read on the main thread after _sync, so no lock)
 	_step_us = Time.get_ticks_usec() - t0
 	_step_n = done
+	# the knockout's replay on its way to the blow, in what's left of the worker's frame (or a
+	# frame's worth, once the end of the fight waits on it)
+	if instant.prepping():
+		var waiting := not instant.held.is_empty()
+		instant.prep_step(InstantReplay.PREP_USEC_WAIT if waiting else maxi(2000, InstantReplay.PREP_USEC - _step_us))
 
 
 ## How many sim steps this frame may start, after a frame that took `dt` (call before _sync: it
@@ -519,13 +539,34 @@ func fast_forward(n: int) -> void:
 	_uid = TFighter.UID
 	var events := _events
 	_events = []
-	for e in events:
-		_on_event(e[0], e[1])
-		ReplayTape.mark(tape, e[2], m.phase, e[0], e[1])
-		match_event.emit(e[0], e[1])
+	_emit_events(events)
 	_quiet = false
 	_acc = 0.0
 	_mv.capture(m)
+
+
+## The events of the match on screen since the last frame, in step order (sim idle): to the
+## sound, the HUD, the building and the robots (_on_event), the tape's marks and the app.
+func _emit_events(events: Array) -> void:
+	var watch := _instant_ok()
+	for e in events:
+		if instant.on():
+			# the instant replay's copy of the fight: seen and heard, never kept (the tape, the app)
+			_on_event(e[0], e[1])
+			continue
+		# the end of a knockout waits for its instant replay (it goes out once that's over)
+		if e[0] == "end" and watch and (instant.state == InstantReplay.PREP or instant.state == InstantReplay.READY) and instant.held.is_empty():
+			instant.held = e
+			instant.waited = 0.0
+			continue
+		_on_event(e[0], e[1])
+		if watch:
+			instant.live_event(e[0], e[1], e[2], m, timeline, tape)
+		# the scrubber's big moments, as they happen (app.ts markMoment)
+		if replay == null:
+			ReplayTape.mark(tape, e[2], m.phase, e[0], e[1])
+		# (listeners mustn't end or start a match from here: the frame goes on with this one)
+		match_event.emit(e[0], e[1])
 
 
 func _queue_event(type: String, data) -> void:
@@ -581,6 +622,7 @@ func start_match(a, b, seed: float, partners = null, opts := {}) -> void:
 	_free_models()
 	stretcher.clear()
 	tag_cam.stop()
+	_instant_stop()
 	# (the last fight's match, let go of: see SimSnap.dispose)
 	SimSnap.dispose_later(m)
 	m = TMatch.Match.new(a, b, seed, partners)
@@ -730,9 +772,19 @@ func _attach_view(fresh: bool) -> void:
 ## there would (game.ts seekSlice): new robots wearing every dent and torn part the fight gave
 ## them up to here, and the HUD, the referee, the camera and the booth picking it up from here.
 func _land(mm, uid: float) -> void:
+	booth.end()
+	_put(mm, uid, true)
+	# the booth picks the fight up from here (the welcome only from the very start)
+	booth.begin(m, false, m.phase == "intro" and m.phaseTime < 0.5, _talk())
+
+
+## Put match `mm` (uid counter `uid`) on screen in place of the one there, which is let go of if
+## `drop` (a seek's landing; the instant replay keeps the live fight it cuts away from): new
+## robots wearing every dent and torn part the fight gave them up to its step, the HUD, the
+## referee, the effects and the camera picking it up from there. Not the booth.
+func _put(mm, uid: float, drop: bool) -> void:
 	_sync()
 	_events.clear()
-	booth.end()
 	sfx.walk_on_stop(0.2)
 	_free_models()
 	stretcher.clear()
@@ -746,7 +798,8 @@ func _land(mm, uid: float) -> void:
 	_hiss_seen.clear()
 	_sfx_count = -1
 	_crowd_count = -1
-	SimSnap.dispose_later(m)
+	if drop:
+		SimSnap.dispose_later(m)
 	m = mm
 	_uid = uid
 	m.listeners = []
@@ -754,8 +807,108 @@ func _land(mm, uid: float) -> void:
 	_listen()
 	_attach_view(false)
 	_rewear()
-	# the booth picks the fight up from here (the welcome only from the very start)
-	booth.begin(m, false, m.phase == "intro" and m.phaseTime < 0.5, _talk())
+
+
+# ------------------------------------------------------------------ the instant replay
+
+## Whether this fight's knockout gets an instant replay: offline, live (not a tape played back),
+## and the player hasn't turned them off (Settings: KO replays). BB_NOINSTANT=1 for quick checks.
+func _instant_ok() -> bool:
+	return replay == null and not online and m != null and (settings == null or settings.ko_replay) and OS.get_environment("BB_NOINSTANT") == ""
+
+
+## Each frame, before anything reads the match: the end of a knockout held for its replay starts
+## the stinger across (or gives up on it if the copy is still a long way off), the cuts in and out
+## are made once the stinger covers the picture, and a tap (or the last step) ends the replay.
+func _instant_frame(dt: float) -> void:
+	var ir := instant
+	match ir.state:
+		InstantReplay.PREP, InstantReplay.READY:
+			if ir.held.is_empty():
+				return
+			ir.waited += dt
+			if ir.state == InstantReplay.READY:
+				ir.state = InstantReplay.WIPE_IN
+				instant_view.wipe()
+				sfx.whoosh(true, false, 0.9)
+			elif ir.waited > InstantReplay.WAIT_MAX:
+				# still a long way from the blow: no replay this time, the fight ends as it would have
+				_sync()
+				ir.drop()
+				_instant_release()
+		InstantReplay.WIPE_IN:
+			if instant_view.covered():
+				_instant_in()
+		InstantReplay.PLAY:
+			if instant_view.tapped or _frame_now >= ir.stop or _mv.phase == "end":
+				ir.state = InstantReplay.WIPE_OUT
+				instant_view.wipe()
+				sfx.whoosh(true, false, 0.9)
+		InstantReplay.WIPE_OUT:
+			if instant_view.covered():
+				_instant_out()
+
+
+## Under the stinger: the copy goes on screen in the live fight's place (which is kept aside, as
+## it is, for after), the HUD and the booth step away, the blows sound lower and the bug comes up.
+func _instant_in() -> void:
+	var ir := instant
+	_sync()
+	ir.live = m
+	ir.live_uid = _uid
+	ir.live_speed = speed
+	booth.end()
+	_put(ir.copy, ir.copy_uid, false)
+	ir.begin_play()
+	hud.visible = false
+	sfx.slow_rate = SLOW_SOUND
+	var v := instant_view
+	v.result = "DISMANTLED" if ir.result == "Dismantled" else ir.result
+	v.who = ir.winner_name
+	v.move = ir.move
+	v.accent = ir.accent
+	v.rate = ir.rate(int(m.frame))
+	v.show_replay(true)
+	v.uncover()
+
+
+## Back from the replay (under the stinger, or walking out of the fight from the pause menu): the
+## live fight back on screen as it was, the booth back on the air, and the end of the fight let go.
+func _instant_out() -> void:
+	var ir := instant
+	_sync()
+	var live = ir.live
+	ir.live = null
+	ir.state = InstantReplay.IDLE
+	# (the copy, on screen, is let go of as the match there)
+	ir.copy = null
+	_put(live, ir.live_uid, true)
+	booth.resume(m)
+	speed = ir.live_speed
+	sfx.slow_rate = 1.0
+	instant_view.show_replay(false)
+	instant_view.uncover()
+	_instant_release()
+
+
+## The fight's "end", held for the replay, goes out now as it came (sim idle).
+func _instant_release() -> void:
+	var e := instant.held
+	instant.held = []
+	if e.is_empty() or m == null:
+		return
+	_on_event(e[0], e[1])
+	ReplayTape.mark(tape, e[2], m.phase, e[0], e[1])
+	match_event.emit(e[0], e[1])
+
+
+## No replay any more (a new fight, or the fight leaving the screen; sim idle).
+func _instant_stop() -> void:
+	instant.reset()
+	if instant_view != null:
+		instant_view.clear()
+	if sfx != null:
+		sfx.slow_rate = 1.0
 
 
 ## Every dent and torn part the fight gave the robots up to the step on screen, from the wear
@@ -864,6 +1017,7 @@ func end_match() -> void:
 	booth.end()
 	sfx.walk_on_stop(0.4)
 	_free_models()
+	_instant_stop()
 	tag_cam.stop()
 	_tag_glow = 0.0
 	_tag_light.visible = false
@@ -1475,6 +1629,8 @@ func _process(dt: float) -> void:
 	if replay != null and replay.poll(self):
 		_hold_frame(dt)
 		return
+	# the knockout's instant replay: its wipes, and the cuts to it and back made under them
+	_instant_frame(dt)
 	# the fight holds still from here until the next steps start
 	var budget := _step_budget(dt)
 	var w0 := Time.get_ticks_usec()
@@ -1491,16 +1647,11 @@ func _process(dt: float) -> void:
 	# what the rest of the frame draws, copied while the sim is idle: once the next steps start,
 	# the robots, effects, arena and camera read this, never the match
 	_mv.capture(m)
+	_frame_now = int(m.frame)
 	_tag_frame()
 	var events := _events
 	_events = []
-	for e in events:
-		_on_event(e[0], e[1])
-		# the scrubber's big moments, as they happen (app.ts markMoment)
-		if replay == null:
-			ReplayTape.mark(tape, e[2], m.phase, e[0], e[1])
-		# (listeners mustn't end or start a match from here: the frame goes on with this one)
-		match_event.emit(e[0], e[1])
+	_emit_events(events)
 	Perf.lap(Perf.SIM)
 	_direct_steps(events)
 	Perf.lap(Perf.CAMERA)
@@ -1516,7 +1667,7 @@ func _process(dt: float) -> void:
 	# online: the room's pacing and hashes, and a catch-up when this phone fell behind
 	if net_frame.is_valid():
 		net_frame.call(dt)
-	if replay == null:
+	if replay == null and not instant.on():
 		# the coach call the player tapped goes in at the next step (app.ts hud.onCoach:
 		# queueCoach), or online at a step both phones agree on
 		var call := hud.take_coach()
@@ -1550,6 +1701,11 @@ func _process(dt: float) -> void:
 	var steps := 0
 	if titan:
 		time_k = _titan_time(dt)
+	# the instant replay runs as slow as it wants at each step (through the sim's own slow motion)
+	if instant.on():
+		# (titans' own half-speed time is mostly undone: their replay would drag on)
+		speed = instant.rate(int(m.frame)) / maxf(0.2, float(m.slowmo)) * (0.75 / time_k if titan else 1.0)
+		instant_view.rate = instant.rate(int(m.frame))
 	var still := replay != null and replay.still(m)
 	if still:
 		# a paused replay: no time passes (a frame step runs its steps at once)
@@ -1584,12 +1740,12 @@ func _process(dt: float) -> void:
 		if steps == 0 and not still:
 			_acc = minf(_acc, SIM_DT)
 	_alpha = 1.0 if whole else _acc / SIM_DT
-	if not whole and m.pace < SNAP_PACE and (replay == null or not replay.busy()) and timeline.wants(int(m.frame)) and SimSnap.can_take(m):
+	if not whole and m.pace < SNAP_PACE and (replay == null or not replay.busy()) and not instant.on() and timeline.wants(int(m.frame), InstantReplay.DANGER_SPACING if replay == null and InstantReplay.danger(m) else ReplayTimeline.SPACING) and SimSnap.can_take(m):
 		# the fight all but stands still a moment (a big hit): a checkpoint now, these steps next frame
 		_snap_task = WorkerThreadPool.add_task(_take_snap, true, "checkpoint")
 		_acc += steps * SIM_DT
 		steps = 0
-	if steps > 0:
+	if steps > 0 or (instant.prepping() and _snap_task < 0):
 		_task = WorkerThreadPool.add_task(_run_steps.bind(steps), true, "sim")
 	Perf.lap(Perf.SIM)
 	_pose_alpha = pose_alpha
@@ -1724,6 +1880,13 @@ func _process(dt: float) -> void:
 	var st_shot := stretcher.shot if stretcher.on else {}
 	if not st_shot.is_empty():
 		director.film(st_shot.pos, st_shot.look, st_shot.fov_k, st_shot.cut)
+	elif instant.on():
+		# the instant replay's own low, close shot
+		var ir := instant.shot(dt, _frame_now, models[instant.att].joints, models[instant.vic].joints, cam.global_position)
+		director.film(ir.pos, ir.look, ir.fov_k, ir.cut)
+		if not instant.landed and _frame_now >= instant.focal:
+			instant.landed = true
+			instant_view.stamp()
 	else:
 		# a tag team match's tags and eliminations (tag_cam.gd)
 		var tc := tag_cam.frame(dt)

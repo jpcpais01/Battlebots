@@ -108,11 +108,14 @@ func _run() -> void:
 	var base := _out.get_basename()
 	await _shot(base + ".png")
 	app.ui.visible = false
+	var hv: bool = app.game.hud.visible
 	app.game.hud.visible = false
+	app.game.instant_view.visible = false
 	await _hold(0.05, 2)
 	await _shot(base + "_3d.png")
 	app.ui.visible = true
-	app.game.hud.visible = app.current == "fight"
+	app.game.hud.visible = hv
+	app.game.instant_view.visible = true
 	get_root().disable_3d = true
 	RenderingServer.set_default_clear_color(Color.BLACK)
 	await _hold(0.05, 2)
