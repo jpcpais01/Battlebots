@@ -9,6 +9,7 @@ render_mode diffuse_lambert, cull_back, fog_disabled;
 #include "res://render/home/beach_world.gdshaderinc"
 #include "res://render/ao/contact_ao.gdshaderinc"
 #include "res://render/home/home_common.gdshaderinc"
+#include "res://render/lit_safe.gdshaderinc"
 
 uniform sampler2D map : repeat_enable, filter_linear_mipmap_anisotropic;
 uniform sampler2D normal_map : repeat_enable, filter_linear_mipmap_anisotropic;
@@ -59,7 +60,7 @@ void fragment() {
 	float bRip = (1.0 - bVeg) * (1.0 - 0.8 * bWet);
 	vec3 mapN = texture(normal_map, UV * normal_map_xf.xy + normal_map_xf.zw).xyz * 2.0 - 1.0;
 	mapN.xy *= normal_scale * bRip;
-	NORMAL = perturb_normal(VERTEX, NORMAL, UV * normal_map_xf.xy, mapN);
+	NORMAL = lit_safe(perturb_normal(VERTEX, NORMAL, UV * normal_map_xf.xy, mapN), VIEW);
 	float r = mix(roughness, 0.5, bWet);
 	ROUGHNESS = mix(r, 0.07, bFilm * 0.9);
 	// dry sand scatters the sun rather than mirroring it

@@ -17,8 +17,11 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-23 10:00",
-    title: "A smooth start",
+    title: "Greener bushes and a smooth start",
     notes: [
+      "Android app: no more big black holes in the beach's bushes and jungle on some phones.",
+      "Android app: the beach's bushes, jungle trees and grass now catch the sun properly, fresh and green instead of dark and flat.",
+      "Android app: the same fix guards robots, sand and the garage, so no black specks can appear on them on those phones either.",
       "Android app: the loading screen no longer freezes while the game starts. It keeps moving the whole way.",
       "Android app: the loading screen now shows just the robot boxer, bigger, with no icon tile behind it.",
     ],

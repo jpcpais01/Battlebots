@@ -20,6 +20,7 @@
 
 #include "res://render/bot/bot_damage.gdshaderinc"
 #include "res://render/ao/contact_ao.gdshaderinc"
+#include "res://render/lit_safe.gdshaderinc"
 #ifdef SKINNED
 #include "res://render/skins/skin.gdshaderinc"
 #endif
@@ -344,7 +345,8 @@ void fragment() {
 	METALLIC = metal;
 	ROUGHNESS = rgh;
 	EMISSION = emit;
-	NORMAL = nrm;
+	// (dents and relief can turn it from the eye: render/lit_safe.gdshaderinc)
+	NORMAL = lit_safe(nrm, VIEW);
 	AO = v_ao;
 	AO_LIGHT_AFFECT = 0.6;
 }

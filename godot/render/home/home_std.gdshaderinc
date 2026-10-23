@@ -12,10 +12,12 @@
 //   WINLIGHT lounge.ts windowLit: the city's light through the rainy window, on the floor and rug
 //   SHEEN  the velvet's sheen (three's MeshPhysicalMaterial sheen: Charlie sheen in a light() of its own)
 //   CURTAIN lounge.ts curtains: the hems stirring in the draught off the glass
+//   VOLUME_NORMALS the normals are the plant's shape, the same from either side (see fragment())
 global uniform float bb_time;
 // the home key light's position and its shadow camera's near plane (0: none), set by HomeStage
 global uniform vec4 bb_home_key;
 #include "res://render/home/home_common.gdshaderinc"
+#include "res://render/lit_safe.gdshaderinc"
 #ifdef AO_ON
 #include "res://render/ao/contact_ao.gdshaderinc"
 uniform float ao_strength = 1.0;
@@ -217,6 +219,15 @@ void vertex() {
 }
 
 void fragment() {
+#ifdef VOLUME_NORMALS
+	// beachFlora.ts: the bush's leaves face outwards, like the dome they make, and the grass is
+	// lit like the ground it grows from. Godot turns a two-sided card's normal round on the side
+	// it calls the back, and these cards are wound inside out (the bush's fronts face into the
+	// dome), so every leaf we saw was lit with its normal pointing away from us: lit as if from
+	// behind, and on phones holed with the black lit_safe explains. Their own normals instead,
+	// seen from either side:
+	NORMAL = FRONT_FACING ? NORMAL : -NORMAL;
+#endif
 	vec3 c = color;
 	float a = opacity;
 #if defined(VCOL) || defined(INST_COL)
@@ -350,6 +361,8 @@ void fragment() {
 		if (abs(det) > 0.0) NORMAL = normalize(abs(det) * nn - grad);
 	}
 #endif
+	// (whatever bent it, the normal leaves here facing the eye: no NaN out of the phones' lighting)
+	NORMAL = lit_safe(NORMAL, VIEW);
 	vec3 e = emissive;
 #ifdef WINLIGHT
 	e += win_light(w_pos) * ALBEDO;
