@@ -16,6 +16,7 @@ const SCREENS := {
 	"vault": "res://app/gacha/vault_screen.gd",
 	"tagteam": "res://app/tagteam/tag_team_screen.gd",
 	"online": "res://app/online/online_screen.gd",
+	"gauntlet": "res://app/gauntlet/gauntlet_screen.gd",
 }
 ## The results card (app.ts showResults), a ResultsView.
 const RESULTS := "res://app/results/results_view.gd"
@@ -54,6 +55,10 @@ var _flog = null
 ## set this false to bring the locks back.
 const UNLOCK_ALL := true
 
+## The Gauntlet's run and records (app/gauntlet/gauntlet.gd), Android only.
+var gauntlet: Dictionary = {}
+## The fight on screen is a Gauntlet stage (start_gauntlet).
+var gauntlet_on := false
 ## The bot faced last, kept for a rematch (app.ts opponent).
 var opponent = null
 ## The fight on screen is a round of a map event: {id, round, defence} (app.ts eventRun).
@@ -125,6 +130,7 @@ func _setup() -> void:
 	saves = Store.load_saves()
 	skins = Gacha.load_state()
 	pilot = Pilot.load_state()
+	gauntlet = Gauntlet.load_state()
 	# (a pilot from before medals starts with what the win record knows)
 	if Medals.seed(pilot, record):
 		Pilot.save_state(pilot)
@@ -370,7 +376,7 @@ func go(id: String) -> void:
 	if id != "fight":
 		_drop_net_fight()
 		game.end_match()
-		if id == "home" or id == "map" or id == "tagteam":
+		if id == "home" or id == "map" or id == "tagteam" or id == "gauntlet":
 			game.show_bot(player)
 		elif id == "online":
 			# (the ring stands empty behind the room: the bots are on its cards)
@@ -423,6 +429,11 @@ func _camera(id: String) -> void:
 			d.mode = "menu"
 			d.shift_x = 0.0
 			game.crowd_audio.ambience(0.4)
+		"gauntlet":
+			# the player's bot in the ring, the camera turning round it, the house murmuring
+			d.mode = "menu"
+			d.shift_x = 0.0
+			game.crowd_audio.ambience(0.5)
 		"online":
 			# high over the empty ring, the house beyond it, turning slowly (OnlineScreen.tick)
 			d.mode = "scene"
@@ -562,6 +573,7 @@ func fight(same_opponent := false, titans := false) -> void:
 		return
 	if not same_opponent:
 		event_run = null
+	gauntlet_on = false
 	titan_run = titans
 	tap("start")
 	start_fight(same_opponent)
@@ -571,6 +583,8 @@ func start_fight(same_opponent: bool) -> void:
 	close_results()
 	if not same_opponent or opponent == null:
 		opponent = make_opponent()
+	# (a Gauntlet rival's boosts were for its stage: a rematch outside it is a plain fight)
+	opponent.erase("boost")
 	var seed := float(randi())
 	# an event's rounds are fought in its own venue, titans in the Titan Colosseum, everything
 	# else indoors
@@ -602,6 +616,7 @@ func start_fight(same_opponent: bool) -> void:
 func start_tag_fight(partner, rivals: Array, names := ["", ""]) -> void:
 	close_results()
 	event_run = null
+	gauntlet_on = false
 	titan_run = false
 	tag_setup = {"partner": partner.duplicate(true), "rivals": [rivals[0].duplicate(true), rivals[1].duplicate(true)], "names": names}
 	opponent = rivals[0]
@@ -631,6 +646,46 @@ func tag_fight(same_rivals: bool) -> void:
 	start_tag_fight(tag_setup.partner, rivals, names)
 
 
+## The Gauntlet's next stage (its ladder's Fight): the player's bot wearing the run's boosts
+## against the stage's rival, in its floor's venue, billed with its stage (and a boss's taunt).
+func start_gauntlet() -> void:
+	if gauntlet.run == null or not gauntlet.run.offer.is_empty():
+		return
+	close_results()
+	event_run = null
+	titan_run = false
+	gauntlet_on = true
+	var stage := Gauntlet.next_stage(gauntlet)
+	var foe: Dictionary = Gauntlet.foe(gauntlet, player)
+	Gauntlet.save_state(gauntlet)
+	opponent = foe.bot.duplicate(true)
+	var arena := Gauntlet.arena(stage)
+	if "rival_intro" in game.hud:
+		var bill := "%s · Stage %d · %s" % ["Gauntlet boss" if Gauntlet.boss(stage) else "Gauntlet", stage, String(opponent.style)]
+		game.hud.rival_intro = {"style": bill, "taunt": String(Gauntlet.boss_def(stage).taunt) if Gauntlet.boss(stage) else ""}
+	if game.has_method("set_arena"):
+		game.set_arena(arena)
+	_bill_pilot()
+	game.start_match(Gauntlet.player_bot(gauntlet, player), opponent, float(randi()), null, {"arena": arena})
+	_watch_fight(0)
+	last_fight = {"tape": game.tape, "timeline": game.timeline}
+	go("fight")
+
+
+## Pay what a Gauntlet run brought home (credits into the career, shards into the Skin Vault) and
+## save it all.
+func gauntlet_pay(credits: int, shards: int) -> void:
+	if credits > 0:
+		record.career.credits = float(record.career.credits) + credits
+		record.career.earned = float(record.career.earned) + credits
+		Store.save_record(record)
+	if shards > 0:
+		skins.shards = int(skins.get("shards", 0)) + shards
+		Gacha.save_state(skins)
+	Gauntlet.save_state(gauntlet)
+	changed.emit()
+
+
 ## Whether the fight on screen (or just over) is a tag team match.
 func is_tag() -> bool:
 	return game.m != null and game.m.tag != null
@@ -652,6 +707,7 @@ func fight_event(e) -> void:
 	var round_: float = TEvents.progressOf(record.events, e.id).run
 	var defence: float = TEvents.defenceOf(record.events, e)
 	event_run = {"id": e.id, "round": round_, "defence": defence}
+	gauntlet_on = false
 	opponent = TEvents.rival(e, round_, player, defence)
 	# a title's last rival comes out in an Epic skin, the one before in a Rare, the same skin
 	# every time (by the event)
@@ -702,13 +758,23 @@ func _on_forfeit() -> void:
 	var tag := is_tag()
 	# (walking out counts for nothing on the pilot's side)
 	_flog = null
+	var run_over := false
 	if game.m != null and game.m.phase != "end":
 		tally(false, false)
 		if tag:
 			tag_tally(false, false)
 		event_result(false, false, null, true)
-	# (out of a tag team fight, back to the team sheet)
-	go("map" if event_run != null and screens.has("map") else "tagteam" if tag and screens.has("tagteam") else "home")
+		# (walking out of a Gauntlet stage ends the run: what was locked in comes home)
+		if gauntlet_on and gauntlet.run != null:
+			var gr := Gauntlet.settle(gauntlet, false, false)
+			gauntlet_pay(int(gr.took), 0)
+			run_over = true
+	# (out of a tag team fight, back to the team sheet; out of the Gauntlet, back to its ladder)
+	var back := "map" if event_run != null and screens.has("map") else "tagteam" if tag and screens.has("tagteam") else "gauntlet" if gauntlet_on and screens.has("gauntlet") else "home"
+	gauntlet_on = false
+	go(back)
+	if run_over and screens.has("gauntlet"):
+		screens.gauntlet.walked_out()
 
 
 ## Count a fight against the AI (app.ts tally).
@@ -779,7 +845,13 @@ func _show_results() -> void:
 	if m.tag != null:
 		tag_tally(won, draw)
 	var info := {"m": m, "me": 0, "winner": winner, "won": won, "draw": draw, "kind": kind, "event": ev}
-	var pr = settle_pilot(m, won, draw, kind)
+	# a Gauntlet stage: the run moves on (or ends), the bank, a boss's shards
+	var gr = null
+	if gauntlet_on and gauntlet.run != null:
+		gr = Gauntlet.settle(gauntlet, won, draw)
+		gauntlet_pay(int(gr.took), int(gr.shards))
+		info["gauntlet"] = gr
+	var pr = settle_pilot(m, won, draw, kind, gr)
 	if pr != null:
 		info["pilot"] = pr
 	# a tag team fight's team names (ours, theirs)
@@ -834,12 +906,16 @@ func _pilot_event(type: String, data) -> void:
 ## The fight just ended (its results coming up): XP, levels, contracts and a quick fight's pay,
 ## paid into the career's credits and saved. The report for the results card, or null when the
 ## fight wasn't watched (a replay) or was already settled.
-func settle_pilot(m, won: bool, draw: bool, kind):
+func settle_pilot(m, won: bool, draw: bool, kind, gauntlet_report = null):
 	var fl = _flog
 	_flog = null
 	if fl == null or fl.m != m:
 		return null
 	var ctx := {"won": won, "draw": draw, "kind": kind, "tag": m.tag != null, "titan": titan_run, "career": event_run != null, "online": game.online}
+	# (a Gauntlet stage: its boss beaten, and the stage reached, for the medals)
+	if gauntlet_report != null:
+		ctx["gauntlet_boss"] = bool(gauntlet_report.won and gauntlet_report.boss)
+		ctx["gauntlet_stage"] = int(gauntlet_report.stage) if gauntlet_report.won else 0
 	var rep := Pilot.settle(pilot, fl, ctx)
 	# (the style it fought in, picked or its own: the style picker's record)
 	FightStyles.tally(pilot, String(m.brains[fl.me].traits.style), won)
@@ -871,6 +947,7 @@ func replay() -> void:
 	_drop_net_fight()
 	# (Rematch on its results is a plain one, the same opponent: the event's run has moved on)
 	event_run = null
+	gauntlet_on = false
 	var arena := String(t.get("arena", "grand"))
 	titan_run = arena == "titan"
 	if "rival_intro" in game.hud:
@@ -1036,6 +1113,7 @@ func fight_online(s: OnlineSession, a, b, seed: float) -> void:
 	_results_at = -1.0
 	_drop_skip()
 	event_run = null
+	gauntlet_on = false
 	titan_run = false
 	if "rival_intro" in game.hud:
 		game.hud.rival_intro = null

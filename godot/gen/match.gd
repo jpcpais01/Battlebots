@@ -109,8 +109,8 @@ class Match extends RefCounted:
 		self.roundTime = (TTag.TAG_TIME if (partners != null) else TMatch.ROUND_TIME)
 		self.clock = roundTime
 		TFighter.resetUids()
-		var fa: TFighter.Fighter = TFighter.Fighter.new(0.0, a.name_, TItems.computeBuild(a.loadout, a.get("size_")), TMath.Rng.new((rng.next() * float(4294967296))))
-		var fb: TFighter.Fighter = TFighter.Fighter.new(1.0, b.name_, TItems.computeBuild(b.loadout, b.get("size_")), TMath.Rng.new((rng.next() * float(4294967296))))
+		var fa: TFighter.Fighter = TFighter.Fighter.new(0.0, a.name_, TItems.computeBuild(a.loadout, a.get("size_"), a.get("boost")), TMath.Rng.new((rng.next() * float(4294967296))))
+		var fb: TFighter.Fighter = TFighter.Fighter.new(1.0, b.name_, TItems.computeBuild(b.loadout, b.get("size_"), b.get("boost")), TMath.Rng.new((rng.next() * float(4294967296))))
 		fa.opp = fb
 		fb.opp = fa
 		self.fighters = [fa, fb]
@@ -122,8 +122,8 @@ class Match extends RefCounted:
 		self.shows = [TEmote.Showman.new(fa, fb, ba, a.get("emotes")), TEmote.Showman.new(fb, fa, bb, b.get("emotes"))]
 		var all: Array = [fa, fb]
 		if (partners != null):
-			var pa: TFighter.Fighter = TFighter.Fighter.new(0.0, partners.a.name_, TItems.computeBuild(partners.a.loadout, partners.a.get("size_")), TMath.Rng.new((rng.next() * float(4294967296))))
-			var pb: TFighter.Fighter = TFighter.Fighter.new(1.0, partners.b.name_, TItems.computeBuild(partners.b.loadout, partners.b.get("size_")), TMath.Rng.new((rng.next() * float(4294967296))))
+			var pa: TFighter.Fighter = TFighter.Fighter.new(0.0, partners.a.name_, TItems.computeBuild(partners.a.loadout, partners.a.get("size_"), partners.a.get("boost")), TMath.Rng.new((rng.next() * float(4294967296))))
+			var pb: TFighter.Fighter = TFighter.Fighter.new(1.0, partners.b.name_, TItems.computeBuild(partners.b.loadout, partners.b.get("size_"), partners.b.get("boost")), TMath.Rng.new((rng.next() * float(4294967296))))
 			pa.opp = fb
 			pb.opp = fa
 			var bpa: TBrain.Brain = TBrain.Brain.new(pa, fb, TMath.Rng.new((rng.next() * float(4294967296))), (partners.a.get("style") if partners.a.get("style") != null else ""))

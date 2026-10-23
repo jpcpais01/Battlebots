@@ -1705,7 +1705,12 @@ export const SIZE_EFFECT = {
   staminaRegen: -0.4,
 };
 
-export function computeBuild(loadout: Loadout, size = 1): FighterBuild {
+/**
+ * A bot's stats from its parts, its set bonuses and its frame size. `boost` adds stat lines on
+ * top of the parts (the Android app's Gauntlet runs pick them up between fights), in the parts'
+ * own units; it never changes the power rating.
+ */
+export function computeBuild(loadout: Loadout, size = 1, boost?: Partial<Record<StatKey, number>>): FighterBuild {
   const s: Stats = { ...BASE_STATS };
   const pct: Partial<Record<StatKey, number>> = {};
   const passives = new Map<PassiveId, number>();
@@ -1748,6 +1753,11 @@ export function computeBuild(loadout: Loadout, size = 1): FighterBuild {
         else pct[k] = (pct[k] ?? 0) + v;
       }
       for (const [id, v] of bonus.passives ?? []) addPassive(id, v);
+    }
+  if (boost)
+    for (const [k, v] of Object.entries(boost) as [StatKey, number][]) {
+      if (k === 'toughness') for (const slot of SLOTS) tough[slot] += v;
+      else pct[k] = (pct[k] ?? 0) + v;
     }
   s.maxHp += pct.hp ?? 0;
   s.armor = Math.min(0.4, s.armor + (pct.armor ?? 0));

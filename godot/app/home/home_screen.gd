@@ -51,6 +51,9 @@ var _meta := HFlowContainer.new()
 var _tiles: Array[PartTile] = []
 var _record := HBoxContainer.new()
 var _career: Button
+## The Gauntlet (app/gauntlet) and its chip (the run's stage, or the best one).
+var _gauntlet: Button
+var _gauntlet_chip: Label
 ## Tag Team: two bots a side (app/tagteam).
 var _tag: Button
 var _titans: Button
@@ -588,6 +591,29 @@ func _build_actions() -> void:
 	_add_cash(_career)
 	MenuKit.pad_button(_career, 0.6 * _em)
 	sub.add_child(_career)
+	# the Gauntlet (app/gauntlet): how far one bot can go, with the run or the best on a chip
+	_gauntlet = UiTheme.button("Gauntlet", "", &"Btn")
+	_gauntlet.name = "Gauntlet"
+	var gic := _gauntlet.find_child("Icon", true, false) as TextureRect
+	gic.texture = CareerKit.svg(GauntletScreen.SVG, 19)
+	gic.modulate = GauntletScreen.HOT.lerp(Color.WHITE, 0.25)
+	gic.visible = true
+	_gauntlet.pressed.connect(func() -> void:
+		app.tap("select")
+		app.go("gauntlet"))
+	var grow := _gauntlet.get_child(0) as HBoxContainer
+	var gfs := 0.78 * _em
+	var gchip := MenuKit.pill(MenuKit.box(Color(GauntletScreen.HOT, 0.16), 999, [0.6 * gfs, 0.15 * gfs, 0.6 * gfs, 0.15 * gfs], Color(GauntletScreen.HOT, 0.45), 1), 0.3 * gfs)
+	_gauntlet_chip = MenuKit.label("New", gfs, 750, Color(1.0, 0.8, 0.66))
+	gchip.get_node("Row").add_child(_gauntlet_chip)
+	var gm := MarginContainer.new()
+	gm.add_theme_constant_override(&"margin_left", int(round(0.3 * _em)))
+	gm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	gm.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	gm.add_child(gchip)
+	grow.add_child(gm)
+	MenuKit.pad_button(_gauntlet, 0.6 * _em)
+	sub.add_child(_gauntlet)
 	# two bots a side: the team sheet (app/tagteam)
 	_tag = UiTheme.button("Tag Team", "", &"Btn")
 	_tag.name = "TagTeam"
@@ -751,6 +777,7 @@ func enter() -> void:
 	_career.disabled = not app.screens.has("map")
 	_vault.disabled = not app.screens.has("vault")
 	_tag.disabled = not app.screens.has("tagteam")
+	_gauntlet.disabled = not app.screens.has("gauntlet")
 	_sync_vault()
 	_sync_scene_btn()
 	_sync_sound()
@@ -782,6 +809,9 @@ func refresh() -> void:
 	var b = TItems.computeBuild(p.loadout, z)
 	_power.text = "Power %d" % int(b.rating)
 	_sync_style()
+	if _gauntlet_chip != null and app.gauntlet is Dictionary and not app.gauntlet.is_empty():
+		var g: Dictionary = app.gauntlet
+		_gauntlet_chip.text = "Stage %d" % Gauntlet.next_stage(g) if g.run != null else "Best %d" % int(g.best) if int(g.best) > 0 else "New"
 	_name.text = String(p.name_)
 	var paint := MenuKit.hex(p.paint.primary)
 	var bs := MenuKit.box(paint, 99)
