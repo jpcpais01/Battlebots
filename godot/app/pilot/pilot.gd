@@ -72,7 +72,10 @@ const TITLES := [[1, "Rookie"], [5, "Prospect"], [10, "Contender"], [15, "Vetera
 
 ## A new pilot: level 1, nothing done.
 static func fresh() -> Dictionary:
-	return {"level": 1, "xp": 0, "fights": 0, "day": "", "contracts": [], "bonus": false, "first_win": ""}
+	var p := {"level": 1, "xp": 0, "fights": 0, "day": "", "contracts": [], "bonus": false, "first_win": ""}
+	# (the lifetime stats, medals and title: app/pilot/medals.gd)
+	Medals.fresh_into(p)
+	return p
 
 
 ## A saved pilot made safe.
@@ -94,6 +97,7 @@ static func sanitize(raw) -> Dictionary:
 				out.contracts.append({"id": String(c.id), "n": clampi(_int(c.get("n"), 0), 0, int(def.n)), "done": c.get("done") == true})
 	if out.contracts.size() != 3:
 		out.day = ""
+	Medals.sanitize_into(out, raw)
 	return out
 
 
@@ -230,6 +234,8 @@ class FightLog:
 	var told := {}
 	## Rivals' knockdown counts seen so far (a sweep or a takedown sends them down without one).
 	var _kd := {}
+	## The lowest my side's health has been, of its full health (a comeback wins from under 0.2).
+	var low := 1.0
 
 	func _init(m_, me_: int) -> void:
 		m = m_
@@ -262,8 +268,11 @@ class FightLog:
 						counts.crits += 1
 					if d.counter:
 						counts.counters += 1
-				elif int(def.index) == me and d.blocked:
-					counts.blocks += 1
+				elif int(def.index) == me:
+					if d.blocked:
+						counts.blocks += 1
+					else:
+						low = minf(low, _health())
 			"dodge":
 				var f = d.get("f")
 				if f != null and int(f.index) == me:
@@ -312,7 +321,17 @@ class FightLog:
 		s.tag_wins = 1 if won and ctx.get("tag", false) else 0
 		s.titan_wins = 1 if won and ctx.get("titan", false) else 0
 		s.career_wins = 1 if won and ctx.get("career", false) else 0
+		s.comebacks = 1 if won and minf(low, _health()) < 0.2 else 0
 		return s
+
+	## My side's health now, of its full health (a tag team's, together).
+	func _health() -> float:
+		var hp := 0.0
+		var hp_max := 0.0
+		for f in _mine():
+			hp += maxf(0.0, float(f.hp))
+			hp_max += float(f.build.stats.maxHp)
+		return hp / hp_max if hp_max > 0.0 else 1.0
 
 	func _mine() -> Array:
 		if m.tag != null:
@@ -372,10 +391,17 @@ static func settle(p: Dictionary, fl: FightLog, ctx: Dictionary) -> Dictionary:
 			credits += int(pay(c.id)[0])
 			cxp += int(pay(c.id)[1])
 		out.contracts.append(row)
+	var finished := 0
+	for row in out.contracts:
+		if row.done:
+			finished += 1
 	if not p.bonus and done_count(p) == 3:
 		p.bonus = true
 		out.bonus = DAY_BONUS
 		credits += DAY_BONUS
+	# the lifetime stats, and the medal tiers they reach (app/pilot/medals.gd)
+	Medals.add_fight(p, s, ctx, finished, int(out.bonus) > 0)
+	var medals := Medals.award(p)
 	# the fight's XP
 	var lines := []
 	lines.append(["Fight", XP_FIGHT])
@@ -404,10 +430,28 @@ static func settle(p: Dictionary, fl: FightLog, ctx: Dictionary) -> Dictionary:
 	if cxp > 0:
 		lines.append(["Contracts", cxp])
 		xp += cxp
-	out.xp_lines = lines
-	out.xp = xp
+	var mpay := Medals.pay(medals)
+	if int(mpay[0]) > 0:
+		lines.append(["Medals", int(mpay[0])])
+		xp += int(mpay[0])
 	p.fights = int(p.fights) + 1
 	out.levels = add_xp(p, xp)
+	# (the levels it reached can earn the level medal: its XP on top)
+	var more := Medals.award(p)
+	if not more.is_empty():
+		var extra := Medals.pay(more)
+		out.levels.append_array(add_xp(p, int(extra[0])))
+		xp += int(extra[0])
+		mpay = [int(mpay[0]) + int(extra[0]), int(mpay[1]) + int(extra[1])]
+		if lines[-1][0] == "Medals":
+			lines[-1] = ["Medals", int(lines[-1][1]) + int(extra[0])]
+		else:
+			lines.append(["Medals", int(extra[0])])
+		medals.append_array(more)
+	credits += int(mpay[1])
+	out.medals = medals
+	out.xp_lines = lines
+	out.xp = xp
 	for u in out.levels:
 		credits += int(u[1])
 	# a quick fight's pay

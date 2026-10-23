@@ -16,6 +16,17 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-23 15:00",
+    title: "Medals and pilot titles",
+    notes: [
+      "Android app: 26 medals to earn over every fight you play, each in Bronze, Silver and Gold, for things like landing 1,500 punches, winning from under 20% health or beating a Titan. Each one pays XP and credits.",
+      "Android app: a Silver medal unlocks a title like Iron Fist, Giant Slayer or Comeback Kid. Wear one and it's billed over your bot in the fight intro, and Gold makes it shine.",
+      "Android app: tap your pilot card on the home screen to open your profile: your level, career stats, every title you've unlocked and the whole medal wall with your progress to each next tier.",
+      "Android app: medals pop up mid-fight the moment you reach one, and the results show each one landing with its pay. Pop-ups no longer pile on top of each other.",
+      "Android app: your wins, losses and best streak so far already count, so long-time players get their first medals after their next fight.",
+    ],
+  },
+  {
     hour: "2026-10-23 14:00",
     title: "Daily contracts and pilot levels",
     notes: [

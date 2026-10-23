@@ -83,5 +83,28 @@ func _init() -> void:
 		var def: Dictionary = Pilot.CONTRACTS[id]
 		var per := float(sums.get(def.stat, 0)) / n
 		print("  %-11s tier %d  ~%s fights" % [id, int(def.tier), "%.1f" % (float(def.n) / per) if per > 0.0 else "never"])
+	# medals: how many fights each one's tiers take at this pace
+	print("medals after %d fights: %d of %d tiers" % [n, Medals.count(pilot), Medals.total()])
+	for md in Medals.MEDALS:
+		var per := float(sums.get(md.stat, 0)) / n
+		var tiers := []
+		for k in 3:
+			tiers.append("%.0f" % (float(md.n[k]) / per) if per > 0.0 and not md.get("best", false) else "-")
+		print("  %-16s %s  fights to B/S/G: %s" % [md.id, Medals.TIER_NAMES[Medals.tier(pilot, md.id)], " / ".join(tiers)])
+	_check(int(pilot.life.fights) == n, "every fight counted in the lifetime stats")
+	var back := Pilot.sanitize(JSON.parse_string(JSON.stringify(pilot)))
+	_check(back.medals == pilot.medals and int(back.life.punches) == int(pilot.life.punches), "medals and stats load back")
+	var fresh := Pilot.fresh()
+	_check(Medals.seed(fresh, {"wins": 7.0, "losses": 3.0, "draws": 0.0, "streak": 2.0, "best": 4.0}) and int(fresh.life.fights) == 10 and int(fresh.life.best_streak) == 4, "an old record seeds the stats")
+	var won := Medals.award(fresh)
+	_check(won.has(["fights", 1]) and won.has(["wins", 1]) and won.has(["streak", 1]), "seeded medals come in")
+	_check(Medals.worn(fresh)[0] == "Rookie", "the level's title is worn by default")
+	fresh.medals["punches"] = 2
+	fresh.title = "punches"
+	_check(Medals.worn(fresh)[0] == "Iron Fist", "a Silver medal's title can be worn")
+	_check(Pilot.sanitize(JSON.parse_string(JSON.stringify(fresh))).title == "punches", "the title worn loads back")
+	fresh.medals["punches"] = 1
+	_check(Pilot.sanitize(JSON.parse_string(JSON.stringify(fresh))).title == "", "an unearned title doesn't load")
+	_check(Medals.num(1234567) == "1,234,567" and Medals.num(15) == "15", "numbers get commas")
 	print("%d failed" % _fails if _fails > 0 else "all ok")
 	quit(1 if _fails > 0 else 0)

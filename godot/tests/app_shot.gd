@@ -5,7 +5,8 @@
 ## or tagresults (the same for a tag team fight from the team sheet). seconds: how
 ## long the screen runs before the picture. script: an optional res:// path of a script with a
 ## static `prepare(app: App)` (await-able) run before the wait, for setting a screen up (a tab, a
-## modal). The save is a fresh one each time (user://save is cleared). The PNG is written
+## modal), and its optional static `before(app)` before the screen comes up (a save to fight
+## with). The save is a fresh one each time (user://save is cleared). The PNG is written
 ## sRGB-composited (tools/shots/ui_srgb.py over three captures of one still frame).
 extends SceneTree
 
@@ -68,6 +69,11 @@ func _margins() -> void:
 
 func _run() -> void:
 	await _hold(0.5, 8)
+	# (a prepare script's optional static `before(app)` runs before the screen comes up)
+	if _prep != "":
+		var ps: GDScript = load(_prep)
+		if ps.get_script_method_list().any(func(md): return md.name == "before"):
+			await ps.before(app)
 	match _screen:
 		"fight", "results", "tagfight", "tagresults":
 			if _screen.begins_with("tag"):

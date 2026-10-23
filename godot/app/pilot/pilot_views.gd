@@ -114,11 +114,19 @@ static func _tier_color(tier: int) -> Color:
 
 # ------------------------------------------------------------------ the home screen's card
 
-## Level, XP and today's contracts, top right of the home screen. `compact` (no room) keeps the
-## level and one line about the contracts.
+## Level, XP and today's contracts, top right of the home screen, and the medals won (a gold dot
+## while new ones wait to be seen). A tap opens the pilot's profile (MedalViews). `compact` (no
+## room) keeps the level, one line about the contracts and the medals.
 class Card:
 	extends PanelContainer
 	var app
+	var _medals: Label
+	var _mdisc: MedalViews.Disc
+	var _mdot: PanelContainer
+	var _mnew: Label
+	var _profile: Label
+	## Where a press on the card went down (a drag off it is no tap).
+	var _down = null
 	var _badge: Control
 	var _title: Label
 	var _bar: Bar
@@ -139,7 +147,7 @@ class Card:
 	func _init(app_) -> void:
 		app = app_
 		name = "PilotCard"
-		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		mouse_filter = Control.MOUSE_FILTER_STOP
 		var em := PilotViews.EM
 		var sb := MenuKit.box(Color(0.035, 0.045, 0.07, 0.74), 16, [0.8 * em, 0.65 * em, 0.8 * em, 0.7 * em], UiTheme.LINE, 1)
 		sb.shadow_color = Color(0, 0, 0, 0.3)
@@ -182,6 +190,45 @@ class Card:
 		_summary = MenuKit.label("", 0.78 * em, 600, UiTheme.TEXT_2)
 		_summary.visible = false
 		v.add_child(_summary)
+		# the medals: the best one won, how many, and a dot while some are new
+		var rule2 := ColorRect.new()
+		rule2.color = UiTheme.LINE
+		rule2.custom_minimum_size.y = 1
+		rule2.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		v.add_child(rule2)
+		var mr := PilotViews._row(0.5 * em)
+		v.add_child(mr)
+		_mdisc = MedalViews.Disc.new("trophy", 0, 1.6 * em)
+		mr.add_child(_mdisc)
+		_medals = MenuKit.label("", 0.76 * em, 700, UiTheme.TEXT_2)
+		_medals.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_medals.clip_text = true
+		_medals.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		_medals.custom_minimum_size.x = 40
+		mr.add_child(_medals)
+		var fs := 0.62 * em
+		_mdot = MenuKit.pill(MenuKit.box(Color(PilotViews.GOLD, 0.2), 999, [0.55 * fs, 0.12 * fs, 0.55 * fs, 0.12 * fs], Color(PilotViews.GOLD, 0.6), 1))
+		_mdot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		_mdot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_mnew = MenuKit.label("", fs, 800, PilotViews.GOLD_SOFT, int(round(fs * 0.1)))
+		_mdot.get_node("Row").add_child(_mnew)
+		mr.add_child(_mdot)
+		_profile = MenuKit.label("Profile ›", 0.72 * em, 700, UiTheme.CYAN)
+		mr.add_child(_profile)
+
+	func _gui_input(e: InputEvent) -> void:
+		var mb := e as InputEventMouseButton
+		if mb != null and mb.button_index == MOUSE_BUTTON_LEFT:
+			if mb.pressed:
+				_down = mb.position
+				pivot_offset = size * 0.5
+				scale = Vector2.ONE * 0.97
+			else:
+				scale = Vector2.ONE
+				if _down != null and mb.position.distance_to(_down) < 12.0 and Rect2(Vector2.ZERO, size).has_point(mb.position):
+					MedalViews.open_profile(app)
+				_down = null
+			accept_event()
 
 	## Redraw from the pilot (a new day rolls new contracts in).
 	func refresh() -> void:
@@ -191,7 +238,19 @@ class Card:
 		var em := PilotViews.EM
 		var lv := int(p.level)
 		PilotViews._set_badge(_badge, lv)
-		_title.text = "Level %d · %s" % [lv, Pilot.title(lv)]
+		var worn := Medals.worn(p)
+		_title.text = "Level %d · %s" % [lv, worn[0]]
+		_title.add_theme_color_override(&"font_color", PilotViews.GOLD_SOFT if int(worn[1]) >= 3 else UiTheme.TEXT)
+		var n := Medals.count(p)
+		var best := 0
+		for id in p.medals:
+			best = maxi(best, int(p.medals[id]))
+		_mdisc.t = best
+		var fresh := Medals.unseen(p)
+		_medals.text = "Medals %d/%d" % [n, Medals.total()]
+		_mnew.text = "%d NEW ›" % fresh
+		_mdot.visible = fresh > 0
+		_profile.visible = fresh <= 0
 		var need := Pilot.need(lv)
 		_bar.value = float(p.xp) / float(need) if lv < Pilot.MAX_LEVEL else 1.0
 		_xp.text = "%d / %d XP to level %d" % [int(p.xp), need, lv + 1] if lv < Pilot.MAX_LEVEL else "Top level"
@@ -332,6 +391,12 @@ static func progress_view(app, rep: Dictionary, delay := 0.75) -> Control:
 		r.add_child(coins(int(rep.bonus), 0.84 * em))
 		box.add_child(r)
 		rows.append(r)
+	# the medal tiers it earned (app/pilot/medals.gd)
+	for w in rep.get("medals", []):
+		var r := MedalViews.result_row(String(w[0]), int(w[1]))
+		r.modulate.a = 0.0
+		box.add_child(r)
+		rows.append(r)
 	# everything paid, and the balance it leaves
 	var paid := _row(0.5 * em)
 	paid.modulate.a = 0.0
@@ -395,12 +460,19 @@ static func progress_view(app, rep: Dictionary, delay := 0.75) -> Control:
 	for r in rows:
 		var rr: Control = r
 		var done: bool = rr.get_meta("done", false)
+		var medal: bool = rr.get_meta("medal", false)
 		tw.tween_callback(func() -> void:
-			if done and sfx != null:
-				sfx.play("coin", 0.7)
+			if sfx != null and (done or medal):
+				sfx.play("chime1" if medal else "coin", 0.7)
 			var t2 := rr.create_tween()
-			t2.tween_property(rr, "modulate:a", 1.0, 0.25))
-		tw.tween_interval(0.22)
+			t2.tween_property(rr, "modulate:a", 1.0, 0.25)
+			if medal:
+				# (a medal lands with a little punch)
+				var d := rr.get_child(0) as Control
+				d.pivot_offset = d.size * 0.5
+				d.scale = Vector2(1.5, 1.5)
+				t2.parallel().tween_property(d, "scale", Vector2.ONE, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT))
+		tw.tween_interval(0.4 if medal else 0.22)
 	if int(rep.credits) > 0:
 		tw.tween_callback(func() -> void:
 			bal.text = "You have %s" % TCareer.credits(float(app.record.career.credits))
