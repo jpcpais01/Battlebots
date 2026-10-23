@@ -52,6 +52,8 @@ export interface BotSpec {
   walkOn?: string;
   /** A skin from the Skin Vault (game/skins.ts) over the plating; missing = the plain paint. Cosmetic: the sim never reads it. */
   skin?: string;
+  /** The fighting style its corner picked (sim/brain.ts FIGHT_STYLES); missing = the bot picks its own from its build. */
+  style?: string;
 }
 
 /** A random frame size: mostly near standard, now and then a giant or a tiddler. */

@@ -29,7 +29,7 @@ const data = JSON.stringify([ITEMS, COMPANIES, MOVES, BASE_STATS, RARITIES, MAX_
 for (let i = 0; i < data.length; i++) mix(data.charCodeAt(i));
 const dataHash = h >>> 0;
 const rng = new Rng(0xb07b07);
-const m = new Match(randomBot(rng, 0.9), randomBot(rng, 0.9), 0x5eed);
+const m = new Match({ ...randomBot(rng, 0.9), style: 'Counter-puncher' }, randomBot(rng, 0.9), 0x5eed);
 m.skipIntro();
 for (let i = 0; i < 1800 && m.phase !== 'end'; i++) m.step();
 mix(matchHash(m));

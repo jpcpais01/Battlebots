@@ -50,6 +50,9 @@ static func load_player():
 static func keep_skin(bot, raw):
 	if raw is Dictionary and Skins.get_skin(raw.get("skin")) != null:
 		bot.skin = raw.skin
+	# (and the fighting style its corner picked: this build's translated saves.ts predates it)
+	if raw is Dictionary and raw.get("style") is String and TBrain.FIGHT_STYLES.has(raw.style):
+		bot.style = raw.style
 	return bot
 
 

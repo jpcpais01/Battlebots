@@ -39,6 +39,11 @@ var _right_rise: Rise
 var _pilot: PilotViews.Card
 var _pilot_rise: Rise
 var _power: Label
+## The fighting style chip by the power chip (tap: the style picker, app/pilot/styles.gd).
+var _style_btn: Button
+var _style_pill: PanelContainer
+var _style_icon: TextureRect
+var _style_text: Label
 var _name_btn: Button
 var _name: Label
 var _name_bar: Panel
@@ -407,6 +412,7 @@ func _build_hero() -> void:
 	_power = MenuKit.label("Power 0", fs, 700, UiTheme.INK)
 	chip.get_node("Row").add_child(_power)
 	k.add_child(chip)
+	_build_style_chip(k, fs)
 	_hero.add_child(k)
 	# the name (tap: the garage) with a short bar of the bot's paint under it
 	var npx := 2.35 * _em
@@ -444,6 +450,47 @@ func _build_hero() -> void:
 			_to_garage(t.slot))
 		tiles.add_child(t)
 		_tiles.append(t)
+
+
+## The fighting style chip: the style's glyph and name in its colour ("Pick a style" on Auto).
+func _build_style_chip(row: HBoxContainer, fs: float) -> void:
+	_style_btn = MenuKit.bare_button()
+	_style_btn.name = "Style"
+	_style_btn.tooltip_text = "Fighting style"
+	_style_btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_style_pill = MenuKit.pill(MenuKit.box(MenuKit.PILL_BG, 999), 0.3 * fs)
+	_style_pill.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var r := _style_pill.get_node("Row")
+	_style_icon = TextureRect.new()
+	_style_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_style_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_style_icon.custom_minimum_size = Vector2.ONE * 1.1 * fs
+	_style_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_style_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	r.add_child(_style_icon)
+	_style_text = MenuKit.label("", fs, 750, UiTheme.TEXT)
+	r.add_child(_style_text)
+	_style_btn.add_child(_style_pill)
+	_style_pill.minimum_size_changed.connect(func() -> void: _style_btn.custom_minimum_size = _style_pill.get_combined_minimum_size())
+	_style_btn.pressed.connect(func() -> void:
+		if app != null:
+			FightStyles.open_picker(app))
+	row.add_child(_style_btn)
+
+
+func _sync_style() -> void:
+	if _style_btn == null or app == null or app.player == null:
+		return
+	var id := FightStyles.of(app.player)
+	var col := FightStyles.color(id)
+	var fs := 0.78 * _em
+	var auto := id == FightStyles.AUTO
+	_style_pill.add_theme_stylebox_override(&"panel", MenuKit.box(Color(col, 0.16) if not auto else MenuKit.PILL_BG, 999, [0.6 * fs, 0.2 * fs, 0.75 * fs, 0.2 * fs], Color(col, 0.7) if not auto else UiTheme.LINE, 1))
+	_style_icon.texture = FightStyles.icon(id, 1.1 * fs)
+	_style_icon.modulate = col.lerp(Color.WHITE, 0.25)
+	_style_text.text = "Pick a style" if auto else id
+	_style_text.add_theme_color_override(&"font_color", UiTheme.TEXT_2 if auto else col.lerp(Color.WHITE, 0.45))
+	_style_btn.custom_minimum_size = _style_pill.get_combined_minimum_size()
 
 
 ## The name's layout: one line at line-height 1.05, then the 2.2em x 0.09em bar 0.12em under it.
@@ -734,6 +781,7 @@ func refresh() -> void:
 	var z: float = float(p.get("size_", 1.0)) if p is Dictionary else 1.0
 	var b = TItems.computeBuild(p.loadout, z)
 	_power.text = "Power %d" % int(b.rating)
+	_sync_style()
 	_name.text = String(p.name_)
 	var paint := MenuKit.hex(p.paint.primary)
 	var bs := MenuKit.box(paint, 99)

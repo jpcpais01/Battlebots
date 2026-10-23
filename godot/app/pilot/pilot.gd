@@ -75,6 +75,8 @@ static func fresh() -> Dictionary:
 	var p := {"level": 1, "xp": 0, "fights": 0, "day": "", "contracts": [], "bonus": false, "first_win": ""}
 	# (the lifetime stats, medals and title: app/pilot/medals.gd)
 	Medals.fresh_into(p)
+	# (the record in each fighting style: app/pilot/styles.gd)
+	p.styles = {}
 	return p
 
 
@@ -98,6 +100,7 @@ static func sanitize(raw) -> Dictionary:
 	if out.contracts.size() != 3:
 		out.day = ""
 	Medals.sanitize_into(out, raw)
+	FightStyles.sanitize_into(out, raw)
 	return out
 
 

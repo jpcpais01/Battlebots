@@ -114,8 +114,8 @@ class Match extends RefCounted:
 		fa.opp = fb
 		fb.opp = fa
 		self.fighters = [fa, fb]
-		var ba: TBrain.Brain = TBrain.Brain.new(fa, fb, TMath.Rng.new((rng.next() * float(4294967296))))
-		var bb: TBrain.Brain = TBrain.Brain.new(fb, fa, TMath.Rng.new((rng.next() * float(4294967296))))
+		var ba: TBrain.Brain = TBrain.Brain.new(fa, fb, TMath.Rng.new((rng.next() * float(4294967296))), (a.get("style") if a.get("style") != null else ""))
+		var bb: TBrain.Brain = TBrain.Brain.new(fb, fa, TMath.Rng.new((rng.next() * float(4294967296))), (b.get("style") if b.get("style") != null else ""))
 		ba.rival = bb
 		bb.rival = ba
 		self.brains = [ba, bb]
@@ -126,8 +126,8 @@ class Match extends RefCounted:
 			var pb: TFighter.Fighter = TFighter.Fighter.new(1.0, partners.b.name_, TItems.computeBuild(partners.b.loadout, partners.b.get("size_")), TMath.Rng.new((rng.next() * float(4294967296))))
 			pa.opp = fb
 			pb.opp = fa
-			var bpa: TBrain.Brain = TBrain.Brain.new(pa, fb, TMath.Rng.new((rng.next() * float(4294967296))))
-			var bpb: TBrain.Brain = TBrain.Brain.new(pb, fa, TMath.Rng.new((rng.next() * float(4294967296))))
+			var bpa: TBrain.Brain = TBrain.Brain.new(pa, fb, TMath.Rng.new((rng.next() * float(4294967296))), (partners.a.get("style") if partners.a.get("style") != null else ""))
+			var bpb: TBrain.Brain = TBrain.Brain.new(pb, fa, TMath.Rng.new((rng.next() * float(4294967296))), (partners.b.get("style") if partners.b.get("style") != null else ""))
 			bpb.onEvent = func(e): emit("brain", e)
 			bpa.onEvent = bpb.onEvent
 			var members: Array = [

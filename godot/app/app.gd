@@ -841,6 +841,8 @@ func settle_pilot(m, won: bool, draw: bool, kind):
 		return null
 	var ctx := {"won": won, "draw": draw, "kind": kind, "tag": m.tag != null, "titan": titan_run, "career": event_run != null, "online": game.online}
 	var rep := Pilot.settle(pilot, fl, ctx)
+	# (the style it fought in, picked or its own: the style picker's record)
+	FightStyles.tally(pilot, String(m.brains[fl.me].traits.style), won)
 	Pilot.save_state(pilot)
 	if int(rep.credits) > 0:
 		record.career.credits = float(record.career.credits) + float(rep.credits)

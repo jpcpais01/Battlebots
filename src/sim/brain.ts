@@ -42,6 +42,25 @@ const PRIOR: Record<AttackClass, Partial<Record<Response, number>>> = {
 
 const PERCEPTION_BUFFER = 120; // 1s at 120Hz
 
+/** The fighting styles a bot can be told to fight in (BotSpec.style); a bot left to itself picks one from its build. */
+export const FIGHT_STYLES = ['Boxer', 'Brawler', 'Swarmer', 'Out-fighter', 'Counter-puncher'];
+
+/**
+ * What a chosen style asks of the bot's temperament: aggression, caution and patience to lean
+ * towards, how much longer (+) or shorter it likes the range, in meters, and how keen it is to
+ * answer a shot with a counter (counterBias). A bot keeps a share of its own rolled nature
+ * (STYLE_PULL), so two Brawlers still fight a little differently. Tuned with scripts/styles.ts so
+ * none is a free win: on 2026-10-23, 80 fights a pairing, each style won 48-53% overall.
+ */
+const STYLE_SHAPE: Record<string, [number, number, number, number, number]> = {
+  Boxer: [0.56, 0.5, 0.55, 0, 1.1],
+  Brawler: [0.82, 0.28, 0.32, -0.06, 0.9],
+  Swarmer: [0.8, 0.36, 0.3, -0.02, 1],
+  'Out-fighter': [0.42, 0.6, 0.8, 0.08, 1.15],
+  'Counter-puncher': [0.6, 0.6, 0.5, 0.03, 1.5],
+};
+const STYLE_PULL = 0.7;
+
 interface Ema {
   v: number;
   n: number;
@@ -77,6 +96,8 @@ export interface Traits {
   grappling: number;
   /** Ties up with the plum (head down onto the knees) rather than a body lock (takedowns). */
   plumPref: number;
+  /** How keen it is to answer a shot with a counter (1 for a bot that picked its own style). */
+  counterBias: number;
 }
 
 /** Natural follow-ups: what tends to come after what in a combination. */
@@ -231,18 +252,19 @@ export class Brain {
   corner: Vector3 | null = null;
   time = 0;
 
-  constructor(me: Fighter, opp: Fighter, rng: Rng) {
+  /** `style`: the fighting style its corner picked (one of FIGHT_STYLES), or '' to let it pick its own. */
+  constructor(me: Fighter, opp: Fighter, rng: Rng, style = '') {
     this.me = me;
     this.opp = opp;
     this.rng = rng;
     for (let i = 0; i < PERCEPTION_BUFFER; i++) this.buf.push(makeObservation());
-    this.traits = this.rollTraits();
+    this.traits = this.rollTraits(style);
     this.baseRangeBias = this.traits.rangeBias;
     this.reactionNow = me.build.stats.reaction;
     this.circleDir = rng.sign();
   }
 
-  private rollTraits(): Traits {
+  private rollTraits(chosen: string): Traits {
     const r = this.rng;
     const st = this.me.build.stats;
     const f = this.me.build;
@@ -255,13 +277,26 @@ export class Brain {
     if (st.agility > 1.15) rangeBias += 0.05;
     const skill = clamp(0.42 + (0.15 - st.reaction) * 3.6 + (st.accuracy - 0.7) * 1.1 + r.range(-0.06, 0.06), 0.35, 0.98);
     const temper = r.range(0, 1);
-    const caution = clamp(1 - aggression * 0.75 + r.range(-0.15, 0.15), 0.1, 0.9);
-    const patience = clamp(r.range(0.2, 0.8) + rangeBias, 0.1, 0.95);
+    let caution = clamp(1 - aggression * 0.75 + r.range(-0.15, 0.15), 0.1, 0.9);
+    let patience = clamp(r.range(0.2, 0.8) + rangeBias, 0.1, 0.95);
     if (patience > 0.7) aggression *= 0.9;
     let style = 'Boxer';
+    let counterBias = 1;
     if (aggression > 0.68) style = rangeBias < 0 ? 'Brawler' : 'Swarmer';
     else if (rangeBias > 0.06 || patience > 0.7) style = 'Out-fighter';
     else if (caution > 0.6) style = 'Counter-puncher';
+    // told how to fight: its temperament leans that way (nothing more is drawn, so a bot left to
+    // itself rolls exactly as it always has)
+    if (FIGHT_STYLES.includes(chosen)) {
+      const shape = STYLE_SHAPE[chosen];
+      style = chosen;
+      const k = STYLE_PULL;
+      aggression = clamp(aggression + (shape[0] - aggression) * k, 0.12, 0.95);
+      caution = clamp(caution + (shape[1] - caution) * k, 0.1, 0.9);
+      patience = clamp(patience + (shape[2] - patience) * k, 0.1, 0.95);
+      rangeBias += shape[3];
+      counterBias = shape[4];
+    }
     const lean: Record<string, [number, number, number]> = {
       // footwork, head movement, pocket love
       Boxer: [0.55, 0.35, 0.35],
@@ -289,6 +324,7 @@ export class Brain {
       style,
       grappling: 0,
       plumPref: 0,
+      counterBias,
     };
     // pressure fighters like to tie up and take down; a heavy, planted frame wrestles well
     const grab: Record<string, number> = { Boxer: 0.3, Brawler: 0.65, Swarmer: 0.6, 'Out-fighter': 0.15, 'Counter-puncher': 0.35 };
@@ -1642,7 +1678,7 @@ export class Brain {
         if (r === 'absorb') v = Math.max(v, trade);
         else if (r !== 'block') v *= 1.15 - trade * 0.75;
       }
-      if (r === 'counter') v *= 0.5 + agg + this.anger * 0.4;
+      if (r === 'counter') v *= (0.5 + agg + this.anger * 0.4) * this.traits.counterBias;
       if (r === 'counter' && d > MOVES.jab.range[1] + me.build.stats.reach) v *= 0.2;
       if (r === 'block' && move.guardBreak) v *= 0.4;
       // my guard arms are wrecked: blocking with them might cost me an arm

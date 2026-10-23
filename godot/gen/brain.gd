@@ -5,6 +5,9 @@ extends RefCounted
 static var RESPONSES: Array
 static var PRIOR
 const PERCEPTION_BUFFER: float = 120.0
+static var FIGHT_STYLES: Array
+static var STYLE_SHAPE
+const STYLE_PULL: float = 0.7
 
 static func ema(v: float):
 	return ({"v": v, "n": 0.0})
@@ -114,7 +117,7 @@ class Brain extends RefCounted:
 		get:
 			return TFighter.rangeScale(opp, me)
 	
-	func _init(me: TFighter.Fighter = null, opp: TFighter.Fighter = null, rng: TMath.Rng = null) -> void:
+	func _init(me: TFighter.Fighter = null, opp: TFighter.Fighter = null, rng: TMath.Rng = null, style: String = "") -> void:
 		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
 			return
 		self.buf = []
@@ -204,12 +207,12 @@ class Brain extends RefCounted:
 		while (i < TBrain.PERCEPTION_BUFFER):
 			buf.append(TFighter.makeObservation())
 			i += 1
-		self.traits = rollTraits()
+		self.traits = rollTraits(style)
 		self.baseRangeBias = traits.rangeBias
 		self.reactionNow = me.build.stats.reaction
 		self.circleDir = rng.sign_()
 	
-	func rollTraits():
+	func rollTraits(chosen: String):
 		var r: TMath.Rng = rng
 		var st = me.build.stats
 		var f = me.build
@@ -231,12 +234,22 @@ class Brain extends RefCounted:
 		if (patience > 0.7):
 			aggression *= 0.9
 		var style: String = "Boxer"
+		var counterBias: float = 1.0
 		if (aggression > 0.68):
 			style = ("Brawler" if (rangeBias < 0.0) else "Swarmer")
 		elif ((rangeBias > 0.06) or (patience > 0.7)):
 			style = "Out-fighter"
 		elif (caution > 0.6):
 			style = "Counter-puncher"
+		if JS.includes(TBrain.FIGHT_STYLES, chosen):
+			var shape: Array = TBrain.STYLE_SHAPE.get(chosen)
+			style = chosen
+			var k: float = TBrain.STYLE_PULL
+			aggression = TMath.clamp_((aggression + (((shape[0] - aggression)) * k)), 0.12, 0.95)
+			caution = TMath.clamp_((caution + (((shape[1] - caution)) * k)), 0.1, 0.9)
+			patience = TMath.clamp_((patience + (((shape[2] - patience)) * k)), 0.1, 0.95)
+			rangeBias += shape[3]
+			counterBias = shape[4]
 		var lean = {
 	"Boxer": [0.55, 0.35, 0.35],
 	"Brawler": [0.2, 0.15, 0.85],
@@ -265,7 +278,8 @@ class Brain extends RefCounted:
 	"pocketLove": TMath.clamp_((pl + r.range_(-0.15, 0.15)), 0.0, 1.0),
 	"style": style,
 	"grappling": 0.0,
-	"plumPref": 0.0
+	"plumPref": 0.0,
+	"counterBias": counterBias
 }
 		var grab = {"Boxer": 0.3, "Brawler": 0.65, "Swarmer": 0.6, "Out-fighter": 0.15, "Counter-puncher": 0.35}
 		t.grappling = TMath.clamp_((((grab.get(style) + (((st.stability - 1.0)) * 0.9)) + (power * 0.3)) + r.range_(-0.18, 0.18)), 0.05, 0.95)
@@ -1460,7 +1474,7 @@ class Brain extends RefCounted:
 				elif (r != "block"):
 					v *= (1.15 - (trade * 0.75))
 			if (r == "counter"):
-				v *= ((0.5 + agg) + (anger * 0.4))
+				v *= ((((0.5 + agg) + (anger * 0.4))) * traits.counterBias)
 			if ((r == "counter") and (d > (_hMOVES.jab.range_[1] + me.build.stats.reach))):
 				v *= 0.2
 			if ((r == "block") and (move.get("guardBreak") == true)):
@@ -1785,6 +1799,14 @@ static func __init_module() -> void:
 	"lunge": {"block": 0.4, "slip": 0.25, "duck": 0.3, "sway": 0.2, "backstep": 0.35, "sidestep": 0.65, "counter": 0.35, "absorb": 0.05},
 	"shoot": {"block": 0.05, "slip": 0.05, "duck": 0.0, "sway": 0.05, "backstep": 0.5, "sidestep": 0.5, "counter": 0.4, "absorb": 0.05, "sprawl": 0.85},
 	"tie": {"block": 0.1, "slip": 0.35, "duck": 0.25, "sway": 0.3, "backstep": 0.55, "sidestep": 0.45, "counter": 0.45, "absorb": 0.25}
+}
+	TBrain.FIGHT_STYLES = ["Boxer", "Brawler", "Swarmer", "Out-fighter", "Counter-puncher"]
+	TBrain.STYLE_SHAPE = {
+	"Boxer": [0.56, 0.5, 0.55, 0.0, 1.1],
+	"Brawler": [0.82, 0.28, 0.32, -0.06, 0.9],
+	"Swarmer": [0.8, 0.36, 0.3, -0.02, 1.0],
+	"Out-fighter": [0.42, 0.6, 0.8, 0.08, 1.15],
+	"Counter-puncher": [0.6, 0.6, 0.5, 0.03, 1.5]
 }
 	TBrain.FOLLOW = {
 	"jab": {"jab": 3.0, "cross": 9.0, "leadHook": 3.0, "rearUpper": 2.0},

@@ -16,6 +16,17 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-23 17:00",
+    title: "Fighting styles",
+    notes: [
+      "Android app: choose how your bot fights. Tap the style chip next to your Power on the home screen and pick Boxer, Brawler, Swarmer, Out-fighter or Counter-puncher, or leave it on Auto.",
+      "Android app: each style really changes the fight: Brawlers plant their feet and trade, Swarmers keep coming and smother you on the ropes, Out-fighters live at the end of their reach, and Counter-punchers wait for you to miss and make you pay.",
+      "Android app: every style was balanced over thousands of test fights, so none is a cheat code: pick the one you love to watch. Your style and your rival's are shown in the fight intro.",
+      "Android app: the picker keeps your record in every style, so you can see which way of fighting works best for your bot.",
+      "Bots you fight still pick their own style each fight, and your saved bots and online fights keep the style you gave them.",
+    ],
+  },
+  {
     hour: "2026-10-23 15:00",
     title: "Medals and pilot titles",
     notes: [
