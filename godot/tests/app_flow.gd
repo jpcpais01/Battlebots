@@ -64,6 +64,15 @@ func _frame() -> void:
 				_check(float(r.career.credits) > _credits0, "the fight pays credits")
 				_check(app.results.find_child("Progress", true, false) != null, "the results show the pilot's progress")
 				_check(int(Pilot.load_state().fights) == 1, "the pilot is saved")
+				_check(int(Pilot.load_state().life.fights) == 1, "the lifetime stats count it")
+				# the pilot's profile: every medal on its wall
+				MedalViews.open_profile(app)
+				var md := Modal.current(app.ui)
+				var wall := md.find_child("Wall", true, false) if md != null else null
+				_check(wall != null and wall.get_child_count() == Medals.MEDALS.size(), "the profile shows every medal")
+				_check(int(app.pilot.seen) == Medals.count(app.pilot), "opening the profile sees the medals")
+				if md != null:
+					md.close()
 				app.fight()
 				_stage = 4
 			elif _t > 400:

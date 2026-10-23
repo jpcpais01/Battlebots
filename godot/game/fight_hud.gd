@@ -64,6 +64,9 @@ var _pause_em := -1.0
 ## A map event's rival for the next fight, billed in the intro: {style, taunt}, or null (hud.ts
 ## rivalIntro; App sets it before each fight starts).
 var rival_intro = null
+## The pilot billed over the player's card in the intro, offline ("Lv 12 · Iron Fist"; the app's
+## pilot, app/pilot/medals.gd). "" leaves it "Your bot".
+var pilot_tag := ""
 ## The player's corner (0 left, 1 right: online the guest fights from the right), and whether the
 ## fight is an online one (hud.ts attach's online: the coach calls are this corner's, the cards say
 ## You and Opponent, the intro can't be skipped, and there's no speed button). Set before start().
@@ -182,7 +185,7 @@ func start(m) -> void:
 	# (the cards' part pictures come from the game: Game.thumbs)
 	_intro.game = game
 	_intro.rival = rival_intro
-	_intro.tags = (["You", "Opponent"] if me == 0 else ["Opponent", "You"]) if online else ["Your bot", "Challenger"]
+	_intro.tags = (["You", "Opponent"] if me == 0 else ["Opponent", "You"]) if online else [pilot_tag if pilot_tag != "" else "Your bot", "Challenger"]
 	_intro.start(m)
 	_intro_k = 1.0 if m.phase == "intro" else 0.0
 

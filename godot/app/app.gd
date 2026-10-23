@@ -125,6 +125,9 @@ func _setup() -> void:
 	saves = Store.load_saves()
 	skins = Gacha.load_state()
 	pilot = Pilot.load_state()
+	# (a pilot from before medals starts with what the win record knows)
+	if Medals.seed(pilot, record):
+		Pilot.save_state(pilot)
 	# a skin the vault no longer counts as owned comes off (a save from another phone)
 	if Gacha.check_worn(skins, player):
 		Store.save_player(player)
@@ -585,6 +588,7 @@ func start_fight(same_opponent: bool) -> void:
 		game.hud.rival_intro = {"style": rv.style, "taunt": rv.taunt} if rv != null else null
 	if game.has_method("set_arena"):
 		game.set_arena(arena)
+	_bill_pilot()
 	game.start_match(player, opponent, seed, null, {"arena": arena})
 	_watch_fight(0)
 	# (the tape holds copies, so a later trip to the garage can't change the fight a replay shows)
@@ -605,6 +609,7 @@ func start_tag_fight(partner, rivals: Array, names := ["", ""]) -> void:
 		game.hud.rival_intro = null
 	if game.has_method("set_arena"):
 		game.set_arena("grand")
+	_bill_pilot()
 	game.start_match(player, rivals[0], float(randi()), {"a": partner, "b": rivals[1]}, {"arena": "grand"})
 	_watch_fight(0)
 	game.tape.teams = [String(names[0]), String(names[1])]
@@ -795,6 +800,13 @@ func _show_results() -> void:
 
 # ------------------------------------------------------------------------------ the pilot
 
+## The pilot billed over the player's card in the fight intro ("Lv 12 · Iron Fist"): set before
+## each fight starts.
+func _bill_pilot() -> void:
+	if "pilot_tag" in game.hud:
+		game.hud.pilot_tag = Medals.intro_tag(pilot)
+
+
 ## A fight starts: watch it for the pilot's contracts from corner `me`.
 func _watch_fight(me: int) -> void:
 	_flog = Pilot.FightLog.new(game.m, me) if game.m != null else null
@@ -808,10 +820,15 @@ func _pilot_event(type: String, data) -> void:
 		return
 	fl.event(type, data)
 	if type == "hit" or type == "dodge" or type == "knockdown" or type == "finisher" or type == "detach":
-		var wait := 0.0
+		var wait := float(fl.get_meta("toast_until", 0.0)) - _clock
+		wait = maxf(0.0, wait)
 		for id in Pilot.live_done(pilot, fl):
 			PilotViews.toast(self, id, wait)
 			wait += 3.3
+		for w in Medals.live_done(pilot, fl):
+			MedalViews.toast(self, String(w[0]), int(w[1]), wait)
+			wait += 3.3
+		fl.set_meta("toast_until", _clock + wait)
 
 
 ## The fight just ended (its results coming up): XP, levels, contracts and a quick fight's pay,
@@ -822,7 +839,7 @@ func settle_pilot(m, won: bool, draw: bool, kind):
 	_flog = null
 	if fl == null or fl.m != m:
 		return null
-	var ctx := {"won": won, "draw": draw, "kind": kind, "tag": m.tag != null, "titan": titan_run, "career": event_run != null}
+	var ctx := {"won": won, "draw": draw, "kind": kind, "tag": m.tag != null, "titan": titan_run, "career": event_run != null, "online": game.online}
 	var rep := Pilot.settle(pilot, fl, ctx)
 	Pilot.save_state(pilot)
 	if int(rep.credits) > 0:
