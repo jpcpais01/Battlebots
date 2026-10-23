@@ -151,6 +151,16 @@ func show_results(info_: Dictionary) -> void:
 	head.add_child(w)
 	_col.add_child(head)
 
+	# the crowd's verdict on it: its stars, headline and flow (app/pilot/rating.gd)
+	var rating = _rating()
+	if rating != null:
+		var names := [m.fighters[0].name_, m.fighters[1].name_]
+		if tag:
+			for i in 2:
+				if String(teams[i]) != "":
+					names[i] = teams[i]
+		_col.add_child(RatingView.view(app, rating, int(info.get("me", 0)), ca, cb, names))
+
 	# a tag team fight: both teams' bots, how each came out of it, and the tags
 	if tag:
 		_col.add_child(_roster(m, teams))
@@ -172,13 +182,21 @@ func show_results(info_: Dictionary) -> void:
 		_col.add_child(_gauntlet_view(info.gauntlet))
 	# the pilot's level and contracts moving on (app/pilot), and what the fight paid
 	if info.get("pilot") != null:
-		_col.add_child(PilotViews.progress_view(app, info.pilot))
+		# (once the stars are in)
+		_col.add_child(PilotViews.progress_view(app, info.pilot, 0.75 if rating == null else 1.5))
 	_foot.add_child(_net_actions() if info.has("net") else _actions(ev, won, draw))
 	_layout()
 	# .results fadeIn 0.5s; .res-card cardIn 0.55s 0.1s, from 1.5em to the right
 	modulate.a = 0.0
 	create_tween().tween_property(self, "modulate:a", 1.0, 0.5)
 	_rise.play(0.55, 0.1, Vector2(1.5 * EM, 0))
+
+
+## The crowd's rating of the fight, off its tape (null for a fight from before ratings).
+func _rating():
+	var t = info.get("tape")
+	var r = t.get("rating") if t is Dictionary else null
+	return r if r is Dictionary else null
 
 
 ## A Gauntlet stage's outcome (Gauntlet.settle's report): what it put in the bank, a boss's shards
@@ -389,7 +407,9 @@ func _keep_row() -> Control:
 	var hold: Array[Button] = [null]
 	var mark := func() -> void:
 		var saved := ReplayShelf.is_saved(t)
-		UiTheme.set_button(hold[0], "Saved" if saved else "Save replay", "check" if saved else "star")
+		# (a fight the crowd loved asks to be kept)
+		var classic: bool = _rating() != null and float(_rating().stars) >= 4.5
+		UiTheme.set_button(hold[0], "Saved" if saved else "Save this classic" if classic else "Save replay", "check" if saved else "star")
 		hold[0].disabled = saved
 	var save := _btn("Save replay", "star", &"Btn", func() -> void:
 		if hold[0].disabled:

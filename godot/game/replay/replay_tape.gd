@@ -13,6 +13,7 @@
 ##   end, marks: [{frame, kind: kd, tear, ko}], talk: the booth's script (Booth.said_script)
 ##   result: the results card's numbers (summary), so Results needn't run the fight to its end
 ##   me: the corner the player fought from; online; teams: a tag team fight's names
+##   rating: the crowd's rating of it (FightRating.rate; null until its results, or from before)
 class_name ReplayTape
 extends RefCounted
 
@@ -26,7 +27,7 @@ static func make(a, b, seed: float, partners = null, arena := "grand") -> Dictio
 		"a": a.duplicate(true), "b": b.duplicate(true), "seed": seed,
 		"partners": {"a": partners.a.duplicate(true), "b": partners.b.duplicate(true)} if partners != null else null,
 		"arena": arena, "cut": -1, "intro": -1.0, "coach": [], "tags": [], "end": 0, "marks": [], "talk": [],
-		"result": null, "me": 0, "online": false, "teams": ["", ""],
+		"result": null, "me": 0, "online": false, "teams": ["", ""], "rating": null,
 	}
 
 
@@ -197,6 +198,7 @@ static func sanitize(raw) -> Variant:
 		"intro": float(t.intro) if _num(t.get("intro")) else -1.0,
 		"coach": coach, "tags": tags, "end": _int(t.end), "marks": marks, "talk": talk,
 		"result": _summary(t.get("result")), "me": 1 if _int(t.get("me")) == 1 else 0, "online": t.get("online") == true, "teams": ["", ""],
+		"rating": FightRating.sanitize(t.get("rating")),
 	}
 	if t.get("arena") is String and (t.arena == "titan" or TEvents.ARENAS.has(t.arena)):
 		out.arena = t.arena

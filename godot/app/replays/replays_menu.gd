@@ -38,7 +38,8 @@ static func _draw(app, md: Modal, holder: VBoxContainer) -> void:
 
 
 ## .save-row.replay-row: the player's bot's paint, both names, then how it went (an online fight's
-## globe, Win / Loss / Draw and how, its length, the day it was saved, an older version's tag).
+## globe, Win / Loss / Draw and how, its length, the day it was saved, the crowd's stars, an older
+## version's tag).
 static func _row(app, md: Modal, holder: VBoxContainer, r: Dictionary) -> Control:
 	var t: Dictionary = r.tape
 	# this player's bot first (online they may have fought from the right corner)
@@ -78,6 +79,12 @@ static func _row(app, md: Modal, holder: VBoxContainer, r: Dictionary) -> Contro
 	var sub := G.label("%s%s · %ds · %s" % [verdict, how, int(r.secs), _date(float(r.saved))], 12.5, 600, UiTheme.MUTED if winner < 0 else UiTheme.GREEN if winner == me else UiTheme.RED)
 	line.add_child(G.trim(sub))
 	sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# the crowd's stars for it (a fight from before ratings has none)
+	if t.get("rating") is Dictionary:
+		var st := RatingView.Stars.new(11.5)
+		st.name = "Stars"
+		st.value = float(t.rating.stars)
+		line.add_child(st)
 	if ReplayShelf.outdated(r):
 		var old := PanelContainer.new()
 		old.name = "Old"

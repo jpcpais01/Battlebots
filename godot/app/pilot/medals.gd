@@ -1,5 +1,5 @@
 ## The pilot's medals, Android only (kept in the pilot's save, app/pilot/pilot.gd): what a pilot
-## has done over every fight they've had, and 28 medals for it, each in Bronze, Silver and Gold.
+## has done over every fight they've had, and 30 medals for it, each in Bronze, Silver and Gold.
 ##
 ## Every fight adds to the pilot's lifetime stats (Pilot.settle feeds this the fight's summary).
 ## A medal's tier comes when a stat reaches its mark: most count up ("Land 1,500 punches"), two
@@ -46,13 +46,15 @@ const MEDALS := [
 	{"id": "career", "name": "Circuit Star", "title": "Circuit Star", "icon": "map", "stat": "career_wins", "n": [3, 20, 75], "text": "Win %s Career rounds"},
 	{"id": "gauntlet", "name": "Gauntlet Runner", "title": "Gauntlet Runner", "icon": "ab:rocketPunch", "stat": "gauntlet_best", "best": true, "n": [5, 10, 20], "text": "Clear stage %s of the Gauntlet"},
 	{"id": "bosses", "name": "Boss Breaker", "title": "Boss Breaker", "icon": "pa:meteor", "stat": "gauntlet_bosses", "n": [1, 10, 40], "one": "Beat a Gauntlet boss", "text": "Beat %s Gauntlet bosses"},
+	{"id": "crowd", "name": "Crowd Pleaser", "title": "Crowd Pleaser", "icon": "mic", "stat": "five_stars", "n": [1, 10, 40], "one": "Put on a five-star fight", "text": "Put on %s five-star fights"},
+	{"id": "fans", "name": "Fan Favourite", "title": "Fan Favourite", "icon": "sun", "stat": "stars", "n": [60, 400, 1500], "text": "Earn %s stars from the crowd"},
 	{"id": "online", "name": "Online Ace", "title": "Online Ace", "icon": "globe", "stat": "online_wins", "n": [1, 10, 50], "one": "Win an online fight", "text": "Win %s online fights"},
 	{"id": "contracts", "name": "Contractor", "title": "Contractor", "icon": "check", "stat": "contracts", "n": [5, 40, 150], "text": "Finish %s daily contracts"},
 	{"id": "level", "name": "Elite Pilot", "title": "Elite", "icon": "rank", "stat": "level", "best": true, "n": [10, 25, 50], "text": "Reach pilot level %s"},
 ]
 
 ## Every lifetime stat kept (the counts a fight adds, and the bests).
-const STATS := ["fights", "wins", "losses", "draws", "streak", "best_streak", "punches", "kicks", "head_kicks", "body", "crits", "counters", "blocks", "dodges", "damage", "knockdowns", "finishers", "tear_offs", "ko_wins", "clean_wins", "dominant_wins", "quick_wins", "comebacks", "tag_wins", "titan_wins", "career_wins", "online_fights", "online_wins", "contracts", "perfect_days", "gauntlet_best", "gauntlet_bosses"]
+const STATS := ["fights", "wins", "losses", "draws", "streak", "best_streak", "punches", "kicks", "head_kicks", "body", "crits", "counters", "blocks", "dodges", "damage", "knockdowns", "finishers", "tear_offs", "ko_wins", "clean_wins", "dominant_wins", "quick_wins", "comebacks", "tag_wins", "titan_wins", "career_wins", "online_fights", "online_wins", "contracts", "perfect_days", "gauntlet_best", "gauntlet_bosses", "stars", "five_stars"]
 
 static var _by_id := {}
 
@@ -64,7 +66,7 @@ static func def(id: String) -> Dictionary:
 	return _by_id.get(id, {})
 
 
-## Every tier there is (28 medals x 3).
+## Every tier there is (30 medals x 3).
 static func total() -> int:
 	return MEDALS.size() * 3
 

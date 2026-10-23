@@ -239,13 +239,17 @@ class FightLog:
 	var _kd := {}
 	## The lowest my side's health has been, of its full health (a comeback wins from under 0.2).
 	var low := 1.0
+	## The whole fight as the crowd sees it, for its rating (app/pilot/rating.gd).
+	var crowd: FightRating.Log
 
 	func _init(m_, me_: int) -> void:
 		m = m_
 		me = me_
+		crowd = FightRating.Log.new(m_)
 
 	## A sim event (Game.match_event).
 	func event(type: String, d) -> void:
+		crowd.event(type, d)
 		if not d is Dictionary:
 			return
 		match type:
@@ -325,6 +329,11 @@ class FightLog:
 		s.titan_wins = 1 if won and ctx.get("titan", false) else 0
 		s.career_wins = 1 if won and ctx.get("career", false) else 0
 		s.comebacks = 1 if won and minf(low, _health()) < 0.2 else 0
+		# the crowd's rating of it (FightRating): whole stars earned, and a five-star fight
+		var r = ctx.get("rating")
+		var stars := float(r.stars) if r is Dictionary else 0.0
+		s.stars = floori(stars)
+		s.five_stars = 1 if stars >= 5.0 else 0
 		return s
 
 	## My side's health now, of its full health (a tag team's, together).
@@ -421,6 +430,9 @@ static func settle(p: Dictionary, fl: FightLog, ctx: Dictionary) -> Dictionary:
 		lines.append(["Knockdowns", XP_KNOCKDOWN * int(s.knockdowns)])
 	if int(s.finishers) > 0:
 		lines.append(["Finisher", XP_FINISHER])
+	# (a great fight to watch pays, won or lost)
+	if ctx.get("rating") is Dictionary:
+		lines.append(["Crowd rating", FightRating.xp(float(ctx.rating.stars))])
 	var xp := 0
 	for l in lines:
 		xp += int(l[1])
