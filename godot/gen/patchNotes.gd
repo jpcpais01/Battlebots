@@ -17,7 +17,7 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
-	"hour": "2026-10-23 19:00",
+	"hour": "2026-10-23 20:00",
 	"title": "The Gauntlet",
 	"notes": [
 	"Android app: new Gauntlet mode on the home screen. One bot against an endless ladder of rivals, each stage tougher than the last: how far can you go?",
