@@ -16,6 +16,16 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-23 22:00",
+    title: "The crowd rates every fight",
+    notes: [
+      "Android app: the crowd now rates every fight from half a star to five, for how good it was to watch. Win or lose, a five-star war pays far more XP than a dull one.",
+      "Android app: the results card tells the story of the fight: a headline like ALL-OUT WAR, COMEBACK! or NAIL-BITER, what the stands said about it, and the moments that made it.",
+      "Android app: a new fight-flow graph on the results shows who was ahead at every moment, with each knockdown, finisher and ripped-off part pinned where it happened.",
+      "Android app: saved replays show their stars on the shelf, a fight the crowd loved asks to be kept, and two new medals, Crowd Pleaser and Fan Favourite, reward great fights.",
+    ],
+  },
+  {
     hour: "2026-10-23 20:00",
     title: "The Gauntlet",
     notes: [

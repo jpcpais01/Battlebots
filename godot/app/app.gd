@@ -912,6 +912,11 @@ func settle_pilot(m, won: bool, draw: bool, kind, gauntlet_report = null):
 	if fl == null or fl.m != m:
 		return null
 	var ctx := {"won": won, "draw": draw, "kind": kind, "tag": m.tag != null, "titan": titan_run, "career": event_run != null, "online": game.online}
+	# the crowd's rating of it (app/pilot/rating.gd), kept on its tape for the results and replays
+	var rating := FightRating.rate(fl.crowd, kind)
+	rating.erase("f")
+	ctx["rating"] = rating
+	game.tape["rating"] = rating
 	# (a Gauntlet stage: its boss beaten, and the stage reached, for the medals)
 	if gauntlet_report != null:
 		ctx["gauntlet_boss"] = bool(gauntlet_report.won and gauntlet_report.boss)
