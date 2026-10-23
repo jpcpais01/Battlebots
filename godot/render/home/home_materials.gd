@@ -24,9 +24,9 @@ const RENAME := {"uFoam": "foam_col"}
 ## The hooks of a program key (beach.ts / beachFlora.ts): defines and uniforms to set.
 const HOOKS := {
 	"beach-frond": [["BREEZE", "BACKLIT"], {"breeze_amp": 0.11, "backlit_k": 1.4}],
-	"beach-bush": [["BREEZE", "BACKLIT"], {"breeze_amp": 0.035, "backlit_k": 0.6}],
-	"beach-tuft": [["BREEZE", "BACKLIT"], {"breeze_amp": 0.08, "backlit_k": 0.8}],
-	"beach-canopy": [["BREEZE", "BACKLIT"], {"breeze_amp": 0.05, "backlit_k": 0.5}],
+	"beach-bush": [["BREEZE", "BACKLIT", "VOLUME_NORMALS"], {"breeze_amp": 0.035, "backlit_k": 0.6}],
+	"beach-tuft": [["BREEZE", "BACKLIT", "VOLUME_NORMALS"], {"breeze_amp": 0.08, "backlit_k": 0.8}],
+	"beach-canopy": [["BREEZE", "BACKLIT", "VOLUME_NORMALS"], {"breeze_amp": 0.05, "backlit_k": 0.5}],
 	"beach-wood-x": [["WOOD_X"], {}],
 	"beach-wood-z": [["WOOD_Z"], {}],
 	"beach-towel-hang": [["TOWEL"], {}],
