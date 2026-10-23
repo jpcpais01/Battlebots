@@ -357,11 +357,13 @@ static func warm_fonts(budget := 0) -> void:
 	var em := HudKit.em_for(view)
 	var vh := view.y / 100.0
 	var vw := view.x / 100.0
-	# [font, size, outline, characters]
+	# [font (or what makes it: each takes a while), size, outline, characters]
 	var list := []
 	# (a distance field face is made at its own size whatever size it's drawn at)
-	for f in [_loud(true, 0), _loud(false, 0), _loud(true, 1), _loud(false, 1), _loud(true, 2)]:
-		list.append([f, 48, 0, LOUD_CHARS])
+	for k in [[true, 0], [false, 0], [true, 1], [false, 1], [true, 2]]:
+		var it: bool = k[0]
+		var glow: int = k[1]
+		list.append([func() -> Font: return _loud(it, glow), 48, 0, LOUD_CHARS])
 	# the subtitle, the band's small line and its bot (_draw_sub, _finban_geom)
 	for px in [roundi(em * 1.15), roundi(minf(2.4 * vh, 3.4 * vw)), roundi(minf(2.0 * vh, 3.0 * vw))]:
 		list.append([_small(), px, 0, ALL_CHARS])
@@ -373,7 +375,7 @@ static func warm_fonts(budget := 0) -> void:
 	var ci := RenderingServer.canvas_item_create()
 	var t0 := Time.get_ticks_usec()
 	for w in list:
-		var font: Font = w[0]
+		var font: Font = w[0].call() if w[0] is Callable else w[0]
 		var px: int = w[1]
 		var outline: int = w[2]
 		# (a glyph at a time when sliced: each distance-field glyph is a few ms on its own)

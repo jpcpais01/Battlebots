@@ -18,12 +18,19 @@ func _init() -> void:
 	var worst := 0.0
 	var long := 0
 	var frames := 0
+	## per caption: [frames, ms]
+	var by := {}
 	while not gone[0] and Time.get_ticks_usec() - t0 < 120000000:
 		await process_frame
 		var now := Time.get_ticks_usec()
 		var ms := (now - last) / 1000.0
 		last = now
 		frames += 1
+		var cap: String = boot.screen._what if boot.screen != null else "-"
+		if not by.has(cap):
+			by[cap] = [0, 0.0]
+		by[cap][0] += 1
+		by[cap][1] += ms
 		if ms > 25.0:
 			long += 1
 			var what: String = boot.screen._what if boot.screen != null else "-"
@@ -32,5 +39,7 @@ func _init() -> void:
 				what += " (game %s, screens %d)" % ["-" if app.game == null else ("built" if app.game.is_built else "building"), app.screens.size()]
 			print("%7.0f ms  %6.1f ms  %s" % [(now - t0) / 1000.0, ms, what])
 		worst = maxf(worst, ms)
+	for cap in by:
+		print("  %-28s %4d frames, %5.1f ms a frame" % [cap, by[cap][0], by[cap][1] / by[cap][0]])
 	print("boot_hitches: %d frames, %d over 25 ms, worst %.0f ms, %d ms in all" % [frames, long, worst, (Time.get_ticks_usec() - t0) / 1000])
 	quit()

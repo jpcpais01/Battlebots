@@ -101,8 +101,8 @@ func _ready() -> void:
 
 ## The loading screen (boot) is up: a frame drawn before the next piece of the setup, so it keeps
 ## moving. Nothing when there's no loading screen (the tests).
-func _breathe() -> void:
-	if boot != null:
+func breathe() -> void:
+	if boot != null and boot.screen != null:
 		await get_tree().process_frame
 
 
@@ -133,7 +133,7 @@ func _setup() -> void:
 		Store.save_record(record)
 	if fit_owned(player):
 		Store.save_player(player)
-	await _breathe()
+	await breathe()
 	game = (load("res://game/fight.tscn") as PackedScene).instantiate()
 	game.auto = false
 	if boot != null:
@@ -163,12 +163,16 @@ func _setup() -> void:
 		var path: String = SCREENS[id]
 		if not ResourceLoader.exists(path):
 			continue
-		var s: AppScreen = load(path).new()
+		# (made ahead by the loading screen, if it's up)
+		var s: AppScreen = game.made.get("screen:" + id)
+		game.made.erase("screen:" + id)
+		if s == null:
+			s = load(path).new()
 		s.app = self
 		s.visible = false
 		screens[id] = s
 		ui.add_child(s)
-		await _breathe()
+		await breathe()
 	# switching to or from a place dips through black (app.ts .scene-fade); hidden while clear, as
 	# a clear full-screen rect still costs the GPU a pass over every pixel
 	_fade = ColorRect.new()
@@ -183,7 +187,7 @@ func _setup() -> void:
 		# (its robot made on a worker)
 		await game.prepare_showcase(player)
 		game.show_bot(player)
-		await _breathe()
+		await breathe()
 		game.warm_up(true)
 		# (and every face the fight's words use, at their sizes: no glyphs made mid-fight; a few
 		# at a time, a frame's share each)

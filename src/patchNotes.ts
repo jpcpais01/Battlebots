@@ -17,6 +17,14 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-23 12:00",
+    title: "A smoother loading screen",
+    notes: [
+      "Android app: the loading screen keeps moving smoothly. The game no longer draws the arena hidden behind it the whole time, and much more of the start now happens in the background.",
+      "Android app: the loading screen is just the robot boxer now, bigger, with no title.",
+    ],
+  },
+  {
+    hour: "2026-10-23 12:00",
     title: "Fights that move like real fighters",
     notes: [
       "Robots now fight from a real athletic stance: knees bent, chin tucked behind the guard, weight forward, breathing and rocking while they look for an opening.",

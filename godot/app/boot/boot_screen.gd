@@ -1,7 +1,6 @@
 ## The loading screen (index.html .boot, src/ui/loader.ts Loader): the deep blue sky with its
 ## pools of light, ribbons and rising sparks; the boxer from the app's icon, big and alive
-## (boot_emblem.gd); the kicker, the logo, the progress line with what's happening and the
-## percentage; a tip now and then; the busy mark. Progress is real: the start
+## (boot_emblem.gd); the progress line with what's happening and the percentage; a tip now and then; the busy mark. Progress is real: the start
 ## lists its jobs up front, each weighted by its share of the wait, and each reports how far it has
 ## got. The line glides toward a little past the real progress (never past the end of the step
 ## being worked on), so it keeps moving through a long step instead of jumping when it reports.
@@ -26,7 +25,6 @@ const LEAD := 0.7
 
 const INK := Color(214 / 255.0, 226 / 255.0, 1.0, 0.72)
 const DIM := Color(190 / 255.0, 206 / 255.0, 240 / 255.0, 0.48)
-const HOT := Color("#ff7a2a")
 const EMBLEM := preload("res://app/boot/boot_emblem.gd")
 
 ## The screen starts lifting away (what's under it can make its entrance).
@@ -106,21 +104,6 @@ static func _font(weight: int, italic := false) -> Font:
 	return f
 
 
-## The logo's broadcast face ('Russo One' where there is one; a heavy italic otherwise).
-static func _broadcast() -> Font:
-	var f := SystemFont.new()
-	f.font_names = PackedStringArray(["Russo One", "Arial Black", "Impact", "Roboto", "sans-serif"])
-	f.font_weight = 400
-	f.font_italic = true
-	f.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_AUTO
-	if f.get_font_style() & TextServer.FONT_ITALIC == 0:
-		var v := FontVariation.new()
-		v.base_font = f
-		v.variation_transform = Transform2D(Vector2(1, 0), Vector2(0.2, 1), Vector2.ZERO)
-		return v
-	return f
-
-
 static func _label(text: String, px: float, font: Font, color: Color, spacing := 0.0) -> Label:
 	var l := Label.new()
 	l.text = text
@@ -137,65 +120,20 @@ static func _label(text: String, px: float, font: Font, color: Color, spacing :=
 	return l
 
 
-## A word filled with a top-to-bottom gradient (the logo: background-clip: text).
-static func _grad(text: String, px: float, font: Font, top: Color, bottom: Color, stop := 0.0) -> Label:
-	var l := _label(text, px, font, Color.WHITE)
-	var m := ShaderMaterial.new()
-	m.shader = preload("res://app/ui/text_grad.gdshader")
-	# (linear-gradient(180deg, #fff 35%, #aec4ff): solid down to `stop`, then the blend)
-	m.set_shader_parameter("top", top)
-	m.set_shader_parameter("bottom", bottom)
-	l.material = m
-	l.resized.connect(func() -> void:
-		var asc := font.get_ascent(int(round(px)))
-		var desc := font.get_descent(int(round(px)))
-		var pad := (l.size.y - (asc + desc)) * 0.5
-		m.set_shader_parameter("y0", pad + (asc + desc) * stop)
-		m.set_shader_parameter("height", (asc + desc) * (1.0 - stop)))
-	# (the web's soft blue text-shadow halo: the backdrop's own glow behind the words stands in,
-	# since a Label's shadow is a hard outline)
-	return l
-
-
 func _build_mid() -> void:
 	_mid = VBoxContainer.new()
 	_mid.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_mid.alignment = BoxContainer.ALIGNMENT_CENTER
 	_mid.add_theme_constant_override(&"separation", 0)
 	add_child(_mid)
-	# the app's icon, big (sized in _layout; it brings itself in)
+	# the boxer from the app's icon, big (sized in _layout; it brings itself in). No title under
+	# it: the robot is the brand here (João)
 	_emblem = EMBLEM.new()
 	_mid.add_child(_emblem)
 	var eg := Control.new()
 	eg.name = "EmblemGap"
 	eg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_mid.add_child(eg)
-	# the kicker: ROBOT BOXING between two short hot lines
-	var kick := HBoxContainer.new()
-	kick.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	kick.alignment = BoxContainer.ALIGNMENT_CENTER
-	kick.add_theme_constant_override(&"separation", 10)
-	for side in 2:
-		var ln := Control.new()
-		ln.custom_minimum_size = Vector2(28, 2)
-		ln.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		ln.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var flip := side == 1
-		ln.draw.connect(func() -> void: _draw_kick_line(ln, flip))
-		kick.add_child(ln)
-		if side == 0:
-			# (11px, 600, letter-spacing 0.42em, uppercase)
-			var k := _label("ROBOT BOXING", 11, _font(600), DIM, 11 * 0.42)
-			kick.add_child(k)
-	_add_part(kick, 12)
-	# the logo: BATTLE in white to ice, BOTS in gold to orange
-	var logo := HBoxContainer.new()
-	logo.name = "Logo"
-	logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	logo.alignment = BoxContainer.ALIGNMENT_CENTER
-	logo.add_theme_constant_override(&"separation", 0)
-	_add_part(logo, 34)
-	_mid.get_child(_mid.get_child_count() - 1).name = "LogoGap"
 	# the progress line
 	_bar = Control.new()
 	_bar.custom_minimum_size = Vector2(0, 4)
@@ -233,29 +171,6 @@ func _add_part(c: Control, gap: float) -> void:
 		sp.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		sp.name = "gap"
 		_mid.add_child(sp)
-
-
-## The logo's size the letters were last made at.
-var _logo_px := -1.0
-
-
-## The logo's letters, sized to the screen (min(14vh, 9vw, 84px)).
-func _fill_logo(px: float) -> void:
-	if px == _logo_px:
-		return
-	_logo_px = px
-	var logo := _mid.get_node("Logo") as HBoxContainer
-	# (out of the row now, not at the end of the frame: the old letters left in for the layout
-	# that follows made the column twice as wide, so it sat off to the right)
-	for c in logo.get_children():
-		logo.remove_child(c)
-		c.queue_free()
-	var f := _broadcast()
-	logo.add_child(_grad("BATTLE", px, f, Color.WHITE, Color("#aec4ff"), 0.35))
-	var bots := _grad("BOTS", px, f, Color("#ffd27a"), Color("#ff6a12"))
-	# (padding-right 0.12em: the italic's overhang)
-	bots.custom_minimum_size.x = f.get_string_size("BOTS", HORIZONTAL_ALIGNMENT_LEFT, -1, int(round(px))).x + 0.12 * px
-	logo.add_child(bots)
 
 
 func _build_tip() -> void:
@@ -305,14 +220,11 @@ func _layout() -> void:
 	var vw := size.x / 100.0
 	var vh := size.y / 100.0
 	var tall := size.x <= size.y
-	var px := minf(12.5 * vw, 64.0) if tall else minf(minf(10.5 * vh, 8.0 * vw), 72.0)
-	_fill_logo(px)
 	# (the robot alone fills the middle two thirds of the icon's square: EMBLEM.TALL)
-	var icon := minf(84.0 * vw, 480.0) if tall else minf(minf(62.0 * vh, 46.0 * vw), 500.0)
+	var icon := minf(92.0 * vw, 560.0) if tall else minf(minf(76.0 * vh, 56.0 * vw), 620.0)
 	_emblem.custom_minimum_size = Vector2(icon, icon * EMBLEM.TALL)
 	_emblem.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	(_mid.get_node("EmblemGap") as Control).custom_minimum_size.y = 40.0 if tall else minf(5.5 * vh, 40.0)
-	(_mid.get_node("LogoGap") as Control).custom_minimum_size.y = 30.0 if tall else minf(5.0 * vh, 34.0)
+	(_mid.get_node("EmblemGap") as Control).custom_minimum_size.y = 48.0 if tall else minf(7.0 * vh, 52.0)
 	var w := minf(84.0 * vw, 420.0) if tall else minf(62.0 * vw, 460.0)
 	_mid.custom_minimum_size = Vector2(w, 0)
 	_mid.size = Vector2(w, 0)
@@ -465,8 +377,8 @@ func _process(dt: float) -> void:
 	_time += minf(dt, 0.1)
 	_bg_mat.set_shader_parameter("size", size)
 	_bg_mat.set_shader_parameter("t", _time)
-	# the words come up in turn (.boot.fonts .bt-mid > *: 0.8 s, staggered 0, 0.08, 0.16, 0.22)
-	var delays := [0.0, 0.08, 0.16, 0.22]
+	# the progress line and its words come up as the robot lands (0.8 s each, staggered)
+	var delays := [0.3, 0.4]
 	for i in _parts.size():
 		var u: float = clampf((_time - 0.1 - delays[i]) / 0.8, 0.0, 1.0)
 		_parts[i].modulate.a = u
@@ -504,17 +416,6 @@ func _next_tip() -> void:
 		_tip_fade = 1.0
 	else:
 		_tip_fade = -1.0
-
-
-func _draw_kick_line(c: Control, flip: bool) -> void:
-	# linear-gradient(90deg, transparent, --hot) with an 8px orange glow
-	var w := c.size.x
-	var n := 14
-	for i in n:
-		var u: float = (i + 0.5) / n
-		var a: float = u if not flip else 1.0 - u
-		c.draw_rect(Rect2(w * i / n, -2, w / n + 0.5, 6), Color(1.0, 122 / 255.0, 42 / 255.0, 0.12 * a))
-		c.draw_rect(Rect2(w * i / n, 0, w / n + 0.5, 2), Color(HOT, a))
 
 
 func _draw_bar() -> void:
