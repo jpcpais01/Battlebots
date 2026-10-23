@@ -7,6 +7,7 @@ import { sanitizeEvents, type EventsRecord } from './events';
 import { sanitizeCareer, type CareerState } from './career';
 import { sanitizeSkins, type SkinState } from './gacha';
 import { SKIN_BY_ID } from './skins';
+import { FIGHT_STYLES } from '../sim/brain';
 
 /** What a save holds, made safe wherever it came from (this device, the cloud, another player). */
 
@@ -54,6 +55,7 @@ export function sanitizeBot(raw: unknown): BotSpec {
   if (typeof p.walkOn === 'string' && WALK_ON_NAME[p.walkOn]) out.walkOn = p.walkOn;
   // (whether this player owns it is the App's business: a peer's skin is theirs)
   if (typeof p.skin === 'string' && SKIN_BY_ID.has(p.skin)) out.skin = p.skin;
+  if (typeof p.style === 'string' && FIGHT_STYLES.includes(p.style)) out.style = p.style;
   return out;
 }
 

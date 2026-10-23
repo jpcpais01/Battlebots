@@ -16,6 +16,8 @@ const a = randomBot(rng);
 const b = randomBot(rng);
 // TAG=1: a tag team match (two more bots, one per side)
 const partners = process.env.TAG === '1' ? { a: randomBot(rng), b: randomBot(rng) } : null;
+// STYLES=Brawler,Out-fighter: the two corners pick these fighting styles
+if (process.env.STYLES) [a.style, b.style] = process.env.STYLES.split(',');
 const m = new Match(a, b, rng.int(0, 1e9), partners);
 m.skipIntro();
 const out: string[] = [`${a.name} vs ${b.name}`];

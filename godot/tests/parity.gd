@@ -19,6 +19,11 @@ func _init() -> void:
 		var pa = TLoadout.randomBot(rng)
 		var pb = TLoadout.randomBot(rng)
 		partners = {"a": pa, "b": pb}
+	# STYLES=Brawler,Out-fighter: the two corners pick these fighting styles
+	if OS.get_environment("STYLES") != "":
+		var st := OS.get_environment("STYLES").split(",")
+		a.style = st[0]
+		b.style = st[1]
 	var m := TMatch.Match.new(a, b, rng.int_(0.0, 1e9), partners)
 	m.skipIntro()
 	var out := PackedStringArray([a.name_ + " vs " + b.name_])

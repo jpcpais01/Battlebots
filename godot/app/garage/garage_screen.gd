@@ -492,7 +492,7 @@ func randomize_bot() -> void:
 	var p: Dictionary = b.duplicate()
 	var was = app.player
 	p.name_ = was.name_
-	for k in ["emotes", "walkOn", "skin"]:
+	for k in ["emotes", "walkOn", "skin", "style"]:
 		if was.get(k) != null:
 			p[k] = was[k]
 		else:

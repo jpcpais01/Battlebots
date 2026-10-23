@@ -200,8 +200,8 @@ export class Match {
     fa.opp = fb;
     fb.opp = fa;
     this.fighters = [fa, fb];
-    const ba = new Brain(fa, fb, new Rng(this.rng.next() * 4294967296));
-    const bb = new Brain(fb, fa, new Rng(this.rng.next() * 4294967296));
+    const ba = new Brain(fa, fb, new Rng(this.rng.next() * 4294967296), a.style ?? '');
+    const bb = new Brain(fb, fa, new Rng(this.rng.next() * 4294967296), b.style ?? '');
     ba.rival = bb;
     bb.rival = ba;
     this.brains = [ba, bb];
@@ -213,8 +213,8 @@ export class Match {
       const pb = new Fighter(1, partners.b.name, computeBuild(partners.b.loadout, partners.b.size), new Rng(this.rng.next() * 4294967296));
       pa.opp = fb;
       pb.opp = fa;
-      const bpa = new Brain(pa, fb, new Rng(this.rng.next() * 4294967296));
-      const bpb = new Brain(pb, fa, new Rng(this.rng.next() * 4294967296));
+      const bpa = new Brain(pa, fb, new Rng(this.rng.next() * 4294967296), partners.a.style ?? '');
+      const bpb = new Brain(pb, fa, new Rng(this.rng.next() * 4294967296), partners.b.style ?? '');
       bpa.onEvent = bpb.onEvent = (e: BrainEvent) => this.emit('brain', e);
       const members = [
         new TagMember(fa, ba, this.shows[0], a, 0, 0),

@@ -70,6 +70,8 @@ static func compute() -> int:
 	var rng := TMath.Rng.new(float(0xb07b07))
 	var a = TLoadout.randomBot(rng, 0.9)
 	var b = TLoadout.randomBot(rng, 0.9)
+	# (one corner picks a fighting style, so a build that doesn't know styles can't pair up)
+	a.style = "Counter-puncher"
 	var m = TMatch.Match.new(a, b, float(0x5eed))
 	m.skipIntro()
 	# the countdown, touching gloves, then a few seconds of fighting
