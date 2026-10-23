@@ -43,6 +43,7 @@ func _init() -> void:
 
 
 func start(_m) -> void:
+	_em = -1.0
 	_sync()
 
 
@@ -96,6 +97,8 @@ func _sync() -> void:
 func tick(_dt: float) -> void:
 	# (the pause menu's settings may change the zoom too)
 	_sync()
+	# (a replay has its own speeds, in its controls)
+	_speed.visible = not hud.replay
 	var e := em()
 	if e == _em and size.x == _w and size.y == _h:
 		return
@@ -142,7 +145,9 @@ func _layout() -> void:
 	# along the bottom right, inside the side strip
 	var right := size.x - side()
 	var top := size.y - bottom() - maxf(zh, sh)
+	# (both phones play an online fight at the same pace, so it has no speed control)
+	_speed.visible = not hud.online
 	_speed.position = Vector2(right - sh, top)
-	_zoom.position = Vector2(right - sh - 0.45 * _em - _zoom.size.x, top)
+	_zoom.position = Vector2((right - sh - 0.45 * _em if _speed.visible else right) - _zoom.size.x, top)
 	_speed.pivot_offset = _speed.size * 0.5
 	_zoom.pivot_offset = _zoom.size * 0.5

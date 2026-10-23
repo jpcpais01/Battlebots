@@ -1,8 +1,11 @@
 import * as THREE from 'three';
 import { CITY_Y, height } from './layout';
-import { DECK_Y, LIGHTHOUSE, MAGLEV, NEON, Style, TURBINES, WHEEL, type Box, type Plan } from './plan';
+import { DECK_Y, LIGHTHOUSE, MAGLEV, NEON, TURBINES, WHEEL, type Box, type Plan } from './plan';
 import { AA_GLSL, MAP_GLSL, MAP_OUT, Mesher, glowMaterial, litMaterial, mapMaterial, type MapUniforms } from './kit';
 import { buildHouses, windowMaterial } from './houses';
+import { BUILDING_FRAG } from './facade';
+import { buildStreetLife, waterTank, type Lane } from './streetLife';
+import type { HeightGrid } from './terrain';
 
 /**
  * The city: every building box in one instanced draw, its windows, neon trim and roofs drawn in
@@ -19,13 +22,6 @@ const _p = new THREE.Vector3();
 const _c = new THREE.Color();
 const _up = new THREE.Vector3(0, 1, 0);
 
-const SKY_GLSL = /* glsl */ `
-  vec3 skyRefl(vec3 r) {
-    // below the horizon: the city across the street
-    return mix(vec3(0.16, 0.16, 0.2) * (1.0 - 0.7 * uNight), skyCol(r), smoothstep(-0.12, 0.04, r.y));
-  }
-`;
-
 // ------------------------------------------------------------------ buildings
 function unitBox() {
   // five faces (no floor), from y 0 to 1
@@ -39,7 +35,7 @@ function unitBox() {
   return g;
 }
 
-function buildingMaterial(u: MapUniforms) {
+function buildingMaterial(u: MapUniforms, lite: boolean) {
   const neon = NEON.map((h) => new THREE.Color(h));
   return mapMaterial(u, {
     uniforms: { uNeon: { value: neon } },
@@ -74,136 +70,18 @@ function buildingMaterial(u: MapUniforms) {
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
       }`,
-    fragmentShader: /* glsl */ `
-      ${MAP_GLSL}
-      ${AA_GLSL}
-      ${SKY_GLSL}
-      uniform vec3 uNeon[5];
-      varying vec3 vWorld, vN, vCol;
-      varying vec2 vFace;
-      // (per building and per face: flat, so the window hashes see exactly the same numbers
-      // across a face; interpolated, they drift in the last bits and windows sparkle)
-      flat varying vec3 vSize;
-      flat varying vec4 vInfo;
-      flat varying float vNeon, vFaceW, vFaceId;
-      #include <fog_pars_fragment>
-
-      void main() {
-        vec3 n = normalize(vN);
-        vec3 w = vWorld;
-        float style = vInfo.x, seed = vInfo.y, lit = vInfo.z, roof = vInfo.w;
-        vec2 f = vFace;
-        vec2 px = max(fwidth(f), vec2(1e-3));
-        vec4 nz = texture2D(uNoise, (w.xz + w.y) / 23.0);
-        vec3 V = normalize((cameraPosition - uMapShift) - w);
-        vec3 alb = vCol * (0.93 + 0.12 * nz.r);
-        vec3 emit = vec3(0.0);
-        float spec = 0.0;
-        vec3 neonCol = vNeon >= 0.0 ? uNeon[int(vNeon + 0.5)] : vec3(0.0);
-
-        if (n.y > 0.5) {
-          // ---- roofs: gravel, a garden, or a deck with a helipad; a parapet round the edge
-          vec2 e = min(f, vSize.xz - f);
-          float edge = min(e.x, e.y);
-          vec3 r = vec3(0.5, 0.49, 0.47) * (0.85 + 0.25 * nz.g);
-          if (roof > 0.5 && roof < 1.5) {
-            r = mix(vec3(0.28, 0.45, 0.17), vec3(0.42, 0.55, 0.2), nz.a) * (0.8 + 0.3 * texture2D(uNoise, w.xz / 4.0).r);
-            // planters in rows
-            r *= 0.85 + 0.15 * fpulse(f.x / 3.0, 0.6, px.x / 3.0);
-          } else if (roof > 1.5) {
-            r = vec3(0.2, 0.21, 0.23);
-            vec2 c = f - vSize.xz * 0.5;
-            float d = length(c);
-            float rr = min(vSize.x, vSize.z) * 0.32;
-            float ring = fband(d, rr - 0.7, rr, length(px));
-            float hh = fband(abs(c.x), rr * 0.25, rr * 0.38, px.x) * fband(abs(c.y), 0.0, rr * 0.5, px.y) + fband(abs(c.y), 0.0, 0.35, px.y) * fband(abs(c.x), 0.0, rr * 0.3, px.x);
-            r = mix(r, vec3(0.95, 0.75, 0.2), max(ring, hh));
-            emit += vec3(1.0, 0.6, 0.25) * ring * uDusk * 0.6;
-          }
-          // the parapet
-          r = mix(r, vCol * 0.85, fband(edge, 0.0, 0.6, length(px)));
-          alb = r;
-        } else if (style > 4.5) {
-          // ---- rooftop kit: louvred metal
-          alb = vec3(0.62, 0.63, 0.61) * (0.8 + 0.2 * fpulse(f.y / 0.5, 0.5, px.y / 0.5));
-        } else if (style > 3.5) {
-          // ---- sheds and containers: corrugated sheet, a roller door on some faces
-          alb *= 0.82 + 0.18 * fpulse(f.x / 0.6, 0.5, px.x / 0.6);
-          float door = step(0.6, fract(seed * 13.0 + vFaceId * 0.37)) * step(vSize.y, 9.0) * step(3.0, vSize.y);
-          float dx = abs(f.x - vFaceW * 0.5);
-          alb = mix(alb, vec3(0.3, 0.3, 0.32), door * fband(dx, 0.0, 2.5, px.x) * fband(f.y, 0.0, 4.0, px.y));
-        } else {
-          // ---- windows: a grid of cells per style, each window a pulse in both directions
-          vec2 cell; vec2 duty; vec2 off = vec2(0.0);
-          if (style < 0.5) { cell = vec2(1.6, 3.6); duty = vec2(0.92, 0.86); }          // glass curtain wall
-          else if (style < 1.5) { cell = vec2(3.0, 3.6); duty = vec2(0.94, 0.55); }     // office: ribbon windows
-          else if (style < 2.5) { cell = vec2(3.2, 3.0); duty = vec2(0.5, 0.55); }      // flats: punched windows
-          else { cell = vec2(2.8, 3.4); duty = vec2(0.36, 0.55); }                       // old brick
-          // windows start a little above the base and stop below the top
-          vec2 q = (f - vec2((vFaceW - floor(vFaceW / cell.x) * cell.x) * 0.5, 0.0)) / cell;
-          vec2 qw = px / cell;
-          q.y -= 0.15;
-          float win = fpulse(q.x - (1.0 - duty.x) * 0.5, duty.x, qw.x) * fpulse(q.y - (1.0 - duty.y) * 0.5, duty.y, qw.y);
-          // none on the ground floor of tall buildings (shopfronts instead) or right at the top
-          float inside = fband(f.y, 3.6, vSize.y - 0.8, px.y) * fband(f.x, 0.6, vFaceW - 0.6, px.x);
-          win *= inside;
-          // the glass: dark blue-grey, reflecting the sky
-          vec3 r = reflect(-V, n);
-          float fres = 0.08 + 0.92 * pow(1.0 - max(dot(V, n), 0.0), 4.0);
-          vec3 glass = mix(vec3(0.05, 0.08, 0.11), skyRefl(r), style < 0.5 ? 0.35 + 0.5 * fres : 0.2 + 0.5 * fres);
-          // which windows have their lights on (an average of them, once the cells are smaller than a pixel)
-          vec2 id = floor(q);
-          float far = smoothstep(0.25, 0.8, max(qw.x, qw.y));
-          float on = mix(step(hash12(id + seed * 917.0 + vFaceId * 31.0), lit), lit, far);
-          float hue = hash12(id * 1.7 + seed * 53.0);
-          vec3 lamp = hue < 0.6 ? vec3(1.0, 0.72, 0.42) : hue < 0.85 ? vec3(0.78, 0.9, 1.0) : vec3(1.0, 0.55, 0.8);
-          if (style < 0.5) {
-            // glass towers are mostly glass: the spandrels between floors are tinted panels
-            alb = mix(vCol * 0.55, vCol, 0.5);
-          } else if (style > 1.5 && style < 2.5) {
-            // flats: a balcony slab under each row of windows
-            alb = mix(alb, vCol * 1.12, fband(fract(q.y), 0.0, 0.1, qw.y) * (1.0 - far));
-          } else if (style > 2.5) {
-            // brick courses
-            alb *= 0.9 + 0.1 * fpulse(f.y / 0.3, 0.8, px.y / 0.3);
-            // a cornice
-            alb = mix(alb, vec3(0.85, 0.8, 0.72), fband(f.y, vSize.y - 1.2, vSize.y - 0.5, px.y));
-          }
-          // shopfronts: a lit band at street level on taller buildings
-          float shop = fband(f.y, 0.4, 3.0, px.y) * step(12.0, vSize.y) * step(vInfo.x, 3.5) * step(0.0, 3.6 - (w.y - f.y - ${CITY_Y.toFixed(2)}));
-          alb = mix(alb, glass, win);
-          spec = win * (style < 0.5 ? 1.0 : 0.5);
-          emit += lamp * win * on * (0.25 + 0.75 * uDusk) * 0.9;
-          emit += vec3(1.0, 0.8, 0.55) * shop * (0.4 + 0.6 * uDusk) * 0.8;
-          alb = mix(alb, vec3(0.12, 0.12, 0.13), shop);
-          // the neon trim: a band under the roof line, and up the corners of the glass towers
-          if (vNeon >= 0.0) {
-            float trim = fband(f.y, vSize.y - 1.4, vSize.y - 0.7, px.y);
-            if (style < 0.5) trim = max(trim, (fband(f.x, 0.0, 0.45, px.x) + fband(f.x, vFaceW - 0.45, vFaceW, px.x)) * step(8.0, f.y));
-            emit += neonCol * trim * uGlow * (0.6 + 0.4 * uDusk);
-            alb = mix(alb, vec3(0.1), trim);
-          }
-        }
-        // dimmer near the foot of every wall: the street's shade
-        if (n.y < 0.5) alb *= mix(0.7, 1.0, smoothstep(0.0, 9.0, f.y));
-        vec3 c = alb * mapLight(n, w) + emit;
-        if (spec > 0.0) {
-          vec3 r = reflect(-V, n);
-          c += uSunCol * pow(max(dot(r, uSunDir), 0.0), 120.0) * 2.5 * spec * sunShadow(w + n * 3.5) * cloudShade(w.xz);
-        }
-        gl_FragColor = vec4(c, 1.0);
-        ${MAP_OUT}
-      }`,
+    fragmentShader: BUILDING_FRAG,
+    defines: lite ? { MAP_LITE: 1 } : {},
   });
 }
 
-function buildings(u: MapUniforms, boxes: Box[]) {
+function buildings(u: MapUniforms, boxes: Box[], lite: boolean) {
   const geo = unitBox();
   const n = boxes.length;
   const size = new Float32Array(n * 3);
   const info = new Float32Array(n * 4);
   const neon = new Float32Array(n);
-  const mesh = new THREE.InstancedMesh(geo, buildingMaterial(u), n);
+  const mesh = new THREE.InstancedMesh(geo, buildingMaterial(u, lite), n);
   for (let i = 0; i < n; i++) {
     const b = boxes[i];
     _m.makeScale(b.w, b.h, b.d).setPosition(b.x, b.y0, b.z);
@@ -332,8 +210,9 @@ function props(u: MapUniforms, plan: Plan, maglev: THREE.CurvePath<THREE.Vector3
   }
   // water tanks on legs on the roofs of the old brick buildings
   for (const b of plan.boxes) {
-    if (b.style !== Style.Old || b.roof !== 0 || b.h > 34 || (b.seed * 7.31) % 1 > 0.3) continue;
-    const x = b.x + (((b.seed * 13.7) % 1) - 0.5) * (b.w - 6) * 0.6, z = b.z + (((b.seed * 5.3) % 1) - 0.5) * (b.d - 6) * 0.6, y = b.y0 + b.h;
+    const tank = waterTank(b);
+    if (!tank) continue;
+    const [x, z] = tank, y = b.y0 + b.h;
     for (const [lx, lz] of [[-1.3, -1.3], [1.3, -1.3], [-1.3, 1.3], [1.3, 1.3]]) put(box, x + lx, y, z + lz, 0.25, 3, 0.25, 0, 0x4a4440);
     put(cyl, x, y + 3, z, 4.4, 3.6, 4.4, 0, 0x8a6a4a);
     put(cone, x, y + 6.6, z, 4.8, 1.5, 4.8, 0, 0x5a4a40);
@@ -469,17 +348,29 @@ function traffic(u: MapUniforms, plan: Plan) {
   const a: number[] = [], b: number[] = [], car: number[] = [];
   let seed = 9;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const lanes: Lane[] = [];
   for (const s of plan.streets) {
-    const [x0, z0, x1, z1, lanes] = s;
+    const [x0, z0, x1, z1, nl] = s;
     const len = Math.hypot(x1 - x0, z1 - z0);
     for (const side of [-1, 1])
-      for (let l = 0; l < lanes; l++) {
-        const n = Math.floor(len / (lanes > 1 ? 15 : 24));
+      for (let l = 0; l < nl; l++) {
+        const n = Math.floor(len / (nl > 1 ? 15 : 24));
+        if (!n) continue;
+        // every car in a lane at one speed, spaced along it with a car's length and room to spare
+        // (the street life's bodies ride under these lights); any more just add their lights to
+        // one in front
+        const speed = 9 + rnd() * 6;
+        const keep = Math.max(1, Math.min(n, Math.floor(len / 24)));
+        const start = rnd(), room = 1 - (10 * keep) / len;
+        const phases: number[] = [];
+        for (let k = 0; k < keep; k++) phases.push((start + (k + (rnd() - 0.5) * room) / keep) % 1);
+        const off = side * (1.6 + l * 3);
+        lanes.push({ ax: x0, az: z0, bx: x1, bz: z1, off, speed, phases });
         for (let k = 0; k < n; k++) {
           a.push(x0, z0);
           b.push(x1, z1);
           // phase, speed (m/s), offset across the street, kind (0 ground: side; 2 air)
-          car.push(rnd(), 9 + rnd() * 6, side * (1.6 + l * 3), side);
+          car.push(phases[k % keep], speed, off, side);
         }
       }
   }
@@ -556,7 +447,7 @@ function traffic(u: MapUniforms, plan: Plan) {
   });
   const pts = new THREE.Points(g, mat);
   pts.renderOrder = 3;
-  return { pts, px: mat.uniforms.uPx };
+  return { pts, px: mat.uniforms.uPx, lanes };
 }
 
 // ------------------------------------------------------------------ beacons and lamps
@@ -778,22 +669,32 @@ function lighthouseBeam(u: MapUniforms) {
 // ------------------------------------------------------------------ all of it
 export interface City {
   group: THREE.Group;
+  /** The street life (shown close in only), if there is one. */
+  life: THREE.Group | null;
   update(dt: number, t: number): void;
   setPixelScale(h: number): void;
 }
 
-/** `extraBeacons`: more red tower lights (x, y, z flat), from the event sites. */
-export function buildCity(u: MapUniforms, plan: Plan, extraBeacons: number[]): City {
+/**
+ * `extraBeacons`: more red tower lights (x, y, z flat), from the event sites. `life`: the street
+ * life (traffic, parked cars, people, roof kit) on the terrain's height grid, as the world map
+ * has it; left out, none (and its roofs undressed).
+ */
+export function buildCity(u: MapUniforms, plan: Plan, extraBeacons: number[], life?: { grid: HeightGrid; quality: 'low' | 'med' | 'high' }): City {
   const group = new THREE.Group();
   const all = plan.boxes.concat(plan.docks.boxes);
-  group.add(buildings(u, all));
-  if (plan.signs.length) group.add(signs(u, plan));
   const path = maglevPath();
-  group.add(props(u, plan, path));
+  // (the props first: the water tanks stand on roofs the street life then dresses round them)
+  const prop = props(u, plan, path);
+  const cars = traffic(u, plan);
+  const street = life && life.quality !== 'low' ? buildStreetLife(u, life.grid, cars.lanes, all, plan.signs) : null;
+  group.add(buildings(u, all, life?.quality === 'low'));
+  if (plan.signs.length) group.add(signs(u, plan));
+  group.add(prop);
   const train = new Train(u, path);
   group.add(train.mesh, train.glow);
-  const cars = traffic(u, plan);
   group.add(cars.pts);
+  if (street) group.add(street.group);
   const bc = beacons(u, plan, extraBeacons);
   group.add(bc.pts);
   const lp = lamps(u, plan);
@@ -806,6 +707,7 @@ export function buildCity(u: MapUniforms, plan: Plan, extraBeacons: number[]): C
   group.add(lh.group);
   return {
     group,
+    life: street?.group ?? null,
     update(dt, t) {
       train.update(dt);
       fw.update(t);

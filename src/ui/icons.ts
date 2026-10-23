@@ -37,6 +37,10 @@ export const ICON = {
   pause: svg('<path d="M8 5v14M16 5v14"/>', 'stroke-width="3"'),
   play: svg('<path d="M7 4l13 8-13 8z" fill="currentColor"/>'),
   dice: svg('<rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="15" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/><circle cx="9" cy="15" r="1" fill="currentColor"/>'),
+  /** Two bots side by side (Tag Team). */
+  /** Titan battles: a towering robot, a fan at its feet. */
+  titan: svg('<rect x="10" y="2" width="7" height="5" rx="1.2"/><path d="M9 9.5h9M13.5 7v7.5M11 22l2.5-7.5L16 22M9 9.5l-1.2 5M18 9.5l1.2 5"/><circle cx="4.5" cy="17.6" r="1.1"/><path d="M4.5 19.5V22"/>'),
+  team: svg('<rect x="3.5" y="5" width="6" height="5" rx="1.2"/><path d="M4.5 13.5h4M6.5 10v3.5M5 20l1.5-6.5L8 20"/><rect x="14.5" y="5" width="6" height="5" rx="1.2"/><path d="M15.5 13.5h4M17.5 10v3.5M16 20l1.5-6.5L19 20"/><path d="M10.5 7.5h3" stroke-dasharray="1 1.6"/>'),
   refresh: svg('<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v4h-4"/>'),
   fullscreen: svg('<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>'),
   shrink: svg('<path d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5"/>'),

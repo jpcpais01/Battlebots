@@ -32,6 +32,8 @@ var screen: Control
 var _layer: CanvasLayer
 var _phase := -1
 var _clock := 0.0
+## What the start loaded ahead for the app (kept loaded until it's used).
+var _kept := []
 
 
 func _ready() -> void:
@@ -69,9 +71,33 @@ func _start() -> void:
 		if st != ResourceLoader.THREAD_LOAD_IN_PROGRESS:
 			screen.fail("couldn't load the game (%d)" % st)
 			return
-		screen.set_job("load", float(progress[0]) if progress.size() > 0 else 0.0)
+		screen.set_job("load", 0.6 * (float(progress[0]) if progress.size() > 0 else 0.0), 0.6)
 		await get_tree().process_frame
 	var packed := ResourceLoader.load_threaded_get(MAIN) as PackedScene
+	# then what the app loads by path as it sets up (the world, its screens, the results), on
+	# worker threads too: read and compiled on this thread, they held the screen up for a second
+	# or more. Kept here so they stay loaded until the app asks for them.
+	var more := _by_path()
+	for p in more:
+		ResourceLoader.load_threaded_request(p, "", true)
+	while true:
+		var k := 0.0
+		var waiting := false
+		for p in more:
+			var st := ResourceLoader.load_threaded_get_status(p, progress)
+			if st == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+				waiting = true
+				k += float(progress[0]) if progress.size() > 0 else 0.0
+			else:
+				k += 1.0
+		if not waiting:
+			break
+		screen.set_job("load", 0.6 + 0.4 * k / maxf(1.0, more.size()))
+		await get_tree().process_frame
+	for p in more:
+		var r := ResourceLoader.load_threaded_get(p)
+		if r != null:
+			_kept.append(r)
 	screen.done("load")
 	# the translated game data's tables (TInit), which the arena's corners read as it's built
 	load("res://gen/init.gd").run()
@@ -95,6 +121,24 @@ func _start() -> void:
 	app = packed.instantiate()
 	app.boot = self
 	add_child(app)
+
+
+## The scripts, scenes and clips the app loads by path (App.SCREENS, App.RESULTS, the world's
+## scene, the game data's tables, Sfx's clips), read off their scripts now that they're loaded.
+func _by_path() -> Array:
+	var paths := ["res://game/fight.tscn", "res://gen/init.gd"]
+	var consts := (load("res://app/app.gd") as Script).get_script_constant_map()
+	for p in (consts.get("SCREENS", {}) as Dictionary).values():
+		paths.append(p)
+	if consts.has("RESULTS"):
+		paths.append(consts.RESULTS)
+	# the fight's sound clips (Sfx loads them all as it's made)
+	var sfx := (load("res://audio/sfx.gd") as Script).get_script_constant_map()
+	var bank := (load("res://audio/sfx_bank.gd") as Script).get_script_constant_map()
+	for c in bank.get("CLIPS", []):
+		if not String(c).begins_with("walkon_"):
+			paths.append(String(sfx.get("CLIP_DIR", "")) + c + ".ogg")
+	return paths.filter(func(p: String) -> bool: return ResourceLoader.exists(p))
 
 
 ## Build the arena, the fight effects and the beach scene (on a worker thread: none of them is

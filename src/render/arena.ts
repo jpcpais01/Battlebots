@@ -69,7 +69,7 @@ export class Arena {
    * how far it is bowed out, and how much it is swinging free (sine) rather than
    * pressed into a V by a body. Packed as vec4s for the vertex shader.
    */
-  private ropeU = { value: new Float32Array(ROPES * 4) };
+  readonly ropeU = { value: new Float32Array(ROPES * 4) };
   private ropeVel = new Float32Array(ROPES);
   private ropePress = new Float32Array(ROPES);
   private ropeAt = new Float32Array(ROPES);
@@ -525,6 +525,21 @@ export class Arena {
 
   setPixelScale(h: number) {
     this.venue.setPixelScale(h);
+  }
+
+  /** How bright the ropes' flash is now (the titans' energy ropes and pylons flare with it). */
+  get flash() {
+    return this.ropeFlash;
+  }
+
+  /**
+   * Show or hide the indoor ring's own scenery (its stage, posts, ropes and truss): titan battles
+   * fight on the Titan Colosseum's deck, between its pylons and energy ropes. The lifts stay.
+   */
+  setRingHidden(hidden: boolean) {
+    for (const c of this.group.children) if (c !== this.corners.group) c.visible = !hidden;
+    if (this.beams) this.beams.visible = !hidden && this.venue.beams;
+    this.corners.setBare(hidden);
   }
 
   flashRopes(k = 1) {

@@ -1,6 +1,7 @@
 ## The loading screen (index.html .boot, src/ui/loader.ts Loader): the deep blue sky with its
-## pools of light, ribbons and rising sparks; the kicker, the logo, the progress line with what's
-## happening and the percentage; a tip now and then; the busy mark. Progress is real: the start
+## pools of light, ribbons and rising sparks; the boxer from the app's icon, big and alive
+## (boot_emblem.gd); the kicker, the logo, the progress line with what's happening and the
+## percentage; a tip now and then; the busy mark. Progress is real: the start
 ## lists its jobs up front, each weighted by its share of the wait, and each reports how far it has
 ## got. The line glides toward a little past the real progress (never past the end of the step
 ## being worked on), so it keeps moving through a long step instead of jumping when it reports.
@@ -26,6 +27,7 @@ const LEAD := 0.7
 const INK := Color(214 / 255.0, 226 / 255.0, 1.0, 0.72)
 const DIM := Color(190 / 255.0, 206 / 255.0, 240 / 255.0, 0.48)
 const HOT := Color("#ff7a2a")
+const EMBLEM := preload("res://app/boot/boot_emblem.gd")
 
 ## The screen starts lifting away (what's under it can make its entrance).
 signal lifting
@@ -48,6 +50,7 @@ var _bg: ColorRect
 var _bg_mat: ShaderMaterial
 var _dust: Control
 var _mid: Control
+var _emblem: Control
 var _parts: Array[Control] = []
 var _bar: Control
 var _what_l: Label
@@ -160,6 +163,13 @@ func _build_mid() -> void:
 	_mid.alignment = BoxContainer.ALIGNMENT_CENTER
 	_mid.add_theme_constant_override(&"separation", 0)
 	add_child(_mid)
+	# the app's icon, big (sized in _layout; it brings itself in)
+	_emblem = EMBLEM.new()
+	_mid.add_child(_emblem)
+	var eg := Control.new()
+	eg.name = "EmblemGap"
+	eg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_mid.add_child(eg)
 	# the kicker: ROBOT BOXING between two short hot lines
 	var kick := HBoxContainer.new()
 	kick.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -185,6 +195,7 @@ func _build_mid() -> void:
 	logo.alignment = BoxContainer.ALIGNMENT_CENTER
 	logo.add_theme_constant_override(&"separation", 0)
 	_add_part(logo, 34)
+	_mid.get_child(_mid.get_child_count() - 1).name = "LogoGap"
 	# the progress line
 	_bar = Control.new()
 	_bar.custom_minimum_size = Vector2(0, 4)
@@ -294,14 +305,19 @@ func _layout() -> void:
 	var vw := size.x / 100.0
 	var vh := size.y / 100.0
 	var tall := size.x <= size.y
-	var px := minf(12.5 * vw, 64.0) if tall else minf(minf(14.0 * vh, 9.0 * vw), 84.0)
+	var px := minf(12.5 * vw, 64.0) if tall else minf(minf(10.5 * vh, 8.0 * vw), 72.0)
 	_fill_logo(px)
-	(_mid.get_child(3) as Control).custom_minimum_size.y = 30.0 if tall else minf(6.0 * vh, 40.0)
+	# (the robot alone fills the middle two thirds of the icon's square: EMBLEM.TALL)
+	var icon := minf(84.0 * vw, 480.0) if tall else minf(minf(62.0 * vh, 46.0 * vw), 500.0)
+	_emblem.custom_minimum_size = Vector2(icon, icon * EMBLEM.TALL)
+	_emblem.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	(_mid.get_node("EmblemGap") as Control).custom_minimum_size.y = 40.0 if tall else minf(5.5 * vh, 40.0)
+	(_mid.get_node("LogoGap") as Control).custom_minimum_size.y = 30.0 if tall else minf(5.0 * vh, 34.0)
 	var w := minf(84.0 * vw, 420.0) if tall else minf(62.0 * vw, 460.0)
 	_mid.custom_minimum_size = Vector2(w, 0)
 	_mid.size = Vector2(w, 0)
 	_mid.reset_size()
-	var cy := (0.42 if tall else 0.45) * size.y
+	var cy := (0.44 if tall else 0.47) * size.y
 	# (centred on its real width: the logo can be wider than w)
 	_mid.position = Vector2((size.x - _mid.size.x) * 0.5, cy - _mid.size.y * 0.5)
 	_mid.pivot_offset = _mid.size * 0.5
@@ -414,7 +430,9 @@ func finish() -> void:
 		await get_tree().process_frame
 	_pct.text = "100"
 	_full = 0.001
-	await get_tree().create_timer(0.3).timeout
+	_emblem.finale()
+	# (long enough for the finale's double punch to land)
+	await get_tree().create_timer(0.45).timeout
 	_ended = true
 	# (.boot.out: the screen fades out over 0.8 s after 0.15 s; the words lift away, growing 6%)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -435,6 +453,7 @@ func fail(why: String) -> void:
 	_tip_l.text = "Close the app and open it again."
 	_tip.modulate.a = 1.0
 	_spin.visible = false
+	_emblem.fail()
 	_bar.set_meta("failed", true)
 	_bar.queue_redraw()
 

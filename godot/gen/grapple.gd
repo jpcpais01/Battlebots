@@ -80,6 +80,8 @@ class Body extends RefCounted:
 	var spot: Array
 	
 	func _init() -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.crouch = 0.1
 		self.pitch = 0.25
 		self.roll = 0.0
@@ -187,7 +189,9 @@ class Grapple extends RefCounted:
 	var refBreak: bool
 	var sway: float
 	
-	func _init(host, phase: String, att: TFighter.Fighter, def: TFighter.Fighter, tie: Array, frame: float, holds: Array) -> void:
+	func _init(host = null, phase: String = "", att: TFighter.Fighter = null, def: TFighter.Fighter = null, tie: Array = [], frame: float = 0.0, holds: Array = []) -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.t = 0.0
 		self.total = 0.0
 		self.ctl = 0.0

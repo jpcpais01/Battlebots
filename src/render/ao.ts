@@ -22,6 +22,8 @@ import * as THREE from 'three';
 /** Spheres per robot. Low quality drops the limb midpoints. */
 const PER_FULL = 24;
 const PER_LOW = 16;
+/** Robots the field holds: the two fighting, and a tag team match's two partners. */
+const ROBOTS = 4;
 
 /** Armour radius around each physics joint (pelvis, chest, neck, head, arms, legs), a bit inside the shell. */
 const RADII = [0.28, 0.33, 0.12, 0.22, 0.18, 0.12, 0.14, 0.18, 0.12, 0.14, 0.15, 0.13, 0.11, 0.15, 0.13, 0.11];
@@ -66,9 +68,9 @@ export interface AOOptions {
 class ContactAO {
   per = PER_FULL;
   readonly uniforms = {
-    uAOS: { value: new Float32Array(2 * PER_FULL * 4) },
+    uAOS: { value: new Float32Array(ROBOTS * PER_FULL * 4) },
     /** Per robot: bounding sphere (xyz, radius); radius 0 = absent. */
-    uAOB: { value: new Float32Array(8) },
+    uAOB: { value: new Float32Array(ROBOTS * 4) },
     /** Top-down occlusion of the floor (y = 0) around the centre. */
     uAOMap: { value: null as THREE.Texture | null },
   };
@@ -84,7 +86,7 @@ class ContactAO {
   /** Call before any material is patched: the sphere count is compiled into the shaders. */
   setQuality(q: 'low' | 'med' | 'high') {
     this.per = q === 'low' ? PER_LOW : PER_FULL;
-    this.uniforms.uAOS.value = new Float32Array(2 * this.per * 4);
+    this.uniforms.uAOS.value = new Float32Array(ROBOTS * this.per * 4);
     this.map?.dispose();
     (this.mapMesh.material as THREE.Material).dispose();
     const n = MAP_SIZE[q];
@@ -130,7 +132,7 @@ class ContactAO {
     const n = map.width;
     const k = n / (2 * MAP_HALF);
     const now = [n, n, 0, 0];
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < ROBOTS; i++) {
       const r = b[i * 4 + 3], cy = b[i * 4 + 1];
       // the robot's bounding sphere meets the floor in a disc (the shader's bounding test)
       if (r <= Math.abs(cy)) continue;
@@ -155,7 +157,7 @@ class ContactAO {
     this.mapLast = has(now) ? now : [0, 0, 0, 0];
     if (!this.mapFresh && !has(box)) return;
     map.scissorTest = !this.mapFresh;
-    map.scissor.set(box[0], box[1], box[2] - box[0], box[3] - box[1]);
+    if (map.scissorTest) map.scissor.set(box[0], box[1], box[2] - box[0], box[3] - box[1]);
     this.mapFresh = false;
     const prev = renderer.getRenderTarget();
     renderer.setRenderTarget(map);
@@ -304,11 +306,11 @@ float aoFloorMap(vec2 xz) {
  */
 function sphereGLSL(per: number) {
   return /* glsl */ `
-uniform vec4 uAOS[${2 * per}];
-uniform vec4 uAOB[2];
+uniform vec4 uAOS[${ROBOTS * per}];
+uniform vec4 uAOB[${ROBOTS}];
 float aoSpheres(vec3 p, vec3 n, float k) {
   float occ = 1.0;
-  for (int b = 0; b < 2; b++) {
+  for (int b = 0; b < ${ROBOTS}; b++) {
     vec4 bb = uAOB[b];
     vec3 bd = bb.xyz - p;
     if (bb.w <= 0.0 || dot(bd, bd) > bb.w * bb.w) continue;

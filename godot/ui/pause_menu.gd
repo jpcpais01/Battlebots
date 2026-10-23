@@ -14,8 +14,13 @@ extends CanvasLayer
 signal pause_requested
 ## Resume tapped, or back on the card.
 signal resume_requested
-## Forfeit tapped: end this fight (here: start the next, as there's no home screen yet).
+## Forfeit tapped: end this fight (here: start the next, as there's no home screen yet). A
+## replay's Home is this too: it ends nothing, just leaves.
 signal forfeit_requested
+## A replay's Skip to the result.
+signal results_requested
+## A replay of an online fight: back to its room (room_button).
+signal room_requested
 
 var settings: Settings
 ## Something over the fight steps back through its own menus too (the App): it takes Android's
@@ -26,7 +31,18 @@ var back_handled_above := false
 var _root := Control.new()
 var _dim := ColorRect.new()
 var _card := PanelContainer.new()
+## An online fight's card instead (app.ts netMenu): the fight plays on behind it.
+var _net_card := PanelContainer.new()
+## A replay's card instead (app.ts replayMenu): Resume, Sound, Settings, Skip to the result, Home.
+var _replay_card := PanelContainer.new()
+## The replay card's Room button shows (a replay of an online fight, its room still open).
+var room_button := false
+var _room: Button
+## The card the menu opened on (the Paused one, the online one or the replay's).
+var _main: Control = _card
 var _sound: Button
+var _net_sound: Button
+var _replay_sound: Button
 var _screen: SettingsScreen
 ## The card on show (the Paused one or Settings).
 var _cur: Control
@@ -107,11 +123,99 @@ func _build_card() -> void:
 	quit.pressed.connect(func() -> void: forfeit_requested.emit())
 	v.add_child(quit)
 	_root.add_child(_card)
+	_build_net_card()
+	_build_replay_card()
 	_sync_sound()
 
 
+## app.ts netMenu: an online fight pauses for nobody, so its menu says so, and offers the fight, the
+## sound, Settings and a way out of the room.
+func _build_net_card() -> void:
+	_net_card.theme_type_variation = &"Box"
+	_net_card.custom_minimum_size.x = 17.0 * UiTheme.EM
+	_net_card.visible = false
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override(&"separation", 9)
+	_net_card.add_child(v)
+	var h2 := Label.new()
+	h2.text = "Online fight"
+	h2.theme_type_variation = &"H2"
+	v.add_child(h2)
+	var note := Label.new()
+	note.text = "The fight keeps going on both screens."
+	note.add_theme_color_override(&"font_color", UiTheme.TEXT_2)
+	note.add_theme_font_size_override(&"font_size", int(0.9 * UiTheme.EM))
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var m := MarginContainer.new()
+	m.add_theme_constant_override(&"margin_bottom", 4)
+	m.add_child(note)
+	v.add_child(m)
+	var back_ := UiTheme.button("Back to the fight", "play", &"BtnPrimary")
+	back_.name = "Resume"
+	back_.pressed.connect(func() -> void: resume_requested.emit())
+	v.add_child(back_)
+	_net_sound = UiTheme.button("Sound on", "sound", &"BtnSmall")
+	_net_sound.pressed.connect(func() -> void:
+		settings.set_sound(not settings.sound)
+		blip("tap"))
+	v.add_child(_net_sound)
+	var gear := UiTheme.button("Settings", "gear", &"BtnSmall")
+	gear.pressed.connect(open_settings)
+	v.add_child(gear)
+	var leave := UiTheme.button("Leave room", "exit", &"BtnDanger")
+	leave.name = "Leave"
+	leave.pressed.connect(func() -> void: forfeit_requested.emit())
+	v.add_child(leave)
+	_root.add_child(_net_card)
+
+
+## app.ts replayMenu: the replay holds behind it, playing or paused as it was; Skip to the result
+## runs it to its end for the results, Home leaves (nothing to forfeit: it was counted).
+func _build_replay_card() -> void:
+	_replay_card.theme_type_variation = &"Box"
+	_replay_card.custom_minimum_size.x = 17.0 * UiTheme.EM
+	_replay_card.visible = false
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override(&"separation", 9)
+	_replay_card.add_child(v)
+	var h2 := Label.new()
+	h2.text = "Replay"
+	h2.theme_type_variation = &"H2"
+	var m := MarginContainer.new()
+	m.add_theme_constant_override(&"margin_bottom", 4)
+	m.add_child(h2)
+	v.add_child(m)
+	var resume := UiTheme.button("Resume", "play", &"BtnPrimary")
+	resume.name = "Resume"
+	resume.pressed.connect(func() -> void: resume_requested.emit())
+	v.add_child(resume)
+	_replay_sound = UiTheme.button("Sound on", "sound", &"BtnSmall")
+	_replay_sound.pressed.connect(func() -> void:
+		settings.set_sound(not settings.sound)
+		blip("tap"))
+	v.add_child(_replay_sound)
+	var gear := UiTheme.button("Settings", "gear", &"BtnSmall")
+	gear.pressed.connect(open_settings)
+	v.add_child(gear)
+	var skip := UiTheme.button("Skip to the result", "forward", &"BtnSmall")
+	skip.name = "SkipToResult"
+	skip.pressed.connect(func() -> void: results_requested.emit())
+	v.add_child(skip)
+	_room = UiTheme.button("Room", "globe", &"BtnSmall")
+	_room.name = "Room"
+	_room.pressed.connect(func() -> void: room_requested.emit())
+	v.add_child(_room)
+	var home := UiTheme.button("Home", "exit", &"BtnSmall")
+	home.name = "Home"
+	home.pressed.connect(func() -> void: forfeit_requested.emit())
+	v.add_child(home)
+	_root.add_child(_replay_card)
+
+
 func _sync_sound() -> void:
-	UiTheme.set_button(_sound, "Sound on" if settings.sound else "Sound off", "sound" if settings.sound else "mute")
+	for b in [_sound, _net_sound, _replay_sound]:
+		if b != null:
+			UiTheme.set_button(b, "Sound on" if settings.sound else "Sound off", "sound" if settings.sound else "mute")
 
 
 ## A menu blip ("tap", "select" or "back": sfx.ts ui), at the clip's own level.
@@ -130,8 +234,24 @@ func is_open() -> bool:
 
 ## Show the Paused card over the (already paused) fight.
 func open() -> void:
+	_open_on(_card)
+
+
+## Show the online fight's card over the fight, which plays on under it (nothing is paused).
+func open_online() -> void:
+	_open_on(_net_card)
+
+
+## Show a replay's card over the (already paused) replay.
+func open_replay() -> void:
+	_room.visible = room_button
+	_open_on(_replay_card)
+
+
+func _open_on(c: Control) -> void:
 	if _open:
 		return
+	_main = c
 	_open = true
 	visible = true
 	if _fade != null:
@@ -140,7 +260,7 @@ func open() -> void:
 	_root.modulate.a = 0.0
 	_fade = _tween()
 	_fade.tween_property(_root, "modulate:a", 1.0, 0.2)
-	_show(_card)
+	_show(_main)
 	blip("tap")
 
 
@@ -176,16 +296,16 @@ func back() -> void:
 	if not _open:
 		return
 	if _cur == _screen:
-		_show(_card)
+		_show(_main)
 	else:
 		resume_requested.emit()
 
 
 func _show(c: Control) -> void:
-	for k in [_card, _screen]:
+	for k in [_card, _net_card, _replay_card, _screen]:
 		k.visible = k == c
 	_cur = c
-	if c == _card:
+	if c != _screen:
 		_sync_sound()
 	_layout()
 	# .modal .box boxIn: up 0.8em out of nothing, from 97%, over 0.35s, cubic-bezier(0.2, 0.8, 0.2, 1)

@@ -601,7 +601,7 @@ func end(f, time: float, opp: BotModel = null, solved := false) -> void:
 
 ## The limb contact pass on its own (the dear part of `end`). It writes only this robot's limb
 ## joints and reads the hulls both robots placed in `begin`, so the fight runs both robots' passes
-## at once, one on a worker thread, then calls `end(..., true)` for each.
+## one after the other, then calls `end(..., true)` for each.
 func solve(f, time: float, opp: BotModel = null) -> void:
 	_solve_contacts(f, opp, time)
 
@@ -1052,11 +1052,48 @@ func _parent_xf() -> Transform3D:
 ## and the wait (botModel.ts dent). The plating search runs on a worker thread; the dent goes in
 ## a frame later.
 func dent(h, instant := false) -> void:
-	if h.shielded:
+	var job = _dent_job(h, instant)
+	if job == null:
 		return
+	if instant:
+		_find_plating(job)
+		_place_dent(job)
+		return
+	job.task = WorkerThreadPool.add_task(_find_plating.bind(job), false, "dent")
+	_dent_jobs.append(job)
+
+
+## A blow's dent worked out at once, for the robot as it's posed now (a replay's seek puts the
+## fight's dents back: see pose_still). Keep it and hand it to dent_place, as often as wanted.
+func dent_find(h) -> Dictionary:
+	var job = _dent_job(h, true)
+	if job == null:
+		return {}
+	_find_plating(job)
+	return job
+
+
+## Put in a dent dent_find worked out (straight in, no punch).
+func dent_place(job: Dictionary) -> void:
+	if not job.is_empty():
+		_place_dent(job)
+
+
+## Posed as `p` (a ReplayTimeline.Pose: the joints, and what the limbs read off a fighter), for
+## dent_find and detach_piece: nothing resolved against the armour, nothing drawn.
+func pose_still(p) -> void:
+	for i in 16:
+		joints[i] = anchors[i].global_position if _anchored(i) else p.joints[i]
+	_begin_core(p, p.look)
+	_pose_limbs(p)
+
+
+func _dent_job(h, instant: bool):
+	if h.shielded:
+		return null
 	var bones: Array = _part_bones[int(h.part)]
 	if bones.is_empty():
-		return
+		return null
 	var dir := Vector3(h.dir.x, h.dir.y, h.dir.z)
 	var at := Vector3(h.point.x, h.point.y, h.point.z)
 	var rays := []
@@ -1068,18 +1105,12 @@ func dent(h, instant := false) -> void:
 			continue
 		rays.append([bone, dd, _to_bone(bone, at) - dd * 0.4])
 	if rays.is_empty():
-		return
-	var job := {
+		return null
+	return {
 		"rays": rays, "reach": 0.075 / size, "wear": 1.0 - float(h.partCond), "damage": float(h.damage),
 		"kick": h.move.kind == "kick", "crit": bool(h.crit), "heavy": bool(h.heavy), "blocked": bool(h.blocked),
 		"instant": instant, "task": -1,
 	}
-	if instant:
-		_find_plating(job)
-		_place_dent(job)
-		return
-	job.task = WorkerThreadPool.add_task(_find_plating.bind(job), false, "dent")
-	_dent_jobs.append(job)
 
 
 ## The first plating the blow meets: cast back along it from a little way out, and take the

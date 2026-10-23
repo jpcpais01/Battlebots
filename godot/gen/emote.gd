@@ -22,6 +22,8 @@ class EmotePose extends RefCounted:
 	var gripW: Array
 	
 	func _init() -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.w = 0.0
 		self.ch = JS.f32(TEmote.EC.N)
 		self.faceOn = false
@@ -227,6 +229,8 @@ class Ctx extends RefCounted:
 	var onBeat
 	
 	func _init() -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.t = 0.0
 		self.prevT = 0.0
 		self.T = 1.0
@@ -417,7 +421,9 @@ class Showman extends RefCounted:
 		get:
 			return (spec != null)
 	
-	func _init(me: TFighter.Fighter, opp: TFighter.Fighter, brain: TBrain.Brain, picks = null) -> void:
+	func _init(me: TFighter.Fighter = null, opp: TFighter.Fighter = null, brain: TBrain.Brain = null, picks = null) -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.pose = TEmote.EmotePose.new()
 		self.skip = 0.0
 		self.ringR = 2.3

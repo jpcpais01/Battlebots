@@ -13,7 +13,7 @@ const KC := {"go": HudKit.AMBER, "allIn": HudKit.RED, "defend": HudKit.CYAN, "he
 var _btns: Array[CoachButton] = []
 ## The bar's buttons, raised 0.8em and faded while it's off (style.css .coach-bar.off).
 var _row := Control.new()
-## What the match said this frame (updateCoach), side 0's corner.
+## What the match said this frame (updateCoach), for the player's corner (FightHud.me).
 var _live := false
 var _ready := false
 var _active := ""
@@ -80,19 +80,20 @@ func stop() -> void:
 
 ## hud.ts updateCoach: what the corner's buttons show, read while the sim is idle.
 func capture(mm) -> void:
-	var br = mm.brains[0]
+	var me := float(hud.me)
+	var br = mm.brains[hud.me]
 	var t: float = mm.time
 	_live = mm.phase == "fight" and mm.winner == null
 	var c = br.coach
 	var until: float = br.coachUntil
 	_active = str(c) if c != null and str(c) != "" and t < until else ""
-	var pending: bool = mm.coachPending(0.0)
+	var pending: bool = mm.coachPending(me)
 	# (a tap waits in hud.coach_tap until the Game queues it: it's pending already)
 	if not pending and hud.coach_tap == "":
 		_tapped = ""
 	pending = pending or hud.coach_tap != ""
-	_ready = mm.coachReady(0.0) and not pending
-	var ready_at: float = mm.coachReadyAt[0]
+	_ready = mm.coachReady(me) and not pending
+	var ready_at: float = mm.coachReadyAt[hud.me]
 	_cd = 0.0 if _ready or pending else maxf(0.0, ready_at - t) / TCoach.COACH_COOLDOWN
 	_left = (until - t) / TCoach.COACH_TIME if _active != "" else 0.0
 

@@ -69,7 +69,9 @@ class Match extends RefCounted:
 		get:
 			return (slowmo * TMatch.impactPace(hitstop, hitSpan))
 	
-	func _init(a, b, seed_: float, partners = null) -> void:
+	func _init(a = null, b = null, seed_: float = 0.0, partners = null) -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.time = 0.0
 		self.frame = 0.0
 		self.phaseTime = 0.0

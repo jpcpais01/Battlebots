@@ -67,10 +67,21 @@ function sanitizeTape(raw: unknown): Tape | null {
     } else if (typeof q.x === 'number') talk.push({ f: int(q.f), x: int(q.x), fade: typeof q.fade === 'number' ? Math.max(0, q.fade) : 0 });
   }
   const out: Tape = { a: sanitizeBot(t.a), b: sanitizeBot(t.b), seed: t.seed >>> 0, cut: int(t.cut, -1), coach, end: int(t.end), marks, talk };
-  if (typeof t.arena === 'string' && ARENAS.includes(t.arena as ArenaId)) out.arena = t.arena as ArenaId;
+  if (typeof t.arena === 'string' && (t.arena === 'titan' || ARENAS.includes(t.arena as ArenaId))) out.arena = t.arena as ArenaId | 'titan';
   if (t.online === true) {
     out.online = true;
     out.me = t.me === 1 ? 1 : 0;
+  }
+  // a tag team match: each side's partner, the TAG button's taps, and the teams' names
+  const pt = t.partners as { a?: unknown; b?: unknown } | undefined;
+  if (pt && typeof pt === 'object' && pt.a && pt.b) {
+    out.partners = { a: sanitizeBot(pt.a), b: sanitizeBot(pt.b) };
+    out.tags = (Array.isArray(t.tags) ? t.tags : [])
+      .filter((c): c is { frame: number; side: number } => !!c && typeof c === 'object')
+      .slice(0, 400)
+      .map((c) => ({ frame: int(c.frame), side: c.side === 1 ? 1 : 0 }));
+    const tn = Array.isArray(t.teams) ? t.teams : [];
+    out.teams = [0, 1].map((k) => (typeof tn[k] === 'string' ? (tn[k] as string).slice(0, 60) : '')) as [string, string];
   }
   return out;
 }

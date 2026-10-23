@@ -17,6 +17,101 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-23 10:00",
+	"title": "Greener bushes and a smooth start",
+	"notes": [
+	"Android app: no more big black holes in the beach's bushes and jungle on some phones.",
+	"Android app: the beach's bushes, jungle trees and grass now catch the sun properly, fresh and green instead of dark and flat.",
+	"Android app: the same fix guards robots, sand and the garage, so no black specks can appear on them on those phones either.",
+	"Android app: the loading screen no longer freezes while the game starts. It keeps moving the whole way.",
+	"Android app: the loading screen now shows just the robot boxer, bigger, with no icon tile behind it."
+]
+},
+	{
+	"hour": "2026-10-23 09:00",
+	"title": "A new app icon",
+	"notes": [
+	"Android app: a brand new app icon, a robot boxer behind its guard in the spotlight. It also works with themed icons.",
+	"Android app: the loading screen now shows the icon big and alive. The boxer bobs, blinks and throws punches while the game loads."
+]
+},
+	{
+	"hour": "2026-10-21 03:00",
+	"title": "A space Skin Vault and a living city on the web",
+	"notes": [
+	"Web: zoom in on the world map's city and it's alive. Cars, vans, taxis and buses drive the streets, cars sit parked in the bays and people walk the pavements, each with its shadow.",
+	"Web: the city's buildings have real windows now, set into the walls with lit rooms behind them, plus balconies, fire escapes, shopfronts, solar panels and rooftop units, and the streets show tyre tracks, patches and manhole covers.",
+	"Web: the Skin Vault is now its own place out in space. Your robot stands on a glowing turntable in front of a giant gumball machine full of capsules, under a ringed planet. Drag to walk round it.",
+	"Web: a pull plays out on the machine. The crank turns, a capsule drops out of the chute, charges up (violet cracks for a Rare, gold for an Epic) and bursts, and the skin paints onto your robot in a beam of light.",
+	"Web: a ×10 pull shoots ten capsules into an arc that pop one by one into lights of their rarity, then the cards deal out with the best turned last. Tap a card to see that skin on your robot."
+]
+},
+	{
+	"hour": "2026-10-21 02:00",
+	"title": "Titans and follow spots on the web",
+	"notes": [
+	"Web: two follow spots up in the rigging now track the robots through the fight, so both bots stay well lit from any camera angle (medium and high graphics).",
+	"Web: Titan battles are here. Tap Titans on the home screen and your bots fight as 30 m giants in the Titan Colosseum, a sunlit stadium packed with fans in both teams' colours.",
+	"Web: titans move at their own giant pace. Their footsteps raise dust and shake the camera, heavy falls leave scars in the turf, and every hit booms deep and arrives late from across the stadium."
+]
+},
+	{
+	"hour": "2026-10-21 02:00",
+	"title": "Tag Team and titans on the web",
+	"notes": [
+	"Web: the camera films titans from the ground looking up, and now and then cuts to a fan's phone in the stands. Next fight and Rematch stay titans, and titan fights replay and save.",
+	"Web: Tag Team is here. Pick a partner from your saved bots or roll a recruit, then take on a pair of rivals two against two, one bot in the ring at a time.",
+	"Web: tap TAG when your bot is in trouble and it runs to its corner to bring the partner in. A knocked-out bot is out of the match, and its partner storms the ring.",
+	"Web: partners can double-team a finisher, one holding the victim while the other lands it, and the camera, commentators, referee and crowd all call the tags and eliminations.",
+	"Web: tag team results show both teams, their tags and what's left of each bot, with Next fight, Rematch and your team record. Tag team fights replay and save like any other."
+]
+},
+	{
+	"hour": "2026-10-21 00:00",
+	"title": "Fight replays on Android",
+	"notes": [
+	"Android: Replays are here. Tap Replay on the results to watch the fight again from the walkout, every punch exactly as it happened.",
+	"Android: the replay bar scrubs through the fight with its knockdowns, torn-off parts and the knockout marked on it, jumps 5 seconds, steps frame by frame while paused, and plays from a quarter speed up to four times.",
+	"Android: jump anywhere in a replay and the robots carry every dent and torn-off part the fight had given them by then.",
+	"Android: Save replay keeps up to 30 fights on your phone. Watch them again or delete them from Replays on the home screen.",
+	"Android: tag team, titan and online fights replay too, the commentators call it again, and the replay's menu can skip straight to the result."
+]
+},
+	{
+	"hour": "2026-10-20 23:00",
+	"title": "Online fights on Android",
+	"notes": [
+	"Android: Online is here. Create a room and share its 4-letter code, or type a friend's code to join their room, then fight bot against bot.",
+	"Android: phones and the web game share rooms, so you can fight a friend whichever one they play on.",
+	"Android: online fights play out punch for punch the same on both screens, your coach calls land at the same moment on both, and a phone that lagged or went to the background catches straight back up.",
+	"Android: after an online fight you both vote for a rematch from the results, and the pill beside the menu button shows your connection and ping during the fight."
+]
+},
+	{
+	"hour": "2026-10-20 20:00",
+	"title": "Lighter stands and crowd on Android",
+	"notes": [
+	"Android: the stands in the indoor arena draw much more cheaply: the graphics card skips the parts hidden behind the fans, the ring and the robots instead of painting them first, as on the web game.",
+	"Android: the crowd's colours and haze are worked out once per fan instead of on every pixel, so the packed stands cost less to draw with the same look."
+]
+},
+	{
+	"hour": "2026-10-20 19:00",
+	"title": "Lighter ray tracing on Android",
+	"notes": [
+	"Android: Ray tracing no longer traces shade and bounce light onto the stands, the crowd and the rig overhead in the indoor arena, where it barely showed, so close shots by the ropes cost noticeably less.",
+	"Android: the ring's traced reflections share their blur between neighbouring pixels: the same soft reflections for about a third of the work."
+]
+},
+	{
+	"hour": "2026-10-20 17:00",
+	"title": "Smoother robots on Android",
+	"notes": [
+	"Android: the robots' limbs slide off armour (theirs and their opponent's) at about half the CPU cost, with no more occasional slow frames from it, leaving more room for 120 FPS.",
+	"Android: the performance overlay splits the ring into its canvas, ropes and glow strips, truss, corner lifts and the rest, so a costly ring shows which part costs."
+]
+},
+	{
 	"hour": "2026-10-19 05:00",
 	"title": "A living, detailed city",
 	"notes": [

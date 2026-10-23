@@ -6,6 +6,7 @@ import { MAP_COLORS, NIGHT_COLORS, mapUniforms, noiseTexture, type MapUniforms }
 import { buildGround } from './terrain';
 import { buildSea } from './sea';
 import { buildCity, type City } from './city';
+import { LIFE_SHOW } from './streetLife';
 import { buildClouds, buildTrees, type Forest } from './nature';
 import { buildSites, type Sites } from './sites';
 import { MapCamera } from './mapCamera';
@@ -131,7 +132,7 @@ export class WorldMap {
     progress(0.65);
     await tick();
     const towers = buildTowers(u);
-    const city = buildCity(u, plan, sites.beacons.concat(towers.beacons));
+    const city = buildCity(u, plan, sites.beacons.concat(towers.beacons), { grid: ground.grid, quality });
     const holo = buildHolograms(u, plan.boxes);
     progress(0.75);
     await tick();
@@ -183,6 +184,8 @@ export class WorldMap {
       this.applyTime();
     }
     this.cam.update(dt);
+    // (the street life only close in: further out it's all smaller than a pixel)
+    if (this.city.life) this.city.life.visible = this.cam.dist < LIFE_SHOW;
     this.city.update(dt, time);
     this.roads.update(time);
     this.towers.update(time);

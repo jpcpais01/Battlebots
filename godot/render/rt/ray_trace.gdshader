@@ -33,6 +33,14 @@ uniform vec3 floor_look = vec3(0.0, 0.5, -0.62);
 uniform float ring_r = 5.55;
 // how far round a pixel the light pass looks for what crowds it, in metres
 uniform float radius = 0.55;
+// The stage: the light pass and the contact shadows only run on it (RayTrace.set_zone). Past it
+// (the stands, the crowd and the rig overhead) they cost as much a pixel as on a robot and show
+// next to nothing: the fans are flat painted sprites, the seats and the truss sit in the dark,
+// and the occlusion there spans a pixel or two. Its outline is a rounded rectangle round the
+// ring (xz: the straight runs, z..w: where the trace fades out past them, in metres), and it
+// fades out again above the robots' heads (y). (no stage by default: everywhere is traced)
+uniform vec4 zone = vec4(0.0, 0.0, 1e6, 2e6);
+uniform vec2 zone_top = vec2(1e6, 2e6);
 
 // samples per pixel (each quad of four pixels shares a spiral four times as long)
 const int SAMPLES = 4;
@@ -42,8 +50,6 @@ const int CS_STEPS = 2;
 const float CS_LEN = 0.32;
 const int STEPS = 8;
 const int REFINE = 5;
-// (fewer in a quad that shares: its four hits are averaged, a finer one each buys nothing)
-const int REFINE_Q = 3;
 const float MAX_DIST = 9.0;
 // the golden angle: the spiral's taps spread evenly however many there are
 const float GOLDEN = 2.39996323;
@@ -86,9 +92,12 @@ void fragment() {
 	float sy = alike(z, z + DFDY(z) * sgn.y) * trust;
 	// a pixel that can't share does its whole quad's work itself
 	bool shared = trust > 0.5;
-	// past FAR1, the whole quad (all four alike, or a quad that can't vouch for its neighbours
-	// doing its own): nothing traced, nothing changed (the sharing below still runs for all four)
-	float far_k = smoothstep(FAR0, FAR1, -z);
+	// past FAR1 or off the stage, the whole quad (all four alike, or a quad that can't vouch for
+	// its neighbours doing its own): nothing traced, nothing changed (the sharing below still
+	// runs for all four)
+	vec3 wp = (INV_VIEW_MATRIX * vec4(p, 1.0)).xyz;
+	float off_stage = max(smoothstep(zone.z, zone.w, length(max(abs(wp.xz) - zone.xy, vec2(0.0)))), smoothstep(zone_top.x, zone_top.y, wp.y));
+	float far_k = max(smoothstep(FAR0, FAR1, -z), sky ? 0.0 : off_stage);
 	float fv = far_k > 0.999 ? 1.0 : 0.0;
 	float fx = fv + DFDX(fv) * sgn.x;
 	float fy = fv + DFDY(fv) * sgn.y;
@@ -217,12 +226,11 @@ void fragment() {
 	float iz_b = 1.0;
 	float f_hit = 2.0;
 	if (amounts.w > 0.0 && !sky) {
-		vec3 w = (INV_VIEW_MATRIX * vec4(p, 1.0)).xyz;
 		vec3 up = normalize((VIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
-		if (canvas_look.x > 0.0 && abs(w.y) < 0.03 && length(w.xz) < ring_r) {
+		if (canvas_look.x > 0.0 && abs(wp.y) < 0.03 && length(wp.xz) < ring_r) {
 			k = canvas_look.x;
 			rough = canvas_look.y;
-		} else if (floor_look.x > 0.0 && abs(w.y - floor_look.z) < 0.04) {
+		} else if (floor_look.x > 0.0 && abs(wp.y - floor_look.z) < 0.04) {
 			k = floor_look.x;
 			rough = floor_look.y;
 		}
@@ -282,13 +290,22 @@ void fragment() {
 			}
 		}
 	}
+	// The blur round the hit is shared out like the march: where all four pixels of the quad
+	// reflect and lie on one surface, each reads the hit and two of the eight taps round it (an
+	// axis one and a diagonal one, by its place in the quad, weighted four times over), and the
+	// quad's average below is the same nine-tap ring. Elsewhere a pixel reads all nine.
+	float kv = k > 0.0 ? 1.0 : 0.0;
+	float kx = kv + DFDX(kv) * sgn.x;
+	float ky = kv + DFDY(kv) * sgn.y;
+	float kd = ky + DFDX(ky) * sgn.x;
+	bool split = shared && sx > 0.5 && sy > 0.5 && min(min(kv, kx), min(ky, kd)) > 0.5;
 	vec4 refl = vec4(0.0);
 	float rw = k > 0.0 ? 1.0 : 0.0;
 	if (k > 0.0 && f_hit <= 1.0) {
 		// home in on where the ray met it
 		float lo = max(0.0, f_hit - 1.0 / float(n_r));
 		float hi = f_hit;
-		for (int j = 0; j < (shared ? REFINE_Q : REFINE); j++) {
+		for (int j = 0; j < REFINE; j++) {
 			float m = (lo + hi) * 0.5;
 			if (z_at(mix(uv_a, uv_b, m), size, ip) - 1.0 / mix(iz_a, iz_b, m) > 0.0) {
 				hi = m;
@@ -312,11 +329,10 @@ void fragment() {
 		vec2 ax = vec2(cos(rot), sin(rot)) * sp;
 		vec2 ay = vec2(-sin(rot), cos(rot)) * sp;
 		vec3 c = safe_col(textureLod(screen_tex, huv, 0.0).rgb) * 0.2;
-		if (shared) {
-			// the quad deals the eight taps round the hit out two to a pixel and averages them
-			// below, as it does the steps: a third of the reads, the same blur over the quad
-			vec2 t = q == 0 ? ax : (q == 1 ? ay : (q == 2 ? (ax + ay) * 0.5 : (ax - ay) * 0.5));
-			c += (safe_col(textureLod(screen_tex, huv + t, 0.0).rgb) + safe_col(textureLod(screen_tex, huv - t, 0.0).rgb)) * 0.4;
+		if (split) {
+			vec2 ta = q == 0 ? ax : (q == 1 ? -ax : (q == 2 ? ay : -ay));
+			vec2 td = (q == 0 ? ax + ay : (q == 1 ? -ax - ay : (q == 2 ? ax - ay : ay - ax))) * 0.5;
+			c += safe_col(textureLod(screen_tex, huv + ta, 0.0).rgb) * 0.48 + safe_col(textureLod(screen_tex, huv + td, 0.0).rgb) * 0.32;
 		} else {
 			c += (safe_col(textureLod(screen_tex, huv + ax, 0.0).rgb) + safe_col(textureLod(screen_tex, huv - ax, 0.0).rgb)
 				+ safe_col(textureLod(screen_tex, huv + ay, 0.0).rgb) + safe_col(textureLod(screen_tex, huv - ay, 0.0).rgb)) * 0.12;
@@ -365,7 +381,9 @@ void fragment() {
 	vec3 refl_c = rw > 1e-4 ? rf.rgb / rw : vec3(0.0);
 
 	// glowing screens, lamps and LEDs give light rather than take shade (rt.ts RT_COMPOSITE)
-	vec3 col = safe_col(textureLod(screen_tex, uv0, 0.0).rgb);
+	// (where none of the light pass is left, neither the pixel's brightness nor its colour can
+	// change what leaves here: no read)
+	vec3 col = far_k < 1.0 ? safe_col(textureLod(screen_tex, uv0, 0.0).rgb) : vec3(0.0);
 	float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
 	float keep = mix(1.0, light.a, 1.0 - smoothstep(1.2, 3.0, lum));
 	// Bounded, whatever the inputs: shade never takes more than two thirds of a pixel away (no black

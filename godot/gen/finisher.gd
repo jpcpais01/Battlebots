@@ -23,6 +23,8 @@ class FinCtx extends RefCounted:
 	var pin: float
 	
 	func _init() -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.t = 0.0
 		self.prevT = 0.0
 		self.rt = 0.0
@@ -204,7 +206,9 @@ class FinisherRun extends RefCounted:
 			return c.t
 	var touchAt: V3
 	
-	func _init(id: String, att: TFighter.Fighter, def: TFighter.Fighter, host, preview: bool = false) -> void:
+	func _init(id: String = "", att: TFighter.Fighter = null, def: TFighter.Fighter = null, host = null, preview: bool = false) -> void:
+		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
+			return
 		self.c = TFinisher.FinCtx.new()
 		self.slowmo = 1.0
 		self.glow = 0.0

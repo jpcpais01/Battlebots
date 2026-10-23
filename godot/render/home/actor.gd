@@ -103,7 +103,8 @@ func face_yaw(yaw: float) -> void:
 
 ## Advance the live fighter (fixed sim steps).
 func step(dt: float) -> void:
-	if not live_on:
+	# (not alongside the fingerprint fight on its worker: the sim's scratch vectors are shared)
+	if not live_on or NetFingerprint.busy():
 		return
 	var f := live
 	_acc += dt

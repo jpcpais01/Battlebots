@@ -599,17 +599,19 @@ class Edge extends Node:
 ## mask and every light's shadow casters already include (checked first, or Measure refuses), and
 ## when it is done every mesh gets its own layers back and the viewport is freed.
 class GpuProbe extends RefCounted:
-	enum { BOTS, CROWD, VENUE, RING, SHOW, FX, RT, PARTS }
+	## The ring is told apart piece by piece (its canvas, ropes and glow strips, truss, corner
+	## lifts, and the rest: apron, posts, steps), so a costly ring says which piece costs.
+	enum { BOTS, CROWD, VENUE, RING, CANVAS, ROPES, TRUSS, LIFTS, SHOW, FX, RT, PARTS }
 	## Row labels: the parts, then what the other versions isolate.
 	## ("Empty frame": the frame with every part gone, what clearing, resolving and the post
 	## chain cost on their own; "Other": what the parts cost together beyond their sum)
-	const ROWS := ["Bots", "Crowd", "Venue", "Ring", "Light show", "Effects", "Ray tracing", "Shadows", "Glow/post", "Empty frame", "Other"]
+	const ROWS := ["Bots", "Crowd", "Venue", "Ring (rest)", "Canvas", "Ropes, glow", "Truss", "Lifts", "Light show", "Effects", "Ray tracing", "Shadows", "Glow/post", "Empty frame", "Other"]
 	const SHADOWS := PARTS
 	const GLOW := PARTS + 1
 	const EMPTY := PARTS + 2
 	const OTHER := PARTS + 3
-	## Visual layer bits the parts move to (layers 13 to 19: nothing else here uses them).
-	const BIT0 := 12
+	## Visual layer bits the parts move to (layers 10 to 20: nothing else here uses them).
+	const BIT0 := 9
 	## Layers only lights look at (the follow spots': FollowSpots.LAYER): a mesh moved to its
 	## part's layer keeps them, so it stays lit as it was, and the probe's camera ignores them.
 	const LIGHT_ONLY := FollowSpots.LAYER
@@ -720,7 +722,7 @@ class GpuProbe extends RefCounted:
 	## decals must all already include every part layer.
 	func _check_masks() -> String:
 		if (_main_cam.cull_mask & _all_bits) != _all_bits:
-			return "The camera hides layers 13-19."
+			return "The camera hides layers 10-20."
 		for n in _scene.find_children("*", "Node3D", true, false):
 			if n is Light3D:
 				var l := n as Light3D
@@ -728,10 +730,10 @@ class GpuProbe extends RefCounted:
 				if (l.light_cull_mask & ~LIGHT_ONLY) == 0 and not l.shadow_enabled:
 					continue
 				if (l.light_cull_mask & _all_bits) != _all_bits or (l.shadow_caster_mask & _all_bits) != _all_bits:
-					return "Light %s skips layers 13-19." % l.name
+					return "Light %s skips layers 10-20." % l.name
 			elif n is ReflectionProbe or n is Decal:
 				if (int(n.get("cull_mask")) & _all_bits) != _all_bits:
-					return "%s skips layers 13-19." % n.name
+					return "%s skips layers 10-20." % n.name
 		return ""
 
 	## The arena's own groups (its baked scene names them).
@@ -740,10 +742,14 @@ class GpuProbe extends RefCounted:
 		if arena == null or arena.get("scene") == null:
 			return
 		var named: Dictionary = arena.scene.named
-		for k in [["venue", VENUE], ["crowd", CROWD], ["show", SHOW], ["beams", SHOW], ["corner0_beam", SHOW], ["corner1_beam", SHOW], ["corner0_column", SHOW], ["corner1_column", SHOW]]:
+		for k in [["venue", VENUE], ["crowd", CROWD], ["show", SHOW], ["beams", SHOW], ["corner0_beam", SHOW], ["corner1_beam", SHOW], ["corner0_column", SHOW], ["corner1_column", SHOW], ["ropes", ROPES], ["ringGlow", ROPES], ["skirt", ROPES], ["truss", TRUSS], ["corner0", LIFTS], ["corner1", LIFTS], ["corner0_sleeve", LIFTS], ["corner1_sleeve", LIFTS]]:
 			var n: Node = named.get(k[0])
 			if n != null:
 				_named[n.get_instance_id()] = k[1]
+		# the canvas: the ring's first mesh (Arena._init)
+		var ring: Node = named.get("arena")
+		if ring != null and ring.get_child_count() > 0 and ring.get_child(0) is MeshInstance3D:
+			_named[ring.get_child(0).get_instance_id()] = CANVAS
 
 	func _build() -> void:
 		var world := _scene.get_world_3d()
@@ -816,6 +822,9 @@ class GpuProbe extends RefCounted:
 			p = FX
 		elif n is Arena:
 			p = RING
+		elif n is OutdoorVenue or n is TitanVenue:
+			# (an event's own venue hangs under the arena, round the same ring)
+			p = VENUE
 		elif n is RayTrace:
 			# (with ray tracing off it draws nothing: no row)
 			p = RT if (n as RayTrace).visible else -1

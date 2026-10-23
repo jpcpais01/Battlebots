@@ -73,6 +73,8 @@ export class Fx {
   private sAlpha = new Float32Array(MAX_SMOKE);
   private sShown = new Float32Array(MAX_SMOKE);
   private sPeak = new Float32Array(MAX_SMOKE);
+  /** Where each puff settles: the canvas, or lower (the Titan Colosseum's plain). */
+  private sFloor = new Float32Array(MAX_SMOKE).fill(0.015);
   private sNext = 0;
   private smokeGeo: THREE.BufferGeometry;
   private smokePts: THREE.Points;
@@ -179,6 +181,20 @@ export class Fx {
     this.sPeak[i] = alpha;
     this.sGrav[i] = grav;
     this.sDrag[i] = drag;
+    this.sFloor[i] = 0.015;
+    return i;
+  }
+
+  /**
+   * A puff of coloured dust or grit (linear `c`) from p moving at v, settling on the ground at
+   * `floor`: the titans' footfalls and landings (render/titanFx.ts).
+   */
+  dustPuff(p: THREE.Vector3, v: THREE.Vector3, c: THREE.Color, life: number, size: number, grow: number, alpha: number, grav: number, drag: number, floor: number) {
+    const i = this.emitSmoke(p, v.x, v.y, v.z, 1, life, size, grow, alpha, grav, drag);
+    this.sCol[i * 3] = c.r;
+    this.sCol[i * 3 + 1] = c.g;
+    this.sCol[i * 3 + 2] = c.b;
+    this.sFloor[i] = floor + 0.015;
   }
 
   /** Dark smoke rising from damaged machinery. `heat` 0..1 thickens and darkens it. */
@@ -410,8 +426,8 @@ export class Fx {
       this.sPos[i * 3] += this.sVel[i * 3] * dt;
       this.sPos[i * 3 + 1] += this.sVel[i * 3 + 1] * dt;
       this.sPos[i * 3 + 2] += this.sVel[i * 3 + 2] * dt;
-      if (this.sPos[i * 3 + 1] < 0.015) {
-        this.sPos[i * 3 + 1] = 0.015;
+      if (this.sPos[i * 3 + 1] < this.sFloor[i]) {
+        this.sPos[i * 3 + 1] = this.sFloor[i];
         this.sVel[i * 3 + 1] *= -0.2;
         this.sVel[i * 3] *= 0.5;
         this.sVel[i * 3 + 2] *= 0.5;

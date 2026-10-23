@@ -34,7 +34,7 @@ static func write(key: String, v: Variant) -> void:
 	if f == null:
 		push_warning("save failed: %s (%s)" % [key, error_string(FileAccess.get_open_error())])
 		return
-	f.store_string(JSON.stringify(TInit.to_json(v), "", false))
+	f.store_string(JSON.stringify(TInit.to_json(v), "", false, true))
 	f.close()
 	DirAccess.rename_absolute(tmp, path)
 

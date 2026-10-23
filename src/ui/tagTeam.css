@@ -1,0 +1,438 @@
+/* The Tag Team screen: the team sheet over the ring, the menu camera orbiting the player's bot. */
+.tagteam {
+  background: radial-gradient(ellipse 85% 90% at 50% 45%, rgba(5, 7, 12, 0.5), rgba(5, 7, 12, 0.8));
+}
+.tt-top {
+  position: absolute;
+  left: var(--pad);
+  right: var(--padr);
+  top: var(--top);
+  display: flex;
+  align-items: center;
+  gap: 0.9em;
+}
+.tt-title {
+  font-family: var(--broadcast);
+  font-size: 1.55em;
+  letter-spacing: 0.02em;
+  background: linear-gradient(#9eedff, #3399ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
+}
+.tt-tally {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  padding: 0.35em 0.9em 0.35em 0.8em;
+  border-radius: 999px;
+  background: rgba(12, 15, 23, 0.62);
+  border: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: 0.85em;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.tt-tally svg {
+  width: 1.3em;
+  height: 1.3em;
+  color: var(--cyan);
+}
+.tt-body {
+  position: absolute;
+  left: var(--pad);
+  right: var(--padr);
+  top: calc(var(--top) + 3.4em);
+  bottom: var(--bottom);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9em;
+  padding-bottom: 0.5em;
+}
+.tt-versus {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.9em;
+  width: 100%;
+  margin-top: auto;
+}
+.tt-team {
+  --tc: var(--cyan);
+  position: relative;
+  flex: 0 1 25em;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+  padding: 0.95em 1em 1em;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background: linear-gradient(165deg, color-mix(in srgb, var(--tc) 8%, rgba(13, 15, 23, 0.9)), rgba(8, 9, 14, 0.92) 60%);
+  box-shadow: 0 14px 22px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+.tt-team::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--tc), transparent);
+}
+.tt-team.theirs {
+  --tc: var(--orange);
+}
+.tt-team.theirs::before {
+  background: linear-gradient(-90deg, var(--tc), transparent);
+}
+.tt-team.in {
+  animation: ttInL 0.55s var(--ease) both;
+}
+.tt-team.theirs.in {
+  animation: ttInR 0.55s 0.06s var(--ease) both;
+}
+@keyframes ttInL {
+  from {
+    opacity: 0;
+    transform: translateX(-1.4em);
+  }
+}
+@keyframes ttInR {
+  from {
+    opacity: 0;
+    transform: translateX(1.4em);
+  }
+}
+.tt-head {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.tt-kick {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  font-size: 0.72em;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.tt-kick i {
+  width: 0.62em;
+  height: 0.62em;
+  border-radius: 50%;
+  background: var(--tc);
+  box-shadow: 0 0 6px var(--tc);
+}
+.tt-kick.sub {
+  margin-top: 0.2em;
+}
+.tt-tname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--broadcast);
+  font-weight: 400;
+  font-size: 1.35em;
+  background: linear-gradient(color-mix(in srgb, var(--tc) 25%, #fff), var(--tc));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.tt-member {
+  display: flex;
+  align-items: center;
+  gap: 0.75em;
+  padding: 0.55em 0.85em 0.6em 0.75em;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--paint) 14%, rgba(20, 24, 34, 0.94));
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-left: 4px solid var(--paint);
+}
+.theirs .tt-member {
+  flex-direction: row-reverse;
+  border-left: 1px solid rgba(255, 255, 255, 0.07);
+  border-right: 4px solid var(--paint);
+  text-align: right;
+}
+.tt-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tt-cap {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+.theirs .tt-cap {
+  flex-direction: row-reverse;
+}
+.tt-role {
+  flex: 1;
+  font-size: 0.66em;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--tc) 90%, transparent);
+}
+.tt-pwr {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2em;
+  padding: 0.05em 0.55em 0.05em 0.45em;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  font-size: 0.78em;
+  font-weight: 750;
+}
+.tt-pwr svg {
+  width: 1em;
+  height: 1em;
+  color: var(--amber);
+}
+.tt-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1.12em;
+  font-weight: 800;
+}
+.tt-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.74em;
+  font-weight: 550;
+  color: var(--muted);
+}
+.tt-sw {
+  flex: none;
+  position: relative;
+  width: 2.9em;
+  height: 2.9em;
+  border-radius: 50%;
+  background: linear-gradient(var(--p1) 50%, var(--p2) 50%);
+  box-shadow: 0 0 0 0.24em color-mix(in srgb, var(--p3) 22%, transparent), inset 0 0 0 0.17em var(--p3);
+}
+.tt-sw::after {
+  content: '';
+  position: absolute;
+  inset: 40%;
+  border-radius: 50%;
+  background: var(--p3);
+}
+.tt-sw.small {
+  width: 1.15em;
+  height: 1.15em;
+  box-shadow: inset 0 0 0 0.12em var(--p3);
+}
+.tt-sw.small::after {
+  display: none;
+}
+.tt-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+}
+.tt-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  min-height: 2.6em;
+  padding: 0.3em 0.85em 0.3em 0.55em;
+  border-radius: 999px;
+  background: rgba(12, 15, 23, 0.62);
+  border: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: 0.82em;
+  font-weight: 700;
+  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.tt-choice svg {
+  width: 1.2em;
+  height: 1.2em;
+}
+.tt-choice small {
+  font-size: 0.9em;
+  font-weight: 650;
+  color: var(--muted);
+}
+.tt-choice.on {
+  color: var(--text);
+  background: color-mix(in srgb, var(--cyan) 16%, rgba(12, 15, 23, 0.7));
+  border: 2px solid color-mix(in srgb, var(--cyan) 90%, transparent);
+}
+.tt-choice.on svg {
+  color: var(--cyan);
+}
+.tt-choice:active {
+  transform: scale(0.95);
+}
+.tt-hint {
+  margin: 0;
+  font-size: 0.78em;
+  color: var(--muted);
+}
+.tt-reroll {
+  align-self: flex-end;
+}
+.tt-vs {
+  flex: none;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 3.6em;
+  height: 3.6em;
+  border-radius: 50%;
+  background: rgba(8, 9, 14, 0.92);
+  border: 2px solid rgba(255, 178, 77, 0.55);
+  box-shadow: 0 0 14px rgba(255, 115, 26, 0.35);
+}
+.tt-vs b {
+  font-family: var(--broadcast);
+  font-weight: 400;
+  font-size: 1.45em;
+  background: linear-gradient(#ffd27a, #ff6a12);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.tt-vs.in {
+  animation: ttPop 0.45s 0.22s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+@keyframes ttPop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+.tt-rules {
+  max-width: 52em;
+  margin: 0;
+  text-align: center;
+  font-size: 0.8em;
+  font-weight: 500;
+  color: var(--text-2);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+}
+.tt-fight {
+  flex: none;
+  margin-bottom: auto;
+}
+.tt-fight.in {
+  animation: ttUp 0.5s 0.28s var(--ease) both;
+}
+@keyframes ttUp {
+  from {
+    opacity: 0;
+    transform: translateY(0.8em);
+  }
+}
+/* stacked on a narrow (portrait) screen */
+@media (max-width: 720px) {
+  .tt-versus {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .tt-team {
+    flex: none;
+  }
+  .tt-vs {
+    width: 2.8em;
+    height: 2.8em;
+  }
+}
+
+/* home: Tag Team with its 2 v 2 badge */
+.tag-home-btn {
+  position: relative;
+}
+.tag-home-btn .badge {
+  margin-left: 0.15em;
+  padding: 0.05em 0.45em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cyan) 22%, transparent);
+  color: var(--cyan);
+  font-size: 0.7em;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+/* results: each side's bots, tags and what's left of them */
+.tag-roster {
+  display: flex;
+  gap: 0.6em;
+  margin: 0.2em 0 0.4em;
+}
+.tag-side {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+  padding: 0.5em 0.65em;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+}
+.tag-side.win {
+  border-color: color-mix(in srgb, var(--green) 50%, transparent);
+}
+.tag-side h4 {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5em;
+  margin: 0 0 0.15em;
+  font-size: 0.72em;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.tag-side h4 span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tag-side h4 em {
+  flex: none;
+  font-style: normal;
+  color: var(--amber);
+}
+.tag-bot {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  font-size: 0.85em;
+}
+.tag-bot i {
+  flex: none;
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 50%;
+  background: var(--paint);
+}
+.tag-bot b {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+.tag-bot span {
+  flex: none;
+  font-size: 0.9em;
+  color: var(--text-2);
+}
+.tag-bot.out span {
+  color: var(--red);
+}

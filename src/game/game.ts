@@ -9,7 +9,7 @@ import { Referee } from '../render/referee';
 import { Stretcher, rideEnd } from '../render/stretcher';
 import { CrowdMood } from '../audio/crowd';
 import { BotModel } from '../render/botModel';
-import { impactPace, Match, PRESENT, SIM_DT, type DetachInfo, type HitInfo } from '../sim/match';
+import { impactPace, Match, PRESENT, SIM_DT, type DetachInfo, type HitInfo, type TagPartners } from '../sim/match';
 import type { CoachCall } from '../sim/coach';
 import { CUT_JOINTS, P, PART_COUNT } from '../sim/damage';
 import { Debris, outerGround } from '../render/debris';
@@ -37,12 +37,17 @@ import { HOME_SCENES, HomeStage, type HomeSceneId } from '../render/home/homeSta
 import type { WorldMap } from '../render/map/world';
 import type { VenueLike } from '../render/venue';
 import type { ArenaId } from './events';
+import type { TitanFx } from '../render/titanFx';
+import type { TitanVenue } from '../render/venues/titan';
 import { PartThumbs } from '../render/partPreview';
 import { walkOnFor } from '../audio/walkOn';
 import { ENTRY, hatchXZ } from '../sim/entrance';
+import { TagCam } from '../render/tagCam';
+import { FollowSpots } from '../render/followSpots';
+import { VaultStage, VAULT_LOOK } from '../render/vault/vaultStage';
 
 /** Where the 3D scene is: the fight arena (home, fights) or the workshop (garage). */
-export type Place = 'arena' | 'garage' | 'home' | 'map';
+export type Place = 'arena' | 'garage' | 'home' | 'map' | 'vault';
 
 export interface GameCallbacks {
   onMatchEvent?: (type: string, data: unknown) => void;
@@ -61,6 +66,16 @@ export interface GameCallbacks {
  * the coach's calls, and how many steps the fight ran until its results showed. Marks are
  * the big moments (for the scrubber), by step.
  */
+/** Where a fight is: indoors ('grand'), a world map event's venue, or titan battles' Titan Colosseum. */
+export type VenueId = ArenaId | 'titan';
+
+/**
+ * How fast titan time runs in each phase of a titan battle (Game.timeK): the walk-outs and the
+ * countdown nearer real time, the fighting itself at half speed (a body fifteen times the size
+ * swings about four times slower; the titans meet it halfway).
+ */
+const TITAN_TIME: Record<string, number> = { intro: 0.8, countdown: 0.75, greet: 0.6, fight: 0.5, ko: 0.5, end: 0.6 };
+
 export interface Tape {
   a: BotSpec;
   b: BotSpec;
@@ -75,7 +90,11 @@ export interface Tape {
   online?: boolean;
   me?: number;
   /** Where it was fought (none: the indoor arena). */
-  arena?: ArenaId;
+  arena?: VenueId;
+  /** A tag team match: each side's partner, the TAG button's taps by step, and the teams' names. */
+  partners?: TagPartners;
+  tags?: { side: number; frame: number }[];
+  teams?: [string, string];
 }
 
 /** Longest a replay seek may run the sim in one animation frame, in ms (the rest waits a frame). */
@@ -207,7 +226,35 @@ export class Game {
   readonly fx: Fx;
   readonly director: Director;
   match: Match | null = null;
+  /** The robots fighting: one per side (in a tag team match, each side's legal bot's). */
   models: BotModel[] = [];
+  /**
+   * A tag team match's robots out of the ring, one per side (its partner's: on the apron, on its
+   * way in or out, in for a double team, or knocked out of the match). Empty one-on-one.
+   */
+  bench: BotModel[] = [];
+  /** A tag team match's robots in tag.ts order (each side's starter, then its partner). */
+  private crew: BotModel[] = [];
+  /** Which of crew each side's legal bot is (follows the sim's TagTeam.legal: see tagSwap). */
+  private legal = [0, 2];
+  /** Per side: the trails, stumps, wounds and oil key of the bot out of the ring (swapped on a tag). */
+  private benched: ({ trails: Trail[]; stumps: { joint: number; age: number }[]; wounds: number[]; key: number } | null)[] = [null, null];
+  /** Per side: the id its robot's oil leaks and vapour vents go by (a tag team's partner has its own). */
+  private keys = [0, 1];
+  /** A tag team match's own camera moments (tags, eliminations, double teams), over the director's. */
+  private tagCam = new TagCam();
+  /**
+   * The two follow spots in the rigging, one on each robot, so the fight reads from any angle
+   * (none on low quality: two more lights cost every lit pixel).
+   */
+  private follow: FollowSpots | null = null;
+  private spotLit = [false, false];
+  /**
+   * Per side: a tag lights up its corner in the colours of the bot coming in (the rim light hanging
+   * over it flares, as for its entrance), fading from 1. Its colour is the incoming bot's accent.
+   */
+  private tagGlow = [0, 0];
+  private tagCol = [0xffffff, 0xffffff];
   private trails: Trail[][] = [];
   private acc = 0;
   private showAcc = 0;
@@ -255,11 +302,24 @@ export class Game {
   private world: WorldMap | null = null;
   private worldBuild: Promise<WorldMap> | null = null;
   /** The world map events' own venues, built on first use. */
-  private venues = new Map<ArenaId, Promise<VenueLike>>();
+  private venues = new Map<VenueId, Promise<VenueLike>>();
+  /** The ones already up (setArena switches to them at once, before the fight's first frame). */
+  private built = new Map<VenueId, VenueLike>();
+  /**
+   * Titan battles (render/venues/titan.ts): the Titan Colosseum is up and the robots are 30 m
+   * titans. The sim is the same; the world round it is built to their scale, and the fight runs
+   * slower (timeK), filmed and heard like giants (Director.titan, Sfx.titan, TitanFx).
+   */
+  private titanV: TitanVenue | null = null;
+  private titanFx: TitanFx | null = null;
+  /** How fast the fight's time runs against the clock on the wall: 1, or slower for titans. */
+  private timeK = 1;
   /** The venue fights are in now. */
-  private arenaId: ArenaId = 'grand';
+  private arenaId: VenueId = 'grand';
   /** The animated home screen places (beach, gym), built on first use. */
   private home: HomeStage | null = null;
+  /** The Skin Vault out in space (built the first time it's opened). */
+  private vault: VaultStage | null = null;
   /** A home scene failed: the home screen stays in the arena from now on. */
   homeBroken = false;
   /** The robot the home and garage show (kept for the home scenes' own actor). */
@@ -301,6 +361,10 @@ export class Game {
     house.apply(this.arena.venue.group);
     if (import.meta.env.DEV) warnNonFinite(this.stage.scene);
     this.fx = new Fx();
+    if (quality !== 'low') {
+      this.follow = new FollowSpots();
+      this.stage.scene.add(this.follow.group);
+    }
     this.fx.bits.onClink = (p, k) => this.sfx?.tink(k, this.pan(p));
     this.stage.scene.add(this.fx.group);
     this.stage.scene.add(this.debris.group);
@@ -351,6 +415,7 @@ export class Game {
     if (p === 'garage' && this.garage) return { roots: [this.garage.group, this.fx.group, ...shown], extras: [] };
     if (p === 'home' && this.home) return { roots: [this.home.group, this.fx.group], extras: [] };
     if (p === 'map' && this.world) return { roots: [this.world.group], extras: [] };
+    if (p === 'vault' && this.vault) return { roots: [this.vault.group, this.fx.group, ...shown], extras: [] };
     return { roots: [], extras: [] };
   }
 
@@ -380,7 +445,7 @@ export class Game {
     if (back === 'arena' || back === 'map') visits.push({ p: back });
     else if (back === 'home') visits.push({ p: 'home', scene: shownHome });
     const WEIGHT: Partial<Record<Place, number>> = { arena: 4, map: 6, garage: 2, home: 3 };
-    const NAME: Record<Place, string> = { arena: 'Lighting the arena', map: 'Drawing the world map', garage: 'Opening the garage', home: 'Setting the scene' };
+    const NAME: Record<Place, string> = { arena: 'Lighting the arena', map: 'Drawing the world map', garage: 'Opening the garage', home: 'Setting the scene', vault: 'Opening the Skin Vault' };
     const plan = [{ w: 0.6, what: 'Warming up' }, ...visits.map((v) => ({ w: WEIGHT[v.p] ?? 2, what: NAME[v.p] }))];
     const total = plan.reduce((a, s) => a + s.w, 0);
     let before = 0;
@@ -482,6 +547,7 @@ export class Game {
     const was = this.place;
     this.place = p;
     if (was === 'home') this.home?.exit();
+    if (was === 'vault') this.vault?.exit();
     const inGarage = p === 'garage';
     if (inGarage && !this.garage) {
       this.garage = new Garage(this.stage.quality);
@@ -497,16 +563,24 @@ export class Game {
     this.referee.group.visible = inArena;
     this.director.far = inArena ? this.arena.venue.far : 120;
     if (this.showcase) this.showcase.model.root.visible = p !== 'home' && p !== 'map';
+    const inVault = p === 'vault';
+    const firstVault = inVault && !this.vault;
+    if (firstVault) this.vault = this.buildVault();
     const inMap = p === 'map' && !!this.world;
     if (this.world) this.world.group.visible = inMap;
     this.director.clip = inMap ? this.world!.cam.clip : null;
     if (inGarage) this.garage!.enter(this.stage);
     else {
       this.garage?.exit();
-      this.stage.applyLook(inMap ? this.world!.look : this.look);
+      this.stage.applyLook(inMap ? this.world!.look : inVault ? VAULT_LOOK : this.look);
     }
     // the arena reflects its own photograph (see syncEnv); everywhere else starts from the studio
-    if (!inArena) this.stage.useEnv(null);
+    if (!inArena) this.stage.useEnv(inVault ? this.vault!.env : null);
+    if (inVault) {
+      this.vault!.enter();
+      // (all its shaders on its first frame, not piecemeal as each thing first comes into view)
+      if (firstVault) this.stage.warmUp(this.placeRoots('vault').roots);
+    }
     if (p === 'home') {
       try {
         const h = this.homeStage();
@@ -524,14 +598,16 @@ export class Game {
   }
 
   /** Build a world map event's venue (once; later calls get the same one). */
-  loadVenue(id: ArenaId): Promise<VenueLike> {
+  loadVenue(id: VenueId): Promise<VenueLike> {
     if (id === 'grand') return Promise.resolve(this.arena.indoor);
     let p = this.venues.get(id);
     if (!p) {
       // (their own chunk, downloaded the first time someone fights an event)
-      p = import('../render/venues').then(({ buildVenue }) => {
-        const v = buildVenue(id, this.stage.quality, this.arena.uniforms);
+      p = import('../render/venues').then(({ buildVenue, TitanFx }) => {
+        const v = buildVenue(id, this.stage.quality, { ...this.arena.uniforms, ropeU: this.arena.ropeU });
         if (!v) return this.arena.indoor;
+        if (id === 'titan' && !this.titanFx) this.titanFx = new TitanFx(this.fx, (k) => this.director.shake(k), () => this.stage.camera.position);
+        this.built.set(id, v);
         Arena.layers(v);
         v.group.visible = false;
         v.setPixelScale(this.stage.renderer.getDrawingBufferSize(_size).y);
@@ -550,9 +626,11 @@ export class Game {
    * Fight in this venue from now on. One not built yet (see loadVenue) goes up when it's ready;
    * if it can't be built, fights stay indoors.
    */
-  setArena(id: ArenaId) {
+  setArena(id: VenueId) {
     this.arenaId = id;
     if (id === 'grand') return this.useVenue(this.arena.indoor);
+    const up = this.built.get(id);
+    if (up) return this.useVenue(up);
     this.loadVenue(id)
       .then((v) => this.arenaId === id && this.useVenue(v))
       .catch((e) => {
@@ -568,12 +646,44 @@ export class Game {
     this.arena.setVenue(v);
     v.group.visible = this.place === 'arena';
     outerGround.y = v.outer;
+    // (bright daylight venues want less of the follow spots)
+    if (this.follow) this.follow.level = v.look ? Math.min(1, Math.max(0.4, 1.25 - 0.75 * v.look.hemi.intensity)) : 1;
+    this.setTitan('titan' in v && v.titan ? (v as TitanVenue) : null);
     if (this.place === 'arena') {
       this.stage.applyLook(this.look);
       this.director.far = v.far;
     }
     // its shaders are built on the next frame, before anything of it is seen
     this.stage.warmUp([v.group]);
+  }
+
+  /**
+   * Fight titan battles or not, as the Titan Colosseum goes up round the ring or gives way to
+   * another venue: the indoor ring's stage, posts and ropes give way to the titans' deck, pylons
+   * and energy ropes, and the camera, the sound and the effects go titan scale.
+   */
+  private setTitan(v: TitanVenue | null) {
+    if (v === this.titanV) return;
+    this.titanV = v;
+    const on = !!v;
+    this.arena.setRingHidden(on);
+    this.director.titan = on;
+    outerGround.flat = on;
+    if (this.titanFx) {
+      this.titanFx.scars = v ? v.scars.value : null;
+      this.titanFx.clear();
+    }
+    this.timeK = 1;
+    const m = this.match;
+    if (v && m) this.titanStart(m);
+  }
+
+  /** A titan battle starts: the Colosseum dresses in the two titans' colours, the ground is clean. */
+  private titanStart(m: Match) {
+    const v = this.titanV!;
+    v.setTeams(m.specs[0].paint.accent, m.specs[1].paint.accent);
+    this.titanFx?.clear();
+    this.timeK = TITAN_TIME[m.phase] ?? 0.5;
   }
 
   /** Build the world map (once; later calls get the same one), reporting progress 0..1. */
@@ -656,9 +766,30 @@ export class Game {
     this.garage?.setBot(name, power, paint.accent);
   }
 
-  /** Light sweep up the robot in the workshop (a part was fitted). */
+  /** Light sweep up the robot in the workshop (a part was fitted), or on the vault's turntable. */
   garagePulse() {
-    this.garage?.pulse();
+    if (this.place === 'vault') this.vault?.pulse();
+    else this.garage?.pulse();
+  }
+
+  private buildVault() {
+    const v = new VaultStage(this.stage.renderer, {
+      fx: this.fx,
+      director: this.director,
+      sfx: () => this.sfx,
+      bot: () => this.showcase?.model.root ?? null,
+      shown: () => this.shownSpec,
+      showBot: (spec) => this.showBot(spec),
+      paintOn: (was) => this.paintOn(was),
+    });
+    this.stage.scene.add(v.group);
+    this.probe.tag(v.group, 'venue');
+    return v;
+  }
+
+  /** The Skin Vault's stage, once it's been opened (the pulls play out on it). */
+  get vaultStage(): VaultStage | null {
+    return this.vault;
   }
 
   /** The bot on show paints its skin on with a sweep up from its feet, over `was` (the skin it had, if any). */
@@ -715,7 +846,8 @@ export class Game {
     const model = new BotModel(spec.loadout, spec.paint, spec.size, spec.skin);
     this.probe.tag(model.root, 'bots');
     this.stage.scene.add(model.root);
-    model.root.visible = this.place !== 'home' && this.place !== 'map';
+    // (in the vault the robot steps off its turntable while the machine plays)
+    model.root.visible = this.place !== 'home' && this.place !== 'map' && (this.place !== 'vault' || !!this.vault?.robotOn);
     this.showcase = { fighter, dummy, model, show: new Showman(fighter, dummy, null), spec };
   }
 
@@ -880,16 +1012,30 @@ export class Game {
   }
 
   // ------------------------------------------------------------------ match
-  startMatch(a: BotSpec, b: BotSpec, seed: number, online = false, me = 0) {
+  /**
+   * Start a fight between bots a (the player's corner, filmed screen-left) and b from `seed`.
+   * `partners` (a bot each) makes it a tag team match, two a side.
+   */
+  startMatch(a: BotSpec, b: BotSpec, seed: number, online = false, me = 0, partners: TagPartners | null = null) {
     // fights happen in the arena
     if (this.place === 'home') this.setPlace('arena');
     this.endMatch();
     this.showBot(null);
-    const m = new Match(a, b, seed);
+    const m = new Match(a, b, seed, partners);
     this.match = m;
-    this.models = [new BotModel(a.loadout, a.paint, a.size, a.skin), new BotModel(b.loadout, b.paint, b.size, b.skin)];
+    const model = (s: BotSpec) => new BotModel(s.loadout, s.paint, s.size, s.skin);
+    if (m.tag) {
+      // all four robots, in tag.ts order; each side's starter fights first
+      this.crew = m.tag.members.map((mb) => model(mb.spec));
+      this.models = [this.crew[0], this.crew[2]];
+      this.bench = [this.crew[1], this.crew[3]];
+    } else this.models = [model(a), model(b)];
+    this.legal = [0, 2];
+    this.keys = [0, 1];
     // each corner's entrance is lit in its bot's colours, to its own walk-on music
     this.arena.corners.setAccents(a.paint.accent, b.paint.accent);
+    if (this.titanV) this.titanStart(m);
+    else this.timeK = 1;
     this.arena.corners.onCue = (i, cue) => {
       if (this.quiet || this.seeking) return;
       const at = this.match?.fighters[i].body.pos[J.Pelvis];
@@ -900,16 +1046,21 @@ export class Game {
       }
     };
     this.sfx?.primeWalkOn(walkOnFor(a), walkOnFor(b));
-    for (const md of this.models) {
+    for (const md of this.allModels) {
       this.probe.tag(md.root, 'bots');
       this.stage.scene.add(md.root);
     }
     this.clearView.apply(this.arena.group);
-    this.trails = [a, b].map((spec) => {
-      return [0, 1, 2, 3].map(() => this.fx.makeTrail(spec.paint.accent, 0.13));
-    });
+    const trails = (spec: BotSpec) => [0, 1, 2, 3].map(() => this.fx.makeTrail(spec.paint.accent, 0.13));
+    this.trails = [a, b].map(trails);
+    // a tag team's partners: their own trails (in their colours), stumps and wounds for when they come in
+    this.benched = m.tag
+      ? [0, 1].map((side) => ({ trails: trails(m.tag!.partnerOf(side).spec), stumps: [], wounds: [0, 1].map(() => (Math.random() - 0.5) * 2.4), key: side + 2 }))
+      : [null, null];
+    this.tagCam.stop();
+    this.tagGlow = [0, 0];
     // these bots' shaders (their shield, and a torn-off part's) are built before the intro, not mid-fight
-    this.stage.warmUp([...this.models.map((md) => md.root), this.fx.group], this.models.flatMap((md) => md.pieceProxies()));
+    this.stage.warmUp([...this.allModels.map((md) => md.root), this.fx.group], this.allModels.flatMap((md) => md.pieceProxies()));
     this.director.mode = 'match';
     this.director.player = me;
     this.director.begin(m);
@@ -932,6 +1083,84 @@ export class Game {
     m.on((type, data) => this.onEvent(type, data));
     this.sfx?.booth.begin(m, online);
     return m;
+  }
+
+  /** Fighter whose eyes the shot is from (-1: none; a tag team match's own shots are never one). */
+  get povBy() {
+    return this.tagCam.kind ? -1 : this.director.pov;
+  }
+
+  /** Every robot of the fight on screen: the two fighting, and a tag team's partners. */
+  private get allModels(): BotModel[] {
+    return this.crew.length ? this.crew : this.models;
+  }
+
+  /**
+   * Tag team: side `side`'s legal bot changed (a tag, or an elimination's partner storming in):
+   * its robots swap, so models[side] is always the one fighting, and the trails, stumps, wounds
+   * and oil go with each bot.
+   */
+  private tagSwap(side: number) {
+    const t = this.match?.tag;
+    const b = this.benched[side];
+    if (!t || !b || this.crew.length !== 4) return;
+    const l = t.legal[side];
+    if (l === this.legal[side]) return;
+    this.legal[side] = l;
+    this.models[side] = this.crew[l];
+    this.bench[side] = this.crew[side * 2 + (l === side * 2 ? 1 : 0)];
+    this.benched[side] = { trails: this.trails[side], stumps: this.stumps[side], wounds: this.wounds[side], key: this.keys[side] };
+    this.trails[side] = b.trails;
+    this.stumps[side] = b.stumps;
+    this.wounds[side] = b.wounds;
+    this.keys[side] = b.key;
+    this.groundedPrev[side] = [1, 1, 1];
+  }
+
+  /**
+   * Tag team: the robots out of the ring, posed from their own bodies (on the apron they move
+   * every few steps, so each update's motion is spread over those steps).
+   */
+  private poseBench(m: Match, alpha: number) {
+    const t = m.tag!;
+    for (let side = 0; side < 2; side++) {
+      const k = side * 2 + (t.legal[side] === side * 2 ? 1 : 0);
+      const mb = t.members[k];
+      const f = mb.f;
+      const a = mb.every <= 1 ? alpha : THREE.MathUtils.clamp((mb.acc / SIM_DT + alpha) / mb.every, 0, 1);
+      const em = f.emote;
+      const md = this.bench[side];
+      md.begin(f, a, em && em.gazeOn ? em.gaze : m.fighters[side].body.pos[J.Head]);
+      md.end(f, this.time);
+    }
+  }
+
+  /**
+   * Tag team: a partner waiting on the apron that the director's shot runs into (it doesn't frame
+   * them) steps out of the picture: one right at the lens, or standing between it and the fight.
+   * The tag camera's own shots are framed round them, so there they always show.
+   */
+  private benchClear(m: Match) {
+    const t = m.tag!;
+    const c = this.stage.camera.position;
+    _fwd.addVectors(this.models[0].joints[J.Chest], this.models[1].joints[J.Chest]).multiplyScalar(0.5).sub(c);
+    const len2 = Math.max(1e-4, _fwd.lengthSq());
+    for (let side = 0; side < 2; side++) {
+      const md = this.bench[side];
+      let show = true;
+      const mb = t.members[side * 2 + (t.legal[side] === side * 2 ? 1 : 0)];
+      // (only one waiting on the apron: one in the ring is part of the fight)
+      if (!this.tagCam.kind && mb.status === 'apron') {
+        const p = md.joints[J.Chest];
+        const d = c.distanceTo(p);
+        const u = _side.subVectors(p, c).dot(_fwd) / len2;
+        const lateral = _sideP.copy(c).addScaledVector(_fwd, THREE.MathUtils.clamp(u, 0, 1)).distanceTo(p);
+        // (a little hysteresis, so one at the edge doesn't flicker)
+        const k = md.root.visible ? 1 : 1.15;
+        show = d > 1.6 * md.size * k && !(u > 0 && u < 0.85 && d < 3.2 * k && lateral < 0.8 * md.size * k);
+      }
+      md.root.visible = show;
+    }
   }
 
   /**
@@ -979,10 +1208,11 @@ export class Game {
   startReplay(t: Tape) {
     this.setArena(t.arena ?? 'grand');
     // (filmed from the player's side, as it was live; the intro ends where it did, see replayCut)
-    const m = this.startMatch(t.a, t.b, t.seed, false, t.me ?? 0);
+    const m = this.startMatch(t.a, t.b, t.seed, false, t.me ?? 0, t.partners ?? null);
     m.replayCut = t.cut;
-    // the corner's calls, on the steps they were made
+    // the corner's calls, and a tag team's tags, on the steps they were made
     for (const c of t.coach) m.queueCoach(c.side, c.kind, c.frame);
+    for (const c of t.tags ?? []) m.queueTag(c.side, c.frame);
     // the intro repeats the original's length, whatever the booth is doing
     this.holdIntro = false;
     this.tape = t;
@@ -1070,16 +1300,21 @@ export class Game {
     if (!this.match) return;
     this.sfx?.booth.end();
     this.sfx?.walkOnStop(0.4);
-    for (const md of this.models) {
+    for (const md of this.allModels) {
       this.stage.scene.remove(md.root);
       md.dispose();
     }
-    for (const t of this.trails.flat()) {
+    for (const t of [...this.trails.flat(), ...this.benched.flatMap((b) => b?.trails ?? [])]) {
       this.fx.group.remove(t.mesh);
       t.mesh.geometry.dispose();
     }
     this.trails = [];
+    this.benched = [null, null];
     this.models = [];
+    this.bench = [];
+    this.crew = [];
+    this.tagCam.stop();
+    this.tagGlow = [0, 0];
     this.match = null;
     this.stretcher.clear();
     this.debris.clear();
@@ -1090,9 +1325,12 @@ export class Game {
   }
 
   private onEvent(type: string, data: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    // a tag team's tag: that side's robots swap first, so everything after films the one coming in
+    if (type === 'tag') this.tagSwap(data.side);
     if (this.quiet) {
       // skipped steps: only what changes the picture from here on
-      if (type === 'ko') this.director.focusKO(data.loser.index);
+      if (type === 'ko' || type === 'eliminated') this.director.focusKO(data.loser.index);
+      if (type === 'tag' || type === 'tagResume') this.tagCam.stop();
       if (type === 'detach' && this.seeking) this.seekTears.push(data as DetachInfo);
       // dents stay where the skipped blows landed (posed as the robot stood when it took them)
       if (type === 'hit') {
@@ -1116,6 +1354,8 @@ export class Game {
     sfx?.booth.event(type, data);
     this.crowdMood.event(type, data);
     this.arena.venue.event(type, data);
+    this.tagCam.event(type, data, this.match, this.crew);
+    if (this.titanV) this.titanFx?.event(type, data, this.models);
     switch (type) {
       case 'hit': {
         const h = data as HitInfo;
@@ -1267,6 +1507,57 @@ export class Game {
       case 'getUp':
         this.arena.excite(0.5);
         break;
+      case 'tag': {
+        this.arena.excite(0.9);
+        this.arena.flashRopes(0.7);
+        // the ropes take the partner's weight as it ducks through
+        sfx?.ropes();
+        // its corner lights up in the colours of the bot coming in
+        const side = data.side as number;
+        this.tagGlow[side] = 1;
+        this.tagCol[side] = this.match!.specs[side].paint.accent;
+        if (data.elim) break;
+        // the hands slapped over the top rope: a flash and a spray of sparks where they met
+        const from = (data.from as Fighter).body.pos, to = (data.to as Fighter).body.pos;
+        let best = Infinity;
+        for (const ja of [J.HandL, J.HandR]) {
+          for (const jb of [J.HandL, J.HandR]) {
+            const d = from[ja].distanceToSquared(to[jb]);
+            if (d < best) {
+              best = d;
+              _v.addVectors(from[ja], to[jb]).multiplyScalar(0.5);
+            }
+          }
+        }
+        fx.sparks(_v, _up, 16, 0xffe2b0, 3, 1.4);
+        fx.flash(_v, 0xfff0d0, 0.9, 0.16);
+        fx.burst(_v, this.tagCol[side], 14, 2);
+        sfx?.fistBump();
+        break;
+      }
+      case 'tagOut':
+        sfx?.ropes();
+        break;
+      case 'eliminated':
+        // knocked out of the match: as a knockout, and the house lights strobe
+        this.director.focusKO(data.loser.index);
+        this.director.shake(0.9);
+        this.director.punch(5);
+        this.arena.excite(1.6);
+        this.arena.venue.strobe?.(0.7);
+        sfx?.ko();
+        break;
+      case 'assist':
+        this.arena.excite(1);
+        break;
+      case 'assistHold':
+        // the full nelson locks on
+        sfx?.thud(0.45, this.pan((data.f as Fighter).body.pos[J.Chest]));
+        break;
+      case 'tagResume':
+        sfx?.bell(1);
+        this.arena.excite(0.6);
+        break;
     }
     this.cb.onMatchEvent?.(type, data);
   }
@@ -1293,7 +1584,9 @@ export class Game {
     if (m && !still) {
       // match time this frame (none while a seek runs the sim)
       // (each hit dips it for a moment: see Match.pace)
-      let flow = dt * this.speed * m.pace;
+      // (a titan battle eases towards its phase's slower pace: no jolt between phases)
+      if (this.titanV) this.timeK += ((TITAN_TIME[m.phase] ?? 0.5) - this.timeK) * (1 - Math.exp(-dt * 1.5));
+      let flow = dt * this.speed * m.pace * this.timeK;
       if (seeking) {
         this.seekSlice(m);
         flow = 0;
@@ -1341,6 +1634,7 @@ export class Game {
         this.groundImpacts(i);
         this.damageEffects(i, flow);
       }
+      if (this.bench.length) this.poseBench(m, seeking ? 1 : alpha);
       this.feet.length = 0;
       for (let i = 0; i < 2; i++) {
         const f = m.fighters[i];
@@ -1351,7 +1645,11 @@ export class Game {
         flow,
         this.fx,
         this.feet,
-        (p, sp) => this.sfx?.thud(Math.min(0.7, sp / 6), this.pan(p)),
+        (p, sp) => {
+          this.sfx?.thud(Math.min(0.7, sp / 6), this.pan(p));
+          // (a titan's torn-off plate is the size of a house: it lands in a cloud of dust)
+          if (this.titanV) this.titanFx?.land(p, sp);
+        },
         (p, k, first) => {
           this.arena.venue.crowd.stir(p, k);
           if (!first) return;
@@ -1425,10 +1723,37 @@ export class Game {
     // (a robot still down in its lift shaft casts nothing on the canvas, nor one carried off)
     const away = m && this.stretcher.gone ? this.stretcher.loser : -1;
     for (let i = 0; i < 2; i++) contactAO.set(i, i === away || (m && this.arena.corners.drop(m, i) < -0.3) ? null : (shown[i]?.joints ?? null), shown[i]?.size);
-    this.fx.update(still ? 0 : dt, this.stage.camera);
+    // a follow spot on each robot from the rigging, once it is up out of its lift, until it is carried off
+    // (the titans' stadium has the sun)
+    if (this.follow) {
+      if (m && this.models.length === 2 && this.place === 'arena' && !this.titanV) {
+        for (let i = 0; i < 2; i++) this.spotLit[i] = i !== away && this.arena.corners.drop(m, i) >= -0.6;
+        this.follow.track(still ? 0 : dt, [this.models[0].joints[J.Chest], this.models[1].joints[J.Chest]], this.spotLit);
+      } else this.follow.off();
+    }
+    // (a tag team's partners, wherever they are)
+    for (let i = 0; i < 2; i++) contactAO.set(2 + i, m && this.bench[i] ? this.bench[i].joints : null, this.bench[i]?.size);
+    // (a titan's sparks and smoke drift down slowly, at the titans' scale)
+    this.fx.update(still ? 0 : dt * (m && this.titanV ? this.timeK : 1), this.stage.camera);
+    if (this.titanV) {
+      const tv = this.titanV;
+      if (m && !still && !seeking) this.titanFx?.update(m);
+      tv.flare = this.arena.flash;
+      tv.fanSeat.copy(this.director.crowdSeat);
+      // the fight's sound crosses the stadium to the lens (sound's speed at the titans' scale,
+      // eased so a blow never lags its picture by much)
+      if (this.sfx && m) {
+        const p0 = m.fighters[0].body.pos[J.Pelvis], p1 = m.fighters[1].body.pos[J.Pelvis];
+        _v.set((p0.x + p1.x) / 2, 1, (p0.z + p1.z) / 2);
+        this.sfx.titanDelay = Math.min(0.35, this.stage.camera.position.distanceTo(_v) * 0.026);
+      }
+    }
+    if (this.sfx) this.sfx.titan = !!this.titanV && !!m && this.place === 'arena';
     this.stage.ripples.update(still ? 0 : dt);
     perf.lap('fx');
-    this.arena.pressRopes(m && this.models.length === 2 ? [this.models[0].joints, this.models[1].joints] : [], this.models.map((x) => x.size));
+    // (a tag team's partners lean on them too, on the apron and ducking through)
+    const pressing = m && this.models.length === 2 ? [...this.models, ...this.bench] : [];
+    this.arena.pressRopes(pressing.map((x) => x.joints), pressing.map((x) => x.size));
     const f = m?.fighters;
     const crowdState = m && f && !this.paused ? { phase: m.phase, clock: m.clock, hp: [f[0].hpRatio, f[1].hpRatio] as [number, number] } : null;
     this.crowdMood.tick(dt, crowdState);
@@ -1457,6 +1782,8 @@ export class Game {
         d.sceneLambda = 200;
         d.clip = w.cam.clip;
       }
+    } else if (this.place === 'vault') {
+      this.vault!.update(dt, this.time, this.stage.camera);
     } else if (this.place === 'home') {
       try {
         this.home!.update(dt, this.time);
@@ -1490,26 +1817,39 @@ export class Game {
         const i = look[j].pos[0] * hatchXZ(0)[0] + look[j].pos[2] * hatchXZ(0)[1] > 0 ? 0 : 1;
         const k = m ? this.arena.corners.flare(i) : 0;
         const r = this.stage.rims[j];
-        r.intensity = look[j].intensity * (1 + 1.4 * k);
+        // (a tag lights its corner up in the colours of the bot coming in)
+        const g = this.tagGlow[i];
+        const tg = g * g * (3 - 2 * g);
+        r.intensity = look[j].intensity * (1 + 1.4 * k + 1.8 * tg);
         r.color.setHex(look[j].color);
         if (k > 0 && m) r.color.lerp(_c.setHex(m.specs[i].paint.accent), 0.7 * Math.min(1, k * 1.5));
+        else if (tg > 0) r.color.lerp(_c.setHex(this.tagCol[i]), 0.75 * Math.min(1, tg * 1.5));
       }
+      if (!still) for (let i = 0; i < 2; i++) this.tagGlow[i] = Math.max(0, this.tagGlow[i] - dt / 1.8);
     }
     perf.lap('arena');
     const shot = m && this.stretcher.on ? this.stretcher.shot : null;
     if (shot) this.director.film(shot.pos, shot.look, shot.fovK, shot.cut);
+    else if (m && this.tagCam.kind) {
+      // a tag team match's tags, eliminations and double teams
+      const tc = this.tagCam.frame(still ? 0 : dt);
+      if (tc) this.director.film(tc.pos, tc.look, tc.fovK, tc.cut);
+    }
     // its tunnel's gate ripples as the stretcher goes through
     this.arena.venue.gateHit(m && this.stretcher.posed ? this.stretcher.at : null);
     this.director.update(still && m ? 0 : dt, m, alpha);
     // a bot's-eye shot: the lens is inside that bot's head
-    const pov = m && this.models.length === 2 ? this.director.pov : -1;
+    const pov = m && this.models.length === 2 && !this.tagCam.kind ? this.director.pov : -1;
     if (pov >= 0) this.models[pov].hideHead();
+    if (m && this.bench.length) this.benchClear(m);
     if (m && this.director.mode === 'match') {
       for (let i = 0; i < 2; i++) this.chests[i].copy(m.fighters[i].body.pos[J.Chest]);
       if (this.stretcher.posed && this.models[this.stretcher.loser]) this.chests[this.stretcher.loser].copy(this.models[this.stretcher.loser].joints[J.Chest]);
       // ropes, posts and barriers between the lens and the robots dissolve, however far away
       // (from a bot's eyes, only what stands between it and the other one)
-      this.clearView.update(this.stage.camera, pov >= 0 ? [this.chests[1 - pov]] : this.chests);
+      // (a tag's shot looks through the ropes at the partners too)
+      const looking = pov >= 0 ? [this.chests[1 - pov]] : this.tagCam.kind && this.bench.length ? [...this.chests, ...this.bench.map((md) => md.joints[J.Chest])] : this.chests;
+      this.clearView.update(this.stage.camera, looking);
       // expose for the ring: the closer the shot on the fighters, the darker the house
       _v.addVectors(this.chests[0], this.chests[1]).multiplyScalar(0.5);
       house.update(dt, this.stage.camera.position.distanceTo(_v));
@@ -1642,7 +1982,7 @@ export class Game {
     if (n > 0) this.fx.bits.spawn(h.point, h.dir, n, paint, h.blocked ? power * 0.5 : power);
     if (wear > 0.35 && h.damage >= 6) this.fx.smoke(h.point, 1 + Math.round(wear * 3), wear);
     // a blow to a venting part makes its hinge blow (if it hasn't just)
-    if (h.partCond < VENT_BELOW) this.steam.kick(h.defender.index * 16 + h.part);
+    if (h.partCond < VENT_BELOW) this.steam.kick(this.keys[h.defender.index] * 16 + h.part);
     const k = oilLeak(h.part, h.partCond);
     if (k > 0 && !h.blocked) {
       this.oil.splash(h.point, h.dir, k);
@@ -1736,8 +2076,8 @@ export class Game {
       const radius = typeof r === 'number' ? r * md.size : md.radii[r];
       if (side) _sideP.copy(_side).multiplyScalar(side);
       const k = (VENT_BELOW - parts.cond[p]) / VENT_BELOW;
-      const burst = this.steam.vent(i * 16 + p, J0[a], J0[b], t, radius, _fwd, side ? _sideP : null, k, md.size, dt);
-      if (burst > 0) this.sfx?.hiss((0.4 + k * 0.6) * this.steam.blowOf(i * 16 + p), burst, this.pan(J0[a]));
+      const burst = this.steam.vent(this.keys[i] * 16 + p, J0[a], J0[b], t, radius, _fwd, side ? _sideP : null, k, md.size, dt);
+      if (burst > 0) this.sfx?.hiss((0.4 + k * 0.6) * this.steam.blowOf(this.keys[i] * 16 + p), burst, this.pan(J0[a]));
     }
     // a wrecked chest or lower torso bleeds oil from a wound on its plating
     let bleed = 0;
@@ -1749,7 +2089,7 @@ export class Game {
       _dq.set(Math.sin(ang), 0, Math.cos(ang));
       if (w === 0) _dp.copy(J0[J.Chest]).addScaledVector(_dq, 0.21);
       else _dp.lerpVectors(J0[J.Pelvis], J0[J.Chest], 0.3).addScaledVector(_dq, 0.17);
-      this.oil.leak(i * 2 + w, _dp, _dq, k, dt);
+      this.oil.leak(this.keys[i] * 2 + w, _dp, _dq, k, dt);
       bleed += k;
     }
     bleed += this.stumps[i].length * 0.8;
@@ -1773,7 +2113,7 @@ export class Game {
       if (par !== undefined) {
         _dq.subVectors(at, J0[par]);
         if (_dq.lengthSq() < 1e-6) _dq.set(0, 1, 0);
-        this.oil.leak(100 + i * 16 + s.joint, at, _dq.normalize(), 0.6 + Math.max(0, 1 - s.age / 6) * 0.9, dt);
+        this.oil.leak(100 + this.keys[i] * 16 + s.joint, at, _dq.normalize(), 0.6 + Math.max(0, 1 - s.age / 6) * 0.9, dt);
       }
       if (Math.random() < dt * 9 * heat) this.fx.sparks(at, _up, 2 + Math.round(heat * 6), 0xffb050, 2 + heat * 3, 1.4);
       if (Math.random() < dt * 7 * heat) this.fx.smoke(at, 1, heat);
