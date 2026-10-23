@@ -16,6 +16,17 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-23 14:00",
+    title: "Daily contracts and pilot levels",
+    notes: [
+      "Android app: every fight now counts. You earn XP toward your pilot level, and quick fights pay credits whether you win or lose.",
+      "Android app: three daily contracts, new every day (like \"Land 40 punches\" or \"Win without being knocked down\"). Each pays credits and XP, and finishing all three pays a bonus.",
+      "Android app: level ups pay credits, every 5th level pays double, and your first win of the day earns double XP.",
+      "Android app: your level and today's contracts are on the home screen, and a pop-up tells you mid-fight the moment a contract is done.",
+      "Android app: the results show your XP bar filling, level ups and contracts ticking off, and the buttons under them always stay in reach.",
+    ],
+  },
+  {
     hour: "2026-10-23 12:00",
     title: "A smoother loading screen",
     notes: [

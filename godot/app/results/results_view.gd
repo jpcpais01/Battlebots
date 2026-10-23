@@ -3,7 +3,8 @@
 ## behind a darkening wash. The kicker (the fight's length, or the event and round), the verdict
 ## (VICTORY, DEFEAT, DRAW, CUP WINNER or CHAMPION), who won and how, both bots' numbers side by
 ## side with the better one lit and a bar under each line split in the bots' colours, a map
-## event's prize money (the career's reward view), and what to do next.
+## event's prize money (the career's reward view), the pilot's progress (XP, level ups, daily
+## contracts and the fight's pay: app/pilot) and what to do next.
 ##
 ## An online fight's card (info.net) offers a rematch through the room instead, both players voting
 ## (app.ts netResults).
@@ -26,6 +27,8 @@ var _card := PanelContainer.new()
 var _rise: Rise
 var _scroll := ScrollContainer.new()
 var _col := VBoxContainer.new()
+## What to do next, pinned under the scrolling part so it's always in reach.
+var _foot := VBoxContainer.new()
 var _wash := TextureRect.new()
 ## Online: the Rematch button and the line over it (sync_net).
 var _rematch: Button
@@ -60,7 +63,12 @@ func _init() -> void:
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	# (scrollbar-width: none)
 	_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
-	_card.add_child(_scroll)
+	var frame := VBoxContainer.new()
+	frame.add_theme_constant_override(&"separation", int(round(0.8 * EM)))
+	_card.add_child(frame)
+	frame.add_child(_scroll)
+	frame.add_child(_foot)
+	_foot.minimum_size_changed.connect(_layout.call_deferred)
 	_col.add_theme_constant_override(&"separation", int(round(0.8 * EM)))
 	_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_scroll.add_child(_col)
@@ -154,7 +162,10 @@ func show_results(info_: Dictionary) -> void:
 			if view is Control:
 				_col.add_child(view)
 
-	_col.add_child(_net_actions() if info.has("net") else _actions(ev, won, draw))
+	# the pilot's level and contracts moving on (app/pilot), and what the fight paid
+	if info.get("pilot") != null:
+		_col.add_child(PilotViews.progress_view(app, info.pilot))
+	_foot.add_child(_net_actions() if info.has("net") else _actions(ev, won, draw))
 	_layout()
 	# .results fadeIn 0.5s; .res-card cardIn 0.55s 0.1s, from 1.5em to the right
 	modulate.a = 0.0
@@ -566,11 +577,12 @@ func _layout() -> void:
 	var w := minf(size.x * 0.46, 27.0 * EM)
 	var room := size.y - top - bottom
 	var pad := 1.05 * EM + 1.1 * EM
-	_scroll.custom_minimum_size = Vector2(w - 2.3 * EM, minf(_col.get_combined_minimum_size().y, room - pad))
+	var foot: float = _foot.get_combined_minimum_size().y + round(0.8 * EM)
+	_scroll.custom_minimum_size = Vector2(w - 2.3 * EM, maxf(4.0 * EM, minf(_col.get_combined_minimum_size().y, room - pad - foot)))
 	_card.custom_minimum_size.x = w
 	_rise.reset_size()
 	_rise.size.x = w
-	_rise.position = Vector2(size.x - side - w, top + (room - _rise.size.y) * 0.5).round()
+	_rise.position = Vector2(floorf(size.x - side - maxf(w, _rise.size.x)), roundf(top + (room - _rise.size.y) * 0.5))
 
 
 func _unhandled_input(e: InputEvent) -> void:

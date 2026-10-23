@@ -44,6 +44,11 @@ var saves: Array = []
 ## The skins won in the vault, its pity and its free pull (app/gacha/gacha.gd). Skins are only ever
 ## won there: UNLOCK_ALL is for parts.
 var skins: Dictionary = {}
+## The pilot's level and today's contracts (app/pilot/pilot.gd), Android only.
+var pilot: Dictionary = {}
+## The fight being watched for the pilot (a Pilot.FightLog), until its results settle it. Null
+## for a replay, or once a fight is settled or walked out of.
+var _flog = null
 ## For now every part is the player's to fit (João, 2026-10-17): Rare and Epic parts aren't locked
 ## and nothing rolls back to Common. The career still pays, sells and hands out parts as before;
 ## set this false to bring the locks back.
@@ -119,6 +124,7 @@ func _setup() -> void:
 		Store.save_record(record)
 	saves = Store.load_saves()
 	skins = Gacha.load_state()
+	pilot = Pilot.load_state()
 	# a skin the vault no longer counts as owned comes off (a save from another phone)
 	if Gacha.check_worn(skins, player):
 		Store.save_player(player)
@@ -145,6 +151,7 @@ func _setup() -> void:
 	# (Android's back button is the app's: _go_back)
 	game.pause_menu.back_handled_above = true
 	game.match_event.connect(_on_match_event)
+	game.match_event.connect(_pilot_event)
 	game.forfeited.connect(_on_forfeit)
 	# a replay's Results (its controls, and its pause menu's Skip to the result) and Room
 	game.hud.replay_results.connect(replay_results)
@@ -579,6 +586,7 @@ func start_fight(same_opponent: bool) -> void:
 	if game.has_method("set_arena"):
 		game.set_arena(arena)
 	game.start_match(player, opponent, seed, null, {"arena": arena})
+	_watch_fight(0)
 	# (the tape holds copies, so a later trip to the garage can't change the fight a replay shows)
 	last_fight = {"tape": game.tape, "timeline": game.timeline}
 	go("fight")
@@ -598,6 +606,7 @@ func start_tag_fight(partner, rivals: Array, names := ["", ""]) -> void:
 	if game.has_method("set_arena"):
 		game.set_arena("grand")
 	game.start_match(player, rivals[0], float(randi()), {"a": partner, "b": rivals[1]}, {"arena": "grand"})
+	_watch_fight(0)
 	game.tape.teams = [String(names[0]), String(names[1])]
 	last_fight = {"tape": game.tape, "timeline": game.timeline}
 	go("fight")
@@ -686,6 +695,8 @@ func _on_forfeit() -> void:
 		go("home")
 		return
 	var tag := is_tag()
+	# (walking out counts for nothing on the pilot's side)
+	_flog = null
 	if game.m != null and game.m.phase != "end":
 		tally(false, false)
 		if tag:
@@ -763,6 +774,9 @@ func _show_results() -> void:
 	if m.tag != null:
 		tag_tally(won, draw)
 	var info := {"m": m, "me": 0, "winner": winner, "won": won, "draw": draw, "kind": kind, "event": ev}
+	var pr = settle_pilot(m, won, draw, kind)
+	if pr != null:
+		info["pilot"] = pr
 	# a tag team fight's team names (ours, theirs)
 	if m.tag != null:
 		info["teams"] = tag_setup.names if tag_setup != null else ["", ""]
@@ -777,6 +791,47 @@ func _show_results() -> void:
 		ui.add_child(results)
 	# (the card sits right of centre: the fight's last shot moves over for it)
 	game.director.shift_x = 0.2
+
+
+# ------------------------------------------------------------------------------ the pilot
+
+## A fight starts: watch it for the pilot's contracts from corner `me`.
+func _watch_fight(me: int) -> void:
+	_flog = Pilot.FightLog.new(game.m, me) if game.m != null else null
+
+
+## Every sim event of a fight being played: counted for the contracts, and a contract it just
+## finished pops up (a replay's don't count: _flog is null then).
+func _pilot_event(type: String, data) -> void:
+	var fl = _flog
+	if fl == null or game.m != fl.m or game.replaying():
+		return
+	fl.event(type, data)
+	if type == "hit" or type == "dodge" or type == "knockdown" or type == "finisher" or type == "detach":
+		var wait := 0.0
+		for id in Pilot.live_done(pilot, fl):
+			PilotViews.toast(self, id, wait)
+			wait += 3.3
+
+
+## The fight just ended (its results coming up): XP, levels, contracts and a quick fight's pay,
+## paid into the career's credits and saved. The report for the results card, or null when the
+## fight wasn't watched (a replay) or was already settled.
+func settle_pilot(m, won: bool, draw: bool, kind):
+	var fl = _flog
+	_flog = null
+	if fl == null or fl.m != m:
+		return null
+	var ctx := {"won": won, "draw": draw, "kind": kind, "tag": m.tag != null, "titan": titan_run, "career": event_run != null}
+	var rep := Pilot.settle(pilot, fl, ctx)
+	Pilot.save_state(pilot)
+	if int(rep.credits) > 0:
+		record.career.credits = float(record.career.credits) + float(rep.credits)
+		# (the trophy room's Credits won counts it too)
+		record.career.earned = float(record.career.earned) + float(rep.credits)
+		Store.save_record(record)
+	changed.emit()
+	return rep
 
 
 # ------------------------------------------------------------------------------ replays
@@ -806,6 +861,7 @@ func replay() -> void:
 	if game.pause_menu.is_open() and not get_tree().paused:
 		game.pause_menu.close()
 	game.pause_menu.room_button = bool(t.online) and net != null
+	_flog = null
 	game.start_replay(t, last_fight.get("timeline"))
 	# (watched again, it starts from the checkpoints this viewing leaves)
 	last_fight.timeline = game.timeline
@@ -969,6 +1025,7 @@ func fight_online(s: OnlineSession, a, b, seed: float) -> void:
 	if game.pause_menu.is_open() and not get_tree().paused:
 		game.pause_menu.close()
 	game.start_match(a, b, seed, null, {"online": true, "me": s.me, "arena": "grand"})
+	_watch_fight(int(s.me))
 	last_fight = {"tape": game.tape, "timeline": game.timeline}
 	net_fight = s
 	s.watch(game, game.m)
@@ -1011,6 +1068,9 @@ func _show_net_results(m) -> void:
 	var out: Dictionary = s.outcome(m) if s != null else {"winner": int(m.winner.index) if m.winner != null else -1, "kind": m.result}
 	var winner: int = out.winner
 	var info := {"m": m, "me": me, "winner": winner, "won": winner == me and winner >= 0, "draw": winner < 0, "kind": out.kind, "event": null, "net": s, "drifted": s != null and s.desynced and s.role == "guest", "tape": game.tape}
+	var pr = settle_pilot(m, info.won, info.draw, out.kind)
+	if pr != null:
+		info["pilot"] = pr
 	if game.pause_menu.is_open() and not get_tree().paused:
 		game.pause_menu.close()
 	results = load(RESULTS).new()

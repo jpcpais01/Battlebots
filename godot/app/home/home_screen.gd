@@ -6,6 +6,7 @@
 ## the right. Bottom left: the player's bot (its power, name, both special moves, live maker sets,
 ## frame size and the six parts it wears; the name opens the garage, a part opens the garage on
 ## that slot). Bottom right: the record, the garage, online, career and replays, and Fight.
+## Top right, under the bar: the pilot's level and today's contracts (app/pilot/pilot_views.gd).
 ## Sideways drags spin the bot in the ring (menu camera).
 ##
 ## The web's refresh, fullscreen and account buttons have no place on Android (the account is
@@ -34,6 +35,9 @@ var _hero := VBoxContainer.new()
 var _hero_rise: Rise
 var _right := VBoxContainer.new()
 var _right_rise: Rise
+## The pilot's level and today's contracts (app/pilot), top right.
+var _pilot: PilotViews.Card
+var _pilot_rise: Rise
 var _power: Label
 var _name_btn: Button
 var _name: Label
@@ -59,6 +63,7 @@ var _vel := 0.0
 var _idle := 0.0
 ## Tiles still waiting on their part picture (the garage renders them in the background).
 var _pic_wait := 0.0
+var _pilot_t := 30
 
 
 func _ready() -> void:
@@ -70,6 +75,11 @@ func _ready() -> void:
 	if app != null:
 		await app.breathe()
 	_build_actions()
+	if app != null:
+		_pilot = PilotViews.Card.new(app)
+		_pilot_rise = Rise.wrap(_pilot)
+		add_child(_pilot_rise)
+		_pilot.minimum_size_changed.connect(_queue_layout)
 	resized.connect(_layout)
 	# (the pills wrap once the card knows its width: lay out again whenever its content settles)
 	_hero.minimum_size_changed.connect(_queue_layout)
@@ -640,7 +650,7 @@ func fight(titans := false) -> void:
 	_vel = 0.0
 	_drag = false
 	# .screen.home.leaving > *: the screen gets out of the way (0.35s, 0.6em down)
-	for r in [_top, _hero_rise, _right_rise]:
+	for r in _rises():
 		var tw := create_tween()
 		tw.tween_property(r, "modulate:a", 0.0, 0.35)
 	app.game.home_outro(func() -> void:
@@ -677,8 +687,12 @@ func _flash_white(then: Callable) -> void:
 ## Back to normal after the way out (or if it was cut off: app.ts endLeaving).
 func _end_leaving() -> void:
 	leaving = false
-	for r in [_top, _hero_rise, _right_rise]:
+	for r in _rises():
 		r.modulate.a = 1.0
+
+
+func _rises() -> Array:
+	return [_top, _hero_rise, _right_rise] + ([_pilot_rise] if _pilot_rise != null else [])
 
 
 # ------------------------------------------------------------------ screen
@@ -699,6 +713,8 @@ func enter() -> void:
 	# heroIn: up 0.8em out of nothing, 0.6s (the actions 0.08s later)
 	_hero_rise.play(0.6, 0.0, Vector2(0, 0.8 * _em))
 	_right_rise.play(0.6, 0.08, Vector2(0, 0.8 * _em))
+	if _pilot_rise != null:
+		_pilot_rise.play(0.6, 0.14, Vector2(0.8 * _em, 0))
 	for k in _tiles.size():
 		# tileIn: 0.5s from 0.15 + k * 0.04s, up 0.5em from 90%
 		_tiles[k].rise.play(0.5, 0.15 + k * 0.04, Vector2(0, 0.5 * _em), 0.9)
@@ -757,6 +773,8 @@ func refresh() -> void:
 	if r.streak > 1.0:
 		_record.add_child(_stat(r.streak, "Streak"))
 	_cash.text = TCareer.credits(float(r.career.credits))
+	if _pilot != null:
+		_pilot.refresh()
 	_queue_layout()
 
 
@@ -812,6 +830,19 @@ func _layout() -> void:
 	_right_rise.reset_size()
 	_right_rise.size.x = rw
 	_right_rise.position = Vector2(size.x - side - rw, size.y - bottom - _right_rise.size.y)
+	# the pilot's card: under the top bar, over the actions; just its level and a line when the
+	# screen is too short for the whole list
+	if _pilot_rise != null:
+		var py := top + UiTheme.TAP + 0.6 * _em
+		var room := _right_rise.position.y - 0.6 * _em - py
+		_pilot.custom_minimum_size.x = rw
+		_pilot.compact = false
+		if _pilot.get_combined_minimum_size().y > room:
+			_pilot.compact = true
+		_pilot_rise.visible = _pilot.get_combined_minimum_size().y <= room
+		_pilot_rise.reset_size()
+		_pilot_rise.size.x = rw
+		_pilot_rise.position = Vector2(size.x - side - rw, py)
 
 
 ## The Skins button's dot: a free pull (or the welcome pull) is waiting.
@@ -824,6 +855,11 @@ func tick(dt: float) -> void:
 	if _vault_t <= 0.0:
 		_vault_t = 1.0
 		_sync_vault()
+		# (the contracts' clock, and a new day's contracts at midnight)
+		_pilot_t -= 1
+		if _pilot_t <= 0 and _pilot != null:
+			_pilot_t = 30
+			_pilot.refresh()
 	# part pictures the garage hasn't rendered yet: look again now and then
 	if _pic_wait > 0.0:
 		_pic_wait -= dt
