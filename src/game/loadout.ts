@@ -1,5 +1,5 @@
 import { Rng } from '../sim/math';
-import { COMPANIES, COMPANY_BY_ID, ITEM_BY_ID, MAX_RARITY, SIZE_MAX, SIZE_MIN, SLOTS, equip, sanitizeSize, itemsForSlot, type Loadout, type Rarity } from './items';
+import { COMPANIES, COMPANY_BY_ID, ITEM_BY_ID, MAX_RARITY, SIZE_MAX, SIZE_MIN, SLOTS, equip, sanitizeSize, itemsForSlot, type Loadout, type Rarity, type StatKey } from './items';
 import type { EmotePicks } from '../sim/emote';
 import { DEFAULT_PAINT, SCHEMES, samePaint, type Paint } from './paint';
 
@@ -54,6 +54,11 @@ export interface BotSpec {
   skin?: string;
   /** The fighting style its corner picked (sim/brain.ts FIGHT_STYLES); missing = the bot picks its own from its build. */
   style?: string;
+  /**
+   * Stat lines on top of its parts (items.ts computeBuild), from the Android app's Gauntlet:
+   * the run's picks on the player's bot, a stage's on its rival. Missing = none.
+   */
+  boost?: Partial<Record<StatKey, number>>;
 }
 
 /** A random frame size: mostly near standard, now and then a giant or a tiddler. */

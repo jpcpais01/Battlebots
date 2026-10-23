@@ -16,6 +16,16 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-23 19:00",
+    title: "The Gauntlet",
+    notes: [
+      "Android app: new Gauntlet mode on the home screen. One bot against an endless ladder of rivals, each stage tougher than the last: how far can you go?",
+      "Android app: every Gauntlet win banks prize money and lets you keep one of three boosts for the rest of the run, like Heavy Hands, Juggernaut or Glass Cannon, so your bot grows stronger as you climb.",
+      "Android app: every fifth stage is a boss with a name and a big frame, and each floor of five is fought in a new venue around the world. Beat a boss to lock your bank in and win Skin Vault shards.",
+      "Android app: cash out between fights to take the whole bank home, or push on. Lose, and only what's locked in comes home. Your best run is kept, and two new medals reward going deep and beating bosses.",
+    ],
+  },
+  {
     hour: "2026-10-23 17:00",
     title: "Fighting styles",
     notes: [

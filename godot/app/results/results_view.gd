@@ -98,11 +98,16 @@ func show_results(info_: Dictionary) -> void:
 	var verdict := ("CUP WINNER" if ev.e.kind == "cup" else "CHAMPION") if title else "DRAW" if draw else "VICTORY" if won else "DEFEAT"
 	if tag and not draw:
 		verdict = "TEAM " + verdict
+	if info.get("gauntlet") != null and info.gauntlet.won and info.gauntlet.boss:
+		verdict = "BOSS DOWN"
 	var kicker := ""
 	if ev != null:
 		var n: int = ev.e.rivals.size()
 		var rd := int(ev.round)
 		kicker = "%s · %s" % [ev.e.name_, "Final" if rd == n - 1 else "Round %d of %d" % [rd + 1, n]]
+	elif info.get("gauntlet") != null:
+		var gst: int = info.gauntlet.stage
+		kicker = "Gauntlet · %s %d" % ["Boss · Stage" if info.gauntlet.boss else "Stage", gst]
 	elif tag:
 		kicker = "Tag team · %d seconds" % roundi(float(m.fightTime))
 	elif info.has("net"):
@@ -162,6 +167,9 @@ func show_results(info_: Dictionary) -> void:
 			if view is Control:
 				_col.add_child(view)
 
+	# a Gauntlet stage: the bank, a boss's shards, the run going on or over
+	if info.get("gauntlet") != null:
+		_col.add_child(_gauntlet_view(info.gauntlet))
 	# the pilot's level and contracts moving on (app/pilot), and what the fight paid
 	if info.get("pilot") != null:
 		_col.add_child(PilotViews.progress_view(app, info.pilot))
@@ -171,6 +179,57 @@ func show_results(info_: Dictionary) -> void:
 	modulate.a = 0.0
 	create_tween().tween_property(self, "modulate:a", 1.0, 0.5)
 	_rise.play(0.55, 0.1, Vector2(1.5 * EM, 0))
+
+
+## A Gauntlet stage's outcome (Gauntlet.settle's report): what it put in the bank, a boss's shards
+## and the bank locked in, a new best, or the run over and what came home.
+func _gauntlet_view(gr: Dictionary) -> Control:
+	var hot := Color(1.0, 0.36, 0.22)
+	var gold := Color(1.0, 0.824, 0.29)
+	var box := PanelContainer.new()
+	box.name = "Gauntlet"
+	var col := gold if gr.won and gr.boss else hot if gr.over else UiTheme.CYAN
+	box.add_theme_stylebox_override(&"panel", MenuKit.box(Color(col, 0.08), 14, [0.85 * EM, 0.6 * EM, 0.85 * EM, 0.65 * EM], Color(col, 0.35), 1))
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override(&"separation", int(round(0.3 * EM)))
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(v)
+	var head := ""
+	if gr.draw:
+		head = "A draw: stage %d goes again" % int(gr.stage)
+	elif gr.over:
+		head = "Run over at stage %d" % int(gr.stage)
+	elif gr.boss:
+		head = "Boss beaten! The bank is locked in"
+	else:
+		head = "Stage %d cleared" % int(gr.stage)
+	v.add_child(MenuKit.label(head, 0.95 * EM, 800, col.lerp(Color.WHITE, 0.35)))
+	var lines := []
+	if gr.won:
+		lines.append(["coin", gold, "+%s to the bank · %s in it" % [TCareer.credits(int(gr.purse)), TCareer.credits(int(gr.bank))]])
+		if int(gr.shards) > 0:
+			lines.append(["paint", Color(0.76, 0.55, 1.0), "+%d Skin Vault shards" % int(gr.shards)])
+		if gr.best:
+			lines.append(["trophy", gold, "New best run!"])
+		lines.append(["plus", UiTheme.CYAN, "Pick a boost, then on to stage %d" % (int(gr.stage) + 1)])
+	elif gr.over:
+		var took := int(gr.took)
+		lines.append(["coin", gold, ("%s was locked in: it comes home" % TCareer.credits(took)) if took > 0 else "Nothing was locked in, so nothing comes home"])
+		if int(gr.bank) > took:
+			lines.append(["flame", hot, "%s unlocked in the bank is lost" % TCareer.credits(int(gr.bank) - took)])
+	for l in lines:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override(&"separation", int(round(0.45 * EM)))
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(MenuKit.icon(String(l[0]), 1.0 * EM, l[1]))
+		var t := MenuKit.label(String(l[2]), 0.84 * EM, 600, UiTheme.TEXT_2)
+		t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		t.custom_minimum_size.x = 8.0 * EM
+		row.add_child(t)
+		v.add_child(row)
+	return box
 
 
 ## What to do next: the next fight and a rematch, or the event's next round, starting it over,
@@ -191,6 +250,21 @@ func _actions(ev, won: bool, draw: bool) -> Control:
 			var label := "Fight again" if draw else ("%s: %s" % ["Final" if next == n - 1 else "Round %d" % (next + 1), e.rivals[next].name_]) if won else "Start over"
 			primary = _btn(label, "swords", &"BtnPrimary", func() -> void: app.fight_event(e))
 			row.add_child(_btn("Map", "map", &"Btn", _to_map))
+	elif info.get("gauntlet") != null:
+		# the Gauntlet: pick a boost (on its ladder), fight the stage again, or a new run
+		var gr: Dictionary = info.gauntlet
+		var to_ladder := func() -> void:
+			app.tap("select")
+			app.close_results()
+			app.go("gauntlet")
+		if gr.over:
+			primary = _btn("New run", "swords", &"BtnPrimary", to_ladder)
+		elif gr.draw:
+			primary = _btn("Fight stage %d again" % int(gr.stage), "swords", &"BtnPrimary", func() -> void:
+				app.tap("start")
+				app.start_gauntlet())
+		else:
+			primary = _btn("Pick your boost", "plus", &"BtnPrimary", to_ladder)
 	elif info.m.tag != null:
 		# tag team again: new rivals, the same ones, or back to the team sheet
 		primary = _btn("Next fight", "swords", &"BtnPrimary", func() -> void: app.tag_fight(false))

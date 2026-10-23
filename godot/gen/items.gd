@@ -83,7 +83,7 @@ static func sanitizeSize(v) -> float:
 	return (JS.round((minf(TItems.SIZE_MAX, maxf(TItems.SIZE_MIN, v)) * 20.0)) / 20.0)
 static var SIZE_EFFECT
 
-static func computeBuild(loadout, size_: float = 1.0):
+static func computeBuild(loadout, size_: float = 1.0, boost = null):
 	var s = JS.merge([TItems.BASE_STATS])
 	var pct = {}
 	var passives: Dictionary = {}
@@ -140,6 +140,15 @@ static func computeBuild(loadout, size_: float = 1.0):
 				var id_2: String = __it5[0]
 				var v_4: float = __it5[1]
 				addPassive.call(id_2, v_4)
+	if (boost != null):
+		for __it6 in JS.entries(boost):
+			var k_3: String = __it6[0]
+			var v_5: float = __it6[1]
+			if (k_3 == "toughness"):
+				for slot_3: String in _hSLOTS:
+					tough[slot_3] += v_5
+			else:
+				pct[k_3] = (((pct.get(k_3) if pct.get(k_3) != null else 0.0)) + v_5)
 	s.maxHp += (pct.get("hp") if pct.get("hp") != null else 0.0)
 	s.armor = minf(0.4, (s.armor + ((pct.get("armor") if pct.get("armor") != null else 0.0))))
 	s.headGuard = minf(0.4, (s.headGuard + ((pct.get("headGuard") if pct.get("headGuard") != null else 0.0))))
@@ -170,8 +179,8 @@ static func computeBuild(loadout, size_: float = 1.0):
 		s.reaction /= (1.0 + (E.reaction * d))
 		s.accuracy = minf(0.97, (s.accuracy + (E.accuracy * d)))
 		s.staminaRegen *= (1.0 + (E.staminaRegen * d))
-		for slot_3: String in _hSLOTS:
-			tough[slot_3] += (E.tough * d)
+		for slot_4: String in _hSLOTS:
+			tough[slot_4] += (E.tough * d)
 	return {
 	"stats": s,
 	"passives": passives,

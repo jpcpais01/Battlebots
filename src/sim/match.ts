@@ -195,8 +195,8 @@ export class Match {
     this.roundTime = partners ? TAG_TIME : ROUND_TIME;
     this.clock = this.roundTime;
     resetUids();
-    const fa = new Fighter(0, a.name, computeBuild(a.loadout, a.size), new Rng(this.rng.next() * 4294967296));
-    const fb = new Fighter(1, b.name, computeBuild(b.loadout, b.size), new Rng(this.rng.next() * 4294967296));
+    const fa = new Fighter(0, a.name, computeBuild(a.loadout, a.size, a.boost), new Rng(this.rng.next() * 4294967296));
+    const fb = new Fighter(1, b.name, computeBuild(b.loadout, b.size, b.boost), new Rng(this.rng.next() * 4294967296));
     fa.opp = fb;
     fb.opp = fa;
     this.fighters = [fa, fb];
@@ -209,8 +209,8 @@ export class Match {
     const all = [fa, fb];
     if (partners) {
       // (drawn after everything a one-on-one fight draws, so those stay as they were)
-      const pa = new Fighter(0, partners.a.name, computeBuild(partners.a.loadout, partners.a.size), new Rng(this.rng.next() * 4294967296));
-      const pb = new Fighter(1, partners.b.name, computeBuild(partners.b.loadout, partners.b.size), new Rng(this.rng.next() * 4294967296));
+      const pa = new Fighter(0, partners.a.name, computeBuild(partners.a.loadout, partners.a.size, partners.a.boost), new Rng(this.rng.next() * 4294967296));
+      const pb = new Fighter(1, partners.b.name, computeBuild(partners.b.loadout, partners.b.size, partners.b.boost), new Rng(this.rng.next() * 4294967296));
       pa.opp = fb;
       pb.opp = fa;
       const bpa = new Brain(pa, fb, new Rng(this.rng.next() * 4294967296), partners.a.style ?? '');

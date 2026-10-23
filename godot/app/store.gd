@@ -56,6 +56,20 @@ static func keep_skin(bot, raw):
 	return bot
 
 
+## A Gauntlet fight's boosts (BotSpec.boost: stat lines, numbers only) carried over from a raw
+## replay tape's bot, so the replay plays out as the fight did. Never on a saved bot.
+static func keep_boost(bot, raw):
+	var bo = raw.get("boost") if raw is Dictionary else null
+	if bo is Dictionary:
+		var keep := {}
+		for k in bo:
+			if TItems.STAT_LABEL.has(k) and (bo[k] is float or bo[k] is int) and is_finite(float(bo[k])):
+				keep[String(k)] = clampf(float(bo[k]), -5000.0, 5000.0)
+		if not keep.is_empty():
+			bot.boost = keep
+	return bot
+
+
 static func save_player(p) -> void:
 	write("player", p)
 	if on_saved.is_valid():

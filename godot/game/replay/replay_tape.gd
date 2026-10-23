@@ -210,7 +210,7 @@ static func sanitize(raw) -> Variant:
 
 
 static func _bot(raw):
-	return Store.keep_skin(TSaves.sanitizeBot(raw), raw)
+	return Store.keep_boost(Store.keep_skin(TSaves.sanitizeBot(raw), raw), raw)
 
 
 static func _arr(v) -> Array:
