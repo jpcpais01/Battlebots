@@ -71,6 +71,8 @@ var home_place := "beach"
 ## The loading screen starting the app (app/boot/boot.gd), or null: everything is set up at once
 ## in _ready (the tests).
 var boot = null
+## How long a slice of the setup may hold a frame while the loading screen is up (µs).
+const BREATH := 6000
 ## The results card on screen, if any.
 var results: Control = null
 ## Results wait for the fight's end to settle (app.ts queueResults): when they come up, in the
@@ -95,6 +97,13 @@ var _fade_tween: Tween
 
 func _ready() -> void:
 	_setup()
+
+
+## The loading screen (boot) is up: a frame drawn before the next piece of the setup, so it keeps
+## moving. Nothing when there's no loading screen (the tests).
+func _breathe() -> void:
+	if boot != null:
+		await get_tree().process_frame
 
 
 ## Load the saves, build the world and the screens, open on home. Started by the loading screen,
@@ -124,11 +133,15 @@ func _setup() -> void:
 		Store.save_record(record)
 	if fit_owned(player):
 		Store.save_player(player)
+	await _breathe()
 	game = (load("res://game/fight.tscn") as PackedScene).instantiate()
 	game.auto = false
 	if boot != null:
 		game.made = boot.made
+		game.stagger = true
 	add_child(game)
+	if not game.is_built:
+		await game.built
 	# (Android's back button is the app's: _go_back)
 	game.pause_menu.back_handled_above = true
 	game.match_event.connect(_on_match_event)
@@ -155,6 +168,7 @@ func _setup() -> void:
 		s.visible = false
 		screens[id] = s
 		ui.add_child(s)
+		await _breathe()
 	# switching to or from a place dips through black (app.ts .scene-fade); hidden while clear, as
 	# a clear full-screen rect still costs the GPU a pass over every pixel
 	_fade = ColorRect.new()
@@ -166,10 +180,14 @@ func _setup() -> void:
 	if boot != null:
 		# the arena drawn a moment behind the loading screen, so its looks are ready for the
 		# first fight
+		# (its robot made on a worker)
+		await game.prepare_showcase(player)
 		game.show_bot(player)
+		await _breathe()
 		game.warm_up(true)
-		# (and every face the fight's words use, at their sizes: no glyphs made mid-fight)
-		HudCalls.warm_fonts()
+		# (and every face the fight's words use, at their sizes: no glyphs made mid-fight; a few
+		# at a time, a frame's share each)
+		await HudCalls.warm_fonts(BREATH)
 		await boot.step("arena")
 		game.warm_up(false)
 	if game.has_place("home"):
@@ -238,6 +256,9 @@ func _gift_banner() -> void:
 
 func _process(dt: float) -> void:
 	_clock += dt
+	# (still being set up behind the loading screen)
+	if game == null or not game.is_built:
+		return
 	# (app.ts awaitResults: -2 is waiting on the stretcher ride)
 	if _results_at == -2.0:
 		if _results_for == null or game.m != _results_for:
@@ -261,6 +282,8 @@ func _process(dt: float) -> void:
 ## Back (Escape, or the Android back button as _go_back passes it on) once the screens and their
 ## cards haven't taken it: in a fight being played it pauses, off the fight it heads home.
 func _unhandled_input(e: InputEvent) -> void:
+	if game == null or not game.is_built:
+		return
 	if not e.is_action_pressed("ui_cancel"):
 		return
 	if _playing():
@@ -285,6 +308,8 @@ func _notification(what: int) -> void:
 ## fight), pausing a fight being played, and anywhere else a ui_cancel press for the screen or
 ## card on top to take (closing a card, leaving a screen, the results going home).
 func _go_back() -> void:
+	if game == null or not game.is_built:
+		return
 	if game == null or ui == null:
 		return
 	var pm: PauseMenu = game.pause_menu

@@ -45,6 +45,11 @@ var arena: Arena
 ## (app/boot/boot.gd): "arena" (an Arena), "effects" (a FightFx) and "home:<scene>" (a home
 ## place's scene, for HomeStage). Each is taken on first use instead of built then.
 var made := {}
+## Set by the app while the loading screen is up (app/boot): _ready hands back a frame between its
+## heavier pieces, so the screen keeps moving, and says `built` once it's done (is_built).
+var stagger := false
+var is_built := false
+signal built
 ## The crowd's excitement (game.ts crowdMood): the fans in the stands follow it.
 var crowd_mood := CrowdMood.new()
 ## The crowd you hear (game.ts sfx.crowdEvent / crowdTick), with its own mood as in the web.
@@ -225,6 +230,9 @@ const PLACES := {
 
 
 func _ready() -> void:
+	if stagger:
+		set_process(false)
+		set_process_unhandled_input(false)
 	# the screen's fastest refresh rate, not Android's default 60
 	Display.boost_refresh()
 	TInit.run()
@@ -240,9 +248,13 @@ func _ready() -> void:
 	arena = made.get("arena") if made.has("arena") else Arena.new()
 	made.erase("arena")
 	add_child(arena)
+	if stagger:
+		await get_tree().process_frame
 	# the loser's ride out after the fight (game.ts stretcher)
 	stretcher = Stretcher.new()
 	add_child(stretcher)
+	if stagger:
+		await get_tree().process_frame
 	cam = Camera3D.new()
 	cam.fov = 38
 	cam.near = 0.1
@@ -251,13 +263,19 @@ func _ready() -> void:
 	director = Director.new(cam)
 	for i in MAX_STEPS:
 		_step_views.append(Director.View.new())
+	if stagger:
+		await get_tree().process_frame
 	drones = Drones.new()
 	add_child(drones)
 	referee = Referee.new()
 	add_child(referee)
+	if stagger:
+		await get_tree().process_frame
 	contact_ao = ContactAO.new()
 	add_child(contact_ao)
 	# the Ray tracing setting's traced light and reflections (hidden while it's off)
+	if stagger:
+		await get_tree().process_frame
 	ray = RayTrace.new()
 	add_child(ray)
 	# (a test may have handed in its own, e.g. tests/crowd_record.gd's logging one)
@@ -267,6 +285,8 @@ func _ready() -> void:
 	# the fight screen: a full house (app.ts camera: sfx.ambience(1))
 	crowd_audio.ambience(1.0)
 	# the commentators (sfx.ts: the booth hands its clips to the voice); a test may hand in its own
+	if stagger:
+		await get_tree().process_frame
 	if voice == null:
 		voice = Voice.new()
 	add_child(voice)
@@ -275,11 +295,15 @@ func _ready() -> void:
 	# the crowd dips under each line (voice.ts duck)
 	if not voice.ducked.is_connected(crowd_audio.duck):
 		voice.ducked.connect(crowd_audio.duck)
+	if stagger:
+		await get_tree().process_frame
 	var man = Voice.load_manifest()
 	if man != null:
 		booth.set_manifest(man)
 		# (its first stock of lines, read now, as the web has it downloaded before any fight)
 		voice.flush()
+	if stagger:
+		await get_tree().process_frame
 	effects = made.get("effects") if made.has("effects") else FightFx.new()
 	made.erase("effects")
 	effects.arena = arena
@@ -287,6 +311,8 @@ func _ready() -> void:
 	effects.crowd_mood = CrowdAudio.Tee.new(crowd_mood, crowd_audio)
 	effects.enabled = OS.get_environment("BB_NOSPARKS") == ""
 	add_child(effects)
+	if stagger:
+		await get_tree().process_frame
 	sfx = Sfx.new()
 	add_child(sfx)
 	# bits of plating clinking on the canvas, torn parts landing (game.ts fx.bits.onClink, debris.update)
@@ -297,12 +323,16 @@ func _ready() -> void:
 			# (a titan's torn-off plate is the size of a house: it lands in a cloud of dust)
 			if titan:
 				titan_fx.land(p, sp))
+	if stagger:
+		await get_tree().process_frame
 	hud = FightHud.new()
 	hud.visible = OS.get_environment("BB_NOHUD") == ""
 	add_child(hud)
 	# (the overlay's GPU Measure redraws this scene part by part)
 	hud.perf.scene = self
 	# the saved settings, in force before the first fight (the booth's welcome checks commentary)
+	if stagger:
+		await get_tree().process_frame
 	settings = Settings.new()
 	settings.sfx = sfx
 	settings.voice = voice
@@ -315,6 +345,8 @@ func _ready() -> void:
 	settings.contact_ao = contact_ao
 	settings.ray = ray
 	add_child(settings)
+	if stagger:
+		await get_tree().process_frame
 	settings.load_and_apply()
 	pause_menu = PauseMenu.new(settings)
 	add_child(pause_menu)
@@ -322,6 +354,11 @@ func _ready() -> void:
 	pause_menu.resume_requested.connect(resume)
 	pause_menu.forfeit_requested.connect(forfeit)
 	hud.pause_pressed.connect(pause)
+	is_built = true
+	if stagger:
+		set_process(true)
+		set_process_unhandled_input(true)
+		built.emit()
 	if auto:
 		new_fight()
 	else:
@@ -959,8 +996,27 @@ func show_bot(spec) -> void:
 	_make_showcase(spec)
 
 
+## Build the showcase robot for `spec` on a worker thread (it's off the scene tree until
+## show_bot takes it): behind the loading screen, so making the robot doesn't hold a frame up.
+func prepare_showcase(spec) -> void:
+	var box := []
+	var task := WorkerThreadPool.add_task(func() -> void: box.append(Showcase.new(spec)), true, "showcase ahead")
+	while not WorkerThreadPool.is_task_completed(task):
+		await get_tree().process_frame
+	WorkerThreadPool.wait_for_task_completion(task)
+	if not box.is_empty():
+		made["showcase"] = box[0]
+
+
 func _make_showcase(spec) -> void:
-	showcase = Showcase.new(spec)
+	var ahead = made.get("showcase")
+	made.erase("showcase")
+	if ahead != null and ahead.spec == spec:
+		showcase = ahead
+	else:
+		if ahead != null:
+			ahead.dispose()
+		showcase = Showcase.new(spec)
 	showcase.game = self
 	# its strikes whoosh and its feet step (game.ts showBot hooks.emit)
 	showcase.on_emit = func(ev: String, data) -> void:

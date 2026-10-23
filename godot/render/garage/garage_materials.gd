@@ -35,6 +35,7 @@ func _props(rec: Dictionary) -> Material:
 const PROPS_BODY := """
 #include "res://render/venue/common.gdshaderinc"
 #include "res://render/ao/contact_ao.gdshaderinc"
+#include "res://render/lit_safe.gdshaderinc"
 uniform float ao_direct = 0.5;
 uniform vec3 ao_g = vec3(0.0, 0.35, 0.45);
 varying vec3 w_pos;
@@ -50,6 +51,7 @@ void fragment() {
 	ALBEDO = v_col;
 	METALLIC = v_mr.x;
 	ROUGHNESS = v_mr.y;
+	NORMAL = lit_safe(NORMAL, VIEW);
 	vec3 n_w = normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz);
 	float ao = ao_ground(w_pos, n_w, ao_g.x, ao_g.y, ao_g.z);
 #ifdef AO_SPHERES

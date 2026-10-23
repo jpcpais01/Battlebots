@@ -344,8 +344,10 @@ const ALL_CHARS := " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ
 ## frame for it). The faces are kept for the app's run, so this is done once. The glyphs are drawn
 ## onto a canvas item that's on no canvas (never shown) at the sizes this screen will draw them,
 ## with its oversampling, so they land in the same caches the HUD then draws from. It takes a
-## moment (the distance fields): call it behind the loading screen.
-static func warm_fonts() -> void:
+## moment (the distance fields): call it behind the loading screen. With a `budget` (µs), the
+## glyphs are made a few at a time and it hands back a frame whenever a frame's share is spent, so
+## the loading screen keeps moving (await it).
+static func warm_fonts(budget := 0) -> void:
 	var tree := Engine.get_main_loop() as SceneTree
 	if tree == null or tree.root == null:
 		return
@@ -369,14 +371,26 @@ static func warm_fonts() -> void:
 	for f in FightHud.IntroView.faces(view):
 		list.append([f[0], f[1], f[2], ALL_CHARS])
 	var ci := RenderingServer.canvas_item_create()
+	var t0 := Time.get_ticks_usec()
 	for w in list:
 		var font: Font = w[0]
 		var px: int = w[1]
 		var outline: int = w[2]
-		if outline > 0:
-			font.draw_string_outline(ci, Vector2.ZERO, w[3], HORIZONTAL_ALIGNMENT_LEFT, -1, px, outline, Color.WHITE, 3, TextServer.DIRECTION_AUTO, TextServer.ORIENTATION_HORIZONTAL, os)
-		else:
-			font.draw_string(ci, Vector2.ZERO, w[3], HORIZONTAL_ALIGNMENT_LEFT, -1, px, Color.WHITE, 3, TextServer.DIRECTION_AUTO, TextServer.ORIENTATION_HORIZONTAL, os)
+		# (a glyph at a time when sliced: each distance-field glyph is a few ms on its own)
+		var chars: String = w[3]
+		var chunks: Array = [chars]
+		if budget > 0:
+			chunks = []
+			for i in chars.length():
+				chunks.append(chars[i])
+		for text in chunks:
+			if outline > 0:
+				font.draw_string_outline(ci, Vector2.ZERO, text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, outline, Color.WHITE, 3, TextServer.DIRECTION_AUTO, TextServer.ORIENTATION_HORIZONTAL, os)
+			else:
+				font.draw_string(ci, Vector2.ZERO, text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Color.WHITE, 3, TextServer.DIRECTION_AUTO, TextServer.ORIENTATION_HORIZONTAL, os)
+			if budget > 0 and Time.get_ticks_usec() - t0 > budget:
+				await tree.process_frame
+				t0 = Time.get_ticks_usec()
 	RenderingServer.free_rid(ci)
 
 

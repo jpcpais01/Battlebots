@@ -1,6 +1,7 @@
 ## The loading screen (index.html .boot, src/ui/loader.ts Loader): the deep blue sky with its
-## pools of light, ribbons and rising sparks; the app's icon, big and alive (boot_emblem.gd); the
-## kicker, the logo, the progress line with what's happening and the percentage; a tip now and then; the busy mark. Progress is real: the start
+## pools of light, ribbons and rising sparks; the boxer from the app's icon, big and alive
+## (boot_emblem.gd); the kicker, the logo, the progress line with what's happening and the
+## percentage; a tip now and then; the busy mark. Progress is real: the start
 ## lists its jobs up front, each weighted by its share of the wait, and each reports how far it has
 ## got. The line glides toward a little past the real progress (never past the end of the step
 ## being worked on), so it keeps moving through a long step instead of jumping when it reports.
@@ -306,10 +307,11 @@ func _layout() -> void:
 	var tall := size.x <= size.y
 	var px := minf(12.5 * vw, 64.0) if tall else minf(minf(10.5 * vh, 8.0 * vw), 72.0)
 	_fill_logo(px)
-	var icon := minf(56.0 * vw, 300.0) if tall else minf(minf(36.0 * vh, 28.0 * vw), 300.0)
-	_emblem.custom_minimum_size = Vector2(icon, icon)
+	# (the robot alone fills the middle two thirds of the icon's square: EMBLEM.TALL)
+	var icon := minf(84.0 * vw, 480.0) if tall else minf(minf(62.0 * vh, 46.0 * vw), 500.0)
+	_emblem.custom_minimum_size = Vector2(icon, icon * EMBLEM.TALL)
 	_emblem.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	(_mid.get_node("EmblemGap") as Control).custom_minimum_size.y = 34.0 if tall else minf(4.0 * vh, 26.0)
+	(_mid.get_node("EmblemGap") as Control).custom_minimum_size.y = 40.0 if tall else minf(5.5 * vh, 40.0)
 	(_mid.get_node("LogoGap") as Control).custom_minimum_size.y = 30.0 if tall else minf(5.0 * vh, 34.0)
 	var w := minf(84.0 * vw, 420.0) if tall else minf(62.0 * vw, 460.0)
 	_mid.custom_minimum_size = Vector2(w, 0)

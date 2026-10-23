@@ -5,7 +5,8 @@
 #                  background, and a white monochrome one for themed icons). Adaptive layers are
 #                  108dp of which the launcher shows the middle 72dp, so the art is drawn into the
 #                  middle two thirds (viewBox -256 -256 1536 1536).
-#   assets/boot/   the loading screen's big animated copy (app/boot/boot_emblem.gd), a layer each.
+#   assets/boot/   the loading screen's big animated boxer (app/boot/boot_emblem.gd), a layer each
+#                  (the robot only: no tile).
 #   icon.png       the project's own icon.
 #   godot/tools/icon/make.sh   (then godot --headless --path godot --import for new files)
 set -e
@@ -20,7 +21,6 @@ $R "$I/adaptive_fg_432.png" 432 head,eyes,fistL,fistR none "$VB" &
 $R "$I/adaptive_bg_432.png" 432 bg none "$VB" &
 $R "$I/icon_192.png" 192 all squircle &
 $R "$G/icon.png" 256 all squircle &
-$R "$B/tile.png" 768 bg squircle &
 $R "$B/head.png" 768 head &
 $R "$B/eyes.png" 768 eyes &
 $R "$B/fist_l.png" 768 fistL &

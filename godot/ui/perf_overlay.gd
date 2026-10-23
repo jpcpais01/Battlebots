@@ -894,8 +894,14 @@ class GpuProbe extends RefCounted:
 			_cam.environment = env
 		if v == V_EMPTY:
 			_cam.cull_mask = _full_mask & ~_all_bits
+		elif v >= V_PART:
+			# (and without ray tracing: its cost on a part's pixels, the canvas's reflections above
+			# all, is ray tracing's, not the part's; the parts are measured against the frame
+			# without it, which is the Ray tracing version itself)
+			var off := (1 << (BIT0 + v - V_PART)) | (1 << (BIT0 + RT))
+			_cam.cull_mask = _full_mask & ~off
 		else:
-			_cam.cull_mask = (_full_mask & ~(1 << (BIT0 + v - V_PART))) if v >= V_PART else _full_mask
+			_cam.cull_mask = _full_mask
 
 	## Once a frame, after the fight has moved its camera.
 	func step() -> void:
@@ -989,11 +995,14 @@ class GpuProbe extends RefCounted:
 		r.ms[SHADOWS] = maxf(0.0, full - no_shadow) if _shadows else -2.0
 		r.ms[GLOW] = maxf(0.0, no_shadow - base) if _glow else -2.0
 		var parts := 0.0
+		var no_rt: float = med.call(V_PART + RT)
 		for p in PARTS:
 			var without: float = med.call(V_PART + p)
 			if without < 0.0:
 				continue
-			r.ms[p] = maxf(0.0, base - without)
+			# (every other part's version leaves ray tracing out too: see _apply)
+			var ref := base if p == RT or no_rt < 0.0 else no_rt
+			r.ms[p] = maxf(0.0, ref - without)
 			parts += r.ms[p]
 		var empty: float = med.call(V_EMPTY)
 		r.ms[EMPTY] = maxf(0.0, empty)
