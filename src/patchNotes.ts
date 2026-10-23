@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-23 11:00",
+    title: "Clearer performance stats",
+    notes: [
+      "Android app: the performance stats now count ray tracing's own work in its row, so the ring, robots and venue rows show only what they cost to draw.",
+    ],
+  },
+  {
     hour: "2026-10-23 10:00",
     title: "Greener bushes and a smooth start",
     notes: [
