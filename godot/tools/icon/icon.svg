@@ -1,0 +1,201 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <radialGradient id="sky" cx="512" cy="300" r="820" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2148a8"/>
+      <stop offset="0.38" stop-color="#0d1d52"/>
+      <stop offset="0.75" stop-color="#050a1c"/>
+      <stop offset="1" stop-color="#02040b"/>
+    </radialGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#cfe4ff" stop-opacity="0.42"/>
+      <stop offset="0.55" stop-color="#8fc0ff" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#8fc0ff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="floor" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ff7a2a" stop-opacity="0.55"/>
+      <stop offset="0.5" stop-color="#ff5a12" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#ff5a12" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#6fb8ff" stop-opacity="0.38"/>
+      <stop offset="0.6" stop-color="#3d7dff" stop-opacity="0.1"/>
+      <stop offset="1" stop-color="#3d7dff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="vig" cx="512" cy="470" r="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0.55" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.45"/>
+    </radialGradient>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="26"/></filter>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="9"/></filter>
+    <filter id="glowWide" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="22"/></filter>
+    <filter id="drop" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity="0.55"/>
+    </filter>
+
+    <!-- plating -->
+    <linearGradient id="steel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.45" stop-color="#d9e1ef"/>
+      <stop offset="1" stop-color="#8793ab"/>
+    </linearGradient>
+    <linearGradient id="steelSide" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#9aa6bf"/>
+      <stop offset="1" stop-color="#5f6a84"/>
+    </linearGradient>
+    <linearGradient id="steelSideL" x1="1" y1="0" x2="0" y2="0">
+      <stop offset="0" stop-color="#c4cddf"/>
+      <stop offset="1" stop-color="#8590a9"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd27a"/>
+      <stop offset="0.5" stop-color="#ff9a2e"/>
+      <stop offset="1" stop-color="#e5560c"/>
+    </linearGradient>
+    <linearGradient id="orangeDark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff8a24"/>
+      <stop offset="1" stop-color="#b8420a"/>
+    </linearGradient>
+    <linearGradient id="gun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a4258"/>
+      <stop offset="1" stop-color="#161b2a"/>
+    </linearGradient>
+    <linearGradient id="visor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#05070f"/>
+      <stop offset="1" stop-color="#121a33"/>
+    </linearGradient>
+    <linearGradient id="eye" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.5" stop-color="#9ff0ff"/>
+      <stop offset="1" stop-color="#2fc4ff"/>
+    </linearGradient>
+    <linearGradient id="knuckle" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe2a0"/>
+      <stop offset="0.35" stop-color="#ffab3c"/>
+      <stop offset="1" stop-color="#d9520c"/>
+    </linearGradient>
+    <linearGradient id="knuckle2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff9a2e"/>
+      <stop offset="1" stop-color="#b8420a"/>
+    </linearGradient>
+
+    <!-- one fist, knuckles to the camera, centred on 0,0 -->
+    <g id="fist">
+      <!-- cuff -->
+      <rect x="-74" y="54" width="148" height="70" rx="16" fill="url(#gun)" stroke="#0b0f1a" stroke-width="6"/>
+      <rect x="-58" y="98" width="116" height="8" rx="4" fill="#5fd8ff"/>
+      <rect x="-58" y="98" width="116" height="8" rx="4" fill="#5fd8ff" filter="url(#glow)" opacity="0.8"/>
+      <!-- hand body -->
+      <rect x="-106" y="-92" width="212" height="172" rx="44" fill="#2a1306" stroke="#120802" stroke-width="8"/>
+      <!-- curled fingers: one plate with grooves -->
+      <rect x="-98" y="-14" width="196" height="70" rx="22" fill="url(#knuckle2)"/>
+      <g stroke="#5a2406" stroke-width="5" stroke-linecap="round">
+        <line x1="-49" y1="-6" x2="-49" y2="46"/><line x1="0" y1="-6" x2="0" y2="50"/><line x1="49" y1="-6" x2="49" y2="46"/>
+      </g>
+      <!-- the knuckle row -->
+      <rect x="-100" y="-88" width="49" height="76" rx="16" fill="url(#knuckle)"/>
+      <rect x="-49" y="-92" width="48" height="80" rx="16" fill="url(#knuckle)"/>
+      <rect x="1" y="-92" width="48" height="80" rx="16" fill="url(#knuckle)"/>
+      <rect x="51" y="-88" width="49" height="76" rx="16" fill="url(#knuckle)"/>
+      <g fill="#fff6dd" opacity="0.9">
+        <rect x="-88" y="-80" width="26" height="9" rx="4.5"/><rect x="-37" y="-84" width="26" height="9" rx="4.5"/>
+        <rect x="12" y="-84" width="26" height="9" rx="4.5"/><rect x="62" y="-80" width="26" height="9" rx="4.5"/>
+      </g>
+      <!-- thumb across the front -->
+      <path d="M -108 24 Q -108 0 -84 4 L 22 30 Q 44 36 38 58 L 34 68 Q 28 86 6 82 L -88 66 Q -110 62 -108 40 Z" fill="url(#steel)" stroke="#2a1306" stroke-width="5"/>
+      <path d="M -96 16 L 18 42" stroke="#ffffff" stroke-width="5" stroke-linecap="round" opacity="0.85"/>
+      <circle cx="-72" cy="38" r="7" fill="#5f6a84"/>
+    </g>
+  </defs>
+
+  <!-- ===================== background ===================== -->
+  <g id="bg">
+    <rect x="-300" y="-300" width="1624" height="1624" fill="url(#sky)"/>
+    <!-- spotlight from the rig -->
+    <polygon points="402,-60 622,-60 900,1024 124,1024" fill="url(#beam)" filter="url(#soft)"/>
+    <polygon points="470,-60 554,-60 700,1024 324,1024" fill="url(#beam)" opacity="0.6" filter="url(#soft)"/>
+    <!-- glow behind the head -->
+    <ellipse cx="512" cy="430" rx="400" ry="380" fill="url(#halo)"/>
+    <!-- the ring floor, lit warm -->
+    <ellipse cx="512" cy="900" rx="520" ry="150" fill="url(#floor)"/>
+    <!-- ropes -->
+    <g fill="none" stroke-linecap="round">
+      <path d="M -20 740 Q 512 700 1044 740" stroke="#5fd8ff" stroke-width="7" opacity="0.28"/>
+      <path d="M -20 820 Q 512 776 1044 820" stroke="#5fd8ff" stroke-width="8" opacity="0.34"/>
+      <path d="M -20 908 Q 512 858 1044 908" stroke="#5fd8ff" stroke-width="9" opacity="0.4"/>
+    </g>
+    <rect x="-300" y="-300" width="1624" height="1624" fill="url(#vig)"/>
+    <!-- sparks -->
+    <g fill="#eaf4ff">
+      <circle cx="210" cy="300" r="4" opacity="0.7"/>
+      <circle cx="836" cy="250" r="3" opacity="0.6"/>
+      <circle cx="790" cy="560" r="4" opacity="0.5"/>
+      <circle cx="252" cy="580" r="3" opacity="0.5"/>
+      <circle cx="160" cy="470" r="2.5" opacity="0.45"/>
+      <circle cx="880" cy="420" r="2.5" opacity="0.45"/>
+    </g>
+    <g fill="#ffd2a8">
+      <circle cx="300" cy="200" r="3" opacity="0.6"/>
+      <circle cx="740" cy="170" r="3.5" opacity="0.55"/>
+    </g>
+  </g>
+
+  <!-- ===================== the boxer's head ===================== -->
+  <g id="head" filter="url(#drop)">
+    <!-- ears -->
+    <rect x="306" y="372" width="56" height="128" rx="16" fill="url(#gun)"/>
+    <rect x="662" y="372" width="56" height="128" rx="16" fill="url(#gun)"/>
+    <rect x="316" y="414" width="12" height="44" rx="6" fill="#ff8a24"/>
+    <rect x="696" y="414" width="12" height="44" rx="6" fill="#ff8a24"/>
+    <!-- skull -->
+    <polygon points="404,214 620,214 680,272 694,420 670,566 610,648 414,648 354,566 330,420 344,272" fill="url(#steel)"/>
+    <!-- cheek planes -->
+    <polygon points="354,566 330,420 400,470 430,600 414,648" fill="url(#steelSideL)" opacity="0.8"/>
+    <polygon points="670,566 694,420 624,470 594,600 610,648" fill="url(#steelSide)" opacity="0.9"/>
+    <!-- jaw / mouthguard -->
+    <polygon points="430,560 594,560 610,648 414,648" fill="url(#gun)"/>
+    <g stroke="#5fd8ff" stroke-width="6" stroke-linecap="round" opacity="0.75">
+      <line x1="456" y1="584" x2="568" y2="584"/>
+      <line x1="450" y1="606" x2="574" y2="606"/>
+      <line x1="446" y1="628" x2="578" y2="628"/>
+    </g>
+    <!-- helmet cap: orange, cut into a V brow -->
+    <polygon points="404,214 620,214 680,272 688,350 512,388 336,350 344,272" fill="url(#orange)"/>
+    <!-- crest ridge -->
+    <polygon points="490,206 534,206 546,300 512,330 478,300" fill="#ffe2a0"/>
+    <polygon points="512,206 534,206 546,300 512,330" fill="#ff9a2e"/>
+    <!-- cap highlight -->
+    <path d="M 410 232 L 470 232" stroke="#fff3d0" stroke-width="8" stroke-linecap="round" opacity="0.9"/>
+    <path d="M 554 232 L 614 232" stroke="#fff3d0" stroke-width="8" stroke-linecap="round" opacity="0.6"/>
+    <path d="M 344 272 L 404 214 L 620 214 L 680 272" stroke="#fff6e0" stroke-width="5" fill="none" stroke-linejoin="round" opacity="0.9"/>
+    <path d="M 330 420 L 344 272" stroke="#bfe6ff" stroke-width="4" fill="none" opacity="0.5"/>
+    <path d="M 694 420 L 680 272" stroke="#bfe6ff" stroke-width="4" fill="none" opacity="0.5"/>
+    <!-- visor -->
+    <polygon points="346,366 512,404 678,366 672,458 512,488 352,458" fill="url(#visor)"/>
+    <path d="M 352 372 L 512 410 L 672 372" stroke="#ffffff" stroke-width="3" fill="none" opacity="0.18"/>
+    <!-- side bolts -->
+    <circle cx="372" cy="520" r="9" fill="#5f6a84"/>
+    <circle cx="652" cy="520" r="9" fill="#4c5670"/>
+  </g>
+
+  <!-- ===================== the eyes (glow) ===================== -->
+  <g id="eyes">
+    <g filter="url(#glowWide)" opacity="0.9">
+      <polygon points="384,410 488,436 484,460 390,440" fill="#2fc4ff"/>
+      <polygon points="640,410 536,436 540,460 634,440" fill="#2fc4ff"/>
+    </g>
+    <g filter="url(#glow)">
+      <polygon points="384,410 488,436 484,460 390,440" fill="#7fe6ff"/>
+      <polygon points="640,410 536,436 540,460 634,440" fill="#7fe6ff"/>
+    </g>
+    <polygon points="384,410 488,436 484,460 390,440" fill="url(#eye)"/>
+    <polygon points="640,410 536,436 540,460 634,440" fill="url(#eye)"/>
+  </g>
+
+  <!-- ===================== the guard: two fists ===================== -->
+  <g id="fistL" filter="url(#drop)">
+    <use href="#fist" transform="translate(392 690) rotate(-8) scale(1.12)"/>
+  </g>
+  <g id="fistR" filter="url(#drop)">
+    <use href="#fist" transform="translate(632 690) rotate(8) scale(-1.12 1.12)"/>
+  </g>
+</svg>

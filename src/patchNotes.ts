@@ -16,6 +16,14 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-23 09:00",
+    title: "A new app icon",
+    notes: [
+      "Android app: a brand new app icon, a robot boxer behind its guard in the spotlight. It also works with themed icons.",
+      "Android app: the loading screen now shows the icon big and alive. The boxer bobs, blinks and throws punches while the game loads.",
+    ],
+  },
+  {
     hour: "2026-10-21 03:00",
     title: "A space Skin Vault and a living city on the web",
     notes: [
