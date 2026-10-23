@@ -16,6 +16,14 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-23 10:00",
+    title: "A smooth start",
+    notes: [
+      "Android app: the loading screen no longer freezes while the game starts. It keeps moving the whole way.",
+      "Android app: the loading screen now shows just the robot boxer, bigger, with no icon tile behind it.",
+    ],
+  },
+  {
     hour: "2026-10-23 09:00",
     title: "A new app icon",
     notes: [
