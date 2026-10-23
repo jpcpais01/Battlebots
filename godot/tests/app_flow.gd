@@ -1,17 +1,19 @@
 extends SceneTree
 ## The app's loop headless: home, a fight (run fast to its end), the results, the next fight,
-## a forfeit back home. Checks the record counts each fight once.
+## a forfeit back home. Checks the record counts each fight once, and the pilot (app/pilot) counts
+## and pays the finished one and not the forfeit.
 ##   godot --headless --path godot -s res://tests/app_flow.gd
 
 var app: App
 var _t := 0
 var _stage := 0
 var _fails := 0
+var _credits0 := 0.0
 
 
 func _init() -> void:
 	DirAccess.make_dir_recursive_absolute("user://save")
-	for f in ["player", "record", "saves", "prefs"]:
+	for f in ["player", "record", "saves", "prefs", "pilot"]:
 		DirAccess.remove_absolute("user://save/%s.json" % f)
 	app = (load("res://app/main.tscn") as PackedScene).instantiate()
 	root.add_child(app)
@@ -32,6 +34,7 @@ func _frame() -> void:
 				return
 			_check(app.current == "home", "starts on home")
 			_check(app.game.showcase != null, "the player's bot is shown")
+			_credits0 = float(app.record.career.credits)
 			app.fight()
 			_stage = 1
 		1:
@@ -56,6 +59,11 @@ func _frame() -> void:
 			if app.results != null:
 				var r = app.record
 				_check(r.wins + r.losses + r.draws == 1.0, "the fight is counted once")
+				# the pilot (app/pilot): the fight counted, paid, and shown on the card
+				_check(int(app.pilot.fights) == 1, "the pilot counts the fight")
+				_check(float(r.career.credits) > _credits0, "the fight pays credits")
+				_check(app.results.find_child("Progress", true, false) != null, "the results show the pilot's progress")
+				_check(int(Pilot.load_state().fights) == 1, "the pilot is saved")
 				app.fight()
 				_stage = 4
 			elif _t > 400:
@@ -70,6 +78,7 @@ func _frame() -> void:
 			var r = app.record
 			_check(r.wins + r.losses + r.draws == 2.0 and r.losses >= 1.0, "a forfeit is a loss")
 			_check(Store.load_record().losses == r.losses, "the record is saved")
+			_check(int(app.pilot.fights) == 1, "a forfeit counts nothing for the pilot")
 			_stage = 9
 		9:
 			print("app_flow: %d failed" % _fails)

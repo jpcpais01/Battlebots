@@ -29,7 +29,7 @@ func _init() -> void:
 		_prep = args[3]
 	Settings.path = "user://app_shot_settings.cfg"
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(Settings.path))
-	for f in ["player", "record", "saves", "prefs", "skins"]:
+	for f in ["player", "record", "saves", "prefs", "skins", "pilot"]:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path("user://save/%s.json" % f))
 	OS.set_environment("BB_SKIPINTRO", "1")
 	app = (load("res://app/main.tscn") as PackedScene).instantiate()

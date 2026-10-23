@@ -96,7 +96,7 @@ func _build() -> void:
 	cp.get_node("Row").add_child(CareerKit.icon(CareerIcons.ICON.coin, EM * 1.1, CareerKit.GOLD))
 	_coins = MenuKit.label("0", 0.95 * EM, 750)
 	cp.get_node("Row").add_child(_coins)
-	cp.tooltip_text = "Career credits: win career fights to earn more"
+	cp.tooltip_text = "Credits: every fight pays, and daily contracts and level ups pay more"
 	_wallet.add_child(cp)
 	var sp := _chip()
 	sp.get_node("Row").add_child(MenuKit.icon("star", EM * 1.05, Skins.RARITY_COL[1]))
@@ -486,7 +486,7 @@ func pull(n: int) -> void:
 	var c = app.record.career
 	if c.credits < cost:
 		app.tap("back")
-		toast("Not enough credits. Win career fights to earn more")
+		toast("Not enough credits. Every fight pays, and daily contracts pay more")
 		var b := _one if n == 1 else _ten
 		if b != null and is_instance_valid(b):
 			var tw := b.create_tween()
