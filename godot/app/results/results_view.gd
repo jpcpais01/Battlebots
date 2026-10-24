@@ -547,29 +547,46 @@ func _btn(text: String, icon_name: String, variant: StringName, on: Callable) ->
 	return b
 
 
-## The Skip button while the loser is carried out (app.ts queueResults .skip-ride): small,
-## bottom centre, fading in after a moment. App adds it to its UI layer and drops it.
-static func skip_button(app_) -> Button:
-	var b := UiTheme.button("Skip", "", &"BtnSmall")
-	MenuKit.button_text(b, 0.86 * EM, 700, 1.2 * 0.86 * EM)
-	MenuKit.pad_button(b, 1.1 * 0.86 * EM, 2.4 * 0.86 * EM)
-	b.name = "SkipRide"
-	b.theme = UiTheme.theme()
-	b.pressed.connect(func() -> void: app_.skip_ride())
-	b.modulate.a = 0.0
-	b.ready.connect(func() -> void:
-		# bottom centre, 14 up, growing up and out from there
-		b.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-		b.grow_horizontal = Control.GROW_DIRECTION_BOTH
-		b.grow_vertical = Control.GROW_DIRECTION_BEGIN
-		b.offset_left = 0.0
-		b.offset_right = 0.0
-		b.offset_top = -14.0
-		b.offset_bottom = -14.0
-		var tw := b.create_tween()
-		tw.tween_interval(1.2)
-		tw.tween_property(b, "modulate:a", 0.85, 0.4).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT))
-	return b
+## While the loser is carried out a tap anywhere skips to the results (app.ts queueResults
+## .skip-ride), like the KO replay's: a quiet "TAP TO SKIP" bottom right, fading in after a
+## moment. App adds it to its UI layer and drops it.
+static func skip_button(app_) -> Control:
+	var c := SkipTap.new()
+	c.app = app_
+	c.name = "SkipRide"
+	c.theme = UiTheme.theme()
+	c.set_anchors_preset(Control.PRESET_FULL_RECT)
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var l := Label.new()
+	l.text = "TAP TO SKIP"
+	l.add_theme_font_size_override("font_size", int(0.85 * 0.86 * EM))
+	l.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
+	l.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	l.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	l.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	l.offset_left = 0.0
+	l.offset_top = 0.0
+	l.offset_right = -24.0
+	l.offset_bottom = -18.0
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	c.add_child(l)
+	c.modulate.a = 0.0
+	c.ready.connect(func() -> void:
+		var tw := c.create_tween()
+		tw.tween_interval(0.6)
+		tw.tween_property(c, "modulate:a", 1.0, 0.4).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT))
+	return c
+
+
+## The tap-anywhere catcher behind skip_button (taken before any control, like hud_instant's).
+class SkipTap extends Control:
+	var app
+	func _input(e: InputEvent) -> void:
+		var tap: bool = (e is InputEventScreenTouch and e.pressed) or (e is InputEventMouseButton and e.pressed)
+		# not the tap that skipped the KO replay, nor one before the hint shows
+		if tap and modulate.a > 0.2 and not get_viewport().is_input_handled():
+			get_viewport().set_input_as_handled()
+			app.skip_ride()
 
 
 func _to_map() -> void:
