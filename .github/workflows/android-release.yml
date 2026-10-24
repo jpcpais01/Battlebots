@@ -1,6 +1,8 @@
 # Builds the Android app (godot/) and publishes it on the repo's Releases page whenever main
 # changes something in godot/. The newest build is always at
 #   https://github.com/<owner>/<repo>/releases/latest/download/Battlebots.apk
+# with patch-notes.json beside it (the newest groups of src/patchNotes.ts): the app checks the
+# latest release at launch and offers it, notes and all (godot/app/update/updater.gd).
 #
 # Signing needs three repository secrets (Settings > Secrets and variables > Actions), all from
 # the project's release keystore, so every build installs over the one before:
@@ -107,19 +109,21 @@ jobs:
           {
             echo "Battlebots for Android, build $VERSION_NAME."
             echo
-            echo "On your phone: download **Battlebots.apk** below and open it. Android asks once to allow installs from your browser. It installs over the previous build."
+            echo "On your phone: download **Battlebots.apk** below and open it. Android asks once to allow installs from your browser. It installs over the previous build. From this build on, the app offers new builds itself on its home screen."
             echo
             echo "Latest change: $(git log -1 --format=%s)"
           } > "$RUNNER_TEMP/notes.md"
+          # (what the app's update card shows before it installs this build)
+          python3 godot/tools/patch-notes-json.py "$RUNNER_TEMP/patch-notes.json"
           # (GitHub's API sometimes answers 502 and may have made the release anyway: retry, and
           # finish a release that exists without its APK)
           TAG="android-v$VERSION_NAME"
           for i in 1 2 3 4 5; do
             if gh release view "$TAG" > /dev/null 2>&1; then
-              gh release upload "$TAG" "$RUNNER_TEMP/Battlebots.apk" --clobber \
+              gh release upload "$TAG" "$RUNNER_TEMP/Battlebots.apk" "$RUNNER_TEMP/patch-notes.json" --clobber \
                 && gh release edit "$TAG" --draft=false --latest && break
             else
-              gh release create "$TAG" "$RUNNER_TEMP/Battlebots.apk" \
+              gh release create "$TAG" "$RUNNER_TEMP/Battlebots.apk" "$RUNNER_TEMP/patch-notes.json" \
                 --title "Battlebots Android $VERSION_NAME" \
                 --notes-file "$RUNNER_TEMP/notes.md" \
                 --target "$GITHUB_SHA" --latest && break
