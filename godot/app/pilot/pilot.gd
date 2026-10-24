@@ -433,6 +433,18 @@ static func settle(p: Dictionary, fl: FightLog, ctx: Dictionary) -> Dictionary:
 	# (a great fight to watch pays, won or lost)
 	if ctx.get("rating") is Dictionary:
 		lines.append(["Crowd rating", FightRating.xp(float(ctx.rating.stars))])
+	# (a League fight: places climbed, revenge, the title won or defended: app/league)
+	var lg = ctx.get("league")
+	if lg is Dictionary:
+		var up := int(lg.from) - int(lg.to)
+		if up > 0:
+			lines.append(["League climb", mini(League.XP_CLIMB_MAX, League.XP_CLIMB * up)])
+		if lg.revenge:
+			lines.append(["Revenge", League.XP_REVENGE])
+		if lg.title:
+			lines.append(["League title", League.XP_TITLE])
+		elif lg.defended:
+			lines.append(["Title defence", League.XP_DEFENCE])
 	var xp := 0
 	for l in lines:
 		xp += int(l[1])

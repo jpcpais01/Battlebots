@@ -60,6 +60,9 @@ var _titans: Button
 var _garage: Button
 var _cash: Label
 var _fight: Button
+## The League button, and the player's rank on the Fight button (every quick fight is a League one).
+var _league: Button
+var _league_chip: Label
 ## The Fight button's way out of an animated home scene is playing (app.ts leaving).
 var leaving := false
 var _white: ColorRect
@@ -601,19 +604,39 @@ func _build_actions() -> void:
 	_gauntlet.pressed.connect(func() -> void:
 		app.tap("select")
 		app.go("gauntlet"))
-	var grow := _gauntlet.get_child(0) as HBoxContainer
-	var gfs := 0.78 * _em
-	var gchip := MenuKit.pill(MenuKit.box(Color(GauntletScreen.HOT, 0.16), 999, [0.6 * gfs, 0.15 * gfs, 0.6 * gfs, 0.15 * gfs], Color(GauntletScreen.HOT, 0.45), 1), 0.3 * gfs)
-	_gauntlet_chip = MenuKit.label("New", gfs, 750, Color(1.0, 0.8, 0.66))
+	# (its chip rides on the button's top corner: the League shares its row)
+	var gfs := 0.66 * _em
+	var gchip := MenuKit.pill(MenuKit.box(MenuKit.mix(GauntletScreen.HOT, Color(0.08, 0.05, 0.05), 0.55), 999, [0.55 * gfs, 0.08 * gfs, 0.55 * gfs, 0.08 * gfs], Color(GauntletScreen.HOT, 0.7), 1), 0.3 * gfs)
+	gchip.name = "GauntletChip"
+	_gauntlet_chip = MenuKit.label("New", gfs, 800, Color(1.0, 0.86, 0.74))
 	gchip.get_node("Row").add_child(_gauntlet_chip)
-	var gm := MarginContainer.new()
-	gm.add_theme_constant_override(&"margin_left", int(round(0.3 * _em)))
-	gm.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	gm.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	gm.add_child(gchip)
-	grow.add_child(gm)
+	_gauntlet.add_child(gchip)
+	var place_chip := func() -> void:
+		gchip.reset_size()
+		gchip.position = Vector2(_gauntlet.size.x - gchip.size.x - 0.3 * _em, -0.45 * gchip.size.y)
+	_gauntlet.resized.connect(place_chip)
+	gchip.resized.connect(place_chip)
 	MenuKit.pad_button(_gauntlet, 0.6 * _em)
-	sub.add_child(_gauntlet)
+	_gauntlet.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# the Gauntlet and the League side by side
+	var runs := HBoxContainer.new()
+	runs.add_theme_constant_override(&"separation", int(round(0.45 * _em)))
+	runs.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sub.add_child(runs)
+	runs.add_child(_gauntlet)
+	# the League's table (app/league): the rivals, the news, who to fight next
+	_league = UiTheme.button("League", "", &"Btn")
+	_league.name = "League"
+	var lic := _league.find_child("Icon", true, false) as TextureRect
+	lic.texture = CareerKit.svg(League.SVG, 19)
+	lic.modulate = League.GOLD.lerp(Color.WHITE, 0.3)
+	lic.visible = true
+	MenuKit.pad_button(_league, 0.6 * _em)
+	_league.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_league.pressed.connect(func() -> void:
+		app.tap("select")
+		app.go("league"))
+	runs.add_child(_league)
 	# two bots a side: the team sheet (app/tagteam)
 	_tag = UiTheme.button("Tag Team", "", &"Btn")
 	_tag.name = "TagTeam"
@@ -675,6 +698,19 @@ func _build_actions() -> void:
 	MenuKit.button_text(_fight, big, 750, 1.2 * big)
 	MenuKit.pad_button(_fight, 2.0 * big, 3.1 * big)
 	_fight.pressed.connect(fight)
+	# the player's League rank, riding on the Fight button
+	var frow := _fight.get_child(0) as HBoxContainer
+	var lfs := 0.8 * _em
+	var lchip := MenuKit.pill(MenuKit.box(Color(0, 0, 0, 0.22), 999, [0.6 * lfs, 0.15 * lfs, 0.6 * lfs, 0.15 * lfs], Color(1, 1, 1, 0.35), 1), 0.3 * lfs)
+	lchip.name = "LeagueRank"
+	_league_chip = MenuKit.label("", lfs, 800, Color.WHITE)
+	lchip.get_node("Row").add_child(_league_chip)
+	var lm := MarginContainer.new()
+	lm.add_theme_constant_override(&"margin_left", int(round(0.4 * _em)))
+	lm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lm.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	lm.add_child(lchip)
+	frow.add_child(lm)
 	_right.add_child(_fight)
 
 
@@ -778,6 +814,7 @@ func enter() -> void:
 	_vault.disabled = not app.screens.has("vault")
 	_tag.disabled = not app.screens.has("tagteam")
 	_gauntlet.disabled = not app.screens.has("gauntlet")
+	_league.disabled = not app.screens.has("league")
 	_sync_vault()
 	_sync_scene_btn()
 	_sync_sound()
@@ -812,6 +849,8 @@ func refresh() -> void:
 	if _gauntlet_chip != null and app.gauntlet is Dictionary and not app.gauntlet.is_empty():
 		var g: Dictionary = app.gauntlet
 		_gauntlet_chip.text = "Stage %d" % Gauntlet.next_stage(g) if g.run != null else "Best %d" % int(g.best) if int(g.best) > 0 else "New"
+	if _league_chip != null and app.league is Dictionary and not app.league.is_empty():
+		_league_chip.text = League.rank_text(League.me(app.league), true)
 	_name.text = String(p.name_)
 	var paint := MenuKit.hex(p.paint.primary)
 	var bs := MenuKit.box(paint, 99)

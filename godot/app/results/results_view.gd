@@ -100,6 +100,12 @@ func show_results(info_: Dictionary) -> void:
 		verdict = "TEAM " + verdict
 	if info.get("gauntlet") != null and info.gauntlet.won and info.gauntlet.boss:
 		verdict = "BOSS DOWN"
+	# a League fight: the belt won, or a score settled
+	var lg = info.get("league")
+	if lg != null and lg.title:
+		verdict = "CHAMPION"
+	elif lg != null and lg.won and lg.revenge:
+		verdict = "REVENGE"
 	var kicker := ""
 	if ev != null:
 		var n: int = ev.e.rivals.size()
@@ -108,6 +114,8 @@ func show_results(info_: Dictionary) -> void:
 	elif info.get("gauntlet") != null:
 		var gst: int = info.gauntlet.stage
 		kicker = "Gauntlet · %s %d" % ["Boss · Stage" if info.gauntlet.boss else "Stage", gst]
+	elif lg != null:
+		kicker = "League · %s · %d seconds" % [League.KIND_WORDS.get(String(lg.kind), "Fight"), roundi(float(m.fightTime))]
 	elif tag:
 		kicker = "Tag team · %d seconds" % roundi(float(m.fightTime))
 	elif info.has("net"):
@@ -150,6 +158,10 @@ func show_results(info_: Dictionary) -> void:
 	w.name = "Who"
 	head.add_child(w)
 	_col.add_child(head)
+	# a League fight: the table moving, the score with the pilot, what they said (first: it's the
+	# news)
+	if lg != null:
+		_col.add_child(_league_view(lg))
 
 	# the crowd's verdict on it: its stars, headline and flow (app/pilot/rating.gd)
 	var rating = _rating()
@@ -180,6 +192,7 @@ func show_results(info_: Dictionary) -> void:
 	# a Gauntlet stage: the bank, a boss's shards, the run going on or over
 	if info.get("gauntlet") != null:
 		_col.add_child(_gauntlet_view(info.gauntlet))
+
 	# the pilot's level and contracts moving on (app/pilot), and what the fight paid
 	if info.get("pilot") != null:
 		# (once the stars are in)
@@ -250,6 +263,90 @@ func _gauntlet_view(gr: Dictionary) -> Control:
 	return box
 
 
+## A League fight's outcome (League.settle's report): the rank before and after, the belt, revenge,
+## the score with the pilot, shards for a new best, the pilot's word on it, and who's next.
+func _league_view(lr: Dictionary) -> Control:
+	var gold := League.GOLD
+	var up := int(lr.from) - int(lr.to)
+	var col := gold if lr.title or lr.defended else UiTheme.GREEN if up > 0 else League.RIVAL if up < 0 else UiTheme.CYAN
+	var box := PanelContainer.new()
+	box.name = "League"
+	box.add_theme_stylebox_override(&"panel", MenuKit.box(Color(col, 0.08), 14, [0.85 * EM, 0.6 * EM, 0.85 * EM, 0.65 * EM], Color(col, 0.35), 1))
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override(&"separation", int(round(0.3 * EM)))
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(v)
+	# the head: the move on the table, big
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override(&"separation", int(round(0.5 * EM)))
+	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	head.add_child(CareerKit.icon(League.SVG, 1.4 * EM, col.lerp(Color.WHITE, 0.2)))
+	var words := ""
+	if lr.title:
+		words = "League Champion!"
+	elif lr.defended:
+		words = "Title defended"
+	elif lr.lost_title:
+		words = "The belt is gone: down to #%d" % int(lr.to)
+	elif up > 0:
+		words = "Up to #%d" % int(lr.to)
+	elif up < 0:
+		words = "Down to #%d" % int(lr.to)
+	else:
+		words = "Still #%d" % int(lr.to)
+	var hl := MenuKit.label(words, 1.05 * EM, 800, col.lerp(Color.WHITE, 0.35))
+	hl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(hl)
+	if up != 0:
+		var mv := MenuKit.label("#%d → #%d" % [int(lr.from), int(lr.to)], 0.8 * EM, 750, UiTheme.TEXT_2)
+		mv.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		head.add_child(mv)
+	v.add_child(head)
+	var lines := []
+	if lr.nemesis:
+		lines.append(["flame", League.RIVAL, "Your Nemesis is beaten!"])
+	elif lr.revenge:
+		lines.append(["refresh", League.RIVAL.lerp(gold, 0.5), "Revenge on %s" % String(lr.name)])
+	lines.append(["swords", UiTheme.TEXT_2, "%s · vs %s" % [String(lr.score), String(lr.name)]])
+	if int(lr.shards) > 0:
+		var best: int = lr.miles.min() if not lr.miles.is_empty() else int(lr.to)
+		lines.append(["paint", Color(0.76, 0.55, 1.0), "+%d Skin Vault shards: %s for the first time" % [int(lr.shards), "Champion" if best == 1 else "top %d" % best]])
+	for l in lines:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override(&"separation", int(round(0.45 * EM)))
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(MenuKit.icon(String(l[0]), 1.0 * EM, l[1]))
+		var t := MenuKit.label(String(l[2]), 0.84 * EM, 600, UiTheme.TEXT_2)
+		t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		t.custom_minimum_size.x = 8.0 * EM
+		row.add_child(t)
+		v.add_child(row)
+	if String(lr.quote) != "":
+		var q := MenuKit.label("“%s”" % String(lr.quote), 0.86 * EM, 600, Color(1, 1, 1, 0.9))
+		q.name = "Quote"
+		q.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		q.custom_minimum_size.x = 8.0 * EM
+		v.add_child(q)
+		var by := MenuKit.label("%s, %s's pilot" % [String(lr.pname), String(lr.name)], 0.68 * EM, 600, UiTheme.MUTED)
+		by.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		v.add_child(by)
+	return box
+
+
+## The League's next rival, for the results' Next fight: "Next: Iron Viper (#6)".
+func _league_next() -> String:
+	var lr = info.get("league")
+	if lr == null or app.league.is_empty():
+		return "Next fight"
+	var nf: Dictionary = League.next_foe(app.league)
+	var id := int(nf.id)
+	var k := String(nf.kind)
+	var head := "Callout" if k == "callout" else "Title shot" if k == "title" else "Defence" if k == "defence" else "Next"
+	return "%s: %s (%s)" % [head, String(League.pilot(app.league, id).bot.name_), League.rank_text(League.rank_of(app.league, id))]
+
+
 ## What to do next: the next fight and a rematch, or the event's next round, starting it over,
 ## fighting it again or the map; then the garage and home.
 func _actions(ev, won: bool, draw: bool) -> Control:
@@ -290,8 +387,21 @@ func _actions(ev, won: bool, draw: bool) -> Control:
 	else:
 		# (after a titan battle, titans again)
 		var titans: bool = app.titan_run
-		primary = _btn("Next fight", "swords", &"BtnPrimary", func() -> void: app.fight(false, titans))
-		row.add_child(_btn("Rematch", "refresh", &"Btn", func() -> void: app.fight(true, titans)))
+		primary = _btn(_league_next() if info.get("league") != null else "Next fight", "swords", &"BtnPrimary", func() -> void: app.fight(false, titans))
+		var again := _btn("Rematch", "refresh", &"Btn", func() -> void: app.fight(true, titans))
+		again.name = "Rematch"
+		row.add_child(again)
+		if info.get("league") != null and app.screens.has("league"):
+			# the table, the news, or another rival
+			var table := _btn("League", "", &"Btn", func() -> void:
+				app.tap("select")
+				app.close_results()
+				app.go("league"))
+			table.name = "League"
+			var lic := table.find_child("Icon", true, false) as TextureRect
+			lic.texture = CareerKit.svg(League.SVG, 19)
+			lic.visible = true
+			row.add_child(table)
 	primary.name = "Primary"
 	box.add_child(primary)
 	var keep := _keep_row()

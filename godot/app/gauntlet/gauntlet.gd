@@ -116,7 +116,8 @@ static func sanitize(raw) -> Dictionary:
 			"bank": maxi(0, _int(r.get("bank"))),
 			"safe": maxi(0, _int(r.get("safe"))),
 			"shards": maxi(0, _int(r.get("shards"))),
-			"seed": _int(r.get("seed")),
+			# (saves read back "seed" as "seed_": TInit.from_json renames it)
+			"seed": _int(r.get("seed", r.get("seed_"))),
 			"boosts": _ids(r.get("boosts")),
 			"offer": _ids(r.get("offer")).slice(0, OFFER),
 			"foe": null,

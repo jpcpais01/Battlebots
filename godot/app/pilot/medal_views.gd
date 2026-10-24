@@ -399,6 +399,9 @@ static func _tile(p: Dictionary, m: Dictionary) -> Control:
 		bar.fill = tier_color(t + 1)
 		bar.fill_2 = bar.fill
 		line = "%s/%s · %s" % [Medals.num(mini(v, hi)), Medals.num(hi), Medals.text(m, t + 1)]
+		if m.id == "league":
+			# (a rank, not a count: the best one so far)
+			line = Medals.text(m, t + 1) + (" · best #%d" % (League.PILOTS + 1 - v) if v > 0 else "")
 	c.add_child(bar)
 	var ll := MenuKit.label(line, 0.62 * EM, 600, UiTheme.MUTED)
 	ll.clip_text = true
