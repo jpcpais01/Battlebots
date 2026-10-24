@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-24 03:00",
+    title: "Finishers hit three times harder",
+    notes: [
+      "Every blow of a finisher now deals three times the damage the same punch or kick would do in the fight, so the combo smashes the last of the health bar and batters the parts it lands on. The final blow still ends it.",
+    ],
+  },
+  {
     hour: "2026-10-24 02:00",
     title: "Tap to skip",
     notes: [

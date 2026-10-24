@@ -4,6 +4,7 @@ extends RefCounted
 
 const FINISH_AT: float = 0.15
 const FINISH_SELF: float = 0.4
+const FINISH_DAMAGE: float = 3.0
 
 class FinCtx extends RefCounted:
 	var t: float
@@ -276,7 +277,7 @@ class FinisherRun extends RefCounted:
 	func opener(point: V3, zone: String, move: String) -> void:
 		var part: float = (0.0 if (zone == "head") else (TDamage.legPart((0.0 if (def.leadSide == "L") else 1.0), 1.0) if (zone == "legs") else 1.0))
 		var s = att.strike
-		blow({"move": move, "zone": zone, "part": part, "take": 0.15, "kb": 0.6, "jolt": 4.5, "shown": 60.0, "stop": 0.12}, point, (att.strikerJoint(s) if (s != null) else 9.0))
+		blow({"move": move, "zone": zone, "part": part, "kb": 0.6, "jolt": 4.5, "shown": 60.0, "stop": 0.12}, point, (att.strikerJoint(s) if (s != null) else 9.0))
 	
 	func update(dt: float) -> void:
 		var c: TFinisher.FinCtx = self.c
@@ -839,11 +840,12 @@ class FinisherRun extends RefCounted:
 		att.body.velocity(joint, (1.0 / 120.0), _h_d)
 		var speed: float = sqrt(_h_d.x * _h_d.x + _h_d.y * _h_d.y + _h_d.z * _h_d.z)
 		var dir: V3 = V3.new().copy(_h_d).normalize().multiplyScalar(0.6).addScaledVector(_h_a, 0.8).normalize()
+		var hit: float = JS.round((hitDamage(blow.move, blow.zone) * TFinisher.FINISH_DAMAGE))
 		var dmg: float = 0.0
 		if last:
 			dmg = def.hp
 		else:
-			dmg = maxf(1.0, minf((def.hp - 1.0), JS.round((def.hp * blow.take))))
+			dmg = maxf(0.0, minf((ceilf(def.hp) - 1.0), hit))
 		if preview:
 			dmg = 0.0
 		def.hp = maxf(0.0, (def.hp - dmg))
@@ -851,13 +853,13 @@ class FinisherRun extends RefCounted:
 		att.stats.dealt += dmg
 		att.stats.landed += 1.0
 		var _hMOVES = TMoves.MOVES
-		if (blow.shown > att.stats.biggest):
-			att.stats.biggest = blow.shown
+		if (hit > att.stats.biggest):
+			att.stats.biggest = hit
 			att.stats.biggestMove = _hMOVES[blow.move].name_
 		var partCond: float = 1.0
 		var part: float = (blow.part if (blow.part >= 0.0) else TDamage.legPart((0.0 if (def.leadSide == "L") else 1.0), 1.0))
 		if ((not preview) and (not (last and (blow.get("final") == "decap")))):
-			partCond = def.parts.damage(part, (blow.shown * 0.35))
+			partCond = def.parts.damage(part, (hit * ((1.0 + att.passive("shatter")))))
 			host.wear.call(def, part)
 		var __v5: V3 = def.rootVel
 		var __v6: float = blow.kb
@@ -918,7 +920,7 @@ class FinisherRun extends RefCounted:
 	"move": _hMOVES[blow.move],
 	"zone": blow.zone,
 	"blocked": false,
-	"damage": blow.shown,
+	"damage": hit,
 	"crit": last,
 	"counter": false,
 	"point": point.clone(),
@@ -933,6 +935,32 @@ class FinisherRun extends RefCounted:
 		host.emit.call("hit", info)
 		if last:
 			host.emit.call("finisherBlow", {"f": att, "opp": def, "id": spec.id, "kind": blow.get("final"), "point": point.clone(), "dir": dir.clone()})
+	
+	func hitDamage(id: String, zone: String) -> float:
+		var att: TFighter.Fighter = self.att
+		var def: TFighter.Fighter = self.def
+		var m = TMoves.MOVES[id]
+		var ast = att.build.stats
+		var dst = def.build.stats
+		var side: float = (0.0 if (((att.leadSide if (m.limb == "lead") else att.rearSide)) == "L") else 1.0)
+		var dmg: float = (m.damage * (((ast.punchPower * att.parts.fistPower(side)) if (m.kind == "punch") else (ast.kickPower * att.parts.footPower(side)))))
+		if (zone == "head"):
+			dmg *= 1.15
+		if (zone == "legs"):
+			dmg *= 0.85
+		dmg *= (1.0 + (att.rage * att.passive("rage")))
+		dmg *= (1.0 + (att.heat * att.passive("furnace")))
+		dmg *= (1.0 + att.overdrive)
+		if (m.path == "straight"):
+			dmg *= (1.0 + att.passive("afterburner"))
+		if (m.get("spin") == true):
+			dmg *= (1.0 + att.passive("meteor"))
+		dmg *= (1.0 - dst.armor)
+		if (zone == "body"):
+			dmg *= (1.0 - def.passive("bulwark"))
+		if (zone == "head"):
+			dmg *= (((1.0 - dst.headGuard)) * ((1.0 - def.passive("ironChin"))))
+		return dmg
 	
 	func finalBlow(kind: String, dir: V3, point: V3) -> void:
 		var def: TFighter.Fighter = self.def
@@ -1155,7 +1183,7 @@ static func __init_module() -> void:
 	"strike": "rearUpper",
 	"zone": "head",
 	"speed": 1.35,
-	"blow": {"move": "rearUpper", "zone": "head", "part": 0.0, "take": 1.0, "kb": 0.4, "jolt": 9.0, "shown": 180.0, "stop": 0.16, "final": "launch"}
+	"blow": {"move": "rearUpper", "zone": "head", "part": 0.0, "kb": 0.4, "jolt": 9.0, "shown": 180.0, "stop": 0.16, "final": "launch"}
 }
 ],
 	"att": __f1,
@@ -1249,11 +1277,11 @@ static func __init_module() -> void:
 	"strike": "rearHook",
 	"zone": "body",
 	"speed": 1.2,
-	"blow": {"move": "rearHook", "zone": "body", "part": 2.0, "take": 0.4, "kb": 0.3, "jolt": 5.0, "shown": 70.0, "stop": 0.1}
+	"blow": {"move": "rearHook", "zone": "body", "part": 2.0, "kb": 0.3, "jolt": 5.0, "shown": 70.0, "stop": 0.1}
 },
 	{
 	"at": SLAM,
-	"blow": {"move": "hammer", "zone": "head", "part": 0.0, "take": 1.0, "kb": 0.2, "jolt": 10.0, "shown": 190.0, "stop": 0.17, "final": "slam"}
+	"blow": {"move": "hammer", "zone": "head", "part": 0.0, "kb": 0.2, "jolt": 10.0, "shown": 190.0, "stop": 0.17, "final": "slam"}
 }
 ],
 	"att": __f4,
@@ -1313,14 +1341,14 @@ static func __init_module() -> void:
 	"strike": "roundhouse",
 	"zone": "body",
 	"speed": 1.15,
-	"blow": {"move": "roundhouse", "zone": "body", "part": 2.0, "take": 0.4, "kb": 0.55, "jolt": 6.0, "shown": 80.0, "stop": 0.1}
+	"blow": {"move": "roundhouse", "zone": "body", "part": 2.0, "kb": 0.55, "jolt": 6.0, "shown": 80.0, "stop": 0.1}
 },
 	{
 	"at": SPIN,
 	"strike": "spinKick",
 	"zone": "head",
 	"speed": 1.05,
-	"blow": {"move": "spinKick", "zone": "head", "part": 0.0, "take": 1.0, "kb": 1.5, "jolt": 11.0, "shown": 200.0, "stop": 0.16, "final": "fly"}
+	"blow": {"move": "spinKick", "zone": "head", "part": 0.0, "kb": 1.5, "jolt": 11.0, "shown": 200.0, "stop": 0.16, "final": "fly"}
 }
 ],
 	"att": __f7,
@@ -1338,7 +1366,7 @@ static func __init_module() -> void:
 	"strike": m,
 	"zone": z,
 	"speed": (1.9 if (m == "jab") else 1.75),
-	"blow": {"move": m, "zone": z, "part": (0.0 if (z == "head") else 1.0), "take": 0.12, "kb": 0.85, "jolt": 3.4, "shown": 34.0, "stop": 0.035}
+	"blow": {"move": m, "zone": z, "part": (0.0 if (z == "head") else 1.0), "kb": 0.85, "jolt": 3.4, "shown": 34.0, "stop": 0.035}
 })
 		var steps: Array = JS.map(shots, __f10)
 		var BARRAGE: float = (0.06 + (float(shots.size()) * CADENCE))
@@ -1348,7 +1376,7 @@ static func __init_module() -> void:
 	"strike": "rocketPunch",
 	"zone": "head",
 	"speed": 1.3,
-	"blow": {"move": "rocketPunch", "zone": "head", "part": 0.0, "take": 1.0, "kb": 2.5, "jolt": 12.0, "shown": 210.0, "stop": 0.16, "final": "blast"}
+	"blow": {"move": "rocketPunch", "zone": "head", "part": 0.0, "kb": 2.5, "jolt": 12.0, "shown": 210.0, "stop": 0.16, "final": "blast"}
 })
 		var cock: PackedFloat32Array = TFinisher.A({
 	"crouch": 0.16,
@@ -1462,14 +1490,14 @@ static func __init_module() -> void:
 	"strike": "lowKick",
 	"zone": "legs",
 	"speed": 1.15,
-	"blow": {"move": "lowKick", "zone": "legs", "part": -1.0, "take": 0.4, "kb": 0.1, "jolt": 3.0, "shown": 60.0, "stop": 0.1}
+	"blow": {"move": "lowKick", "zone": "legs", "part": -1.0, "kb": 0.1, "jolt": 3.0, "shown": 60.0, "stop": 0.1}
 },
 	{
 	"at": KICK,
 	"strike": "roundhouse",
 	"zone": "head",
 	"speed": 1.0,
-	"blow": {"move": "roundhouse", "zone": "head", "part": 0.0, "take": 1.0, "kb": 0.4, "jolt": 6.0, "shown": 220.0, "stop": 0.18, "final": "decap"}
+	"blow": {"move": "roundhouse", "zone": "head", "part": 0.0, "kb": 0.4, "jolt": 6.0, "shown": 220.0, "stop": 0.18, "final": "decap"}
 }
 ],
 	"att": __f14,
@@ -1575,14 +1603,14 @@ static func __init_module() -> void:
 	"strike": "rearHook",
 	"zone": "body",
 	"speed": 1.25,
-	"blow": {"move": "rearHook", "zone": "body", "part": 2.0, "take": 0.35, "kb": 0.05, "jolt": 4.0, "shown": 70.0, "stop": 0.09}
+	"blow": {"move": "rearHook", "zone": "body", "part": 2.0, "kb": 0.05, "jolt": 4.0, "shown": 70.0, "stop": 0.09}
 },
 	{
 	"at": UP,
 	"strike": "rearUpper",
 	"zone": "head",
 	"speed": 1.4,
-	"blow": {"move": "rearUpper", "zone": "head", "part": 0.0, "take": 1.0, "kb": 0.4, "jolt": 9.5, "shown": 210.0, "stop": 0.17, "final": "launch"}
+	"blow": {"move": "rearUpper", "zone": "head", "part": 0.0, "kb": 0.4, "jolt": 9.5, "shown": 210.0, "stop": 0.17, "final": "launch"}
 }
 ],
 	"att": __f17,
@@ -1650,21 +1678,21 @@ static func __init_module() -> void:
 	"strike": "leadHook",
 	"zone": "body",
 	"speed": 1.3,
-	"blow": {"move": "leadHook", "zone": "body", "part": 2.0, "take": 0.3, "kb": 0.05, "jolt": 4.0, "shown": 60.0, "stop": 0.08}
+	"blow": {"move": "leadHook", "zone": "body", "part": 2.0, "kb": 0.05, "jolt": 4.0, "shown": 60.0, "stop": 0.08}
 },
 	{
 	"at": (H_2 + 0.4),
 	"strike": "rearHook",
 	"zone": "head",
 	"speed": 1.3,
-	"blow": {"move": "rearHook", "zone": "head", "part": 0.0, "take": 0.35, "kb": 0.1, "jolt": 5.0, "shown": 75.0, "stop": 0.1}
+	"blow": {"move": "rearHook", "zone": "head", "part": 0.0, "kb": 0.1, "jolt": 5.0, "shown": 75.0, "stop": 0.1}
 },
 	{
 	"at": SPIN_2,
 	"strike": "spinKick",
 	"zone": "head",
 	"speed": 1.05,
-	"blow": {"move": "spinKick", "zone": "head", "part": 0.0, "take": 1.0, "kb": 1.5, "jolt": 11.0, "shown": 210.0, "stop": 0.16, "final": "fly"}
+	"blow": {"move": "spinKick", "zone": "head", "part": 0.0, "kb": 1.5, "jolt": 11.0, "shown": 210.0, "stop": 0.16, "final": "fly"}
 }
 ],
 	"att": __f20,
@@ -1752,12 +1780,10 @@ static func __init_module() -> void:
 	"id": "hammerdrop",
 	"tail": 0.85,
 	"hold": H_3,
-	"steps": [
-	{
+	"steps": [{
 	"at": SLAM_2,
-	"blow": {"move": "hammer", "zone": "head", "part": 0.0, "take": 1.0, "kb": 0.2, "jolt": 10.0, "shown": 200.0, "stop": 0.17, "final": "slam"}
-}
-],
+	"blow": {"move": "hammer", "zone": "head", "part": 0.0, "kb": 0.2, "jolt": 10.0, "shown": 200.0, "stop": 0.17, "final": "slam"}
+}],
 	"att": __f23,
 	"vic": __f24
 }
