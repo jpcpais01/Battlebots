@@ -17,6 +17,7 @@ const SCREENS := {
 	"tagteam": "res://app/tagteam/tag_team_screen.gd",
 	"online": "res://app/online/online_screen.gd",
 	"gauntlet": "res://app/gauntlet/gauntlet_screen.gd",
+	"league": "res://app/league/league_screen.gd",
 }
 ## The results card (app.ts showResults), a ResultsView.
 const RESULTS := "res://app/results/results_view.gd"
@@ -59,6 +60,13 @@ const UNLOCK_ALL := true
 var gauntlet: Dictionary = {}
 ## The fight on screen is a Gauntlet stage (start_gauntlet).
 var gauntlet_on := false
+## The League's table, pilots and seasons (app/league/league.gd), Android only.
+var league: Dictionary = {}
+## The pilot the League fight on screen is against (-1: it isn't one), and the match it is.
+var league_id := -1
+var _league_m = null
+## The pilot of the last League fight, for its Rematch (-1: none yet).
+var league_last := -1
 ## The bot faced last, kept for a rematch (app.ts opponent).
 var opponent = null
 ## The fight on screen is a round of a map event: {id, round, defence} (app.ts eventRun).
@@ -131,6 +139,9 @@ func _setup() -> void:
 	skins = Gacha.load_state()
 	pilot = Pilot.load_state()
 	gauntlet = Gauntlet.load_state()
+	league = League.load_state(player)
+	# (a week gone by: last season's shards, paid now, shown on the League screen)
+	league_season()
 	# (a pilot from before medals starts with what the win record knows)
 	if Medals.seed(pilot, record):
 		Pilot.save_state(pilot)
@@ -378,6 +389,9 @@ func go(id: String) -> void:
 		game.end_match()
 		if id == "home" or id == "map" or id == "tagteam" or id == "gauntlet":
 			game.show_bot(player)
+		elif id == "league":
+			# (the next rival waits in the ring: LeagueScreen.enter shows them)
+			pass
 		elif id == "online":
 			# (the ring stands empty behind the room: the bots are on its cards)
 			game.show_bot(null)
@@ -429,8 +443,9 @@ func _camera(id: String) -> void:
 			d.mode = "menu"
 			d.shift_x = 0.0
 			game.crowd_audio.ambience(0.4)
-		"gauntlet":
-			# the player's bot in the ring, the camera turning round it, the house murmuring
+		"gauntlet", "league":
+			# a bot in the ring (the player's, or the League's next rival), the camera turning round
+			# it, the house murmuring
 			d.mode = "menu"
 			d.shift_x = 0.0
 			game.crowd_audio.ambience(0.5)
@@ -581,10 +596,24 @@ func fight(same_opponent := false, titans := false) -> void:
 
 func start_fight(same_opponent: bool) -> void:
 	close_results()
-	if not same_opponent or opponent == null:
-		opponent = make_opponent()
-	# (a Gauntlet rival's boosts were for its stage: a rematch outside it is a plain fight)
-	opponent.erase("boost")
+	# a quick fight is a League fight (app/league): the next rival on the table, or the same pilot
+	# again for a rematch
+	league_id = -1
+	var bill = null
+	if event_run == null and not titan_run and not league.is_empty():
+		league_season()
+		var id := league_last if same_opponent and league_last > 0 else int(League.next_foe(league).id)
+		League.choose(league, id, true)
+		opponent = League.bot_for(league, id, player)
+		bill = League.bill(league, id, String(player.name_))
+		League.save_state(league)
+		league_id = id
+		league_last = id
+	else:
+		if not same_opponent or opponent == null:
+			opponent = make_opponent()
+		# (a Gauntlet or League rival's boosts were for that fight: a rematch outside it is a plain one)
+		opponent.erase("boost")
 	var seed := float(randi())
 	# an event's rounds are fought in its own venue, titans in the Titan Colosseum, everything
 	# else indoors
@@ -599,11 +628,13 @@ func start_fight(same_opponent: bool) -> void:
 		if int(event_run.round) < rivals.size():
 			rv = rivals[int(event_run.round)]
 	if "rival_intro" in game.hud:
-		game.hud.rival_intro = {"style": rv.style, "taunt": rv.taunt} if rv != null else null
+		game.hud.rival_intro = {"style": rv.style, "taunt": rv.taunt} if rv != null else {"style": bill.style, "taunt": bill.taunt} if bill != null else null
+		game.hud.rival_tag = String(bill.tag) if bill != null else ""
 	if game.has_method("set_arena"):
 		game.set_arena(arena)
 	_bill_pilot()
 	game.start_match(player, opponent, seed, null, {"arena": arena})
+	_league_m = game.m if league_id > 0 else null
 	_watch_fight(0)
 	# (the tape holds copies, so a later trip to the garage can't change the fight a replay shows)
 	last_fight = {"tape": game.tape, "timeline": game.timeline}
@@ -622,6 +653,7 @@ func start_tag_fight(partner, rivals: Array, names := ["", ""]) -> void:
 	opponent = rivals[0]
 	if "rival_intro" in game.hud:
 		game.hud.rival_intro = null
+		game.hud.rival_tag = ""
 	if game.has_method("set_arena"):
 		game.set_arena("grand")
 	_bill_pilot()
@@ -663,6 +695,7 @@ func start_gauntlet() -> void:
 	if "rival_intro" in game.hud:
 		var bill := "%s · Stage %d · %s" % ["Gauntlet boss" if Gauntlet.boss(stage) else "Gauntlet", stage, String(opponent.style)]
 		game.hud.rival_intro = {"style": bill, "taunt": String(Gauntlet.boss_def(stage).taunt) if Gauntlet.boss(stage) else ""}
+		game.hud.rival_tag = ""
 	if game.has_method("set_arena"):
 		game.set_arena(arena)
 	_bill_pilot()
@@ -684,6 +717,28 @@ func gauntlet_pay(credits: int, shards: int) -> void:
 		Gacha.save_state(skins)
 	Gauntlet.save_state(gauntlet)
 	changed.emit()
+
+
+## Pay League shards (a rank reached for the first time, a season's end) into the Skin Vault and
+## save the League.
+func league_pay(shards: int) -> void:
+	if shards > 0:
+		skins.shards = int(skins.get("shards", 0)) + shards
+		Gacha.save_state(skins)
+	League.save_state(league)
+	changed.emit()
+
+
+## A new League season since the last look: last season's shards paid. Whether it rolled over.
+func league_season() -> bool:
+	if league.is_empty():
+		return false
+	var w := int(league.season)
+	var pay := League.roll(league, String(player.name_))
+	if int(league.season) == w:
+		return false
+	league_pay(pay)
+	return true
 
 
 ## Whether the fight on screen (or just over) is a tag team match.
@@ -764,11 +819,17 @@ func _on_forfeit() -> void:
 		if tag:
 			tag_tally(false, false)
 		event_result(false, false, null, true)
+		# (walking out of a League fight is a loss to that pilot)
+		if league_id > 0 and game.m == _league_m:
+			League.settle(league, league_id, false, false, String(player.name_))
+			League.save_state(league)
 		# (walking out of a Gauntlet stage ends the run: what was locked in comes home)
 		if gauntlet_on and gauntlet.run != null:
 			var gr := Gauntlet.settle(gauntlet, false, false)
 			gauntlet_pay(int(gr.took), 0)
 			run_over = true
+	league_id = -1
+	_league_m = null
 	# (out of a tag team fight, back to the team sheet; out of the Gauntlet, back to its ladder)
 	var back := "map" if event_run != null and screens.has("map") else "tagteam" if tag and screens.has("tagteam") else "gauntlet" if gauntlet_on and screens.has("gauntlet") else "home"
 	gauntlet_on = false
@@ -851,7 +912,15 @@ func _show_results() -> void:
 		gr = Gauntlet.settle(gauntlet, won, draw)
 		gauntlet_pay(int(gr.took), int(gr.shards))
 		info["gauntlet"] = gr
-	var pr = settle_pilot(m, won, draw, kind, gr)
+	# a League fight: the table moves, the score with the pilot, the news
+	var lr = null
+	if league_id > 0 and m == _league_m:
+		lr = League.settle(league, league_id, won, draw, String(player.name_))
+		league_pay(int(lr.shards))
+		info["league"] = lr
+	league_id = -1
+	_league_m = null
+	var pr = settle_pilot(m, won, draw, kind, gr, lr)
 	if pr != null:
 		info["pilot"] = pr
 	# a tag team fight's team names (ours, theirs)
@@ -906,7 +975,7 @@ func _pilot_event(type: String, data) -> void:
 ## The fight just ended (its results coming up): XP, levels, contracts and a quick fight's pay,
 ## paid into the career's credits and saved. The report for the results card, or null when the
 ## fight wasn't watched (a replay) or was already settled.
-func settle_pilot(m, won: bool, draw: bool, kind, gauntlet_report = null):
+func settle_pilot(m, won: bool, draw: bool, kind, gauntlet_report = null, league_report = null):
 	var fl = _flog
 	_flog = null
 	if fl == null or fl.m != m:
@@ -921,6 +990,8 @@ func settle_pilot(m, won: bool, draw: bool, kind, gauntlet_report = null):
 	if gauntlet_report != null:
 		ctx["gauntlet_boss"] = bool(gauntlet_report.won and gauntlet_report.boss)
 		ctx["gauntlet_stage"] = int(gauntlet_report.stage) if gauntlet_report.won else 0
+	if league_report != null:
+		ctx["league"] = league_report
 	var rep := Pilot.settle(pilot, fl, ctx)
 	# (the style it fought in, picked or its own: the style picker's record)
 	FightStyles.tally(pilot, String(m.brains[fl.me].traits.style), won)
@@ -957,6 +1028,7 @@ func replay() -> void:
 	titan_run = arena == "titan"
 	if "rival_intro" in game.hud:
 		game.hud.rival_intro = null
+		game.hud.rival_tag = ""
 	if game.has_method("set_arena"):
 		game.set_arena(arena)
 	if game.pause_menu.is_open() and not get_tree().paused:
@@ -1122,6 +1194,7 @@ func fight_online(s: OnlineSession, a, b, seed: float) -> void:
 	titan_run = false
 	if "rival_intro" in game.hud:
 		game.hud.rival_intro = null
+		game.hud.rival_tag = ""
 	if game.has_method("set_arena"):
 		game.set_arena("grand")
 	if game.pause_menu.is_open() and not get_tree().paused:

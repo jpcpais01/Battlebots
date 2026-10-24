@@ -17,6 +17,17 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-24 02:00",
+	"title": "The League",
+	"notes": [
+	"Android app: every quick fight is now a League fight. Twenty rival pilots, each with their own bot, name and temper, share one table with you. Start at #21 and climb: beat someone ranked above you to take their place.",
+	"Android app: the new League screen shows the table, who you fight next and what they have to say. Tap a rival up to three places above to challenge them instead, and reach #1 to become League Champion and defend the belt.",
+	"Android app: rivals remember you. They keep score, talk trash before the fight, call you out for a rematch, and the one who keeps beating you becomes your Nemesis. Beat them back for a REVENGE win and bonus XP.",
+	"Android app: the League runs in weekly seasons with a Hall of Champions. Your best rank each season pays Skin Vault shards, and so does reaching the top 15, 10, 5, 3 and the belt for the first time.",
+	"Android app: three new medals (Contender, Avenger, Belt Holder), XP for every place you climb, and the Gauntlet and League now share a row on the home screen, with your rank on the Fight button."
+]
+},
+	{
 	"hour": "2026-10-24 00:00",
 	"title": "Instant replay of every knockout",
 	"notes": [

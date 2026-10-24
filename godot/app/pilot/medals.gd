@@ -46,6 +46,9 @@ const MEDALS := [
 	{"id": "career", "name": "Circuit Star", "title": "Circuit Star", "icon": "map", "stat": "career_wins", "n": [3, 20, 75], "text": "Win %s Career rounds"},
 	{"id": "gauntlet", "name": "Gauntlet Runner", "title": "Gauntlet Runner", "icon": "ab:rocketPunch", "stat": "gauntlet_best", "best": true, "n": [5, 10, 20], "text": "Clear stage %s of the Gauntlet"},
 	{"id": "bosses", "name": "Boss Breaker", "title": "Boss Breaker", "icon": "pa:meteor", "stat": "gauntlet_bosses", "n": [1, 10, 40], "one": "Beat a Gauntlet boss", "text": "Beat %s Gauntlet bosses"},
+	{"id": "league", "name": "Contender", "title": "The Contender", "icon": "crown", "stat": "league_peak", "best": true, "n": [11, 18, 20], "words": ["Break into the League's top 10", "Reach #3 in the League", "Become League Champion"], "text": "Climb the League"},
+	{"id": "revenge", "name": "Avenger", "title": "The Avenger", "icon": "refresh", "stat": "revenges", "n": [1, 10, 40], "one": "Beat a League rival who beat you last time", "text": "Get revenge on League rivals %s times"},
+	{"id": "defences", "name": "Belt Holder", "title": "Undisputed", "icon": "pa:bulwark", "stat": "defences", "n": [1, 5, 20], "one": "Defend the League title", "text": "Defend the League title %s times"},
 	{"id": "crowd", "name": "Crowd Pleaser", "title": "Crowd Pleaser", "icon": "mic", "stat": "five_stars", "n": [1, 10, 40], "one": "Put on a five-star fight", "text": "Put on %s five-star fights"},
 	{"id": "fans", "name": "Fan Favourite", "title": "Fan Favourite", "icon": "sun", "stat": "stars", "n": [60, 400, 1500], "text": "Earn %s stars from the crowd"},
 	{"id": "online", "name": "Online Ace", "title": "Online Ace", "icon": "globe", "stat": "online_wins", "n": [1, 10, 50], "one": "Win an online fight", "text": "Win %s online fights"},
@@ -54,7 +57,7 @@ const MEDALS := [
 ]
 
 ## Every lifetime stat kept (the counts a fight adds, and the bests).
-const STATS := ["fights", "wins", "losses", "draws", "streak", "best_streak", "punches", "kicks", "head_kicks", "body", "crits", "counters", "blocks", "dodges", "damage", "knockdowns", "finishers", "tear_offs", "ko_wins", "clean_wins", "dominant_wins", "quick_wins", "comebacks", "tag_wins", "titan_wins", "career_wins", "online_fights", "online_wins", "contracts", "perfect_days", "gauntlet_best", "gauntlet_bosses", "stars", "five_stars"]
+const STATS := ["fights", "wins", "losses", "draws", "streak", "best_streak", "punches", "kicks", "head_kicks", "body", "crits", "counters", "blocks", "dodges", "damage", "knockdowns", "finishers", "tear_offs", "ko_wins", "clean_wins", "dominant_wins", "quick_wins", "comebacks", "tag_wins", "titan_wins", "career_wins", "online_fights", "online_wins", "contracts", "perfect_days", "gauntlet_best", "gauntlet_bosses", "stars", "five_stars", "league_peak", "revenges", "defences"]
 
 static var _by_id := {}
 
@@ -66,7 +69,7 @@ static func def(id: String) -> Dictionary:
 	return _by_id.get(id, {})
 
 
-## Every tier there is (30 medals x 3).
+## Every tier there is (every medal x 3).
 static func total() -> int:
 	return MEDALS.size() * 3
 
@@ -151,6 +154,8 @@ static func tier_for(m: Dictionary, v: int) -> int:
 
 ## Its words for tier `t`'s mark (1..3).
 static func text(m: Dictionary, t: int) -> String:
+	if m.has("words"):
+		return String(m.words[clampi(t, 1, 3) - 1])
 	var n := int(m.n[clampi(t, 1, 3) - 1])
 	if n == 1 and m.has("one"):
 		return String(m.one)
@@ -219,6 +224,12 @@ static func add_fight(p: Dictionary, s: Dictionary, ctx: Dictionary, contracts: 
 	# (the Gauntlet: a boss beaten, and the furthest stage cleared)
 	l.gauntlet_bosses = int(l.gauntlet_bosses) + (1 if ctx.get("gauntlet_boss", false) else 0)
 	l.gauntlet_best = maxi(int(l.gauntlet_best), int(ctx.get("gauntlet_stage", 0)))
+	# (the League: the best rank, as places from the bottom; revenge; title defences)
+	var lg = ctx.get("league")
+	if lg is Dictionary:
+		l.league_peak = maxi(int(l.league_peak), League.PILOTS + 1 - int(lg.to))
+		l.revenges = int(l.revenges) + (1 if lg.revenge else 0)
+		l.defences = int(l.defences) + (1 if lg.defended else 0)
 	l.contracts = int(l.contracts) + contracts
 	l.perfect_days = int(l.perfect_days) + (1 if perfect else 0)
 
