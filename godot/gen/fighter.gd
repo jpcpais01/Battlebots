@@ -87,6 +87,17 @@ static func flatKey(k) -> Array:
 	return ([k.py, k.pz, k.pitch, k.roll] + k.feet.duplicate() + k.hands.duplicate() + k.knee.duplicate() + [k.elbow])
 static var GETUP_FLAT: Dictionary
 const BUCKLE: float = 0.36
+static var FALL_BACK: Array
+static var FALL_FRONT: Array
+
+static func fallFlat(k) -> Array:
+	return ([k.d, k.py, k.pz, k.pitch, k.roll, k.tuck] + k.hands.duplicate() + k.feet.duplicate() + k.knee.duplicate() + k.elbow.duplicate())
+static var FALL_FLAT: Array
+const FALL_BLEND: float = 0.2
+const FALL_LAND: float = 0.84
+const FENCE_UP: float = 0.3
+const FENCE_HOLD: float = 1.6
+const FENCE_OUT: float = 2.4
 const CALM: float = 13.0
 const SETTLE: float = 17.0
 const SETTLE_MIN: float = 0.006
@@ -334,6 +345,18 @@ class Fighter extends RefCounted:
 	var buckleDur: float
 	var buckleFeet: Array
 	var buckleFwd: V3
+	var fallKind: float
+	var fallT: float
+	var fallO: V3
+	var fallYaw: float
+	var fallUx: float
+	var fallUz: float
+	var fallSide: float
+	var fallSnap: Array
+	var fallL: Array
+	var _fch: Array
+	var fenceArm: float
+	var fenceT: float
 	var bobPhase: float
 	var noise: TMath.Noise1
 	var feet: Array
@@ -543,6 +566,18 @@ class Fighter extends RefCounted:
 		self.buckleDur = TFighter.BUCKLE
 		self.buckleFeet = [V3.new(), V3.new()]
 		self.buckleFwd = V3.new()
+		self.fallKind = 0.0
+		self.fallT = 0.0
+		self.fallO = V3.new()
+		self.fallYaw = 0.0
+		self.fallUx = 0.0
+		self.fallUz = 0.0
+		self.fallSide = 1.0
+		self.fallSnap = JS.array_from(TBody.JOINT_COUNT, func(_a0 = null, _a1 = null): return V3.new())
+		self.fallL = JS.array_from(TBody.JOINT_COUNT, func(_a0 = null, _a1 = null): return V3.new())
+		self._fch = JS.fill(JS.filled(23.0, null), 0.0)
+		self.fenceArm = -1.0
+		self.fenceT = 0.0
 		self.bobPhase = 0.0
 		self.feet = [TFighter.Foot.new(), TFighter.Foot.new()]
 		self.extend = [0.0, 0.0]
@@ -1131,6 +1166,10 @@ class Fighter extends RefCounted:
 			writeTargets(dt)
 		elif (buckle > 0.0):
 			buckleStep(dt)
+		elif (fallKind > 0.0):
+			fallStep(dt)
+		elif (fenceArm >= 0.0):
+			fenceStep(dt)
 		body.step(dt)
 		if ((state == "down") or (state == "ko")):
 			var p: V3 = body.pos[0.0]
@@ -1327,6 +1366,8 @@ class Fighter extends RefCounted:
 		self.downAge = 0.0
 		tries.clear()
 		self.getupFail = 0.0
+		self.fallKind = 0.0
+		self.fenceArm = -1.0
 		setState(("ko" if (hp <= 0.0) else "down"))
 		body.tone = 0.0
 		var _h_v: V3 = TFighter._v
@@ -1427,7 +1468,404 @@ class Fighter extends RefCounted:
 			knee.y = (((0.52 + (((0.24 - 0.52)) * sink))) * z)
 			i_2 += 1
 	
+	func breakFall(dir: V3) -> void:
+		if ((state != "down") or (legLost >= 0.0)):
+			return
+		var P: Array = body.pos
+		var i: int = 0
+		while (i < TBody.JOINT_COUNT):
+			if (body.outside[i] != 0.0):
+				return
+			i += 1
+		var _h_u: V3 = TFighter._u
+		_h_u.x = dir.x
+		_h_u.y = dir.y
+		_h_u.z = dir.z
+		_h_u.y = 0.0
+		if ((_h_u.x * _h_u.x + _h_u.y * _h_u.y + _h_u.z * _h_u.z) < 0.000001):
+			forward(_h_u).negate()
+		var __v1: float = sqrt(_h_u.x * _h_u.x + _h_u.y * _h_u.y + _h_u.z * _h_u.z)
+		var __v2: float = 1.0 / (__v1 if __v1 != 0.0 else 1.0)
+		_h_u.x *= __v2
+		_h_u.y *= __v2
+		_h_u.z *= __v2
+		var _h_w: V3 = TFighter._w
+		forward(_h_w)
+		var front: bool = ((_h_u.x * _h_w.x + _h_u.y * _h_w.y + _h_u.z * _h_w.z) > 0.35)
+		var want: float = (DM.atan2(_h_u.x, _h_u.z) if front else DM.atan2((-_h_u.x), (-_h_u.z)))
+		var turn: float = TMath.clamp_(TMath.wrapAngle((want - faceYaw)), -0.6, 0.6)
+		self.fallYaw = (faceYaw + turn)
+		self.fallKind = (2.0 if front else 1.0)
+		self.fallT = 0.0
+		self.buckle = 0.0
+		var __v3: float = P[0.0].x
+		var __v4: float = P[0.0].z
+		fallO.x = __v3
+		fallO.y = 0.0
+		fallO.z = __v4
+		self.fallSide = (-1.0 if (stance < 0.0) else 1.0)
+		self.downTime = maxf(downTime, (TFighter.FALL_LAND + 0.2))
+		var s: float = DM.sin(fallYaw)
+		var c: float = DM.cos(fallYaw)
+		self.fallUx = (((-c) * _h_u.x) + (s * _h_u.z))
+		self.fallUz = ((s * _h_u.x) + (c * _h_u.z))
+		var i_2: int = 0
+		while (i_2 < TBody.JOINT_COUNT):
+			fallLocal(P[i_2], fallSnap[i_2])
+			i_2 += 1
+	
+	func fallLocal(world: V3, out: V3) -> V3:
+		var s: float = DM.sin(fallYaw)
+		var c: float = DM.cos(fallYaw)
+		var k: float = (1.0 / size_)
+		var dx: float = (((world.x - fallO.x)) * k)
+		var dz: float = (((world.z - fallO.z)) * k)
+		return out.set3((((-c) * dx) + (s * dz)), (world.y * k), ((s * dx) + (c * dz)))
+	
+	func fallWorld(local: V3, out: V3) -> V3:
+		var s: float = DM.sin(fallYaw)
+		var c: float = DM.cos(fallYaw)
+		var k: float = size_
+		var x: float = (local.x * k)
+		var z: float = (local.z * k)
+		return out.set3(((fallO.x - (c * x)) + (s * z)), (local.y * k), ((fallO.z + (s * x)) + (c * z)))
+	
+	func fallStep(dt: float) -> void:
+		var conscious: bool = (state == "down")
+		if ((not conscious) and (hp <= 0.0)):
+			self.fallKind = 0.0
+			return
+		self.fallT += dt
+		var t: float = fallT
+		var keys_: Array = (TFighter.FALL_FRONT if (fallKind == 2.0) else TFighter.FALL_BACK)
+		var flat: Array = TFighter.FALL_FLAT[(fallKind - 1.0)]
+		var ch: Array = _fch
+		var last: float = (float(keys_.size()) - 1.0)
+		if (t >= keys_[last].t):
+			var c: int = 0
+			while (c < float(ch.size())):
+				ch[c] = flat[last][c]
+				c += 1
+		else:
+			var a: float = 0.0
+			while ((a < (last - 1.0)) and (t >= keys_[(a + 1.0)].t)):
+				a += 1.0
+			var b: float = (a + 1.0)
+			var h: float = (keys_[b].t - keys_[a].t)
+			var u: float = (((t - keys_[a].t)) / h)
+			var c_2: int = 0
+			while (c_2 < float(ch.size())):
+				var m0: float = (TMath.keySlope(flat[(a - 1.0)][c_2], flat[a][c_2], flat[b][c_2], (keys_[a].t - keys_[(a - 1.0)].t), h) if (a > 0.0) else 0.0)
+				var m1: float = (TMath.keySlope(flat[a][c_2], flat[b][c_2], flat[(b + 1.0)][c_2], h, (keys_[(b + 1.0)].t - keys_[b].t)) if (b < last) else 0.0)
+				ch[c_2] = TMath.hermite(flat[a][c_2], flat[b][c_2], m0, m1, h, u)
+				c_2 += 1
+		var roll: float = ch[4]
+		var tuck: float = ch[5]
+		var pitch: float = ch[3]
+		var lie: float = TMath.smoothstep_((TFighter.FALL_LAND - 0.1), (TFighter.FALL_LAND + 0.4), t)
+		var lift: float = 0.0
+		var push: float = 0.0
+		var shift: float = 0.0
+		if (conscious and (lie > 0.0)):
+			var n: TMath.Noise1 = noise
+			lift = (maxf(0.0, n.at(((t * 0.9) + 200.0))) * lie)
+			push = (maxf(0.0, n.at(((t * 0.7) + 230.0))) * lie)
+			shift = (n.at(((t * 0.6) + 260.0)) * lie)
+			tuck += ((0.35 * lift) * ((1.0 if (fallKind == 1.0) else -1.0)))
+			roll += (0.16 * shift)
+			if (fallKind == 1.0):
+				pitch += (0.12 * push)
+		var d: float = ch[0]
+		var py: float = ch[1]
+		var pz: float = ch[2]
+		var ox: float = (fallUx * d)
+		var oz: float = (fallUz * d)
+		var L: Array = fallL
+		var sp: float = DM.sin(pitch)
+		var cp: float = DM.cos(pitch)
+		var sr: float = DM.sin(roll)
+		var cr: float = DM.cos(roll)
+		var _h_tU: V3 = TFighter._tU
+		var __v1: float = (sr * cp)
+		var __v2: float = (cr * cp)
+		_h_tU.x = __v1
+		_h_tU.y = __v2
+		_h_tU.z = sp
+		var __v3: float = sqrt(_h_tU.x * _h_tU.x + _h_tU.y * _h_tU.y + _h_tU.z * _h_tU.z)
+		var __v4: float = 1.0 / (__v3 if __v3 != 0.0 else 1.0)
+		_h_tU.x *= __v4
+		_h_tU.y *= __v4
+		_h_tU.z *= __v4
+		var _h_tX: V3 = TFighter._tX
+		var __v5: float = (-sr)
+		_h_tX.x = cr
+		_h_tX.y = __v5
+		_h_tX.z = 0.0
+		var _h_tZ: V3 = TFighter._tZ
+		_h_tZ.crossVectors(_h_tX, _h_tU).normalize()
+		_h_tX.crossVectors(_h_tU, _h_tZ)
+		var __v6: V3 = L[0.0]
+		var __v7: float = (oz + pz)
+		__v6.x = ox
+		__v6.y = py
+		__v6.z = __v7
+		var __v8: V3 = L[1.0]
+		var __v9: V3 = L[0.0]
+		__v8.x = __v9.x
+		__v8.y = __v9.y
+		__v8.z = __v9.z
+		__v8.x += _h_tU.x * 0.42
+		__v8.y += _h_tU.y * 0.42
+		__v8.z += _h_tU.z * 0.42
+		var __v10: V3 = L[2.0]
+		var __v11: V3 = L[1.0]
+		__v10.x = __v11.x
+		__v10.y = __v11.y
+		__v10.z = __v11.z
+		__v10.x += _h_tU.x * 0.21
+		__v10.y += _h_tU.y * 0.21
+		__v10.z += _h_tU.z * 0.21
+		var st: float = DM.sin(tuck)
+		var ct: float = DM.cos(tuck)
+		var __v12: V3 = L[3.0]
+		var __v13: V3 = L[2.0]
+		__v12.x = __v13.x
+		__v12.y = __v13.y
+		__v12.z = __v13.z
+		var __v14: float = (0.2 * ct)
+		__v12.x += _h_tU.x * __v14
+		__v12.y += _h_tU.y * __v14
+		__v12.z += _h_tU.z * __v14
+		var __v15: float = (0.2 * st)
+		__v12.x += _h_tZ.x * __v15
+		__v12.y += _h_tZ.y * __v15
+		__v12.z += _h_tZ.z * __v15
+		var __v16: V3 = L[4.0]
+		var __v17: V3 = L[2.0]
+		__v16.x = __v17.x
+		__v16.y = __v17.y
+		__v16.z = __v17.z
+		__v16.x += _h_tX.x * -0.28
+		__v16.y += _h_tX.y * -0.28
+		__v16.z += _h_tX.z * -0.28
+		__v16.x += _h_tU.x * -0.12
+		__v16.y += _h_tU.y * -0.12
+		__v16.z += _h_tU.z * -0.12
+		var __v18: V3 = L[7.0]
+		var __v19: V3 = L[2.0]
+		__v18.x = __v19.x
+		__v18.y = __v19.y
+		__v18.z = __v19.z
+		__v18.x += _h_tX.x * 0.28
+		__v18.y += _h_tX.y * 0.28
+		__v18.z += _h_tX.z * 0.28
+		__v18.x += _h_tU.x * -0.12
+		__v18.y += _h_tU.y * -0.12
+		__v18.z += _h_tU.z * -0.12
+		var __v20: V3 = L[10.0]
+		var __v21: V3 = L[0.0]
+		__v20.x = __v21.x
+		__v20.y = __v21.y
+		__v20.z = __v21.z
+		__v20.x += _h_tX.x * -0.14
+		__v20.y += _h_tX.y * -0.14
+		__v20.z += _h_tX.z * -0.14
+		__v20.x += _h_tU.x * -0.06
+		__v20.y += _h_tU.y * -0.06
+		__v20.z += _h_tU.z * -0.06
+		var __v22: V3 = L[13.0]
+		var __v23: V3 = L[0.0]
+		__v22.x = __v23.x
+		__v22.y = __v23.y
+		__v22.z = __v23.z
+		__v22.x += _h_tX.x * 0.14
+		__v22.y += _h_tX.y * 0.14
+		__v22.z += _h_tX.z * 0.14
+		__v22.x += _h_tU.x * -0.06
+		__v22.y += _h_tU.y * -0.06
+		__v22.z += _h_tU.z * -0.06
+		var sd: float = fallSide
+		var _h_p: V3 = TFighter._p
+		var lead: int = 0
+		while (lead < 2.0):
+			var left: bool = (((float(lead) == 0.0)) == ((sd < 0.0)))
+			var sx: float = (-1.0 if left else 1.0)
+			var o: float = (float(lead) * 3.0)
+			var hand: V3 = L[(6.0 if left else 9.0)]
+			var __v24: float = (ox + (sx * ch[(6.0 + o)]))
+			var __v25: float = ch[(7.0 + o)]
+			var __v26: float = (oz + ch[(8.0 + o)])
+			hand.x = __v24
+			hand.y = __v25
+			hand.z = __v26
+			if ((float(lead) == 1.0) and (push > 0.0)):
+				hand.y += (0.05 * push)
+				var __v27: float = (0.06 * push)
+				hand.x += _h_tU.x * __v27
+				hand.y += _h_tU.y * __v27
+				hand.z += _h_tU.z * __v27
+			var foot: V3 = L[(12.0 if left else 15.0)]
+			var __v28: float = (sx * ch[(12.0 + o)])
+			var __v29: float = ch[(13.0 + o)]
+			var __v30: float = ch[(14.0 + o)]
+			foot.x = __v28
+			foot.y = __v29
+			foot.z = __v30
+			if ((lie > 0.0) and (fallKind == 1.0)):
+				foot.z += ((0.07 * shift) * ((1.0 if (float(lead) == 0.0) else -1.0)))
+			var __v31: float = ch[18]
+			var __v32: float = ch[19]
+			_h_p.x = 0.0
+			_h_p.y = __v31
+			_h_p.z = __v32
+			fallLimb(L[(10.0 if left else 13.0)], foot, _h_p, TFighter.THIGH, L[(11.0 if left else 14.0)])
+			var __v33: float = (sx * ch[20])
+			var __v34: float = ch[21]
+			var __v35: float = ch[22]
+			_h_p.x = __v33
+			_h_p.y = __v34
+			_h_p.z = __v35
+			fallLimb(L[(4.0 if left else 7.0)], hand, _h_p, TFighter.UPPER, L[(5.0 if left else 8.0)])
+			lead += 1
+		var w: float = TMath.minJerk((t / TFighter.FALL_BLEND))
+		var T: Array = body.target
+		var _h_v: V3 = TFighter._v
+		var i: int = 0
+		while (i < TBody.JOINT_COUNT):
+			var __v36: V3 = fallSnap[i]
+			var __v37: V3 = L[i]
+			_h_v.x = __v36.x + (__v37.x - __v36.x) * w
+			_h_v.y = __v36.y + (__v37.y - __v36.y) * w
+			_h_v.z = __v36.z + (__v37.z - __v36.z) * w
+			fallWorld(_h_v, T[i])
+			i += 1
+		var grab: float = TMath.smoothstep_(0.02, 0.14, t)
+		var tone: float = ((0.12 + (((0.42 - 0.12)) * grab)))
+		tone = TMath.lerp_(tone, (0.22 if conscious else 0.0), TMath.smoothstep_((TFighter.FALL_LAND - 0.15), (TFighter.FALL_LAND + 0.25), t))
+		body.tone = tone
+		if ((not conscious) and (t > (TFighter.FALL_LAND + 0.25))):
+			self.fallKind = 0.0
+	
+	func fallLimb(a: V3, b: V3, pole: V3, len_: float, out: V3) -> V3:
+		var _h_q: V3 = TFighter._q
+		_h_q.x = b.x - a.x
+		_h_q.y = b.y - a.y
+		_h_q.z = b.z - a.z
+		var dist: float = sqrt(_h_q.x * _h_q.x + _h_q.y * _h_q.y + _h_q.z * _h_q.z)
+		out.x = a.x + b.x
+		out.y = a.y + b.y
+		out.z = a.z + b.z
+		out.x *= 0.5
+		out.y *= 0.5
+		out.z *= 0.5
+		if (dist < 0.000001):
+			return out
+		var __v1: float = (1.0 / dist)
+		_h_q.x *= __v1
+		_h_q.y *= __v1
+		_h_q.z *= __v1
+		var _h_w: V3 = TFighter._w
+		_h_w.x = pole.x
+		_h_w.y = pole.y
+		_h_w.z = pole.z
+		var __v2: float = (-(pole.x * _h_q.x + pole.y * _h_q.y + pole.z * _h_q.z))
+		_h_w.x += _h_q.x * __v2
+		_h_w.y += _h_q.y * __v2
+		_h_w.z += _h_q.z * __v2
+		if ((_h_w.x * _h_w.x + _h_w.y * _h_w.y + _h_w.z * _h_w.z) < ((float(3022314549036573) / 4611686018427387904) / 65536)):
+			return out
+		var __v3: float = sqrt(_h_w.x * _h_w.x + _h_w.y * _h_w.y + _h_w.z * _h_w.z)
+		var __v4: float = 1.0 / (__v3 if __v3 != 0.0 else 1.0)
+		_h_w.x *= __v4
+		_h_w.y *= __v4
+		_h_w.z *= __v4
+		var h: float = (dist * 0.5)
+		return out.addScaledVector(_h_w, sqrt(maxf(0.0, ((len_ * len_) - (h * h)))))
+	
+	func fence() -> void:
+		if (state != "ko"):
+			return
+		self.fenceArm = (0.0 if (stance < 0.0) else 1.0)
+		self.fenceT = 0.0
+	
+	func fenceStep(dt: float) -> void:
+		self.fenceT += dt
+		var t: float = fenceT
+		if (t >= TFighter.FENCE_OUT):
+			self.fenceArm = -1.0
+			return
+		var P: Array = self.body.pos
+		var body: TBody.Body = self.body
+		var _h_u: V3 = TFighter._u
+		var __v1: V3 = P[2.0]
+		var __v2: V3 = P[0.0]
+		_h_u.x = __v1.x - __v2.x
+		_h_u.y = __v1.y - __v2.y
+		_h_u.z = __v1.z - __v2.z
+		var _h_w: V3 = TFighter._w
+		var __v3: V3 = P[7.0]
+		var __v4: V3 = P[4.0]
+		_h_w.x = __v3.x - __v4.x
+		_h_w.y = __v3.y - __v4.y
+		_h_w.z = __v3.z - __v4.z
+		var _h_v: V3 = TFighter._v
+		_h_v.crossVectors(_h_u, _h_w).normalize()
+		var __v5: float = sqrt(_h_u.x * _h_u.x + _h_u.y * _h_u.y + _h_u.z * _h_u.z)
+		var __v6: float = 1.0 / (__v5 if __v5 != 0.0 else 1.0)
+		_h_u.x *= __v6
+		_h_u.y *= __v6
+		_h_u.z *= __v6
+		var up: float = TMath.clamp01((((_h_v.y + 0.1)) / 0.4))
+		var k: float = ((TMath.smoothstep_(0.05, TFighter.FENCE_UP, t) * ((1.0 - TMath.smoothstep_(TFighter.FENCE_HOLD, TFighter.FENCE_OUT, t)))) * up)
+		var sh: float = (4.0 if (fenceArm == 0.0) else 7.0)
+		var el: float = (5.0 if (fenceArm == 0.0) else 8.0)
+		var hd: float = (6.0 if (fenceArm == 0.0) else 9.0)
+		var _h_p: V3 = TFighter._p
+		_h_p.x = _h_v.x
+		_h_p.y = _h_v.y
+		_h_p.z = _h_v.z
+		_h_p.x *= 0.85
+		_h_p.y *= 0.85
+		_h_p.z *= 0.85
+		_h_p.x += _h_u.x * 0.45
+		_h_p.y += _h_u.y * 0.45
+		_h_p.z += _h_u.z * 0.45
+		var __v7: float = sqrt(_h_p.x * _h_p.x + _h_p.y * _h_p.y + _h_p.z * _h_p.z)
+		var __v8: float = 1.0 / (__v7 if __v7 != 0.0 else 1.0)
+		_h_p.x *= __v8
+		_h_p.y *= __v8
+		_h_p.z *= __v8
+		var z: float = size_
+		var __v9: V3 = body.target[el]
+		var __v10: V3 = P[sh]
+		__v9.x = __v10.x
+		__v9.y = __v10.y
+		__v9.z = __v10.z
+		var __v11: float = ((TFighter.UPPER * z) * 0.97)
+		__v9.x += _h_p.x * __v11
+		__v9.y += _h_p.y * __v11
+		__v9.z += _h_p.z * __v11
+		var __v12: float = (0.03 * z)
+		__v9.x += _h_u.x * __v12
+		__v9.y += _h_u.y * __v12
+		__v9.z += _h_u.z * __v12
+		var __v13: V3 = body.target[hd]
+		var __v14: V3 = P[sh]
+		__v13.x = __v14.x
+		__v13.y = __v14.y
+		__v13.z = __v14.z
+		var __v15: float = ((((TFighter.UPPER + TFighter.FORE)) * 0.96) * z)
+		__v13.x += _h_p.x * __v15
+		__v13.y += _h_p.y * __v15
+		__v13.z += _h_p.z * __v15
+		var i: int = 0
+		while (i < TBody.JOINT_COUNT):
+			body.loose[i] = (1.0 if ((float(i) == el) or (float(i) == hd)) else 0.0)
+			i += 1
+		body.tone = (0.45 * k)
+	
 	func beginGetUp() -> void:
+		self.fallKind = 0.0
 		setState("getup")
 		var P: Array = body.pos
 		var _h_u: V3 = TFighter._u
@@ -4972,6 +5410,167 @@ static func __init_module() -> void:
 	JS.merge([{"t": 0.82}, TFighter.RISE])
 ]
 	TFighter.GETUP_FLAT = JS.map_from([[TFighter.GETUP_BACK, JS.map1(TFighter.GETUP_BACK, TFighter.flatKey)], [TFighter.GETUP_FRONT, JS.map1(TFighter.GETUP_FRONT, TFighter.flatKey)]])
+	TFighter.FALL_BACK = [
+	{
+	"t": 0.0,
+	"d": 0.0,
+	"py": 0.93,
+	"pz": -0.04,
+	"pitch": 0.1,
+	"roll": 0.0,
+	"tuck": 0.25,
+	"hands": [0.14, 1.63, 0.32, 0.11, 1.62, 0.25],
+	"feet": [0.15, 0.08, 0.16, 0.15, 0.1, -0.17],
+	"knee": [0.1, 1.0],
+	"elbow": [0.7, -0.7, 0.0]
+},
+	{
+	"t": 0.15,
+	"d": 0.2,
+	"py": 0.86,
+	"pz": 0.0,
+	"pitch": -0.3,
+	"roll": 0.06,
+	"tuck": 0.1,
+	"hands": [0.3, 1.35, 0.5, 0.32, 1.28, 0.42],
+	"feet": [0.15, 0.08, 0.13, 0.18, 0.2, -0.32],
+	"knee": [0.2, 1.0],
+	"elbow": [0.8, -0.3, -0.2]
+},
+	{
+	"t": 0.32,
+	"d": 0.36,
+	"py": 0.58,
+	"pz": 0.0,
+	"pitch": 0.12,
+	"roll": 0.04,
+	"tuck": 0.55,
+	"hands": [0.32, 0.72, 0.22, 0.34, 0.58, -0.12],
+	"feet": [0.16, 0.08, 0.1, 0.2, 0.08, -0.38],
+	"knee": [0.3, 1.0],
+	"elbow": [0.8, -0.2, -0.4]
+},
+	{
+	"t": 0.48,
+	"d": 0.5,
+	"py": 0.22,
+	"pz": 0.0,
+	"pitch": -0.15,
+	"roll": 0.0,
+	"tuck": 0.7,
+	"hands": [0.34, 0.08, -0.28, 0.36, 0.08, -0.3],
+	"feet": [0.18, 0.09, 0.22, 0.2, 0.09, -0.02],
+	"knee": [0.6, 0.8],
+	"elbow": [0.6, 0.2, -0.8]
+},
+	{
+	"t": 0.64,
+	"d": 0.58,
+	"py": 0.2,
+	"pz": 0.0,
+	"pitch": -1.2,
+	"roll": -0.05,
+	"tuck": 0.95,
+	"hands": [0.7, 0.08, -0.16, 0.72, 0.08, -0.2],
+	"feet": [0.2, 0.3, 0.05, 0.2, 0.22, -0.1],
+	"knee": [1.0, 0.3],
+	"elbow": [0.3, 1.0, 0.0]
+},
+	{
+	"t": 0.84,
+	"d": 0.6,
+	"py": 0.2,
+	"pz": 0.0,
+	"pitch": -1.42,
+	"roll": 0.0,
+	"tuck": 0.7,
+	"hands": [0.66, 0.08, -0.12, 0.68, 0.08, -0.14],
+	"feet": [0.2, 0.09, 0.0, 0.22, 0.09, -0.12],
+	"knee": [1.0, 0.4],
+	"elbow": [0.3, 1.0, 0.0]
+}
+]
+	TFighter.FALL_FRONT = [
+	{
+	"t": 0.0,
+	"d": 0.0,
+	"py": 0.93,
+	"pz": -0.04,
+	"pitch": 0.1,
+	"roll": 0.0,
+	"tuck": 0.25,
+	"hands": [0.14, 1.63, 0.32, 0.11, 1.62, 0.25],
+	"feet": [0.15, 0.08, 0.16, 0.15, 0.1, -0.17],
+	"knee": [0.1, 1.0],
+	"elbow": [0.7, -0.7, 0.0]
+},
+	{
+	"t": 0.14,
+	"d": 0.22,
+	"py": 0.84,
+	"pz": 0.02,
+	"pitch": 0.5,
+	"roll": 0.04,
+	"tuck": -0.2,
+	"hands": [0.3, 1.05, 0.55, 0.3, 1.0, 0.5],
+	"feet": [0.15, 0.14, 0.42, 0.15, 0.08, -0.15],
+	"knee": [0.0, 1.0],
+	"elbow": [0.6, -0.5, 0.0]
+},
+	{
+	"t": 0.3,
+	"d": 0.34,
+	"py": 0.55,
+	"pz": 0.0,
+	"pitch": 0.62,
+	"roll": 0.02,
+	"tuck": -0.2,
+	"hands": [0.3, 0.35, 0.62, 0.3, 0.3, 0.58],
+	"feet": [0.15, 0.08, 0.45, 0.15, 0.1, -0.12],
+	"knee": [-0.3, 1.0],
+	"elbow": [0.6, -0.3, -0.3]
+},
+	{
+	"t": 0.46,
+	"d": 0.42,
+	"py": 0.46,
+	"pz": 0.0,
+	"pitch": 1.1,
+	"roll": 0.0,
+	"tuck": -0.35,
+	"hands": [0.27, 0.07, 0.6, 0.27, 0.07, 0.6],
+	"feet": [0.15, 0.08, 0.4, 0.15, 0.09, -0.15],
+	"knee": [-0.6, 1.0],
+	"elbow": [0.6, 0.0, -0.6]
+},
+	{
+	"t": 0.62,
+	"d": 0.46,
+	"py": 0.38,
+	"pz": 0.0,
+	"pitch": 1.3,
+	"roll": 0.0,
+	"tuck": -0.4,
+	"hands": [0.3, 0.07, 0.56, 0.3, 0.07, 0.56],
+	"feet": [0.14, 0.09, 0.05, 0.15, 0.09, -0.2],
+	"knee": [-1.0, 0.3],
+	"elbow": [0.7, 0.2, -0.6]
+},
+	{
+	"t": 0.84,
+	"d": 0.48,
+	"py": 0.42,
+	"pz": 0.0,
+	"pitch": 1.2,
+	"roll": 0.0,
+	"tuck": -0.45,
+	"hands": [0.29, 0.07, 0.53, 0.29, 0.07, 0.53],
+	"feet": [0.14, 0.09, -0.3, 0.15, 0.09, -0.3],
+	"knee": [-1.0, 0.2],
+	"elbow": [0.6, 0.1, -0.5]
+}
+]
+	TFighter.FALL_FLAT = [JS.map1(TFighter.FALL_BACK, TFighter.fallFlat), JS.map1(TFighter.FALL_FRONT, TFighter.fallFlat)]
 	TFighter.TRUNK_Y = [-0.62, -0.5, -0.36, -0.2, -0.1, -0.02, 0.14, 0.22, 0.28]
 	TFighter.TRUNK_W = [0.14, 0.2, 0.16, 0.17, 0.2, 0.25, 0.27, 0.22, 0.1]
 	TFighter.TRUNK_F = [0.1, 0.13, 0.12, 0.14, 0.16, 0.21, 0.21, 0.1, 0.06]

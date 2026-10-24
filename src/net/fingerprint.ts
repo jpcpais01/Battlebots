@@ -1,5 +1,5 @@
 import { Match } from '../sim/match';
-import { matchHash } from '../sim/hash';
+import { matchHash, SIM_REV } from '../sim/hash';
 import { MOVES } from '../sim/moves';
 import { BASE_STATS, COMPANIES, ITEMS, MAX_RARITY, RARITIES, SIZE_EFFECT, SIZE_MAX, SIZE_MIN } from '../game/items';
 import { randomBot } from '../game/loadout';
@@ -22,7 +22,7 @@ export function simFingerprint(): number {
   const mix = (v: number) => {
     h = Math.imul(h ^ (v | 0), 0x01000193);
   };
-  const data = JSON.stringify([ITEMS, COMPANIES, MOVES, BASE_STATS, RARITIES, MAX_RARITY, SIZE_EFFECT, SIZE_MIN, SIZE_MAX, FINISHES.length, FRAMES.length, EMOTE_INFO.map((e) => e.id), FINISH_AT, FINISH_SELF, Object.values(FINISHERS).map((f) => [f.id, f.tail, f.steps])]);
+  const data = JSON.stringify([ITEMS, COMPANIES, MOVES, BASE_STATS, RARITIES, MAX_RARITY, SIZE_EFFECT, SIZE_MIN, SIZE_MAX, FINISHES.length, FRAMES.length, EMOTE_INFO.map((e) => e.id), FINISH_AT, FINISH_SELF, Object.values(FINISHERS).map((f) => [f.id, f.tail, f.steps]), SIM_REV]);
   for (let i = 0; i < data.length; i++) mix(data.charCodeAt(i));
   const rng = new Rng(0xb07b07);
   // (one corner picks a fighting style, so a build that doesn't know styles can't pair up)

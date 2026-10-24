@@ -16,6 +16,16 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-24 18:00",
+    title: "Knockdowns that fall like fighters",
+    notes: [
+      "A robot knocked down but not out now falls like a fighter. Rocked back onto its heels, it throws its arms out, sits down behind its feet and rolls back with its chin tucked, slapping the canvas with both arms.",
+      "Pitched forward, it stumbles a step, drops onto its knees and catches itself on its gloves, then pushes up onto all fours.",
+      "Down on the canvas it stays alive while the count goes on: the head lifts to look up, a glove pushes at the mat and the knees shift.",
+      "Knocked out cold by a head shot, a robot's arm locks straight up as it hits the canvas and stays there a long moment before it goes limp.",
+    ],
+  },
+  {
     hour: "2026-10-24 16:00",
     title: "Every hit lands its own way",
     notes: [
