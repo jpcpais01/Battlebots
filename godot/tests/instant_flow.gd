@@ -3,7 +3,7 @@
 ## replay, the replay's copy of the fight plays the blow (every state hash it makes matching the
 ## live fight's at that step), then the live fight comes back in its end, the end reaches the app
 ## once and the results come up with the fight counted once. A second knockout is skipped with a
-## tap; a third is fought with KO replays turned off.
+## tap; a tag team match's is watched too; the last is fought with KO replays turned off.
 ##   godot --headless --path godot -s res://tests/instant_flow.gd
 extends SceneTree
 
@@ -49,6 +49,7 @@ func _run() -> void:
 			_ends += 1)
 	await _knockout("watched", false)
 	await _knockout("skipped", true)
+	await _knockout("tag", false)
 	app.game.settings.ko_replay = false
 	await _knockout("off", false)
 	print("instant_flow: %s" % ("PASS" if _fails == 0 else "%d FAILED" % _fails))
@@ -59,7 +60,11 @@ func _run() -> void:
 func _knockout(how: String, skip: bool) -> void:
 	var g = app.game
 	for attempt in 6:
-		app.fight(false, false)
+		if how == "tag":
+			var rng := TMath.Rng.new(77.0 + attempt)
+			app.start_tag_fight(TLoadout.randomBot(rng), [TLoadout.randomBot(rng), TLoadout.randomBot(rng)], ["Us", "Them"])
+		else:
+			app.fight(false, false)
 		g.net_hash_every = HASH
 		await _until(func() -> bool: return g.m.phase == "intro" and g.m.phaseTime > 1.0)
 		g.hud.skip_tap = true

@@ -31,14 +31,14 @@ static func prepare(app: App) -> void:
 		if g.m.result == "Decision" or g.m.result == "Draw" or g.instant.state == InstantReplay.IDLE:
 			print("instant_prep: a %s, again" % g.m.result)
 			continue
-		g.speed = 4.0
+		g.speed = 1.0
 		var t0 := Time.get_ticks_msec()
 		while Time.get_ticks_msec() - t0 < 600000:
 			if at == "wipe" and g.instant.state == InstantReplay.WIPE_IN and g.instant_view._wt > 0.2:
 				break
 			if g.instant.on():
 				var f := int(g.m.frame)
-				var want: int = g.instant.focal + {"lead": -100, "blow": 2, "fall": 60}.get(at, 2)
+				var want: int = g.instant.focal + {"lead": -100, "blow": 14, "fall": 60}.get(at, 14)
 				if f >= want:
 					break
 			await tree.process_frame

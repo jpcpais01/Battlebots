@@ -829,7 +829,12 @@ func _instant_frame(dt: float) -> void:
 			ir.waited += dt
 			if ir.state == InstantReplay.READY:
 				ir.state = InstantReplay.WIPE_IN
-				instant_view.wipe()
+				var v := instant_view
+				v.result = "DISMANTLED" if ir.result == "Dismantled" else ir.result
+				v.who = ir.winner_name
+				v.move = ir.move
+				v.accent = ir.accent
+				v.wipe()
 				sfx.whoosh(true, false, 0.9)
 			elif ir.waited > InstantReplay.WAIT_MAX:
 				# still a long way from the blow: no replay this time, the fight ends as it would have
@@ -863,10 +868,6 @@ func _instant_in() -> void:
 	hud.visible = false
 	sfx.slow_rate = SLOW_SOUND
 	var v := instant_view
-	v.result = "DISMANTLED" if ir.result == "Dismantled" else ir.result
-	v.who = ir.winner_name
-	v.move = ir.move
-	v.accent = ir.accent
 	v.rate = ir.rate(int(m.frame))
 	v.show_replay(true)
 	v.uncover()

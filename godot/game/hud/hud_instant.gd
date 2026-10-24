@@ -242,17 +242,27 @@ func _draw_wipe(sz: Vector2) -> void:
 		_band(x - sw, x, sk, sz.y, cols[int(s[1])])
 		x -= sw
 	_band(x - BODY_W * w, x, sk, sz.y, NAVY)
-	# REPLAY across the body's middle, moving with it
+	# faint lines along the body, the way the stripes lean
+	for k in 5:
+		var lx := x - w * (0.18 + 0.27 * k)
+		_band(lx - w * 0.012, lx, sk, sz.y, Color(1, 1, 1, 0.035 + 0.015 * (k % 2)))
+	# REPLAY and who it's for, centred on the screen while the body covers it, moving with it
 	var em := HudKit.em_for(sz)
 	var font := HudKit.broadcast()
-	var fs := em * 3.0
+	var fs := em * 3.2
 	var word := "REPLAY"
 	var ww := HudKit.width(font, word, fs)
-	var cx := x - BODY_W * w * 0.5 - ww * 0.5
-	cx = clampf(cx, x - BODY_W * w + em, x - ww - em)
-	var cy := sz.y * 0.5 + fs * 0.36
-	_c.draw_string(font, Vector2(cx, cy), word, HORIZONTAL_ALIGNMENT_LEFT, -1, int(fs), Color(1, 1, 1, 0.95))
+	var drift := x - (cover - stripes) * w
+	var cx := w * 0.5 - ww * 0.5 + drift
+	var cy := sz.y * 0.5 + fs * 0.2
+	_c.draw_string(font, Vector2(cx, cy), word, HORIZONTAL_ALIGNMENT_LEFT, -1, int(fs), Color(1, 1, 1, 0.96))
 	_c.draw_rect(Rect2(cx, cy + fs * 0.2, ww, maxf(3.0, em * 0.25)), accent)
+	if who != "":
+		var small := MenuKit.broadcast(700)
+		var sfs := em * 1.05
+		var sub := (result + "  ·  " + who).to_upper()
+		var sw := HudKit.width(small, sub, sfs)
+		_c.draw_string(small, Vector2(w * 0.5 - sw * 0.5 + drift, cy + fs * 0.2 + em * 1.9), sub, HORIZONTAL_ALIGNMENT_LEFT, -1, int(sfs), Color(HudKit.TEXT_2, 0.9))
 
 
 ## A band of the stinger from x0 to x1 (at mid height), leaning right by `sk` over the height.
