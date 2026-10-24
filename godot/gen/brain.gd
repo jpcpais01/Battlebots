@@ -1438,7 +1438,7 @@ class Brain extends RefCounted:
 		var motor: float = rng.range_(0.02, 0.05)
 		var _hMOVES = TMoves.MOVES
 		var need = {
-	"block": 0.05,
+	"block": ((0.1 / agility) if (cls == "kickLow") else 0.05),
 	"slip": (0.07 / agility),
 	"duck": (0.08 / agility),
 	"sway": (0.08 / agility),
@@ -1521,7 +1521,8 @@ class Brain extends RefCounted:
 	"cls": cls,
 	"zone": zone,
 	"dir": dir,
-	"mine": ((busy.uid if busy != null else null) if (busy.uid if busy != null else null) != null else 0.0)
+	"mine": ((busy.uid if busy != null else null) if (busy.uid if busy != null else null) != null else 0.0),
+	"move": move.id
 }
 	
 	func slipDir(move) -> float:
@@ -1554,12 +1555,14 @@ class Brain extends RefCounted:
 			self.holdGuard = guardFor.call(pr.zone)
 			self.guardHoldUntil = (time + 0.45)
 			me.guardMode = holdGuard
+			coverFor(pr.move, pr.zone, pr.uid)
 		elif pr.resp == "slip" or pr.resp == "duck" or pr.resp == "sway" or pr.resp == "backstep" or pr.resp == "sidestep":
 			var dir: float = (circleDir if (pr.resp == "sidestep") else pr.dir)
 			if (not me.tryDodge(pr.resp, dir)):
 				self.holdGuard = guardFor.call(pr.zone)
 				self.guardHoldUntil = (time + 0.4)
 				activeResp.resp = "block"
+				coverFor(pr.move, pr.zone, pr.uid)
 		elif pr.resp == "sprawl":
 			if (not me.tryDodge("sprawl", 0.0)):
 				self.holdGuard = "body"
@@ -1574,6 +1577,11 @@ class Brain extends RefCounted:
 				beginBurst((2.0 if rng.chance((0.35 + (effAggression() * 0.3))) else 1.0))
 		elif pr.resp == "absorb":
 			pass
+	
+	func coverFor(id: String, zone: String, uid: float) -> void:
+		var move = TMoves.MOVES[id]
+		var parry: bool = (((move.path == "straight") and (zone == "head")) and rng.chance((0.15 + (traits.skill * 0.35))))
+		me.coverUp(move, zone, opp.strikeSide(move), uid, parry)
 	
 	func recordOppAttack(move, dist: float) -> void:
 		TBrain.learn(oppAttackRange, minf(2.2, dist), 0.12)
@@ -1795,7 +1803,7 @@ static func __init_module() -> void:
 	"overhead": {"block": 0.3, "slip": 0.5, "duck": 0.4, "sway": 0.4, "backstep": 0.6, "sidestep": 0.55, "counter": 0.5, "absorb": 0.05},
 	"kickHigh": {"block": 0.45, "slip": 0.1, "duck": 0.65, "sway": 0.4, "backstep": 0.55, "sidestep": 0.2, "counter": 0.25, "absorb": 0.05},
 	"kickMid": {"block": 0.4, "slip": 0.1, "duck": 0.05, "sway": 0.15, "backstep": 0.6, "sidestep": 0.55, "counter": 0.2, "absorb": 0.1},
-	"kickLow": {"block": 0.05, "slip": 0.05, "duck": 0.0, "sway": 0.1, "backstep": 0.7, "sidestep": 0.45, "counter": 0.3, "absorb": 0.15},
+	"kickLow": {"block": 0.5, "slip": 0.05, "duck": 0.0, "sway": 0.1, "backstep": 0.7, "sidestep": 0.45, "counter": 0.3, "absorb": 0.15},
 	"lunge": {"block": 0.4, "slip": 0.25, "duck": 0.3, "sway": 0.2, "backstep": 0.35, "sidestep": 0.65, "counter": 0.35, "absorb": 0.05},
 	"shoot": {"block": 0.05, "slip": 0.05, "duck": 0.0, "sway": 0.05, "backstep": 0.5, "sidestep": 0.5, "counter": 0.4, "absorb": 0.05, "sprawl": 0.85},
 	"tie": {"block": 0.1, "slip": 0.35, "duck": 0.25, "sway": 0.3, "backstep": 0.55, "sidestep": 0.45, "counter": 0.45, "absorb": 0.25}

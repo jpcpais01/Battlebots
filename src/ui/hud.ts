@@ -870,6 +870,11 @@ export class Hud {
           break;
         }
         const dmg = Math.round(h.damage);
+        // met by a parry or a checking shin: say so where it was met
+        if (h.guard === 'parry' || h.guard === 'check') {
+          this.floatAt(h.point, h.guard === 'parry' ? 'PARRY' : 'CHECKED', 'blk');
+          break;
+        }
         if (h.blocked) {
           if (dmg >= 4) this.floatAt(h.point, String(dmg), 'blk');
           if (h.guardBreak) this.callout('GUARD BREAK', 'small cyan');

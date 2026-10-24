@@ -41,6 +41,9 @@ const winnerCond = new Float64Array(PART_COUNT);
 let condN = 0;
 const moveUse = new Map<string, { n: number; hit: number; blk: number; dodge: number; whiff: number }>();
 const respUse = new Map<string, number>();
+/** Guards shaped to a shot (Fighter.cover) by kind, and the hits they met ('guard' parry/check). */
+const covers = new Map<string, number>();
+const guards = new Map<string, number>();
 const plans = new Map<string, number>();
 const distHist = [0, 0, 0, 0, 0];
 /** Grappling: clinches, breaks, takedowns, sprawls, shoves to the floor. */
@@ -76,6 +79,7 @@ for (let i = 0; i < N; i++) {
       agg.tears++;
       tornParts.set(PART_NAME[d.part], (tornParts.get(PART_NAME[d.part]) ?? 0) + 1);
     }
+    if (type === 'hit' && d.guard) guards.set(d.guard, (guards.get(d.guard) ?? 0) + 1);
     if (type === 'dodgeStart') respUse.set(d.d.type, (respUse.get(d.d.type) ?? 0) + 1);
     if (type === 'clinch') tally(d.pinned ? 'clinch(pinned)' : 'clinch');
     if (type === 'clinchBreak') tally(d.ref ? 'break(ref)' : 'break(push)');
@@ -89,8 +93,16 @@ for (let i = 0; i < N; i++) {
   let lastLanded = 0;
   let quiet = 0;
   let ringOut = false;
+  const lastCover = [0, 0];
   while (m.phase !== 'end' && steps < 140 * 120) {
     m.step(SIM_DT);
+    for (const f of m.fighters) {
+      const c = f.cover;
+      if (c && c.uid !== lastCover[f.index]) {
+        lastCover[f.index] = c.uid;
+        covers.set(c.kind, (covers.get(c.kind) ?? 0) + 1);
+      }
+    }
     steps++;
     if (m.phase === 'fight') {
       fightSteps++;
@@ -157,6 +169,7 @@ console.log(`stalls(8s no hits) ${agg.stalls} nan ${agg.nan} staggers/match ${pe
 console.log('distance hist (0.6m bins):', distHist.map((x) => ((x / distHist.reduce((a, b) => a + b, 0)) * 100).toFixed(0) + '%').join(' '));
 console.log('plans:', [...plans.entries()].map(([k, v]) => `${k}:${v}`).join(' '));
 console.log('dodges:', [...respUse.entries()].map(([k, v]) => `${k}:${v}`).join(' '));
+console.log('covers:', [...covers.entries()].map(([k, v]) => `${k}:${v}`).join(' '), '| met:', [...guards.entries()].map(([k, v]) => `${k}:${v}`).join(' '));
 console.log(`grappling (per match): ${[...grap.entries()].map(([k, v]) => `${k} ${per(v)}`).join(', ')} | time grappling ${((clinchSteps / fightSteps) * 100).toFixed(1)}%`);
 console.log('moves:');
 for (const [k, e] of [...moveUse.entries()].sort((a, b) => b[1].n - a[1].n)) {

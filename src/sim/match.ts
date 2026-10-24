@@ -66,6 +66,8 @@ export interface HitInfo {
   tore: number;
   /** A blow of a finisher. */
   finisher?: boolean;
+  /** How it was met, when not just a guard: 'parry' (knocked off line) or 'check' (a shin raised into a kick). */
+  guard?: string;
 }
 
 /** A finisher starting: who, on whom, which one. */
@@ -588,9 +590,20 @@ export class Match {
       _p.lerpVectors(from, to, k / 3);
       let hit: 'block' | Zone | null = null;
       let blockHand = -1;
+      let how = '';
       // which of the defender's parts it touched
       let part: number = P.Chest;
-      if (canGuard) {
+      // a kick met by a raised shin (a check): it takes the kick before anything else can
+      const cv = def.cover;
+      if (cv && cv.kind === 'check' && cv.w > 0.45 && s.move.kind === 'kick' && s.zone !== 'head' && (def.state === 'fight' || def.state === 'stun')) {
+        closestOnSegment(_p, db[cv.side ? J.KneeR : J.KneeL], db[cv.side ? J.FootR : J.FootL], _c);
+        if (_c.distanceTo(_p) < r + 0.1 * z) {
+          hit = 'block';
+          part = legPart(cv.side, 1);
+          how = 'check';
+        }
+      }
+      if (canGuard && !hit) {
         for (let side = 0; side < 2; side++) {
           const ds = def.strike;
           const sideCh = side === 0 ? 'L' : 'R';
@@ -620,6 +633,8 @@ export class Match {
           }
         }
       }
+      // met by the glove that was slapping it aside
+      if (hit === 'block' && blockHand >= 0 && cv && cv.kind === 'parry' && cv.side === blockHand && cv.w > 0.5) how = 'parry';
       if (!hit && _p.distanceTo(db[J.Head]) < r + 0.17 * z) {
         hit = 'head';
         part = P.Head;
@@ -668,7 +683,7 @@ export class Match {
       if (hit) {
         // a bot this close to the end can't stop the shot that starts a finisher, guard or no guard
         if (this.canFinish(att)) this.beginFinisher(att, s, hit === 'block' ? s.zone : hit, _p.clone());
-        else this.resolveHit(att, def, s, hit === 'block' ? s.zone : hit, hit === 'block', _p.clone(), blockHand, part);
+        else this.resolveHit(att, def, s, hit === 'block' ? s.zone : hit, hit === 'block', _p.clone(), blockHand, part, how);
         return;
       }
     }
@@ -837,7 +852,9 @@ export class Match {
   }
 
   // ---------------------------------------------------------------- damage
-  private resolveHit(att: Fighter, def: Fighter, s: StrikeAction, zone: Zone, blocked: boolean, point: Vector3, blockHand: number, part: number) {
+  private resolveHit(att: Fighter, def: Fighter, s: StrikeAction, zone: Zone, blocked: boolean, point: Vector3, blockHand: number, part: number, how = '') {
+    const parried = blocked && how === 'parry';
+    const checked = blocked && how === 'check';
     const m = s.move;
     const ast = att.build.stats;
     const dst = def.build.stats;
@@ -881,6 +898,8 @@ export class Match {
     if (blocked) {
       dmg *= (m.guardBreak ? 0.45 : 0.16) * (1 - def.passive('plating'));
     }
+    // knocked off line: it goes past, nothing in it
+    if (parried) dmg = 0;
     let shielded = false;
     if (def.shield && !blocked) {
       shielded = true;
@@ -895,7 +914,7 @@ export class Match {
     if (zone === 'head') poiseDmg *= 1.2;
     // a shove moves them guard or no guard
     if (blocked) poiseDmg *= m.guardBreak ? 1.2 : m.path === 'push' ? 0.85 : 0.3;
-    if (shielded) poiseDmg = 0;
+    if (shielded || parried) poiseDmg = 0;
     if (crit) poiseDmg *= 1.3;
     if (counter) poiseDmg *= 1.3;
 
@@ -907,11 +926,12 @@ export class Match {
     // and the fist or foot thrown into it
     let tore = -1;
     let partCond = def.parts.cond[part];
-    if (!shielded) {
+    if (!shielded && !parried) {
       const strikerPart = this.strikerPart(s);
       const shred = 1 + att.passive('shatter');
       if (blocked) {
-        partCond = def.parts.damage(part, strength * (m.guardBreak ? 0.6 : 0.38) * shred);
+        // (a shin turned into a kick is built for it: it barely notices)
+        partCond = def.parts.damage(part, strength * (m.guardBreak ? 0.6 : checked ? 0.12 : 0.38) * shred);
         this.wearCheck(def, part);
         if (strikerPart >= 0) {
           att.parts.damage(strikerPart, strength * 0.24);
@@ -922,8 +942,27 @@ export class Match {
         this.wearCheck(def, part);
       }
       // a strong enough shot on a part hanging on by a thread rips it off
-      const chance = def.parts.tearChance(part, (blocked ? strength * 0.6 : strength) * (crit ? 1.25 : 1) * (m.ability ? 1.15 : 1));
+      const chance = checked ? 0 : def.parts.tearChance(part, (blocked ? strength * 0.6 : strength) * (crit ? 1.25 : 1) * (m.ability ? 1.15 : 1));
       if (chance > 0 && rng.chance(chance)) tore = part;
+    }
+    if (checked) {
+      // kicking into a raised shin hurts the one kicking: the shin rings, the leg is jarred
+      // and the balance goes
+      const shin = legPart(side, 1);
+      if (!att.parts.off[shin]) {
+        att.parts.damage(shin, strength * 0.3);
+        this.wearCheck(att, shin);
+      }
+      const back = Math.round(strength * 0.12);
+      att.hp = Math.max(1, att.hp - back);
+      def.stats.dealt += back;
+      att.poise -= m.poise * 0.5;
+      att.lastHitTime = this.time;
+    }
+    if (parried) {
+      // thrown off line: overreaching, slow getting back, and wide open
+      s.recovery *= 1.4;
+      att.poise -= m.poise * 0.35;
     }
     if (!blocked) {
       att.stats.dealt += dmg;
@@ -948,6 +987,8 @@ export class Match {
 
     // knockback
     let kb = m.knockback * (blocked && m.path !== 'push' ? 0.55 : 1) * (1 - def.passive('rooted'));
+    // a parry or a check takes it without being moved
+    if (parried || checked) kb = 0;
     if (m.id === 'pushKick') kb *= 1 + att.passive('trip');
     // a big frame shoves a small one about, and barely moves for it
     kb *= Math.sqrt(att.size / def.size);
@@ -960,7 +1001,22 @@ export class Match {
     // physical reaction
     const force = (2 + dmg * 0.05 + speed * 0.12) * (shielded ? 0.3 : 1);
     const body = def.body;
-    if (blocked) {
+    if (parried) {
+      // the fist is slapped across, past the head; the parrying glove carries on with it
+      def.right(_b);
+      const across = def.cover && def.cover.side === 0 ? 1 : -1;
+      _b.multiplyScalar(across * 3.2).addScaledVector(_a, 0.8);
+      att.body.addVelocity(att.strikerJoint(s), _b, SIM_DT);
+      body.addVelocity(blockHand === 0 ? J.HandL : J.HandR, _b.multiplyScalar(0.35), SIM_DT);
+    } else if (checked) {
+      // the kick bounces off the shin; the checking leg gives a little and holds
+      att.body.addVelocity(att.strikerJoint(s), _b.copy(dir).multiplyScalar(-3), SIM_DT);
+      const cs = def.cover ? def.cover.side : 0;
+      _b.copy(dir).multiplyScalar(1.2);
+      body.addVelocity(cs ? J.KneeR : J.KneeL, _b, SIM_DT);
+      body.addVelocity(cs ? J.FootR : J.FootL, _b, SIM_DT);
+      att.recoil(0, -0.2, -0.3, 'legs', 1.4);
+    } else if (blocked) {
       for (const h of [J.HandL, J.HandR, J.ElL, J.ElR]) {
         _b.copy(dir).multiplyScalar(2 + kb * 0.8);
         body.addVelocity(h, _b, SIM_DT);
@@ -988,7 +1044,7 @@ export class Match {
       for (const k of [J.KneeL, J.KneeR, J.FootL, J.FootR]) body.addVelocity(k, _b, SIM_DT);
     }
     // readable flinch in local space
-    if (!shielded) {
+    if (!shielded && !parried && !checked) {
       def.toLocal(_c.copy(def.root).add(dir), _b);
       const fk = (blocked ? 0.35 : 1) * (0.8 + dmg / 45);
       const zk = zone === 'head' ? 1 : 0.6;
@@ -1144,6 +1200,7 @@ export class Match {
       stagger,
       shielded,
       guardBreak,
+      guard: how,
     };
     this.emit('hit', info);
     if (knockdown) this.emit('knockdown', info);

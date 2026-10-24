@@ -478,8 +478,16 @@ class Match extends RefCounted:
 			_h_p.z = from.z + (to.z - from.z) * __v1
 			var hit = null
 			var blockHand: float = -1.0
+			var how: String = ""
 			var part: float = 1.0
-			if canGuard:
+			var cv = def.cover
+			if ((((((cv != null) and (cv.kind == "check")) and (cv.w > 0.45)) and (s.move.kind == "kick")) and (s.zone != "head")) and ((def.state == "fight") or (def.state == "stun"))):
+				TMath.closestOnSegment(_h_p, db[(14.0 if (cv.side != 0.0) else 11.0)], db[(15.0 if (cv.side != 0.0) else 12.0)], _h_c)
+				if (_h_c.distanceTo(_h_p) < (r + (0.1 * z))):
+					hit = "block"
+					part = TDamage.legPart(cv.side, 1.0)
+					how = "check"
+			if (canGuard and (not JS.truthy(hit))):
 				var side: int = 0
 				while (side < 2.0):
 					var ds = def.strike
@@ -507,6 +515,8 @@ class Match extends RefCounted:
 							part = TDamage.armPart(float(side), 0.0)
 							break
 					side += 1
+			if ((((((hit == "block") and (blockHand >= 0.0)) and (cv != null)) and (cv.kind == "parry")) and (cv.side == blockHand)) and (cv.w > 0.5)):
+				how = "parry"
 			if ((not JS.truthy(hit)) and (_h_p.distanceTo(db[3.0]) < (r + (0.17 * z)))):
 				hit = "head"
 				part = 0.0
@@ -551,7 +561,7 @@ class Match extends RefCounted:
 				if canFinish(att):
 					beginFinisher(att, s, (s.zone if (hit == "block") else hit), _h_p.clone())
 				else:
-					resolveHit(att, def, s, (s.zone if (hit == "block") else hit), (hit == "block"), _h_p.clone(), blockHand, part)
+					resolveHit(att, def, s, (s.zone if (hit == "block") else hit), (hit == "block"), _h_p.clone(), blockHand, part, how)
 				return
 			k += 1
 	
@@ -706,7 +716,9 @@ class Match extends RefCounted:
 			tag.startAssist(att.index, fin)
 		fin.opener(point, zone, s.move.id)
 	
-	func resolveHit(att: TFighter.Fighter, def: TFighter.Fighter, s, zone: String, blocked: bool, point: V3, blockHand: float, part: float) -> void:
+	func resolveHit(att: TFighter.Fighter, def: TFighter.Fighter, s, zone: String, blocked: bool, point: V3, blockHand: float, part: float, how: String = "") -> void:
+		var parried: bool = (blocked and (how == "parry"))
+		var checked: bool = (blocked and (how == "check"))
 		var m = s.move
 		var ast = att.build.stats
 		var dst = def.build.stats
@@ -754,6 +766,8 @@ class Match extends RefCounted:
 		var strength: float = dmg
 		if blocked:
 			dmg *= (((0.45 if (m.get("guardBreak") == true) else 0.16)) * ((1.0 - def.passive("plating"))))
+		if parried:
+			dmg = 0.0
 		var shielded: bool = false
 		if (def.shield and (not blocked)):
 			shielded = true
@@ -766,7 +780,7 @@ class Match extends RefCounted:
 			poiseDmg *= 1.2
 		if blocked:
 			poiseDmg *= (1.2 if (m.get("guardBreak") == true) else (0.85 if (m.path == "push") else 0.3))
-		if shielded:
+		if (shielded or parried):
 			poiseDmg = 0.0
 		if crit:
 			poiseDmg *= 1.3
@@ -777,11 +791,11 @@ class Match extends RefCounted:
 		def.lastHitTime = time
 		var tore: float = -1.0
 		var partCond: float = def.parts.cond[part]
-		if (not shielded):
+		if ((not shielded) and (not parried)):
 			var strikerPart: float = self.strikerPart(s)
 			var shred: float = (1.0 + att.passive("shatter"))
 			if blocked:
-				partCond = def.parts.damage(part, ((strength * ((0.6 if (m.get("guardBreak") == true) else 0.38))) * shred))
+				partCond = def.parts.damage(part, ((strength * ((0.6 if (m.get("guardBreak") == true) else (0.12 if checked else 0.38)))) * shred))
 				wearCheck(def, part)
 				if (strikerPart >= 0.0):
 					att.parts.damage(strikerPart, (strength * 0.24))
@@ -789,9 +803,22 @@ class Match extends RefCounted:
 			else:
 				partCond = def.parts.damage(part, (dmg * shred))
 				wearCheck(def, part)
-			var chance: float = def.parts.tearChance(part, (((((strength * 0.6) if blocked else strength)) * ((1.25 if crit else 1.0))) * ((1.15 if JS.truthy(m.get("ability")) else 1.0))))
+			var chance: float = (0.0 if checked else def.parts.tearChance(part, (((((strength * 0.6) if blocked else strength)) * ((1.25 if crit else 1.0))) * ((1.15 if JS.truthy(m.get("ability")) else 1.0)))))
 			if ((chance > 0.0) and rng.chance(chance)):
 				tore = part
+		if checked:
+			var shin: float = TDamage.legPart(side, 1.0)
+			if (not (att.parts.off[shin] != 0.0)):
+				att.parts.damage(shin, (strength * 0.3))
+				wearCheck(att, shin)
+			var back: float = JS.round((strength * 0.12))
+			att.hp = maxf(1.0, (att.hp - back))
+			def.stats.dealt += back
+			att.poise -= (m.poise * 0.5)
+			att.lastHitTime = time
+		if parried:
+			s.recovery *= 1.4
+			att.poise -= (m.poise * 0.35)
 		if (not blocked):
 			att.stats.dealt += dmg
 			att.stats.landed += 1.0
@@ -826,6 +853,8 @@ class Match extends RefCounted:
 		dir.y *= __v6
 		dir.z *= __v6
 		var kb: float = ((m.knockback * ((0.55 if (blocked and (m.path != "push")) else 1.0))) * ((1.0 - def.passive("rooted"))))
+		if (parried or checked):
+			kb = 0.0
 		if (m.id == "pushKick"):
 			kb *= (1.0 + att.passive("trip"))
 		kb *= sqrt((att.size_ / def.size_))
@@ -844,24 +873,48 @@ class Match extends RefCounted:
 		var force: float = ((((2.0 + (dmg * 0.05)) + (speed * 0.12))) * ((0.3 if shielded else 1.0)))
 		var body: TBody.Body = def.body
 		var _h_b: V3 = TMatch._b
-		if blocked:
+		if parried:
+			def.right(_h_b)
+			var across: float = (1.0 if ((def.cover != null) and (def.cover.side == 0.0)) else -1.0)
+			var __v9: float = (across * 3.2)
+			_h_b.x *= __v9
+			_h_b.y *= __v9
+			_h_b.z *= __v9
+			_h_b.x += _h_a.x * 0.8
+			_h_b.y += _h_a.y * 0.8
+			_h_b.z += _h_a.z * 0.8
+			att.body.addVelocity(att.strikerJoint(s), _h_b, TMatch.SIM_DT)
+			body.addVelocity((6.0 if (blockHand == 0.0) else 9.0), _h_b.multiplyScalar(0.35), TMatch.SIM_DT)
+		elif checked:
+			att.body.addVelocity(att.strikerJoint(s), _h_b.copy(dir).multiplyScalar(-3.0), TMatch.SIM_DT)
+			var cs: float = (def.cover.side if (def.cover != null) else 0.0)
+			_h_b.x = dir.x
+			_h_b.y = dir.y
+			_h_b.z = dir.z
+			_h_b.x *= 1.2
+			_h_b.y *= 1.2
+			_h_b.z *= 1.2
+			body.addVelocity((14.0 if (cs != 0.0) else 11.0), _h_b, TMatch.SIM_DT)
+			body.addVelocity((15.0 if (cs != 0.0) else 12.0), _h_b, TMatch.SIM_DT)
+			att.recoil(0.0, -0.2, -0.3, "legs", 1.4)
+		elif blocked:
 			for h in [6.0, 9.0, 5.0, 8.0]:
 				_h_b.x = dir.x
 				_h_b.y = dir.y
 				_h_b.z = dir.z
-				var __v9: float = (2.0 + (kb * 0.8))
-				_h_b.x *= __v9
-				_h_b.y *= __v9
-				_h_b.z *= __v9
+				var __v10: float = (2.0 + (kb * 0.8))
+				_h_b.x *= __v10
+				_h_b.y *= __v10
+				_h_b.z *= __v10
 				body.addVelocity(h, _h_b, TMatch.SIM_DT)
 				body.loose[h] = 0.45
 			_h_b.x = dir.x
 			_h_b.y = dir.y
 			_h_b.z = dir.z
-			var __v10: float = (0.8 + (kb * 0.3))
-			_h_b.x *= __v10
-			_h_b.y *= __v10
-			_h_b.z *= __v10
+			var __v11: float = (0.8 + (kb * 0.3))
+			_h_b.x *= __v11
+			_h_b.y *= __v11
+			_h_b.z *= __v11
 			body.addVelocity(3.0, _h_b, TMatch.SIM_DT)
 			if (blockHand >= 0.0):
 				att.body.addVelocity(att.strikerJoint(s), _h_b.copy(dir).multiplyScalar(-2.5), TMatch.SIM_DT)
@@ -882,10 +935,10 @@ class Match extends RefCounted:
 			_h_b.x = dir.x
 			_h_b.y = dir.y
 			_h_b.z = dir.z
-			var __v11: float = (force * 0.7)
-			_h_b.x *= __v11
-			_h_b.y *= __v11
-			_h_b.z *= __v11
+			var __v12: float = (force * 0.7)
+			_h_b.x *= __v12
+			_h_b.y *= __v12
+			_h_b.z *= __v12
 			body.addVelocity(1.0, _h_b, TMatch.SIM_DT)
 			body.addVelocity(0.0, _h_b.multiplyScalar(0.5), TMatch.SIM_DT)
 			body.loose[1.0] = 0.35
@@ -894,14 +947,14 @@ class Match extends RefCounted:
 			_h_b.x = dir.x
 			_h_b.y = dir.y
 			_h_b.z = dir.z
-			var __v12: float = (force * 0.8)
-			_h_b.x *= __v12
-			_h_b.y *= __v12
-			_h_b.z *= __v12
+			var __v13: float = (force * 0.8)
+			_h_b.x *= __v13
+			_h_b.y *= __v13
+			_h_b.z *= __v13
 			for k in [11.0, 14.0, 12.0, 15.0]:
 				body.addVelocity(k, _h_b, TMatch.SIM_DT)
 		var _h_c: V3 = TMatch._c
-		if (not shielded):
+		if (((not shielded) and (not parried)) and (not checked)):
 			def.toLocal(_h_c.copy(def.root).add(dir), _h_b)
 			var fk: float = (((0.35 if blocked else 1.0)) * ((0.8 + (dmg / 45.0))))
 			var zk: float = (1.0 if (zone == "head") else 0.6)
@@ -923,10 +976,10 @@ class Match extends RefCounted:
 				_h_b.x = dir.x
 				_h_b.y = dir.y
 				_h_b.z = dir.z
-				var __v13: float = (3.0 + (strength * 0.03))
-				_h_b.x *= __v13
-				_h_b.y *= __v13
-				_h_b.z *= __v13
+				var __v14: float = (3.0 + (strength * 0.03))
+				_h_b.x *= __v14
+				_h_b.y *= __v14
+				_h_b.z *= __v14
 				_h_b.y += 1.5
 				def.body.addVelocity(j, _h_b, TMatch.SIM_DT)
 			fatal = def.parts.lossReason()
@@ -1046,7 +1099,8 @@ class Match extends RefCounted:
 	"knockdown": knockdown,
 	"stagger": stagger,
 	"shielded": shielded,
-	"guardBreak": guardBreak
+	"guardBreak": guardBreak,
+	"guard": how
 }
 		emit("hit", info_2)
 		if knockdown:
