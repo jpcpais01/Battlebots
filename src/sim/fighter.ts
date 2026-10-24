@@ -60,6 +60,18 @@ export interface StrikeAction {
   counter: boolean;
   /** Thrown after a pause of 2s or more (the iaido passive's first strike). */
   poised?: boolean;
+  /**
+   * 1 when it went straight off a punch from the other hand, in a combination: that hand comes
+   * home from `pullFrom` (local) as this one goes out (see pullHome).
+   */
+  pull: number;
+  pullFrom: Vector3;
+  /**
+   * How far the shoulders and hips had turned through it when it ended (a punch stopped early,
+   * on a guard or a chin, unwinds from there instead of the body turning on after the fist).
+   */
+  shEnd: number;
+  hipEnd: number;
 }
 
 export interface DodgeAction {
@@ -577,6 +589,7 @@ export class Fighter {
   private _e2 = new Vector3();
   private _cvT = new Vector3();
   private _cvP = new Vector3();
+  private _pull = new Vector3();
   private headOff = new Vector3();
   /** 1 for a bulky chest (Juggernaut, Citadel: its armour sits further out). */
   private bulk = 0;
@@ -1013,7 +1026,17 @@ export class Fighter {
       lungeLeft: move.lunge * (1 + this.passive('pistonDrive')) * this.size * (this.legLost >= 0 ? 0.5 : 1),
       activeProgress: 0,
       counter: false,
+      pull: 0,
+      pullFrom: new Vector3(),
+      shEnd: 1,
+      hipEnd: 1,
     };
+    if (prev && prev.move.kind === 'punch' && move.kind === 'punch' && prev.side !== side && !move.multi && !scripted) {
+      // a combination: the hand that just threw is still on its way back, and its return is this
+      // one's wind-up (the pull home turns the shoulders through the next punch)
+      s.pull = 1;
+      s.pullFrom.copy(this.L[prev.side === 'L' ? J.HandL : J.HandR]);
+    }
     this.captureChamber(s);
     if (prev) this.finishStrike(prev, true);
     this.action = s;
@@ -1201,6 +1224,19 @@ export class Fighter {
     if (result) s.result = result;
     else if (s.result === 'pending') s.result = s.hasHit ? 'hit' : 'whiff';
     if (!replaced && s.phase !== 'recovery') {
+      if (s.move.kind === 'punch') {
+        // the turn it had put in by now, carrying on a little through what stopped it (a feint
+        // just stops); a power punch that found nothing turns them on past where it should have
+        // ended, and they have to haul themselves back round
+        const pr = this.strikeProfile(s);
+        const carry = s.feint ? 0 : 0.3;
+        s.shEnd = pr.sh + (1 - pr.sh) * carry;
+        s.hipEnd = pr.hip + (1 - pr.hip) * carry;
+        if (s.result === 'whiff' && s.move.power && !s.move.ability) {
+          s.shEnd = 1.25;
+          s.hipEnd = 1.12;
+        }
+      }
       s.phase = 'recovery';
       s.t = 0;
       // the limb's end (a knee strike still recovers the foot)
@@ -2613,6 +2649,23 @@ export class Fighter {
           default:
             break;
         }
+        // to the body, the level changes with the legs instead of the fist punching down: the knees
+        // bend, the trunk folds over them and the head comes off the line, away from the arm on a
+        // straight (behind the shoulder), over the punching side on a hook (digging under the ribs)
+        if (s.zone === 'body' && !m.ability && m.path !== 'push') {
+          const dig = Math.max(0.6 * ld, w);
+          crouch += (m.path === 'upper' ? 0.04 : 0.1) * dig;
+          pitch += 0.07 * dig;
+          hd.y -= 0.025 * dig;
+          if (m.path === 'hook') {
+            roll += sxp * 0.09 * dig;
+            pd.x += sxp * 0.03 * dig;
+            hd.x += sxp * 0.03 * dig;
+          } else {
+            hd.x -= sxp * 0.05 * dig;
+            roll -= sxp * 0.05 * dig;
+          }
+        }
         // reaching for a far target: the hips go in behind it and the trunk leans a little
         // (stepping in does most of it: see launchStrike)
         if (s.phase === 'active') {
@@ -3164,7 +3217,8 @@ export class Fighter {
           // the other hand shells up at the chin (in a special it may have a part of its own)
           const w = Math.max(prog.load, prog.sh, 0) * (1 - lower * 0.6);
           this.faceGuard(sx, hand, pole, clamp01(w));
-          offPart = this.specialOffHand(s, prog, sx, hand, pole);
+          if (s.pull) offPart = this.pullHome(s, sx, hand, pole);
+          offPart = Math.max(offPart, this.specialOffHand(s, prog, sx, hand, pole));
         } else {
           roll = this.kickArm(s, prog, side, hand, pole, head);
         }
@@ -3628,6 +3682,24 @@ export class Fighter {
   }
 
   /**
+   * In a combination, the hand that threw the last punch comes home as this one goes out: off
+   * the end of its punch, straight back to the chin on a line of its own, landing there as this
+   * fist lands (the pull home is what turns the shoulders through the next one). Returns how much
+   * it is still on its way (0..1).
+   */
+  private pullHome(s: StrikeAction, sx: number, hand: Vector3, pole: Vector3) {
+    if (s.phase === 'recovery') return 0;
+    const tt = s.phase === 'windup' ? s.t : s.windup + s.t;
+    const u = minJerk(clamp01(tt / (s.windup + s.active * 0.6)));
+    this.faceGuard(sx, hand, pole, 1);
+    this._pull.copy(hand);
+    // a touch tighter in, past the guard, as the other shoulder comes through
+    this._pull.x -= sx * 0.03 * DM.sin(Math.PI * u);
+    hand.copy(s.pullFrom).lerp(this._pull, u);
+    return 1 - u;
+  }
+
+  /**
    * The free hand's part in a special, over the chin guard it already holds: the haymaker's lead
    * hand reaches out to measure them and is yanked back as the punch comes over, the rocket
    * punch's steadies the launcher's forearm, and the guard breaker's joins the other fist
@@ -3801,12 +3873,25 @@ export class Fighter {
   private strikeProfile(s: StrikeAction): StrikeProg {
     const p = this._prog;
     const m = s.move;
-    const cock = m.kind === 'kick' ? 0.25 : m.path === 'overhand' ? 0.55 : m.path === 'hammer' ? 0.4 : m.path === 'hook' ? 0.35 : m.path === 'upper' ? 0.3 : m.id === 'jab' || m.multi ? 0.1 : 0.25;
+    let cock = m.kind === 'kick' ? 0.25 : m.path === 'overhand' ? 0.55 : m.path === 'hammer' ? 0.4 : m.path === 'hook' ? 0.35 : m.path === 'upper' ? 0.3 : m.id === 'jab' || m.multi ? 0.1 : 0.25;
+    // in a combination the last punch already turned the shoulders back for this one: it goes
+    // from there, without winding up again
+    if (s.pull) cock *= 0.3;
     p.ret = 0;
     p.ext = 0;
     // limbs move on minimum-jerk curves (speed builds, peaks and settles, like a
     // human reach) instead of leaving the guard at full speed
-    if (s.phase === 'windup') {
+    if (s.phase === 'windup' && s.feint && m.kind === 'punch') {
+      // a feint sells the first beat of the real thing and stops there: the shoulder snaps
+      // round, the hand half sent (ext here: how far it has gone), then it all comes back
+      const k = clamp01(s.t / s.windup);
+      p.k = k;
+      const f = minJerk(clamp01(k / 0.6));
+      p.load = 0;
+      p.ext = f;
+      p.sh = 0.45 * f;
+      p.hip = 0.2 * f;
+    } else if (s.phase === 'windup') {
       const k = clamp01(s.t / s.windup);
       p.k = k;
       // cock fully a beat before the release: the loaded pause reads as weight
@@ -3819,17 +3904,20 @@ export class Fighter {
       p.load = 1 - smoothstep(0, 0.6, k);
       // still moving at contact: the target point sits inside the opponent
       p.ext = 0.75 * minJerk(k) + 0.25 * k;
-      // kinetic chain: hips lead, shoulders follow, the fist arrives last
-      p.hip = lerp(0.55 - cock * 0.5, 1, minJerk(k * 1.5));
-      p.sh = lerp(-cock, 1, minJerk(k * 1.2));
+      // kinetic chain: hips lead, shoulders follow, the fist arrives last (a punch's hips and
+      // shoulders are through by the time it can land, so the fist rides the turn instead of
+      // the body turning on after it)
+      const pk = m.kind === 'punch' ? 1.7 : 1;
+      p.hip = lerp(0.55 - cock * 0.5, 1, minJerk(k * 1.5 * pk));
+      p.sh = lerp(-cock, 1, minJerk(k * 1.2 * pk));
     } else {
       const k = clamp01(s.t / s.recovery);
       p.k = k;
       p.load = 0;
       p.ext = 1;
       p.ret = k;
-      p.sh = 1 - minJerk(k * 1.1);
-      p.hip = 1 - minJerk(k);
+      p.sh = s.shEnd * (1 - minJerk(k * 1.1));
+      p.hip = s.hipEnd * (1 - minJerk(k));
     }
     return p;
   }
@@ -3873,7 +3961,11 @@ export class Fighter {
       load.copy(sh).addScaledVector(_p, 0.46).sub(C);
     }
     pole.set(sx * 0.5, -1, -0.3);
-    if (m.path === 'hook') pole.set(sx * 1, 0.35, -0.25);
+    // a hook to the head swings on a bent arm with the elbow up level with the fist; to the body
+    // the elbow stays down by the hip and the fist shovels in under the ribs
+    const bodyHook = m.path === 'hook' && s.zone === 'body' && !m.ability;
+    if (bodyHook) pole.set(sx * 0.8, -0.55, -0.3);
+    else if (m.path === 'hook') pole.set(sx * 1, lerp(0.35, 0.95, s.phase === 'windup' ? prog.load : 1), -0.25);
     else if (m.path === 'overhand') pole.set(sx * 1, 0.6, -0.45);
     else if (m.path === 'hammer') {
       // elbow points out and forward with the fist overhead, then down as it chops
@@ -3881,6 +3973,15 @@ export class Fighter {
       pole.set(sx * 0.9, lerp(0.25, -0.7, e), lerp(0.45, -0.1, e));
     } else if (m.path === 'upper') pole.set(sx * 0.3, -1, 0.35);
 
+    if (s.phase === 'windup' && s.feint) {
+      // the half-sent hand of a feint: out along the line at them (its recovery brings it home)
+      this.toLocal(s.aim, _p).sub(C);
+      const len = _p.length();
+      if (len > 1e-6) out.copy(C).addScaledVector(_p, (0.15 / len) * prog.ext);
+      else out.copy(C);
+      out.y -= 0.02 * prog.ext;
+      return 0.05 + 0.5 * prog.ext;
+    }
     if (s.phase === 'windup') {
       const u = prog.load;
       if (m.path === 'overhand') {
@@ -3909,6 +4010,8 @@ export class Fighter {
       const k = swing ? prog.k * (0.35 + 0.65 * prog.k) : prog.ext;
       const a = 1 - k;
       if (m.path === 'hammer') end.y -= 0.12;
+      // a head hook comes in on the jaw, level, not up at the crown
+      if (m.path === 'hook' && !bodyHook) end.y -= 0.06;
       // cubic bezier with path-shaped control points
       const c1 = this._c1.lerpVectors(start, end, 0.33);
       const c2 = this._c2.lerpVectors(start, end, 0.66);
@@ -3952,6 +4055,7 @@ export class Fighter {
       }
       if (m.path === 'upper') return -0.85;
       if (m.id === 'rocketPunch') return 1;
+      if (bodyHook) return lerp(0.2, -0.35, k);
       if (m.path === 'hook') return lerp(0.3, 0.9, k);
       if (m.path === 'overhand') return lerp(0.2, 0.8, k);
       if (m.path === 'hammer') return -0.2;
@@ -3961,8 +4065,9 @@ export class Fighter {
     const k = clamp01(s.t / s.recovery);
     const idx = s.side === 'L' ? 0 : 1;
     if (m.extend) this.extend[idx] = m.extend * (1 - smoothstep(0, 0.6, k));
-    // the fist leaves the target unhurried, then settles back into the guard
-    const r = 0.8 * minJerk(k) + 0.2 * easeOutQuad(k);
+    // the fist leaves the target unhurried, then settles back into the guard; a jab or a cross
+    // snaps straight back on the line it went out on, home well before the recovery is over
+    const r = m.path === 'straight' && !m.ability ? minJerk(clamp01(k / 0.6)) : 0.8 * minJerk(k) + 0.2 * easeOutQuad(k);
     out.copy(s.recoverFrom).lerp(guard, r);
     // retract along a slightly lower line so the fist doesn't float back
     out.y -= DM.sin(Math.PI * r) * 0.03;
@@ -3971,7 +4076,9 @@ export class Fighter {
     const thru = DM.sin(Math.PI * clamp01(k / 0.6)) * (s.hasHit ? 0.35 : 1);
     if (m.id === 'haymaker') out.add(_p.set(-sx * 0.22, -0.3, -0.04).multiplyScalar(thru));
     else if (m.id === 'shockUpper') out.add(_p.set(-sx * 0.03, 0.22, -0.08).multiplyScalar(thru));
-    const from = m.path === 'upper' ? -0.85 : m.path === 'straight' ? 1 : m.path === 'hammer' ? -0.2 : 0.8;
+    // a hook carries on across, the elbow still up, before it folds back home
+    else if (m.path === 'hook' && !bodyHook) out.add(_p.set(-sx * 0.16, 0.02, -0.06).multiplyScalar(thru));
+    const from = m.path === 'upper' ? -0.85 : m.path === 'straight' ? 1 : m.path === 'hammer' ? -0.2 : bodyHook ? -0.35 : 0.8;
     return lerp(from, 0.12, smoothstep(0, 0.7, k));
   }
 

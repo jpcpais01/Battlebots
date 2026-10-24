@@ -307,6 +307,7 @@ class Fighter extends RefCounted:
 	var _e2: V3
 	var _cvT: V3
 	var _cvP: V3
+	var _pull: V3
 	var headOff: V3
 	var bulk: float
 	var pelvisOff: V3
@@ -528,6 +529,7 @@ class Fighter extends RefCounted:
 		self._e2 = V3.new()
 		self._cvT = V3.new()
 		self._cvP = V3.new()
+		self._pull = V3.new()
 		self.headOff = V3.new()
 		self.bulk = 0.0
 		self.pelvisOff = V3.new()
@@ -875,8 +877,19 @@ class Fighter extends RefCounted:
 	"chained": (not (not (prev != null))),
 	"lungeLeft": (((move.lunge * ((1.0 + passive("pistonDrive")))) * size_) * ((0.5 if (legLost >= 0.0) else 1.0))),
 	"activeProgress": 0.0,
-	"counter": false
+	"counter": false,
+	"pull": 0.0,
+	"pullFrom": V3.new(),
+	"shEnd": 1.0,
+	"hipEnd": 1.0
 }
+		if ((((((prev != null) and (prev.move.kind == "punch")) and (move.kind == "punch")) and (prev.side != side)) and (not JS.truthy(move.get("multi")))) and (not scripted)):
+			s.pull = 1.0
+			var __v2: V3 = s.pullFrom
+			var __v3: V3 = L[(6.0 if (prev.side == "L") else 9.0)]
+			__v2.x = __v3.x
+			__v2.y = __v3.y
+			__v2.z = __v3.z
 		captureChamber(s)
 		if (prev != null):
 			finishStrike(prev, true)
@@ -1098,6 +1111,14 @@ class Fighter extends RefCounted:
 		elif (s.result == "pending"):
 			s.result = ("hit" if s.hasHit else "whiff")
 		if ((not replaced) and (s.phase != "recovery")):
+			if (s.move.kind == "punch"):
+				var pr = strikeProfile(s)
+				var carry: float = (0.0 if s.feint else 0.3)
+				s.shEnd = (pr.sh + (((1.0 - pr.sh)) * carry))
+				s.hipEnd = (pr.hip + (((1.0 - pr.hip)) * carry))
+				if (((s.result == "whiff") and s.move.power) and (not JS.truthy(s.move.get("ability")))):
+					s.shEnd = 1.25
+					s.hipEnd = 1.12
 			s.phase = "recovery"
 			s.t = 0.0
 			var L: bool = (s.side == "L")
@@ -2747,6 +2768,18 @@ class Fighter extends RefCounted:
 					heel[rearI] = maxf(heel[rearI], (0.55 * w))
 				else:
 					pass
+				if (((s.zone == "body") and (not JS.truthy(m.get("ability")))) and (m.path != "push")):
+					var dig: float = maxf((0.6 * ld), w)
+					crouch += (((0.04 if (m.path == "upper") else 0.1)) * dig)
+					pitch += (0.07 * dig)
+					hd.y -= (0.025 * dig)
+					if (m.path == "hook"):
+						roll += ((sxp * 0.09) * dig)
+						pd.x += ((sxp * 0.03) * dig)
+						hd.x += ((sxp * 0.03) * dig)
+					else:
+						hd.x -= ((sxp * 0.05) * dig)
+						roll -= ((sxp * 0.05) * dig)
 				if (s.phase == "active"):
 					var shIdx: float = (4.0 if (s.side == "L") else 7.0)
 					var deficit: float = ((body.pos[shIdx].distanceTo(s.endWorld) / self.size_) - (((TFighter.UPPER + TFighter.FORE) + extend[(0.0 if (s.side == "L") else 1.0)])))
@@ -3318,7 +3351,9 @@ class Fighter extends RefCounted:
 				elif (s.move.kind == "punch"):
 					var w_4: float = (maxf(maxf(prog.load_, prog.sh), 0.0) * ((1.0 - (lower * 0.6))))
 					faceGuard(sx, hand, pole, (((0.0 if (w_4 < 0.0) else (1.0 if (w_4 > 1.0) else w_4)))))
-					offPart = specialOffHand(s, prog, sx, hand, pole)
+					if (s.pull != 0.0):
+						offPart = pullHome(s, sx, hand, pole)
+					offPart = maxf(offPart, specialOffHand(s, prog, sx, hand, pole))
 				else:
 					roll_2 = kickArm(s, prog, float(side), hand, pole, head)
 			var cl: float = (TMath.clamp01(rClutch[side].v) * ((1.0 - cw)))
@@ -4106,6 +4141,19 @@ class Fighter extends RefCounted:
 			pole.y += __v4.y * 0.2
 			pole.z += __v4.z * 0.2
 	
+	func pullHome(s, sx: float, hand: V3, pole: V3) -> float:
+		if (s.phase == "recovery"):
+			return 0.0
+		var tt: float = (s.t if (s.phase == "windup") else (s.windup + s.t))
+		var u: float = TMath.minJerk(TMath.clamp01((tt / ((s.windup + (s.active * 0.6))))))
+		faceGuard(sx, hand, pole, 1.0)
+		_pull.x = hand.x
+		_pull.y = hand.y
+		_pull.z = hand.z
+		_pull.x -= ((sx * 0.03) * DM.sin((PI * u)))
+		hand.copy(s.pullFrom).lerp(_pull, u)
+		return (1.0 - u)
+	
 	func specialOffHand(s, prog, sx: float, hand: V3, pole: V3) -> float:
 		var m = s.move
 		var L: Array = self.L
@@ -4392,29 +4440,40 @@ class Fighter extends RefCounted:
 		var p = _prog
 		var m = s.move
 		var cock: float = (0.25 if (m.kind == "kick") else (0.55 if (m.path == "overhand") else (0.4 if (m.path == "hammer") else (0.35 if (m.path == "hook") else (0.3 if (m.path == "upper") else (0.1 if ((m.id == "jab") or JS.truthy(m.get("multi"))) else 0.25))))))
+		if (s.pull != 0.0):
+			cock *= 0.3
 		p.ret = 0.0
 		p.ext = 0.0
-		if (s.phase == "windup"):
+		if (((s.phase == "windup") and s.feint) and (m.kind == "punch")):
 			var k: float = TMath.clamp01((s.t / s.windup))
 			p.k = k
-			p.load_ = TMath.minJerk((k / 0.8))
-			p.sh = ((-cock) * p.load_)
-			p.hip = ((((-cock) * 0.5) * p.load_) + (0.55 * TMath.smoothstep_(0.55, 1.0, k)))
-		elif (s.phase == "active"):
-			var k_2: float = TMath.clamp01((s.t / s.active))
+			var f: float = TMath.minJerk((((0.0 if (((k / 0.6)) < 0.0) else (1.0 if (((k / 0.6)) > 1.0) else ((k / 0.6)))))))
+			p.load_ = 0.0
+			p.ext = f
+			p.sh = (0.45 * f)
+			p.hip = (0.2 * f)
+		elif (s.phase == "windup"):
+			var k_2: float = TMath.clamp01((s.t / s.windup))
 			p.k = k_2
-			p.load_ = (1.0 - TMath.smoothstep_(0.0, 0.6, k_2))
-			p.ext = ((0.75 * TMath.minJerk(k_2)) + (0.25 * k_2))
-			p.hip = TMath.lerp_((0.55 - (cock * 0.5)), 1.0, TMath.minJerk((k_2 * 1.5)))
-			p.sh = TMath.lerp_((-cock), 1.0, TMath.minJerk((k_2 * 1.2)))
-		else:
-			var k_3: float = TMath.clamp01((s.t / s.recovery))
+			p.load_ = TMath.minJerk((k_2 / 0.8))
+			p.sh = ((-cock) * p.load_)
+			p.hip = ((((-cock) * 0.5) * p.load_) + (0.55 * TMath.smoothstep_(0.55, 1.0, k_2)))
+		elif (s.phase == "active"):
+			var k_3: float = TMath.clamp01((s.t / s.active))
 			p.k = k_3
+			p.load_ = (1.0 - TMath.smoothstep_(0.0, 0.6, k_3))
+			p.ext = ((0.75 * TMath.minJerk(k_3)) + (0.25 * k_3))
+			var pk: float = (1.7 if (m.kind == "punch") else 1.0)
+			p.hip = TMath.lerp_((0.55 - (cock * 0.5)), 1.0, TMath.minJerk(((k_3 * 1.5) * pk)))
+			p.sh = TMath.lerp_((-cock), 1.0, TMath.minJerk(((k_3 * 1.2) * pk)))
+		else:
+			var k_4: float = TMath.clamp01((s.t / s.recovery))
+			p.k = k_4
 			p.load_ = 0.0
 			p.ext = 1.0
-			p.ret = k_3
-			p.sh = (1.0 - TMath.minJerk((k_3 * 1.1)))
-			p.hip = (1.0 - TMath.minJerk(k_3))
+			p.ret = k_4
+			p.sh = (s.shEnd * ((1.0 - TMath.minJerk((k_4 * 1.1)))))
+			p.hip = (s.hipEnd * ((1.0 - TMath.minJerk(k_4))))
 		return p
 	
 	func punchHand(s, prog, out: V3, pole: V3, sx: float) -> float:
@@ -4472,52 +4531,76 @@ class Fighter extends RefCounted:
 		pole.x = __v7
 		pole.y = -1.0
 		pole.z = -0.3
-		if (m.path == "hook"):
-			var __v8: float = (sx * 1.0)
+		var bodyHook: bool = (((m.path == "hook") and (s.zone == "body")) and (not JS.truthy(m.get("ability"))))
+		if bodyHook:
+			var __v8: float = (sx * 0.8)
 			pole.x = __v8
-			pole.y = 0.35
+			pole.y = -0.55
+			pole.z = -0.3
+		elif (m.path == "hook"):
+			var __v9: float = (sx * 1.0)
+			var __v10: float = TMath.lerp_(0.35, 0.95, (prog.load_ if (s.phase == "windup") else 1.0))
+			pole.x = __v9
+			pole.y = __v10
 			pole.z = -0.25
 		elif (m.path == "overhand"):
-			var __v9: float = (sx * 1.0)
-			pole.x = __v9
+			var __v11: float = (sx * 1.0)
+			pole.x = __v11
 			pole.y = 0.6
 			pole.z = -0.45
 		elif (m.path == "hammer"):
 			var e: float = (prog.ext if (s.phase == "active") else (1.0 if (s.phase == "recovery") else 0.0))
-			var __v10: float = (sx * 0.9)
-			var __v11: float = ((0.25 + (((-0.7 - 0.25)) * e)))
-			var __v12: float = ((0.45 + (((-0.1 - 0.45)) * e)))
-			pole.x = __v10
-			pole.y = __v11
-			pole.z = __v12
+			var __v12: float = (sx * 0.9)
+			var __v13: float = ((0.25 + (((-0.7 - 0.25)) * e)))
+			var __v14: float = ((0.45 + (((-0.1 - 0.45)) * e)))
+			pole.x = __v12
+			pole.y = __v13
+			pole.z = __v14
 		elif (m.path == "upper"):
-			var __v13: float = (sx * 0.3)
-			pole.x = __v13
+			var __v15: float = (sx * 0.3)
+			pole.x = __v15
 			pole.y = -1.0
 			pole.z = 0.35
+		if ((s.phase == "windup") and s.feint):
+			toLocal(s.aim, _h_p).sub(C)
+			var len_: float = sqrt(_h_p.x * _h_p.x + _h_p.y * _h_p.y + _h_p.z * _h_p.z)
+			if (len_ > 0.000001):
+				out.x = C.x
+				out.y = C.y
+				out.z = C.z
+				var __v16: float = (((0.15 / len_)) * prog.ext)
+				out.x += _h_p.x * __v16
+				out.y += _h_p.y * __v16
+				out.z += _h_p.z * __v16
+			else:
+				out.x = C.x
+				out.y = C.y
+				out.z = C.z
+			out.y -= (0.02 * prog.ext)
+			return (0.05 + (0.5 * prog.ext))
 		var _h_w: V3 = TFighter._w
 		if (s.phase == "windup"):
 			var u: float = prog.load_
 			if (m.path == "overhand"):
 				var a: float = (1.0 - u)
-				var __v14: float = (C.x + (sx * 0.2))
-				var __v15: float = (C.y - 0.85)
-				var __v16: float = (C.z - 0.35)
-				_h_p.x = __v14
-				_h_p.y = __v15
-				_h_p.z = __v16
-				var __v17: float = ((((a * a) * C.x) + (((2.0 * a) * u) * _h_p.x)) + ((u * u) * ((C.x + load_.x))))
-				var __v18: float = ((((a * a) * C.y) + (((2.0 * a) * u) * _h_p.y)) + ((u * u) * ((C.y + load_.y))))
-				var __v19: float = ((((a * a) * C.z) + (((2.0 * a) * u) * _h_p.z)) + ((u * u) * ((C.z + load_.z))))
-				out.x = __v17
-				out.y = __v18
-				out.z = __v19
-				var __v20: float = (sx * ((0.6 + (((1.0 - 0.6)) * u))))
-				var __v21: float = ((-0.5 + (((0.6 - -0.5)) * u)))
-				var __v22: float = ((-0.9 + (((-0.45 - -0.9)) * u)))
-				pole.x = __v20
-				pole.y = __v21
-				pole.z = __v22
+				var __v17: float = (C.x + (sx * 0.2))
+				var __v18: float = (C.y - 0.85)
+				var __v19: float = (C.z - 0.35)
+				_h_p.x = __v17
+				_h_p.y = __v18
+				_h_p.z = __v19
+				var __v20: float = ((((a * a) * C.x) + (((2.0 * a) * u) * _h_p.x)) + ((u * u) * ((C.x + load_.x))))
+				var __v21: float = ((((a * a) * C.y) + (((2.0 * a) * u) * _h_p.y)) + ((u * u) * ((C.y + load_.y))))
+				var __v22: float = ((((a * a) * C.z) + (((2.0 * a) * u) * _h_p.z)) + ((u * u) * ((C.z + load_.z))))
+				out.x = __v20
+				out.y = __v21
+				out.z = __v22
+				var __v23: float = (sx * ((0.6 + (((1.0 - 0.6)) * u))))
+				var __v24: float = ((-0.5 + (((0.6 - -0.5)) * u)))
+				var __v25: float = ((-0.9 + (((-0.45 - -0.9)) * u)))
+				pole.x = __v23
+				pole.y = __v24
+				pole.z = __v25
 			else:
 				out.x = C.x
 				out.y = C.y
@@ -4544,6 +4627,8 @@ class Fighter extends RefCounted:
 			var a_2: float = (1.0 - k)
 			if (m.path == "hammer"):
 				end.y -= 0.12
+			if ((m.path == "hook") and (not bodyHook)):
+				end.y -= 0.06
 			var c1: V3 = _c1.lerpVectors(start, end, 0.33)
 			var c2: V3 = _c2.lerpVectors(start, end, 0.66)
 			if m.path == "straight":
@@ -4555,56 +4640,56 @@ class Fighter extends RefCounted:
 				c2.x += (sx * 0.3)
 				c2.y = (end.y + 0.02)
 			elif m.path == "upper":
-				var __v23: float = (((start.x) + ((((end.x) - (start.x))) * 0.4)))
-				var __v24: float = (start.y - 0.06)
-				var __v25: float = (((start.z) + ((((end.z) - (start.z))) * 0.55)))
-				c1.x = __v23
-				c1.y = __v24
-				c1.z = __v25
-				var __v26: float = (((start.x) + ((((end.x) - (start.x))) * 0.85)))
-				var __v27: float = (((start.y) + ((((end.y) - (start.y))) * 0.55)))
-				var __v28: float = (end.z - 0.08)
-				c2.x = __v26
-				c2.y = __v27
-				c2.z = __v28
+				var __v26: float = (((start.x) + ((((end.x) - (start.x))) * 0.4)))
+				var __v27: float = (start.y - 0.06)
+				var __v28: float = (((start.z) + ((((end.z) - (start.z))) * 0.55)))
+				c1.x = __v26
+				c1.y = __v27
+				c1.z = __v28
+				var __v29: float = (((start.x) + ((((end.x) - (start.x))) * 0.85)))
+				var __v30: float = (((start.y) + ((((end.y) - (start.y))) * 0.55)))
+				var __v31: float = (end.z - 0.08)
+				c2.x = __v29
+				c2.y = __v30
+				c2.z = __v31
 			elif m.path == "overhand":
-				var __v29: float = (start.x + (sx * 0.32))
-				var __v30: float = (start.y + 0.16)
-				var __v31: float = (((start.z) + ((((end.z) - (start.z))) * 0.3)))
-				c1.x = __v29
-				c1.y = __v30
-				c1.z = __v31
-				var __v32: float = (end.x + (sx * 0.34))
-				var __v33: float = (end.y + 0.14)
-				var __v34: float = (end.z - 0.06)
-				c2.x = __v32
-				c2.y = __v33
-				c2.z = __v34
+				var __v32: float = (start.x + (sx * 0.32))
+				var __v33: float = (start.y + 0.16)
+				var __v34: float = (((start.z) + ((((end.z) - (start.z))) * 0.3)))
+				c1.x = __v32
+				c1.y = __v33
+				c1.z = __v34
+				var __v35: float = (end.x + (sx * 0.34))
+				var __v36: float = (end.y + 0.14)
+				var __v37: float = (end.z - 0.06)
+				c2.x = __v35
+				c2.y = __v36
+				c2.z = __v37
 			elif m.path == "hammer":
-				var __v35: float = (((start.x) + ((((end.x) - (start.x))) * 0.2)))
-				var __v36: float = (start.y + 0.22)
-				var __v37: float = (((start.z) + ((((end.z) - (start.z))) * 0.25)))
-				c1.x = __v35
-				c1.y = __v36
-				c1.z = __v37
-				var __v38: float = end.x
-				var __v39: float = (end.y + 0.6)
-				var __v40: float = (end.z + 0.02)
-				c2.x = __v38
-				c2.y = __v39
-				c2.z = __v40
+				var __v38: float = (((start.x) + ((((end.x) - (start.x))) * 0.2)))
+				var __v39: float = (start.y + 0.22)
+				var __v40: float = (((start.z) + ((((end.z) - (start.z))) * 0.25)))
+				c1.x = __v38
+				c1.y = __v39
+				c1.z = __v40
+				var __v41: float = end.x
+				var __v42: float = (end.y + 0.6)
+				var __v43: float = (end.z + 0.02)
+				c2.x = __v41
+				c2.y = __v42
+				c2.z = __v43
 			else:
 				pass
 			var b0: float = ((a_2 * a_2) * a_2)
 			var b1: float = (((3.0 * a_2) * a_2) * k)
 			var b2: float = (((3.0 * a_2) * k) * k)
 			var b3: float = ((k * k) * k)
-			var __v41: float = ((((b0 * start.x) + (b1 * c1.x)) + (b2 * c2.x)) + (b3 * end.x))
-			var __v42: float = ((((b0 * start.y) + (b1 * c1.y)) + (b2 * c2.y)) + (b3 * end.y))
-			var __v43: float = ((((b0 * start.z) + (b1 * c1.z)) + (b2 * c2.z)) + (b3 * end.z))
-			out.x = __v41
-			out.y = __v42
-			out.z = __v43
+			var __v44: float = ((((b0 * start.x) + (b1 * c1.x)) + (b2 * c2.x)) + (b3 * end.x))
+			var __v45: float = ((((b0 * start.y) + (b1 * c1.y)) + (b2 * c2.y)) + (b3 * end.y))
+			var __v46: float = ((((b0 * start.z) + (b1 * c1.z)) + (b2 * c2.z)) + (b3 * end.z))
+			out.x = __v44
+			out.y = __v45
+			out.z = __v46
 			if JS.truthy(m.get("extend")):
 				var idx: float = (0.0 if (s.side == "L") else 1.0)
 				extend[idx] = (m.get("extend") * TMath.smoothstep_(0.1, 0.7, k))
@@ -4612,6 +4697,8 @@ class Fighter extends RefCounted:
 				return -0.85
 			if (m.id == "rocketPunch"):
 				return 1.0
+			if bodyHook:
+				return ((0.2 + (((-0.35 - 0.2)) * k)))
 			if (m.path == "hook"):
 				return ((0.3 + (((0.9 - 0.3)) * k)))
 			if (m.path == "overhand"):
@@ -4623,21 +4710,26 @@ class Fighter extends RefCounted:
 		var idx_2: float = (0.0 if (s.side == "L") else 1.0)
 		if JS.truthy(m.get("extend")):
 			extend[idx_2] = (m.get("extend") * ((1.0 - TMath.smoothstep_(0.0, 0.6, k_2))))
-		var r: float = ((0.8 * TMath.minJerk(k_2)) + (0.2 * ((1.0 - (((1.0 - k_2)) * ((1.0 - k_2)))))))
+		var r: float = (TMath.minJerk((((0.0 if (((k_2 / 0.6)) < 0.0) else (1.0 if (((k_2 / 0.6)) > 1.0) else ((k_2 / 0.6))))))) if ((m.path == "straight") and (not JS.truthy(m.get("ability")))) else ((0.8 * TMath.minJerk(k_2)) + (0.2 * ((1.0 - (((1.0 - k_2)) * ((1.0 - k_2))))))))
 		out.copy(s.recoverFrom).lerp(guard, r)
 		out.y -= (DM.sin((PI * r)) * 0.03)
 		var thru: float = (DM.sin((PI * (((0.0 if (((k_2 / 0.6)) < 0.0) else (1.0 if (((k_2 / 0.6)) > 1.0) else ((k_2 / 0.6)))))))) * ((0.35 if s.hasHit else 1.0)))
 		if (m.id == "haymaker"):
-			var __v44: V3 = _h_p.set3(((-sx) * 0.22), -0.3, -0.04).multiplyScalar(thru)
-			out.x += __v44.x
-			out.y += __v44.y
-			out.z += __v44.z
+			var __v47: V3 = _h_p.set3(((-sx) * 0.22), -0.3, -0.04).multiplyScalar(thru)
+			out.x += __v47.x
+			out.y += __v47.y
+			out.z += __v47.z
 		elif (m.id == "shockUpper"):
-			var __v45: V3 = _h_p.set3(((-sx) * 0.03), 0.22, -0.08).multiplyScalar(thru)
-			out.x += __v45.x
-			out.y += __v45.y
-			out.z += __v45.z
-		var from: float = (-0.85 if (m.path == "upper") else (1.0 if (m.path == "straight") else (-0.2 if (m.path == "hammer") else 0.8)))
+			var __v48: V3 = _h_p.set3(((-sx) * 0.03), 0.22, -0.08).multiplyScalar(thru)
+			out.x += __v48.x
+			out.y += __v48.y
+			out.z += __v48.z
+		elif ((m.path == "hook") and (not bodyHook)):
+			var __v49: V3 = _h_p.set3(((-sx) * 0.16), 0.02, -0.06).multiplyScalar(thru)
+			out.x += __v49.x
+			out.y += __v49.y
+			out.z += __v49.z
+		var from: float = (-0.85 if (m.path == "upper") else (1.0 if (m.path == "straight") else (-0.2 if (m.path == "hammer") else (-0.35 if bodyHook else 0.8))))
 		return TMath.lerp_(from, 0.12, TMath.smoothstep_(0.0, 0.7, k_2))
 	
 	func pushHand(s, prog, sx: float, out: V3, pole: V3) -> float:
