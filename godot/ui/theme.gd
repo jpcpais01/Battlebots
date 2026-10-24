@@ -33,6 +33,7 @@ const TAP := 44.0
 
 ## src/ui/icons.ts: 24-unit line drawings (body, extra svg attributes), drawn in white and tinted.
 const ICONS := {
+	"download": ['<path d="M12 4v11"/><path d="M7 10.5l5 5 5-5"/><path d="M5 19.5h14"/>', ""],
 	"pause": ['<path d="M8 5v14M16 5v14"/>', 'stroke-width="3"'],
 	"play": ['<path d="M7 4l13 8-13 8z" fill="currentColor"/>', ""],
 	"sound": ['<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>', ""],

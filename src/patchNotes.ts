@@ -17,6 +17,14 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-24 12:00",
+    title: "Update from inside the game",
+    notes: [
+      "Android: new builds now show up on the home screen with their patch notes. One tap on Download update fetches it with a progress bar, then Android's installer opens. Your bots, record and career stay.",
+      "The first time, Android asks you to allow installs from Battlebots: the card takes you to that setting and carries on once you're back. A green Update pill by the version stays until you update.",
+    ],
+  },
+  {
+    hour: "2026-10-24 12:00",
     title: "Robots defend like real fighters",
     notes: [
       "Blocks now meet each shot the way a fighter would: the glove catches a straight on its line, the forearm goes up beside the head against a hook, the elbow drops over the ribs on a body shot, and both forearms close up the middle against uppercuts and knees.",

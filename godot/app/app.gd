@@ -107,6 +107,8 @@ var net: OnlineSession = null
 var net_fight = null
 ## The part slot the garage opens on, set by the home screen's part tiles ("" for its default).
 var garage_slot := ""
+## Newer builds from the repo's Releases page (app/update): checked once home is up.
+var updater: Updater
 var _clock := 0.0
 var _rng: TMath.Rng
 var _fade: ColorRect
@@ -129,6 +131,9 @@ func breathe() -> void:
 func _setup() -> void:
 	TInit.run()
 	_rng = TMath.Rng.new(float(randi()))
+	updater = Updater.new()
+	add_child(updater)
+	updater.found.connect(_offer_update)
 	player = Store.load_player()
 	record = Store.load_record()
 	# a one-time gift (career.ts GIFTS) paid just now: saved at once, shown once home is up
@@ -229,6 +234,20 @@ func _setup() -> void:
 		await boot.step("home")
 	if _gift > 0.0:
 		get_tree().create_timer(1.4).timeout.connect(_gift_banner)
+	# (a moment after home is up, off the loading screen's frames)
+	get_tree().create_timer(2.5).timeout.connect(updater.check)
+
+
+## A newer build was found: the home screen's Update pill shows it, and the card comes up by
+## itself once per version (unless it's been put off with Later) while the player is home with
+## nothing else up: until then it looks again every few seconds.
+func _offer_update() -> void:
+	if not updater.available() or String(Store.pref("updateLater", "")) == updater.latest:
+		return
+	if current != "home" or results != null or Modal.current(ui) != null or _gift > 0.0:
+		get_tree().create_timer(3.0).timeout.connect(_offer_update)
+		return
+	UpdateCard.open(ui, updater, tap)
 
 ## The one-time gift's moment (app.ts giftBanner): a gold banner with the credits, tap to close.
 func _gift_banner() -> void:

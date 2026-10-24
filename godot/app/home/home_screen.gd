@@ -24,6 +24,8 @@ var _em := UiTheme.EM
 var _top := HBoxContainer.new()
 var _notes: Button
 var _notes_dot: Control
+## The green Update pill by the version, while a newer build waits (app/update).
+var _update: Button
 ## The Skins button (the Skin Vault) and its gold dot while a free pull waits.
 var _vault: Button
 var _vault_dot: Control
@@ -117,6 +119,8 @@ func _build_top() -> void:
 	_notes = _notes_button()
 	brand.add_child(_notes)
 	brand.add_child(_version_label())
+	_update = _update_button()
+	brand.add_child(_update)
 	var gap := Control.new()
 	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -177,6 +181,46 @@ func _version_label() -> Label:
 	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l
+
+
+## The Update pill (app/update/updater.gd): green, with its arrow, "Update" or "Install" once
+## the new build is downloaded. Opens the update card.
+func _update_button() -> Button:
+	var fs := 0.78 * _em
+	var b := MenuKit.bare_button(0.94)
+	b.name = "Update"
+	var go := UpdateCard.GO
+	var face := MenuKit.pill(MenuKit.box(Color(go, 0.18), 999, [0.75 * fs, 0.4 * fs, 0.9 * fs, 0.4 * fs], Color(go, 0.6), 1), 0.35 * fs)
+	face.get_node("Row").add_child(MenuKit.icon("download", 1.15 * fs, go))
+	var l := MenuKit.label("Update", fs, 700, go.lerp(Color.WHITE, 0.35))
+	l.name = "Text"
+	face.get_node("Row").add_child(l)
+	b.add_child(face)
+	var sync := func() -> void:
+		var ms := face.get_combined_minimum_size()
+		b.custom_minimum_size = Vector2(ms.x, UiTheme.TAP)
+		face.size = ms
+		face.position = ((b.size - ms) * 0.5).round()
+	face.minimum_size_changed.connect(sync)
+	b.resized.connect(sync)
+	sync.call()
+	b.visible = false
+	b.pressed.connect(func() -> void:
+		app.tap("tap")
+		UpdateCard.open(app.ui, app.updater, app.tap))
+	if app != null and app.updater != null:
+		app.updater.found.connect(_sync_update)
+		app.updater.downloaded.connect(_sync_update)
+	_sync_update.call_deferred()
+	return b
+
+
+func _sync_update() -> void:
+	var u: Updater = app.updater if app != null else null
+	_update.visible = u != null and u.available()
+	if _update.visible:
+		var l := _update.find_child("Text", true, false) as Label
+		l.text = "Install v" + u.latest if u.ready_to_install() else "Update"
 
 
 static func app_version() -> String:
@@ -349,14 +393,16 @@ func patch_notes() -> void:
 		scroll.add_child(list)
 		var first := true
 		for p in TPatchNotes.PATCH_NOTES:
-			list.add_child(_note(p, first))
+			list.add_child(note_card(p, first))
 			first = false
 		m.body.add_child(scroll)
 		m.add_scroll(scroll), Callable(), true)
 
 
 ## One group (.note: a faint card, the newest one tinted blue): its title and hour, then its lines.
-func _note(p, first: bool) -> Control:
+## (The update card shows a new build's notes with it too.)
+static func note_card(p, first: bool) -> Control:
+	var _em := UiTheme.EM
 	var card := PanelContainer.new()
 	var bg := Color(MenuKit.ACCENT, 0.09) if first else Color(1, 1, 1, 0.035)
 	var line := Color(MenuKit.ACCENT, 0.3) if first else UiTheme.LINE
