@@ -17,6 +17,13 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-24 02:00",
+    title: "Tap to skip",
+    notes: [
+      "Android app: after a knockout, tap anywhere on the screen to skip straight to the results, just like skipping the KO replay. The small Skip button is gone.",
+    ],
+  },
+  {
+    hour: "2026-10-24 02:00",
     title: "The League",
     notes: [
       "Android app: every quick fight is now a League fight. Twenty rival pilots, each with their own bot, name and temper, share one table with you. Start at #21 and climb: beat someone ranked above you to take their place.",
