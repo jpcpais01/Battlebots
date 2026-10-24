@@ -16,6 +16,17 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-24 12:00",
+    title: "Robots defend like real fighters",
+    notes: [
+      "Blocks now meet each shot the way a fighter would: the glove catches a straight on its line, the forearm goes up beside the head against a hook, the elbow drops over the ribs on a body shot, and both forearms close up the middle against uppercuts and knees.",
+      "Parries: a skilled robot slaps a jab or cross aside as it arrives. A parried punch does no damage and leaves the attacker overreaching and open for the counter. Look for PARRY over the fight.",
+      "Leg checks: robots lift the knee and turn the shin into low kicks and body round kicks. A checked kick hurts the kicker's own shin and knocks it off balance. Look for CHECKED.",
+      "Head kicks are met with the arm stood up along the side of the head and the other glove braced behind it, the body leaning away from the kick.",
+      "Ducking is now a bob and weave: the robot drops under the shot, rolls across beneath it and comes up on the other side, with the hands glued to the chin through every slip, duck and sway.",
+    ],
+  },
+  {
     hour: "2026-10-24 03:00",
     title: "Finishers hit three times harder",
     notes: [

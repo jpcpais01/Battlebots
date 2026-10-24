@@ -8,7 +8,9 @@
 ## as the game cuts them).
 ## lab: instead of the fight, a reel of single moves with the brains off (like tests/motion_lab.ts),
 ## scenarios split by ";":
-##   strike:<move[,move...]>[:dist 1.0[:zone head[:down]]]   fighter 0 throws (a list chains them)
+##   strike:<move[,move...]>[:dist 1.0[:zone head[:down|cover|parry]]]   fighter 0 throws (a list
+##       chains them); "cover" has fighter 1 meet each with the guard shaped to it (Fighter.coverUp),
+##       "parry" the same with a parry for straights to the head
 ##   dodge:<type>[:dir 1]                                    fighter 0 dodges
 ##   stagger[:secs 1.2]                                      fighter 1 is rocked
 ##   idle[:secs 2]                                           both stand in their stances
@@ -36,6 +38,9 @@ var _lab_at := 0.0
 var _lab_ids: PackedStringArray = []
 var _lab_k := 0
 var _lab_zone := "head"
+## "cover" / "parry": fighter 1 meets each strike (see the header); the last strike it met
+var _lab_cover := ""
+var _lab_met := -1.0
 ## A new lab set-up was just placed: the lens starts afresh
 var _cut := false
 ## (match time) no frames are kept before this: the robots' models catch up with a new set-up
@@ -166,6 +171,7 @@ func _lab_next() -> void:
 		f.bounce = 0.6
 		f.stamina = f.build.stats.stamina
 	_lab_state = "settle"
+	_lab_cover = ""
 	_lab_at = m.time
 	# (a cut: the first set-up shows once everything has caught up, the rest a moment in)
 	_keep_from = m.time + (0.4 if _lab_i == 0 else 0.12)
@@ -189,6 +195,11 @@ func _lab_tick() -> void:
 	var A = m.fighters[0]
 	var B = m.fighters[1]
 	var sc := _lab_steps[_lab_i].split(":") if _lab_i < _lab_steps.size() else PackedStringArray()
+	# fighter 1 sees it coming and meets it, a beat after it starts (the brain's reaction time)
+	var ls = A.strike
+	if _lab_cover != "" and ls != null and ls.phase == "windup" and ls.t >= ls.windup * 0.4 and float(TFighter.strikeId(ls)) != _lab_met:
+		_lab_met = float(TFighter.strikeId(ls))
+		B.coverUp(ls.move, ls.zone, A.strikeSide(ls.move), TFighter.strikeId(ls), _lab_cover == "parry")
 	match _lab_state:
 		"settle":
 			if m.time - _lab_at < 0.6:
@@ -200,6 +211,7 @@ func _lab_tick() -> void:
 					_lab_zone = sc[3] if sc.size() > 3 else "head"
 					if sc.size() > 4 and sc[4] == "down":
 						B.guardDrop = 1.0
+					_lab_cover = sc[4] if sc.size() > 4 and sc[4] != "down" else ""
 					_lab_k = 0
 					_lab_state = "chain"
 				"dodge":

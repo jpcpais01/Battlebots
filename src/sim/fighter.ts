@@ -73,6 +73,45 @@ export interface DodgeAction {
 
 export type Action = StrikeAction | DodgeAction;
 
+/**
+ * Defence shaped to the shot coming in (the brain's 'block'), on top of whatever guard it holds:
+ *   catch  - a straight to the head met with the glove on its line, in front of the face
+ *   parry  - the same glove slapping it across, off line, as it arrives (it goes past)
+ *   cover  - a hook: the elbow up and out, the glove pressed to the temple on that side
+ *   elbow  - a shot to the body: that elbow down onto the ribs, the trunk crunched over it
+ *   shell  - an uppercut or a knee: both forearms closed up the middle in front of the face
+ *   kick   - a round kick: the arm on that side stood up along the head (or down the ribs),
+ *            the other glove braced behind it, the body leaning away
+ *   check  - a kick to the legs (or the body): the knee lifted and turned out, the shin meeting it
+ */
+export type CoverKind = 'catch' | 'parry' | 'cover' | 'elbow' | 'shell' | 'kick' | 'check';
+
+export interface Cover {
+  kind: CoverKind;
+  /** The side it comes in on (0 left, 1 right): the arm or leg that meets it. */
+  side: number;
+  /** Both arms (a shot up the middle). */
+  both: boolean;
+  /** The opponent's strike it is for (strikeId), and the zone it was aimed at. */
+  uid: number;
+  zone: Zone;
+  t: number;
+  /** Seconds since that strike stopped being a threat (it holds until then). */
+  out: number;
+  /** How far in it is (0..1). */
+  w: number;
+  /** A checking foot's spot on the canvas (world), where it goes back down. */
+  plant: Vector3;
+}
+
+/** A strike as an observer tells it apart (each piston punch of a flurry is its own): Observation.uid. */
+export const strikeId = (s: StrikeAction) => s.uid * 16 + s.sub;
+
+/** How long a cover takes to come up, and to let go once the shot is done with. */
+const COVER_IN = 0.09;
+const CHECK_IN = 0.13;
+const COVER_OUT = 0.24;
+
 /** What an observer can see of this fighter at an instant. */
 export interface Observation {
   t: number;
@@ -377,6 +416,8 @@ export class Fighter {
   stamina: number;
   poise: number;
   action: Action | null = null;
+  /** A guard shaped to the shot coming in (see Cover). */
+  cover: Cover | null = null;
   lastAction: StrikeAction | null = null;
   stunTime = 0;
   invuln = 0;
@@ -474,6 +515,8 @@ export class Fighter {
   private _c2 = new Vector3();
   private _g2 = new Vector3();
   private _e2 = new Vector3();
+  private _cvT = new Vector3();
+  private _cvP = new Vector3();
   private headOff = new Vector3();
   /** 1 for a bulky chest (Juggernaut, Citadel: its armour sits further out). */
   private bulk = 0;
@@ -738,6 +781,7 @@ export class Fighter {
     this.rootVel.set(0, 0, 0);
     this.yaw = yaw;
     this.spinYaw = 0;
+    this.cover = null;
     // the feet come too, onto their stance spots: the pose stands on wherever they are, and
     // feet left behind where the body was would stride across to catch it up
     for (let i = 0; i < 2; i++) {
@@ -915,6 +959,91 @@ export class Fighter {
     this.askStep(first, delay, t - delay, 0.025, 0.2 * this.pace());
   }
 
+  /**
+   * Meets the strike `uid` (`move` at `zone`, thrown with the opponent's `from` limb) with a
+   * guard shaped to it. A straight to the head is caught, or parried when `parry`; a kick at
+   * the legs is checked with the shin. False when nothing it has can meet it.
+   */
+  coverUp(move: MoveDef, zone: Zone, from: 'L' | 'R', uid: number, parry: boolean): boolean {
+    if (this.state !== 'fight') return false;
+    // their left comes in on my right
+    const side = from === 'L' ? 1 : 0;
+    const p = move.path;
+    const s = this.strike;
+    const kicking = !!s && s.move.kind === 'kick';
+    const canCheck = this.legLost < 0 && !this.clinched && !kicking && !this.dodge && this.lift < 0.01;
+    let kind: CoverKind;
+    let both = false;
+    if (move.kind === 'kick' && p !== 'knee' && p !== 'frontKick' && zone !== 'head') {
+      // the shin meets anything round or low; a body kick with the arm when it can't lift a leg
+      if (canCheck && (zone === 'legs' || p === 'roundKick')) kind = 'check';
+      else if (zone === 'legs') return false;
+      else kind = 'kick';
+    } else if (zone === 'legs') return false;
+    else if (p === 'roundKick' || p === 'backKick') kind = 'kick';
+    else if (p === 'knee' || p === 'upper') kind = zone === 'head' ? 'shell' : 'elbow';
+    else if (p === 'frontKick' || p === 'push' || p === 'shoot' || p === 'tie') {
+      kind = 'elbow';
+      both = true;
+    } else if (zone === 'body') kind = 'elbow';
+    else if (p === 'straight') kind = parry ? 'parry' : 'catch';
+    else if (p === 'hammer') kind = 'shell';
+    else kind = 'cover';
+    // a straight up the middle to the body: both elbows in
+    if (kind === 'elbow' && p === 'straight') both = true;
+    const c = this.cover;
+    // already meeting this one
+    if (c && c.uid === uid && c.kind === kind) return true;
+    const t = c && c.kind === kind && c.side === side ? Math.min(c.t, COVER_IN) : 0;
+    const plant = c && c.kind === 'check' ? c.plant : new Vector3().copy(this.feet[side].pos);
+    this.cover = { kind, side, both, uid, zone, t, out: 0, w: c && c.kind === kind ? c.w : 0, plant };
+    if (kind === 'check' && !(c && c.kind === 'check')) {
+      const f = this.feet[side];
+      if (f.stepping) {
+        // mid-step: it lifts from where the step was going
+        f.stepping = false;
+        f.pos.copy(f.to);
+      }
+      f.reqAt = -1;
+      this.cover.plant.copy(f.pos).setY(FOOT_Y * this.size);
+    }
+    this.lastActTime = this.hooksTime;
+    return true;
+  }
+
+  /** The cover comes up, holds while its strike is still coming, then lets go. */
+  private updateCover(dt: number) {
+    const c = this.cover;
+    if (!c) return;
+    if (this.state !== 'fight' && this.state !== 'stun') {
+      this.dropCover();
+      return;
+    }
+    c.t += dt;
+    const os = this.opp ? this.opp.strike : null;
+    const live = !!os && strikeId(os) === c.uid && os.phase !== 'recovery';
+    if (!live || this.state === 'stun') c.out += dt;
+    // a check can't stand on one leg through a kick of its own, or a dodge
+    if (c.kind === 'check' && (this.dodge || (this.strike && this.strike.move.kind === 'kick') || this.legLost >= 0 || this.clinched)) c.out = Math.max(c.out, COVER_OUT * 0.6);
+    const rise = minJerk(c.t / (c.kind === 'check' ? CHECK_IN : COVER_IN));
+    const fall = 1 - minJerk(c.out / COVER_OUT);
+    c.w = Math.min(rise, fall);
+    // held up too long for a shot that never came (a feint that kept going): let it go
+    if (c.t > 1.3) c.out = Math.max(c.out, dt);
+    if (c.out >= COVER_OUT) this.dropCover();
+  }
+
+  private dropCover() {
+    const c = this.cover;
+    this.cover = null;
+    if (c && c.kind === 'check') {
+      const f = this.feet[c.side];
+      // the checking foot back down where it lifted from (the landing branch plants it)
+      f.pos.x = c.plant.x;
+      f.pos.z = c.plant.z;
+    }
+  }
+
   tryDodge(type: DodgeType, dir: number): boolean {
     if (this.state !== 'fight' || this.clinched) return false;
     // a sprawl throws both legs back
@@ -1022,6 +1151,7 @@ export class Fighter {
     this.updateResources(dt);
     this.updateState(dt);
     this.updateAction(dt);
+    this.updateCover(dt);
     this.updateRoot(dt);
     this.updateFeet(dt);
     this.flinch.step(null, dt);
@@ -1174,6 +1304,8 @@ export class Fighter {
    */
   stumble(dx: number, dz: number, kb: number) {
     this.thrownAt = this.hooksTime;
+    // knocked about stood on one leg: the lifted foot comes down to catch it
+    if (this.cover && this.cover.kind === 'check' && kb >= 0.7) this.dropCover();
     if (this.legLost >= 0 || kb < 0.7 || this.isDown) return;
     let best = 0;
     let far = -Infinity;
@@ -1381,6 +1513,12 @@ export class Fighter {
         accel *= 1.5;
       }
     }
+    // stood on one leg checking a kick: planted, like a kick
+    const chk = this.cover && this.cover.kind === 'check' && this.cover.w > 0.02 ? this.cover : null;
+    if (chk && !s) {
+      maxSpd *= 0.25;
+      accel *= 1.5;
+    }
     const lost = this.legLost;
     const stand = lost >= 0 ? this.feet[1 - lost] : null;
     if (stand) {
@@ -1444,7 +1582,7 @@ export class Fighter {
 
     // whatever still moves the body during a kick (lunge, leftover speed, a shove) carries the
     // support foot with it, a skip on its ball, so the body can't drift off over it
-    const sup = s && s.move.kind === 'kick' ? this.feet[s.side === 'L' ? 1 : 0] : null;
+    const sup = s && s.move.kind === 'kick' ? this.feet[s.side === 'L' ? 1 : 0] : chk ? this.feet[1 - chk.side] : null;
     const mx = this.root.x - this.rootEnd.x, mz = this.root.z - this.rootEnd.z;
     if (sup && !sup.locked && !sup.stepping && mx * mx + mz * mz < 0.09) {
       sup.pos.x += mx;
@@ -1814,6 +1952,8 @@ export class Fighter {
     // very start of a kick may it make a quick set step back under the body
     const kick = !!s && s.move.kind === 'kick';
     if (s && kick && !(s.phase === 'windup' && s.t < s.windup * (s.move.spin ? 0.15 : 0.35))) return;
+    // up on one leg checking a kick: the other foot stays put under it
+    if (this.cover && this.cover.kind === 'check') return;
     // decide steps
     const anyStepping = this.feet[0].stepping || this.feet[1].stepping;
     let best = -1;
@@ -2126,9 +2266,11 @@ export class Fighter {
         crouch += k.crouch;
       }
     }
+    let dodgeEnv = 0;
     if (d) {
       const k = d.t / d.dur;
       const env = k < 0.16 ? easeOutQuad(k / 0.16) : k < 0.6 ? 1 : 1 - easeInOut((k - 0.6) / 0.4);
+      dodgeEnv = d.type === 'slip' || d.type === 'duck' || d.type === 'sway' ? env : 0;
       switch (d.type) {
         case 'slip':
           hd.x += d.dir * 0.3 * env;
@@ -2138,11 +2280,20 @@ export class Fighter {
           shTw += d.dir * st * 0.2 * env;
           hipTw += d.dir * st * 0.08 * env;
           break;
-        case 'duck':
+        case 'duck': {
+          // bob and weave: the knees drop it under the shot, the head and shoulders roll across
+          // beneath it in a U, and it comes up on the far side, loaded to throw back
+          const across = -d.dir * minJerk(clamp01((k - 0.08) / 0.62));
           crouch += 0.3 * env;
-          pitch += 0.42 * env;
+          pitch += 0.34 * env;
           hd.y -= 0.04 * env;
+          hd.x += across * 0.16 * env;
+          pd.x += across * 0.05 * env;
+          roll += across * 0.22 * env;
+          shTw += across * st * 0.22 * env;
+          hipTw += across * st * 0.08 * env;
           break;
+        }
         case 'sway':
           pitch -= 0.38 * env;
           pd.z -= 0.08 * env;
@@ -2167,6 +2318,59 @@ export class Fighter {
           heel[0] = heel[1] = 0.5 * sk;
           break;
         }
+      }
+    }
+    // a guard shaped to the shot: the trunk goes with the arms (see the arms and legs below)
+    const cov = this.cover && this.cover.w > 0.001 && (this.state === 'fight' || this.state === 'stun') ? this.cover : null;
+    const cw = cov ? cov.w : 0;
+    if (cov) {
+      const csx = cov.side === 0 ? -1 : 1;
+      switch (cov.kind) {
+        case 'cover':
+          // the head tucks in behind the raised forearm, chin down, the shoulder rolled up to it
+          hd.y -= 0.03 * cw;
+          hd.x -= csx * 0.025 * cw;
+          crouch += 0.025 * cw;
+          roll -= csx * 0.05 * cw;
+          shTw -= csx * st * 0.06 * cw;
+          break;
+        case 'catch':
+        case 'parry':
+          hd.y -= 0.02 * cw;
+          pitch += 0.03 * cw;
+          break;
+        case 'elbow':
+          // crunched over the elbow: the shoulder drops to the hip on that side
+          crouch += 0.04 * cw;
+          pitch += 0.09 * cw;
+          hd.y -= 0.02 * cw;
+          if (!cov.both) {
+            roll += csx * 0.09 * cw;
+            shTw += csx * st * 0.08 * cw;
+          }
+          break;
+        case 'shell':
+          crouch += 0.035 * cw;
+          pitch += 0.07 * cw;
+          hd.y -= 0.035 * cw;
+          break;
+        case 'kick':
+          // leaning away from it, the weight off that side
+          roll -= csx * 0.08 * cw;
+          pd.x -= csx * 0.035 * cw;
+          crouch += 0.03 * cw;
+          hd.x -= csx * 0.03 * cw;
+          break;
+        case 'check':
+          // up on the other leg: the hips over it, the trunk upright and a touch back
+          pd.x -= csx * 0.07 * cw;
+          pd.z -= 0.02 * cw;
+          crouch += 0.02 * cw;
+          roll -= csx * 0.05 * cw;
+          pitch -= 0.04 * cw;
+          heel[cov.side] = 0;
+          heel[1 - cov.side] = Math.min(heel[1 - cov.side], 0.06);
+          break;
       }
     }
     if (this.state === 'stun') {
@@ -2467,6 +2671,9 @@ export class Fighter {
         hand.lerp(_p, sk);
         if (sk > 0.3) pole.set(sx * 0.8, -0.2, -0.6);
       }
+      // slipping, ducking or swaying, the hands stay glued to the chin
+      if (dodgeEnv > 0.001 && !s) this.faceGuard(sx, hand, pole, dodgeEnv * 0.75);
+      if (cov) roll = this.coverArm(cov, cw, side, hand, pole, head, roll);
       if (s && prog) {
         if (s.move.path === 'push') roll = this.pushHand(s, prog, sx, hand, pole);
         else if (s.move.kind === 'grab') roll = this.grabHand(s, prog, sx, hand, pole);
@@ -2517,6 +2724,8 @@ export class Fighter {
       let calmT = 1;
       if (s && s.move.kind === 'punch' && s.side === sideCh) calmT = 0;
       else if (s && s.move.kind === 'kick') calmT = 0.4;
+      // a block has to get there: it comes up on its own curve (see Cover), not the calm's
+      if (cw > 0.02) calmT = Math.min(calmT, 1 - 0.75 * cw);
       if (gu || (this.state === 'win' && !this.emote) || (em && em.w * em.ch[EC.ARM + side * 8 + 7] > 0.05) || grip > 0.05) calmT = 0;
       this.calmW[side] = dt > 0 ? damp(this.calmW[side], calmT, calmT < this.calmW[side] ? 40 : 6, dt) : calmT;
       this.calmArm(side, L[shIdx], L[elIdx], hand, fore, dt);
@@ -2552,6 +2761,16 @@ export class Fighter {
         this.toWorld(foot, f.pos);
         this.footAirT[side] = smoothstep(0, 0.06, foot.y - FOOT_Y);
         this.footFlexT[side] = flex;
+      } else if (cov && cov.kind === 'check' && side === cov.side && lost < 0) {
+        // checking a kick: the knee lifted and turned out, the shin stood up in its way
+        this.toLocal(cov.plant, _p);
+        foot.set(_p.x + sx * 0.04 * cw, FOOT_Y + (cov.zone === 'legs' ? 0.34 : 0.44) * cw, _p.z + 0.14 * cw);
+        pole.set(sx * lerp(0.25, 0.85, cw), 0.1, 1);
+        f.locked = true;
+        f.stepping = false;
+        this.toWorld(foot, f.pos);
+        this.footAirT[side] = smoothstep(0, 0.05, foot.y - FOOT_Y);
+        this.footFlexT[side] = 0.3 * cw;
       } else if (lost < 0 && s && s.move.path === 'shoot' && side === rearI && (s.phase === 'active' || (s.phase === 'recovery' && s.t < s.recovery * 0.4))) {
         // the shot's penetration step: the rear leg drives off and trails behind, toes
         // curled under and the knee dropping towards the canvas as the hips go through
@@ -2801,6 +3020,106 @@ export class Fighter {
   /** Local point at (x right, y up, z forward) in the shoulder frame from the chest joint. */
   private trunkPoint(x: number, y: number, z: number, out: Vector3) {
     return out.copy(this.L[J.Chest]).addScaledVector(_tX, x).addScaledVector(_tU, y).addScaledVector(_tZ, z);
+  }
+
+  /**
+   * One arm's part in a cover (local `hand` and elbow `pole`, moved towards it by w). The arm
+   * on the side the shot comes in on meets it; the other one shells at the chin, or braces
+   * behind it against a kick. Returns the fist roll.
+   */
+  private coverArm(c: Cover, w: number, side: number, hand: Vector3, pole: Vector3, head: Vector3, roll: number) {
+    const sx = side === 0 ? -1 : 1;
+    const csx = c.side === 0 ? -1 : 1;
+    const near = side === c.side || c.both;
+    const T = this._cvT, P = this._cvP;
+    let r = roll;
+    let k = w;
+    switch (c.kind) {
+      case 'cover':
+      case 'check':
+        if (!near) {
+          this.faceGuard(sx, hand, pole, w * 0.8);
+          return roll;
+        }
+        // elbow up and forward, the forearm stood up beside the head, the glove on the temple
+        T.set(head.x + sx * 0.13, head.y + 0.04, head.z + 0.06);
+        P.copy(_tX).multiplyScalar(sx * 0.9).addScaledVector(_tZ, 0.8).addScaledVector(_tU, -0.2);
+        r = 0;
+        if (c.kind === 'check') k = w * 0.65;
+        break;
+      case 'catch':
+      case 'parry': {
+        if (!near) {
+          this.faceGuard(sx, hand, pole, w * 0.8);
+          return roll;
+        }
+        const os = this.opp ? this.opp.strike : null;
+        if (c.kind === 'catch') {
+          // the glove on the line the fist is coming in on, a forearm out in front of the face
+          T.set(head.x + sx * 0.04, head.y - 0.03, head.z + 0.22);
+          if (os && strikeId(os) === c.uid) {
+            this.toLocal(this.opp.body.pos[this.opp.strikerJoint(os)], _p);
+            _p.sub(head);
+            const l = _p.length();
+            if (l > 0.05) {
+              T.copy(head).addScaledVector(_p, 0.22 / l);
+              T.x = clamp(T.x, head.x - 0.09, head.x + 0.11) * 0.7 + (head.x + sx * 0.04) * 0.3;
+              T.y = clamp(T.y, head.y - 0.1, head.y + 0.03);
+              T.z = Math.max(T.z, head.z + 0.17);
+            }
+          }
+          P.set(sx * 0.5, -1, -0.2);
+          r = 0.5;
+        } else {
+          // out to meet it, then a short slap across the face the moment it arrives
+          const sweep = os && strikeId(os) === c.uid ? (os.phase === 'active' ? smoothstep(0, 0.75, os.activeProgress) : os.phase === 'recovery' ? 1 : 0) : 1;
+          T.set(head.x + sx * (0.08 - 0.15 * sweep), head.y - 0.03 - 0.02 * sweep, head.z + 0.25 - 0.04 * sweep);
+          P.set(sx * 0.65, -1, -0.1);
+          r = 0.85;
+        }
+        break;
+      }
+      case 'elbow':
+        if (!near) {
+          this.faceGuard(sx, hand, pole, w * 0.8);
+          return roll;
+        }
+        // the elbow down over the ribs and liver, the forearm across the body, the glove at the chest
+        this.trunkPoint(sx * (c.both ? 0.09 : 0.1), 0.12, 0.23, T);
+        P.copy(_tU).multiplyScalar(-1).addScaledVector(_tX, sx * 0.15).addScaledVector(_tZ, 0.15);
+        r = 0;
+        break;
+      case 'shell':
+        // both forearms closed up the middle, elbows together under the chin
+        T.set(head.x + sx * 0.07, head.y - 0.02, head.z + 0.17);
+        P.copy(_tU).multiplyScalar(-1).addScaledVector(_tZ, 0.6).addScaledVector(_tX, sx * 0.1);
+        r = 0;
+        break;
+      case 'kick':
+        if (c.zone === 'head') {
+          if (near) {
+            // the forearm stood up along the side of the head, elbow down to cover the jaw
+            T.set(head.x + sx * 0.15, head.y + 0.07, head.z + 0.02);
+            P.copy(_tX).multiplyScalar(sx * 0.5).addScaledVector(_tU, -0.7).addScaledVector(_tZ, 0.5);
+          } else {
+            // the other glove braced in behind it
+            T.set(head.x + csx * 0.05, head.y - 0.03, head.z + 0.15);
+            P.copy(_tU).multiplyScalar(-1).addScaledVector(_tX, sx * 0.3).addScaledVector(_tZ, 0.3);
+          }
+        } else if (near) {
+          // the arm down the ribs, elbow to the hip
+          this.trunkPoint(sx * 0.17, 0.2, 0.1, T);
+          P.copy(_tU).multiplyScalar(-1).addScaledVector(_tX, sx * 0.5);
+        } else {
+          this.faceGuard(sx, hand, pole, w * 0.8);
+          return roll;
+        }
+        r = 0;
+        break;
+    }
+    hand.lerp(T, k);
+    pole.lerp(P, k);
+    return lerp(roll, r, k);
   }
 
   /**
@@ -3635,7 +3954,7 @@ export class Fighter {
       o.timeToImpact =
         a.phase === 'windup' ? a.windup - a.t + a.active * 0.5 : a.phase === 'active' ? Math.max(0, a.active * 0.5 - a.t) : 0;
       o.zone = a.zone;
-      o.uid = a.uid * 16 + a.sub;
+      o.uid = strikeId(a);
     }
   }
 

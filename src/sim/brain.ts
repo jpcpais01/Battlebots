@@ -32,7 +32,7 @@ const PRIOR: Record<AttackClass, Partial<Record<Response, number>>> = {
   overhead: { block: 0.3, slip: 0.5, duck: 0.4, sway: 0.4, backstep: 0.6, sidestep: 0.55, counter: 0.5, absorb: 0.05 },
   kickHigh: { block: 0.45, slip: 0.1, duck: 0.65, sway: 0.4, backstep: 0.55, sidestep: 0.2, counter: 0.25, absorb: 0.05 },
   kickMid: { block: 0.4, slip: 0.1, duck: 0.05, sway: 0.15, backstep: 0.6, sidestep: 0.55, counter: 0.2, absorb: 0.1 },
-  kickLow: { block: 0.05, slip: 0.05, duck: 0.0, sway: 0.1, backstep: 0.7, sidestep: 0.45, counter: 0.3, absorb: 0.15 },
+  kickLow: { block: 0.5, slip: 0.05, duck: 0.0, sway: 0.1, backstep: 0.7, sidestep: 0.45, counter: 0.3, absorb: 0.15 },
   lunge: { block: 0.4, slip: 0.25, duck: 0.3, sway: 0.2, backstep: 0.35, sidestep: 0.65, counter: 0.35, absorb: 0.05 },
   // a shot at the legs: sprawl on it, step off it, or knee it in the face
   shoot: { block: 0.05, slip: 0.05, duck: 0, sway: 0.05, backstep: 0.5, sidestep: 0.5, counter: 0.4, absorb: 0.05, sprawl: 0.85 },
@@ -147,7 +147,7 @@ export class Brain {
   // defense
   private lastSeenUid = 0;
   /** mine: the strike I was already throwing when I chose this (0 if none). */
-  private pending: { at: number; resp: Response; uid: number; cls: AttackClass; zone: Zone; dir: number; mine: number } | null = null;
+  private pending: { at: number; resp: Response; uid: number; cls: AttackClass; zone: Zone; dir: number; mine: number; move: MoveId } | null = null;
   private activeResp: { resp: Response; uid: number; cls: AttackClass } | null = null;
   private guardHoldUntil = 0;
   private holdGuard: GuardMode = 'normal';
@@ -1640,7 +1640,8 @@ export class Brain {
     const busy = me.strike;
     const motor = this.rng.range(0.02, 0.05);
     const need: Record<Response, number> = {
-      block: 0.05,
+      // (a check lifts a whole leg)
+      block: cls === 'kickLow' ? 0.1 / agility : 0.05,
       slip: 0.07 / agility,
       duck: 0.08 / agility,
       sway: 0.08 / agility,
@@ -1709,7 +1710,7 @@ export class Brain {
     const ri = softmaxPick(utils, temp, this.rng);
     const resp = RESPONSES[ri];
     const dir = this.slipDir(move);
-    this.pending = { at: this.time + motor, resp, uid, cls, zone, dir, mine: busy?.uid ?? 0 };
+    this.pending = { at: this.time + motor, resp, uid, cls, zone, dir, mine: busy?.uid ?? 0, move: move.id };
   }
 
   private slipDir(move: MoveDef) {
@@ -1743,6 +1744,7 @@ export class Brain {
         this.holdGuard = guardFor(pr.zone);
         this.guardHoldUntil = this.time + 0.45;
         me.guardMode = this.holdGuard;
+        this.coverFor(pr.move, pr.zone, pr.uid);
         break;
       case 'slip':
       case 'duck':
@@ -1755,6 +1757,7 @@ export class Brain {
           this.holdGuard = guardFor(pr.zone);
           this.guardHoldUntil = this.time + 0.4;
           this.activeResp.resp = 'block';
+          this.coverFor(pr.move, pr.zone, pr.uid);
         }
         break;
       }
@@ -1776,6 +1779,18 @@ export class Brain {
       case 'absorb':
         break;
     }
+  }
+
+  /**
+   * Meet the shot with a guard shaped to it (Fighter.coverUp): the glove on a straight's line, or
+   * slapping it aside; a forearm up against a hook; an elbow down on a body shot; a shin raised
+   * into a kick at the legs.
+   */
+  private coverFor(id: MoveId, zone: Zone, uid: number) {
+    const move = MOVES[id];
+    // the better the hands, the more often a straight is parried rather than just caught
+    const parry = move.path === 'straight' && zone === 'head' && this.rng.chance(0.15 + this.traits.skill * 0.35);
+    this.me.coverUp(move, zone, this.opp.strikeSide(move), uid, parry);
   }
 
   // ---------------------------------------------------------------- learning

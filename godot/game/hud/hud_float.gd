@@ -70,6 +70,11 @@ func on_event(type: String, d) -> void:
 				_add(_v(d.point), "SHIELD", "blk")
 				return
 			var dmg := roundi(float(d.damage))
+			# met by a parry or a checking shin: say so where it was met
+			var how := str(d.get("guard", ""))
+			if how == "parry" or how == "check":
+				_add(_v(d.point), "PARRY" if how == "parry" else "CHECKED", "guard")
+				return
 			if d.get("blocked") == true:
 				if dmg >= 4:
 					_add(_v(d.point), str(dmg), "blk")
@@ -99,6 +104,9 @@ func _add(at: Vector3, text: String, cls: String) -> void:
 		"blk":
 			sz = 0.85
 			col = BLK
+		"guard":
+			sz = 1.05
+			col = HudKit.CYAN
 		"heal":
 			sz = 0.85
 			col = HudKit.GREEN
