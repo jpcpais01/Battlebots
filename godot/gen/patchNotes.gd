@@ -17,6 +17,18 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-24 03:00",
+	"title": "Finishers hit three times harder",
+	"notes": [
+	"Every blow of a finisher now deals three times the damage the same punch or kick would do in the fight, so the combo smashes the last of the health bar and batters the parts it lands on. The final blow still ends it."
+]
+},
+	{
+	"hour": "2026-10-24 02:00",
+	"title": "Tap to skip",
+	"notes": ["Android app: after a knockout, tap anywhere on the screen to skip straight to the results, just like skipping the KO replay. The small Skip button is gone."]
+},
+	{
 	"hour": "2026-10-24 02:00",
 	"title": "The League",
 	"notes": [

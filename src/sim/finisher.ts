@@ -45,6 +45,8 @@ import {
 /** Opponent health at or below this, and our own at or above FINISH_SELF, arms a finisher. */
 export const FINISH_AT = 0.15;
 export const FINISH_SELF = 0.4;
+/** A finisher blow hits this many times harder than the same strike in the fight. */
+export const FINISH_DAMAGE = 3;
 
 export type FinalKind = 'launch' | 'slam' | 'fly' | 'blast' | 'decap';
 
@@ -55,13 +57,11 @@ interface Blow {
   zone: Zone;
   /** Victim part it lands on. */
   part: number;
-  /** Share of the HP left that it takes (the final blow takes the rest). */
-  take: number;
   /** Knockback (m/s) along the blow. */
   kb: number;
   /** How hard the body jolts. */
   jolt: number;
-  /** Damage it reads as (sound, camera, crowd). */
+  /** How hard it reads (the body's recoil, the 'heavy' flag). */
   shown: number;
   /** Impact freeze (s). */
   stop?: number;
@@ -210,7 +210,7 @@ const skyfall: FinSpec = (() => {
   return {
     id: 'skyfall',
     tail: 0.8,
-    steps: [{ at: 1.2, strike: 'rearUpper', zone: 'head', speed: 1.35, blow: { move: 'rearUpper', zone: 'head', part: P.Head, take: 1, kb: 0.4, jolt: 9, shown: 180, stop: 0.16, final: 'launch' } }],
+    steps: [{ at: 1.2, strike: 'rearUpper', zone: 'head', speed: 1.35, blow: { move: 'rearUpper', zone: 'head', part: P.Head, kb: 0.4, jolt: 9, shown: 180, stop: 0.16, final: 'launch' } }],
     att(o, c) {
       const t = c.t;
       keys(o, t, K);
@@ -265,8 +265,8 @@ const meteor: FinSpec = (() => {
     id: 'meteor',
     tail: 0.85,
     steps: [
-      { at: 0.12, strike: 'rearHook', zone: 'body', speed: 1.2, blow: { move: 'rearHook', zone: 'body', part: P.Torso, take: 0.4, kb: 0.3, jolt: 5, shown: 70, stop: 0.1 } },
-      { at: SLAM, blow: { move: 'hammer', zone: 'head', part: P.Head, take: 1, kb: 0.2, jolt: 10, shown: 190, stop: 0.17, final: 'slam' } },
+      { at: 0.12, strike: 'rearHook', zone: 'body', speed: 1.2, blow: { move: 'rearHook', zone: 'body', part: P.Torso, kb: 0.3, jolt: 5, shown: 70, stop: 0.1 } },
+      { at: SLAM, blow: { move: 'hammer', zone: 'head', part: P.Head, kb: 0.2, jolt: 10, shown: 190, stop: 0.17, final: 'slam' } },
     ],
     att(o, c) {
       const t = c.t;
@@ -311,8 +311,8 @@ const cyclone: FinSpec = (() => {
     id: 'cyclone',
     tail: 0.85,
     steps: [
-      { at: 0.1, strike: 'roundhouse', zone: 'body', speed: 1.15, blow: { move: 'roundhouse', zone: 'body', part: P.Torso, take: 0.4, kb: 0.55, jolt: 6, shown: 80, stop: 0.1 } },
-      { at: SPIN, strike: 'spinKick', zone: 'head', speed: 1.05, blow: { move: 'spinKick', zone: 'head', part: P.Head, take: 1, kb: 1.5, jolt: 11, shown: 200, stop: 0.16, final: 'fly' } },
+      { at: 0.1, strike: 'roundhouse', zone: 'body', speed: 1.15, blow: { move: 'roundhouse', zone: 'body', part: P.Torso, kb: 0.55, jolt: 6, shown: 80, stop: 0.1 } },
+      { at: SPIN, strike: 'spinKick', zone: 'head', speed: 1.05, blow: { move: 'spinKick', zone: 'head', part: P.Head, kb: 1.5, jolt: 11, shown: 200, stop: 0.16, final: 'fly' } },
     ],
     att(o, c) {
       const t = c.t;
@@ -355,11 +355,11 @@ const overdrive: FinSpec = (() => {
     strike: m,
     zone: z,
     speed: m === 'jab' ? 1.9 : 1.75,
-    blow: { move: m, zone: z, part: z === 'head' ? P.Head : P.Chest, take: 0.12, kb: 0.85, jolt: 3.4, shown: 34, stop: 0.035 },
+    blow: { move: m, zone: z, part: z === 'head' ? P.Head : P.Chest, kb: 0.85, jolt: 3.4, shown: 34, stop: 0.035 },
   }));
   const BARRAGE = 0.06 + shots.length * CADENCE;
   const FIRE = BARRAGE + 0.66;
-  steps.push({ at: FIRE, strike: 'rocketPunch', zone: 'head', speed: 1.3, blow: { move: 'rocketPunch', zone: 'head', part: P.Head, take: 1, kb: 2.5, jolt: 12, shown: 210, stop: 0.16, final: 'blast' } });
+  steps.push({ at: FIRE, strike: 'rocketPunch', zone: 'head', speed: 1.3, blow: { move: 'rocketPunch', zone: 'head', part: P.Head, kb: 2.5, jolt: 12, shown: 210, stop: 0.16, final: 'blast' } });
   const cock = A({ crouch: 0.16, pitch: 0.06, twist: 0.78, hip: 0.4, head: [0, -0.01, 0.02], a: arm([0.36, 0.06, -0.42], [0.2, -0.5, -1], 0.8), b: arm([0.18, 0.32, 0.5], [0.6, -1, -0.2], 0.4) });
   const out = A({ crouch: 0.05, pitch: 0.1, twist: -0.5, hip: -0.2, a: arm([0.1, 0.38, 0.66], [0.6, -1, -0.2], 0.9), b: arm([0.24, 0.22, 0.2], [0.6, -1, -0.3], 0.1) });
   return {
@@ -416,8 +416,8 @@ const headhunter: FinSpec = (() => {
     id: 'headhunter',
     tail: 0.95,
     steps: [
-      { at: 0.08, strike: 'lowKick', zone: 'legs', speed: 1.15, blow: { move: 'lowKick', zone: 'legs', part: -1, take: 0.4, kb: 0.1, jolt: 3, shown: 60, stop: 0.1 } },
-      { at: KICK, strike: 'roundhouse', zone: 'head', speed: 1.0, blow: { move: 'roundhouse', zone: 'head', part: P.Head, take: 1, kb: 0.4, jolt: 6, shown: 220, stop: 0.18, final: 'decap' } },
+      { at: 0.08, strike: 'lowKick', zone: 'legs', speed: 1.15, blow: { move: 'lowKick', zone: 'legs', part: -1, kb: 0.1, jolt: 3, shown: 60, stop: 0.1 } },
+      { at: KICK, strike: 'roundhouse', zone: 'head', speed: 1.0, blow: { move: 'roundhouse', zone: 'head', part: P.Head, kb: 0.4, jolt: 6, shown: 220, stop: 0.18, final: 'decap' } },
     ],
     att(o, c) {
       const t = c.t;
@@ -502,8 +502,8 @@ const doomsday: FinSpec = (() => {
     tail: 0.9,
     hold: H,
     steps: [
-      { at: H + 0.12, strike: 'rearHook', zone: 'body', speed: 1.25, blow: { move: 'rearHook', zone: 'body', part: P.Torso, take: 0.35, kb: 0.05, jolt: 4, shown: 70, stop: 0.09 } },
-      { at: UP, strike: 'rearUpper', zone: 'head', speed: 1.4, blow: { move: 'rearUpper', zone: 'head', part: P.Head, take: 1, kb: 0.4, jolt: 9.5, shown: 210, stop: 0.17, final: 'launch' } },
+      { at: H + 0.12, strike: 'rearHook', zone: 'body', speed: 1.25, blow: { move: 'rearHook', zone: 'body', part: P.Torso, kb: 0.05, jolt: 4, shown: 70, stop: 0.09 } },
+      { at: UP, strike: 'rearUpper', zone: 'head', speed: 1.4, blow: { move: 'rearUpper', zone: 'head', part: P.Head, kb: 0.4, jolt: 9.5, shown: 210, stop: 0.17, final: 'launch' } },
     ],
     att(o, c) {
       const t = c.t;
@@ -549,9 +549,9 @@ const crossfire: FinSpec = (() => {
     tail: 0.85,
     hold: H,
     steps: [
-      { at: H + 0.1, strike: 'leadHook', zone: 'body', speed: 1.3, blow: { move: 'leadHook', zone: 'body', part: P.Torso, take: 0.3, kb: 0.05, jolt: 4, shown: 60, stop: 0.08 } },
-      { at: H + 0.4, strike: 'rearHook', zone: 'head', speed: 1.3, blow: { move: 'rearHook', zone: 'head', part: P.Head, take: 0.35, kb: 0.1, jolt: 5, shown: 75, stop: 0.1 } },
-      { at: SPIN, strike: 'spinKick', zone: 'head', speed: 1.05, blow: { move: 'spinKick', zone: 'head', part: P.Head, take: 1, kb: 1.5, jolt: 11, shown: 210, stop: 0.16, final: 'fly' } },
+      { at: H + 0.1, strike: 'leadHook', zone: 'body', speed: 1.3, blow: { move: 'leadHook', zone: 'body', part: P.Torso, kb: 0.05, jolt: 4, shown: 60, stop: 0.08 } },
+      { at: H + 0.4, strike: 'rearHook', zone: 'head', speed: 1.3, blow: { move: 'rearHook', zone: 'head', part: P.Head, kb: 0.1, jolt: 5, shown: 75, stop: 0.1 } },
+      { at: SPIN, strike: 'spinKick', zone: 'head', speed: 1.05, blow: { move: 'spinKick', zone: 'head', part: P.Head, kb: 1.5, jolt: 11, shown: 210, stop: 0.16, final: 'fly' } },
     ],
     att(o, c) {
       const t = c.t;
@@ -598,7 +598,7 @@ const hammerdrop: FinSpec = (() => {
     id: 'hammerdrop',
     tail: 0.85,
     hold: H,
-    steps: [{ at: SLAM, blow: { move: 'hammer', zone: 'head', part: P.Head, take: 1, kb: 0.2, jolt: 10, shown: 200, stop: 0.17, final: 'slam' } }],
+    steps: [{ at: SLAM, blow: { move: 'hammer', zone: 'head', part: P.Head, kb: 0.2, jolt: 10, shown: 200, stop: 0.17, final: 'slam' } }],
     att(o, c) {
       const t = c.t;
       keys(o, t, [[0, A_SET], [0.28, A_CALL, punchy], [H, A_CALL], [H + 0.1, A_SET], [L0, A_SET], [L0 + 0.25, gather], [L0 + 0.5, up, snap], [L0 + 0.72, top], [L0 + 0.86, slam, snap], [L0 + 1.4, slam], [L0 + 2, stand], [99, stand]]);
@@ -804,7 +804,7 @@ export class FinisherRun {
   opener(point: Vector3, zone: Zone, move: MoveId) {
     const part = zone === 'head' ? P.Head : zone === 'legs' ? legPart(this.def.leadSide === 'L' ? 0 : 1, 1) : P.Chest;
     const s = this.att.strike;
-    this.blow({ move, zone, part, take: 0.15, kb: 0.6, jolt: 4.5, shown: 60, stop: 0.12 }, point, s ? this.att.strikerJoint(s) : J.HandR);
+    this.blow({ move, zone, part, kb: 0.6, jolt: 4.5, shown: 60, stop: 0.12 }, point, s ? this.att.strikerJoint(s) : J.HandR);
   }
 
   /** Runs after the brains and showmen, before the fighters move. */
@@ -1239,23 +1239,26 @@ export class FinisherRun {
     const speed = _d.length();
     const dir = new Vector3().copy(_d).normalize().multiplyScalar(0.6).addScaledVector(_a, 0.8).normalize();
 
-    // health: the victim's last points drain blow by blow, the last blow takes the rest
+    // health: each blow hits three times as hard as the same strike would in the fight,
+    // and the last one takes whatever is left
+    const hit = Math.round(this.hitDamage(blow.move, blow.zone) * FINISH_DAMAGE);
     let dmg = 0;
     if (last) dmg = def.hp;
-    else dmg = Math.max(1, Math.min(def.hp - 1, Math.round(def.hp * blow.take)));
+    // (the blows before it leave them on their last point, never knocked out early)
+    else dmg = Math.max(0, Math.min(Math.ceil(def.hp) - 1, hit));
     if (this.preview) dmg = 0;
     def.hp = Math.max(0, def.hp - dmg);
     def.lastHitTime = att.hooks?.time ?? 0;
     att.stats.dealt += dmg;
     att.stats.landed++;
-    if (blow.shown > att.stats.biggest) {
-      att.stats.biggest = blow.shown;
+    if (hit > att.stats.biggest) {
+      att.stats.biggest = hit;
       att.stats.biggestMove = MOVES[blow.move].name;
     }
     let partCond = 1;
     const part = blow.part >= 0 ? blow.part : legPart(def.leadSide === 'L' ? 0 : 1, 1);
     if (!this.preview && !(last && blow.final === 'decap')) {
-      partCond = def.parts.damage(part, blow.shown * 0.35);
+      partCond = def.parts.damage(part, hit * (1 + att.passive('shatter')));
       this.host.wear(def, part);
     }
 
@@ -1299,7 +1302,7 @@ export class FinisherRun {
       move: MOVES[blow.move],
       zone: blow.zone,
       blocked: false,
-      damage: blow.shown,
+      damage: hit,
       crit: last,
       counter: false,
       point: point.clone(),
@@ -1313,6 +1316,31 @@ export class FinisherRun {
     };
     this.host.emit('hit', info);
     if (last) this.host.emit('finisherBlow', { f: att, opp: def, id: this.spec.id, kind: blow.final, point: point.clone(), dir: dir.clone() });
+  }
+
+  /**
+   * What this strike would take off in the fight, landed clean at full extension:
+   * Match.resolveHit without the dice (no crit or spread roll) and without the one-shot
+   * buffs a finisher's scripted strikes never arm.
+   */
+  private hitDamage(id: MoveId, zone: Zone) {
+    const att = this.att, def = this.def;
+    const m = MOVES[id];
+    const ast = att.build.stats;
+    const dst = def.build.stats;
+    const side = (m.limb === 'lead' ? att.leadSide : att.rearSide) === 'L' ? 0 : 1;
+    let dmg = m.damage * (m.kind === 'punch' ? ast.punchPower * att.parts.fistPower(side) : ast.kickPower * att.parts.footPower(side));
+    if (zone === 'head') dmg *= 1.15;
+    if (zone === 'legs') dmg *= 0.85;
+    dmg *= 1 + att.rage * att.passive('rage');
+    dmg *= 1 + att.heat * att.passive('furnace');
+    dmg *= 1 + att.overdrive;
+    if (m.path === 'straight') dmg *= 1 + att.passive('afterburner');
+    if (m.spin) dmg *= 1 + att.passive('meteor');
+    dmg *= 1 - dst.armor;
+    if (zone === 'body') dmg *= 1 - def.passive('bulwark');
+    if (zone === 'head') dmg *= (1 - dst.headGuard) * (1 - def.passive('ironChin'));
+    return dmg;
   }
 
   /** The last blow: down they go, each finisher in its own way. */
