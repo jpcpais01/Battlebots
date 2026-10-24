@@ -16,6 +16,16 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-24 16:00",
+    title: "Every hit lands its own way",
+    notes: [
+      "Hooks and head kicks spin a robot round over its far knee. Uppercuts snap the chin up and lift it onto its toes with the arms thrown loose. Straights knock it back onto its rear foot.",
+      "Body shots fold a robot over the side that got hit, with that arm clamped down over the ribs. A hard one to the liver makes it sag again a beat later.",
+      "Low kicks buckle the leg they hit, so the hip drops and the robot lurches onto that side. Guard Breakers drive it down into both knees.",
+      "A rocked robot is on rubber legs: one knee gives, it catches itself on the other, then that one goes, throwing an arm out for balance.",
+    ],
+  },
+  {
     hour: "2026-10-24 14:00",
     title: "Special attacks with real showmanship",
     notes: [

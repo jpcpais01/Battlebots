@@ -896,7 +896,7 @@ class Match extends RefCounted:
 			_h_b.z *= 1.2
 			body.addVelocity((14.0 if (cs != 0.0) else 11.0), _h_b, TMatch.SIM_DT)
 			body.addVelocity((15.0 if (cs != 0.0) else 12.0), _h_b, TMatch.SIM_DT)
-			att.recoil(0.0, -0.2, -0.3, "legs", 1.4)
+			att.recoil(0.0, -0.2, -0.3, "legs", 1.4, "check", (1.0 if (s.side == "L") else 0.0))
 		elif blocked:
 			for h in [6.0, 9.0, 5.0, 8.0]:
 				_h_b.x = dir.x
@@ -958,7 +958,8 @@ class Match extends RefCounted:
 			def.toLocal(_h_c.copy(def.root).add(dir), _h_b)
 			var fk: float = (((0.35 if blocked else 1.0)) * ((0.8 + (dmg / 45.0))))
 			var zk: float = (1.0 if (zone == "head") else 0.6)
-			def.recoil(((_h_b.x * fk) * zk), (((-0.6 if (zone == "body") else 0.2)) * fk), ((_h_b.z * fk) * zk), zone, fk)
+			var side_2: float = (0.0 if (def.toLocal(point, _h_c).x < 0.0) else 1.0)
+			def.recoil(((_h_b.x * fk) * zk), (((-0.6 if (zone == "body") else 0.2)) * fk), ((_h_b.z * fk) * zk), zone, fk, m.path, side_2)
 		if (((((ds != null) and (ds.move.kind == "grab")) and (ds.phase != "recovery")) and (not blocked)) and (not shielded)):
 			def.finishStrike(ds, true, "interrupted")
 		var knockdown: bool = false
@@ -1172,6 +1173,7 @@ class Match extends RefCounted:
 		f.stateTime = 0.0
 		f.stunTime = dur
 		f.body.tone = 0.5
+		f.wobbleAt = 0.0
 	
 	func ko(winner: TFighter.Fighter, loser: TFighter.Fighter, kind: String) -> void:
 		if (phase != "fight"):

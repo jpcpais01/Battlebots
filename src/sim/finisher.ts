@@ -1286,7 +1286,8 @@ export class FinisherRun {
     }
     def.toLocal(_c.copy(def.root).add(dir), _b);
     const fk = 0.8 + blow.shown / 45;
-    def.recoil(_b.x * fk * (blow.zone === 'head' ? 1 : 0.6), (blow.zone === 'body' ? -0.6 : 0.2) * fk, _b.z * fk, blow.zone, fk);
+    const side = def.toLocal(point, _c).x < 0 ? 0 : 1;
+    def.recoil(_b.x * fk * (blow.zone === 'head' ? 1 : 0.6), (blow.zone === 'body' ? -0.6 : 0.2) * fk, _b.z * fk, blow.zone, fk, MOVES[blow.move].path, side);
 
     if (last) {
       this.struck = true;
