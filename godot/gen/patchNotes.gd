@@ -17,6 +17,17 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-24 22:00",
+	"title": "Kicks get caught",
+	"notes": [
+	"Body kicks can now be caught. A robot that takes a roundhouse or a push kick on its arm can trap the leg against its hip, leaving the kicker hopping on one leg.",
+	"With a leg in its arms a robot can throw a free punch to the head, then lift the leg high and sweep the other leg out from under them. Or the kicker rips its leg free and stumbles back out of it.",
+	"Kicks now unwind from where they land, so the hips no longer finish their turn after the shin has already hit.",
+	"A roundhouse that misses keeps going: the hips turn past square and the whole robot spins on round after its leg.",
+	"The Spinning Heel winds up head and shoulders first, looking for the target over the back shoulder before the hips and the heel follow round."
+]
+},
+	{
 	"hour": "2026-10-24 20:00",
 	"title": "Punches thrown with the whole body",
 	"notes": [

@@ -580,7 +580,7 @@ export class Fighter {
   private footAirT = [0, 0];
   private footFlexT = [0, 0];
   private _prog: StrikeProg = { k: 0, load: 0, sh: 0, hip: 0, ext: 0, ret: 0 };
-  private _kb = { roll: 0, pitch: 0, shiftX: 0, shiftZ: 0, crouch: 0 };
+  private _kb = { roll: 0, pitch: 0, shiftX: 0, shiftZ: 0, crouch: 0, twist: 0 };
   private _g = new Vector3();
   private _c = new Vector3();
   private _c1 = new Vector3();
@@ -1224,17 +1224,26 @@ export class Fighter {
     if (result) s.result = result;
     else if (s.result === 'pending') s.result = s.hasHit ? 'hit' : 'whiff';
     if (!replaced && s.phase !== 'recovery') {
-      if (s.move.kind === 'punch') {
+      if (s.move.kind === 'punch' || s.move.kind === 'kick') {
         // the turn it had put in by now, carrying on a little through what stopped it (a feint
         // just stops); a power punch that found nothing turns them on past where it should have
-        // ended, and they have to haul themselves back round
+        // ended, and they have to haul themselves back round. A kick unwinds from wherever the
+        // hips had got to when it landed, rather than snapping on round to its full turn first
         const pr = this.strikeProfile(s);
-        const carry = s.feint ? 0 : 0.3;
+        const kick = s.move.kind === 'kick';
+        const carry = s.feint ? 0 : kick ? 0.45 : 0.3;
         s.shEnd = pr.sh + (1 - pr.sh) * carry;
         s.hipEnd = pr.hip + (1 - pr.hip) * carry;
-        if (s.result === 'whiff' && s.move.power && !s.move.ability) {
+        if (s.result === 'whiff' && s.move.power && !s.move.ability && !kick) {
           s.shEnd = 1.25;
           s.hipEnd = 1.12;
+        }
+        if (s.result === 'whiff' && kick && s.move.path === 'roundKick' && s.zone !== 'legs') {
+          // a round kick that meets nothing keeps going: the hips turn over past square and
+          // the whole body spins on round after the leg before it can turn back
+          s.shEnd = 1.35;
+          s.hipEnd = 1.3;
+          this.yawKick = clamp(this.yawKick + this.stance * Math.sign(s.move.twist) * -4.5, -8, 8);
         }
       }
       s.phase = 'recovery';
@@ -2767,6 +2776,7 @@ export class Fighter {
         pd.x += k.shiftX;
         pd.z += k.shiftZ;
         crouch += k.crouch;
+        shTw += k.twist;
       }
     }
     let dodgeEnv = 0;
@@ -3303,6 +3313,15 @@ export class Fighter {
         f.stepping = false;
         this.toWorld(foot, f.pos);
         this.footAirT[side] = 1;
+      } else if (this.emote && this.emote.holdFoot === side) {
+        // a caught kick: the foot is where they hold it, the knee turned up over the leg
+        this.toLocal(this.emote.hold, foot);
+        pole.set(-sx * 0.25, 0.55, 1);
+        f.locked = true;
+        f.stepping = false;
+        this.toWorld(foot, f.pos);
+        this.footAirT[side] = 1;
+        this.footFlexT[side] = 0.6;
       } else if (s && prog && s.move.kind === 'kick' && s.side === (side === 0 ? 'L' : 'R') && !this.kickDown(s)) {
         // (once it's back down it stands like any planted foot while the body settles)
         const flex = this.kickFoot(s, prog, foot, pole, L[hipIdx]);
@@ -4192,13 +4211,28 @@ export class Fighter {
     res.shiftX = -sx * 0.09 * over;
     res.shiftZ = 0;
     res.crouch = 0;
+    res.twist = 0;
     heel[s.side === 'L' ? 0 : 1] = 0;
     // spin kick rotates the whole frame
     if (m.spin) {
       const dir = -this.stance;
       let spin = 0;
-      if (s.phase === 'windup') spin = easeInOut(clamp01(s.t / s.windup)) * Math.PI * 0.9;
-      else if (s.phase === 'active') spin = lerp(Math.PI * 0.9, Math.PI * 1.06, clamp01(s.t / s.active));
+      if (s.phase === 'windup') {
+        // the head and shoulders go first, whipping round to find the target over the back
+        // shoulder; the hips and the frame follow, gathering speed, so the turn uncoils from
+        // the top down instead of the whole robot revolving as one block
+        const k = clamp01(s.t / s.windup);
+        spin = easeInOut(k) * Math.PI * 0.9;
+        const lead = DM.sin(Math.PI * Math.min(1, k * 1.15));
+        // (a local twist turns the other way to the frame's yaw)
+        res.twist = -dir * 0.55 * lead;
+        res.crouch = 0.04 * DM.sin(Math.PI * k);
+      }
+      else if (s.phase === 'active') {
+        spin = lerp(Math.PI * 0.9, Math.PI * 1.06, clamp01(s.t / s.active));
+        // the shoulders hold back over the heel as it fires (eyes still on the target)
+        res.twist = dir * 0.12 * DM.sin(Math.PI * clamp01(s.t / s.active));
+      }
       // (all the way round by the time the foot comes down)
       else spin = lerp(Math.PI * 1.06, Math.PI * 2, easeInOut(clamp01(s.t / (s.recovery * KICK_DOWN))));
       this.spinYaw = spin * dir;

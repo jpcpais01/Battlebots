@@ -86,6 +86,8 @@ for (let i = 0; i < N; i++) {
     if (type === 'takedown') tally(`takedown(${d.kind})`);
     if (type === 'takedownStuffed') tally(`stuffed(${d.kind})`);
     if (type === 'sprawl') tally('sprawl');
+    if (type === 'kickCatch') tally('kick caught');
+    if (type === 'kickFree') tally('caught kick freed');
     if (type === 'knockdown' && d.move.path === 'push') tally('shoved down');
     if (type === 'ko' && m.grapple) tally(`ko in grapple(${m.grapple.phase})`);
   });

@@ -73,6 +73,12 @@ export class EmotePose {
    */
   readonly grip = [new Vector3(), new Vector3()];
   readonly gripW = [0, 0];
+  /**
+   * A foot the opponent is holding (a caught kick): which one (-1: none) and the world point
+   * it's held at. It goes there whatever the pose weight: the leg can't come back down.
+   */
+  holdFoot = -1;
+  readonly hold = new Vector3();
 }
 
 // ------------------------------------------------------------------ authoring

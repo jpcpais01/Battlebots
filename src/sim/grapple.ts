@@ -2,7 +2,7 @@ import { Vector3 } from 'three';
 import { J, ropeGap, ropeSide, SIDE_NX, SIDE_NZ } from './body';
 import type { Fighter, StrikeAction } from './fighter';
 import { EC, EmotePose, footI } from './emote';
-import type { Zone } from './moves';
+import { MOVES, type MoveId, type Zone } from './moves';
 import { clamp, clamp01, lerp, minJerk, Rng, smoothstep, Spring1 } from './math';
 import { P } from './damage';
 import { DM } from './dmath';
@@ -28,11 +28,14 @@ import { DM } from './dmath';
  * replays come out the same.
  */
 
-/** part: one of them pushes off (or the referee parts them). after: the takedown's done, step back. */
-export type GrapplePhase = 'clinch' | 'trip' | 'throw' | 'drive' | 'stuffed' | 'part' | 'after';
+/**
+ * part: one of them pushes off (or the referee parts them). after: the takedown's done, step back.
+ * caught: a kick trapped under the arm, the kicker hopping on the other leg.
+ */
+export type GrapplePhase = 'clinch' | 'trip' | 'throw' | 'drive' | 'stuffed' | 'part' | 'after' | 'caught';
 export type Tie = 'plum' | 'lock';
-export type TakedownKind = 'trip' | 'throw' | 'double';
-type Grip = 'neck' | 'under' | 'over' | 'waist' | 'bicep' | 'frame' | 'head' | 'thigh' | 'back';
+export type TakedownKind = 'trip' | 'throw' | 'double' | 'catch';
+type Grip = 'neck' | 'under' | 'over' | 'waist' | 'bicep' | 'frame' | 'head' | 'thigh' | 'back' | 'leg' | 'ankle';
 
 /** A grappling blow: a body slammed into the canvas. */
 export interface GrappleBlow {
@@ -106,6 +109,12 @@ const TRIP = { step: 0.3, fall: 0.48, reap: 0.66, end: 0.95 };
 const THROW = { sink: 0.32, lift: 0.78, slam: 1.12, end: 1.45 };
 const DOUBLE = { dump: 0.62, end: 0.98 };
 const STUFF = { push: 0.62, end: 0.88 };
+/**
+ * A caught kick: the leg trapped under the arm and pulled to the hip, the kicker hopping
+ * back as the catcher walks them; then a punch while they're stood on one leg, a sweep of
+ * the leg they're standing on, or they rip the leg free. Seconds into the phase.
+ */
+const CATCH = { trap: 0.2, punch: 0.3, dump: 0.62, dumpPunch: 0.98, sweep: 0.3, free: 0.66, yank: 0.3, end: 0.62 };
 /** A push off, and the step back after a takedown. */
 const PART = 0.36;
 const AFTER = 0.72;
@@ -250,6 +259,20 @@ export class Grapple {
   private refBreak = false;
   /** Seed for the clinch's sway (from the step it began, so it's the same everywhere). */
   private readonly sway: number;
+  /**
+   * The caught kick: the kicker's leg (0 left, 1 right), the catcher's arm it's trapped
+   * under, a teep held in front rather than a round kick under the arm, how it ends (swept
+   * or ripped free, and a punch first), and the hold point riding a spring.
+   */
+  private leg = 0;
+  private arm = 0;
+  private teep = false;
+  private dump = false;
+  private punch = false;
+  private punched = false;
+  private yanked = false;
+  private readonly holdS = [new Spring1(), new Spring1(), new Spring1()];
+  private readonly yankFrom = new Vector3();
 
   /** `holds`: where each of the two (att, def) has its hands as it starts, so they swim from there. */
   private constructor(host: GrappleHost, phase: GrapplePhase, att: Fighter, def: Fighter, tie: [Tie, Tie], frame: number, holds: [Grip, Grip]) {
@@ -308,6 +331,45 @@ export class Grapple {
     g.n0.set(def.root.x - att.root.x, 0, def.root.z - att.root.z).normalize();
     att.rootVel.multiplyScalar(0.2);
     host.emit('sprawl', { f: def, opp: att });
+    return g;
+  }
+
+  /**
+   * `att` caught `def`'s kick (leg `leg`) on its `arm`: trap it, then sweep them (`dump`) or
+   * feel them rip it free, with a punch thrown first while they hop (`punch`).
+   */
+  static caught(host: GrappleHost, att: Fighter, def: Fighter, tie: [Tie, Tie], frame: number, leg: number, arm: number, teep: boolean, dump: boolean, punch: boolean) {
+    const g = new Grapple(host, 'caught', att, def, tie, frame, ['leg', 'frame']);
+    g.kind = 'catch';
+    g.leg = leg;
+    g.arm = arm;
+    g.teep = teep;
+    g.dump = dump;
+    g.punch = punch;
+    // the catching hand scoops under the leg, the other takes the ankle; the kicker's hand on
+    // that side reaches to frame on them (the other flung out for balance)
+    const ai = att === g.f[0] ? 0 : 1;
+    g.gripNow[ai][arm] = 'leg';
+    g.gripNow[ai][1 - arm] = 'ankle';
+    g.gripNow[1 - ai][0] = g.gripNow[1 - ai][1] = 'frame';
+    g.hold(def);
+    // the foot is held from where the kick met them
+    const P0 = g.poses[1 - ai];
+    P0.holdFoot = leg;
+    const fp = def.body.pos[leg === 0 ? J.FootL : J.FootR];
+    P0.hold.copy(fp);
+    g.holdS[0].to(fp.x, 1, 1, 0);
+    g.holdS[1].to(fp.y, 1, 1, 0);
+    g.holdS[2].to(fp.z, 1, 1, 0);
+    g.n0.set(def.root.x - att.root.x, 0, def.root.z - att.root.z);
+    if (g.n0.lengthSq() < 1e-8) att.forward(g.n0);
+    g.n0.normalize();
+    g.dist0 = att.distTo(def);
+    // the catch soaks up the kick's push: nobody's sent anywhere with a leg in their arms
+    att.rootVel.multiplyScalar(0.2);
+    def.rootVel.multiplyScalar(0.2);
+    def.liftReach = -0.3;
+    host.emit('kickCatch', { f: att, opp: def });
     return g;
   }
 
@@ -518,10 +580,13 @@ export class Grapple {
       case 'after':
         this.afterStep();
         break;
+      case 'caught':
+        this.caughtStep(dt);
+        break;
     }
     if (!this.live) return;
-    // nobody stays up in the air outside a lift: set down, not dropped
-    if (this.phase !== 'throw' && this.phase !== 'drive') {
+    // nobody stays up in the air outside a lift (or the hops on a caught leg): set down, not dropped
+    if (this.phase !== 'throw' && this.phase !== 'drive' && this.phase !== 'caught') {
       for (const f of this.f) if (f.lift > 0) f.lift = f.lift < 0.004 ? 0 : f.lift * DM.exp(-10 * dt);
     }
     this.writePoses(dt);
@@ -763,6 +828,128 @@ export class Grapple {
     if (t >= PART) this.release(0.3);
   }
 
+  /**
+   * The caught kick. Trapped, pulled in to the hip and walked back, the kicker hopping to
+   * stay up; then either swept (the leg lifted high, a shove on the chest, the standing leg
+   * reaped out) or the leg ripped back out of the hold and the two of them apart.
+   */
+  private caughtStep(dt: number) {
+    const att = this.att, def = this.def;
+    const t = this.t;
+    const P0 = this.poses[def === this.f[0] ? 0 : 1];
+    if (this.fell) {
+      att.intentVel.set(0, 0, 0);
+      this.slamCheck(20, 'body');
+      if (t >= this.dumpAt() + CATCH.sweep + 0.36) this.beginAfter();
+      return;
+    }
+    if (def.isDown) {
+      // put down some other way (the punch): the leg's let go
+      P0.holdFoot = -1;
+      this.fell = true;
+      this.fellAt = t;
+      this.slammed = true;
+      return;
+    }
+    if (def.state !== 'held' || (att.state !== 'fight' && att.state !== 'stun')) {
+      P0.holdFoot = -1;
+      this.release(0.3);
+      return;
+    }
+    const pair = (att.size + def.size) * 0.5;
+    const dumpAt = this.dumpAt();
+    const end = this.dump ? dumpAt + CATCH.sweep : CATCH.free + CATCH.yank;
+    // walked back: the catcher pressing forward, the kicker hopping to keep up with its own leg
+    // (the two kept a leg's length apart, so the hold never pulls the leg out straight)
+    _n.set(def.root.x - att.root.x, 0, def.root.z - att.root.z);
+    const d = _n.length();
+    if (d > 1e-4) _n.multiplyScalar(1 / d);
+    else _n.copy(this.n0);
+    const walk = smoothstep(CATCH.trap * 0.5, CATCH.trap + 0.15, t) * (1 - smoothstep(end - 0.25, end, t)) * (this.dump || t < CATCH.free ? 1 : 0);
+    const want = clamp(this.dist0, 0.82 * pair, 0.98 * pair);
+    const spring = clamp((d - want) * 5, -1.6, 1.6);
+    const v = 0.55 * walk * smoothstep(0.2 * def.size, 0.7 * def.size, ropeGap(def.root.x, def.root.z));
+    att.intentVel.copy(_n).multiplyScalar(v + spring * 0.5);
+    def.intentVel.copy(_n).multiplyScalar(v - spring * 0.5);
+    // hopping: the standing leg springs off the canvas in little bounds as it's walked back
+    const hz = 2.6;
+    const hop = Math.max(0, DM.sin(Math.PI * 2 * hz * (t - CATCH.trap)));
+    def.lift = t > CATCH.trap && t < end - 0.1 ? 0.045 * def.size * hop * (0.4 + 0.6 * walk) : def.lift * DM.exp(-12 * dt);
+    // costs the one stood on one leg
+    def.stamina = Math.max(0, def.stamina - 4 * dt);
+    // a shot while they're stuck there: the free hand, to the head
+    if (this.punch && !this.punched && t >= CATCH.punch) {
+      this.punched = true;
+      const ids: MoveId[] = att.strikeSide(MOVES.cross) === (this.arm === 0 ? 'R' : 'L') ? ['cross', 'rearHook'] : ['leadHook', 'jab'];
+      const id = att.cooldownLeft(ids[0]) <= 0 && att.stamina > MOVES[ids[0]].stamina ? ids[0] : ids[1];
+      att.tryStrike(id, 'head', _a.copy(def.body.pos[J.Head]));
+    }
+    // the hold: the foot pulled in to the hip under the catching arm (a teep held out in
+    // front), lifted high to tip them over a sweep, or wrenched back down on its way out
+    this.catchPoint(_a);
+    if (this.dump) {
+      const up = smoothstep(dumpAt - 0.2, dumpAt + 0.12, t);
+      _a.y += 0.24 * att.size * up;
+      _a.addScaledVector(_n, 0.1 * att.size * up);
+    } else if (t >= CATCH.free) {
+      if (!this.yanked) {
+        this.yanked = true;
+        this.yankFrom.copy(P0.hold);
+      }
+      const k = minJerk((t - CATCH.free) / CATCH.yank);
+      def.stanceSpot(this.leg, _b);
+      def.toWorld(_b, _c);
+      _c.y = 0.08 * def.size;
+      _a.lerpVectors(this.yankFrom, _c, k);
+      _a.y += 0.12 * def.size * DM.sin(Math.PI * k);
+      _a.addScaledVector(_n, 0.1 * def.size * DM.sin(Math.PI * k));
+    }
+    const om = t < CATCH.trap ? 22 : this.dump || t < CATCH.free ? 14 : 30;
+    P0.hold.set(this.holdS[0].to(_a.x, om, 1, dt), this.holdS[1].to(_a.y, om, 1, dt), this.holdS[2].to(_a.z, om, 1, dt));
+    if (!this.dump && t >= CATCH.free) {
+      // ripped out of the hold: the leg comes away, and the push of it sends them apart
+      const share = smoothstep(CATCH.free, CATCH.free + 0.2, t) - smoothstep(CATCH.free, CATCH.free + 0.2, t - dt);
+      def.rootVel.addScaledVector(this.n0, 1.1 * share);
+      att.rootVel.addScaledVector(this.n0, -0.3 * share);
+      if (t >= end) {
+        P0.holdFoot = -1;
+        def.poise -= def.maxPoise * 0.15;
+        att.intentVel.set(0, 0, 0);
+        def.intentVel.set(0, 0, 0);
+        this.release(0.3);
+        this.host.emit('kickFree', { f: def, opp: att });
+      }
+      return;
+    }
+    if (this.dump && t >= dumpAt + CATCH.sweep) {
+      // swept: the standing leg reaped from under them, and over they go, the caught leg last
+      P0.holdFoot = -1;
+      _a.copy(_n);
+      att.right(_r);
+      _a.addScaledVector(_r, (this.arm === 0 ? 1 : -1) * 0.35).normalize();
+      fallAway(def.root.x, def.root.z, _a, def.size);
+      this.fall(def, _a, 1.3);
+      def.breakFall(_a);
+      def.poise = def.maxPoise * 0.6;
+    }
+  }
+
+  private dumpAt() {
+    return this.punch ? CATCH.dumpPunch : CATCH.dump;
+  }
+
+  /** Where the caught leg is held: the foot under the catching arm, at the hip (a teep: out in front). */
+  private catchPoint(out: Vector3) {
+    const c = this.att, z = c.size;
+    c.forward(_f);
+    c.right(_r);
+    const asx = this.arm === 0 ? -1 : 1;
+    const o = c.body.pos;
+    out.lerpVectors(o[J.Pelvis], o[J.Chest], 0.3);
+    out.y = Math.max(out.y, 0.82 * z);
+    return out.addScaledVector(_r, asx * (this.teep ? 0.08 : 0.2) * z).addScaledVector(_f, (this.teep ? 0.32 : 0.16) * z);
+  }
+
   /** The takedown's done: let go, come up out of it and step back while they get up. */
   private beginAfter() {
     this.setPhase('after');
@@ -818,7 +1005,7 @@ export class Grapple {
   private writePoses(dt: number) {
     // how quickly the bodies move between shapes: unhurried in the tie-up, committed in a
     // takedown, and easing up out of one
-    const om = this.phase === 'clinch' ? 9 : this.phase === 'after' ? 6.5 : this.phase === 'part' ? 11 : 15;
+    const om = this.phase === 'clinch' ? 9 : this.phase === 'after' ? 6.5 : this.phase === 'part' ? 11 : this.phase === 'caught' ? 13 : 15;
     for (let i = 0; i < 2; i++) {
       const me = this.f[i], opp = this.f[1 - i];
       const B = this.body[i];
@@ -919,6 +1106,14 @@ export class Grapple {
         case 'back':
           tgt.copy(o[J.Chest]).addScaledVector(UP, 0.1 * z).addScaledVector(_f, -0.12 * z).addScaledVector(_r, os * 0.12 * z);
           break;
+        case 'leg':
+          // the forearm scooped under their calf
+          tgt.lerpVectors(o[this.leg === 0 ? J.KneeL : J.KneeR], o[this.leg === 0 ? J.FootL : J.FootR], 0.55).addScaledVector(UP, -0.06 * z);
+          break;
+        case 'ankle':
+          // the other hand clamped over the ankle
+          tgt.copy(o[this.leg === 0 ? J.FootL : J.FootR]).addScaledVector(UP, 0.05 * z).addScaledVector(_f, 0.03 * z);
+          break;
       }
       // pulling their head down onto a knee; an arm digging inside on a pummel
       if (B.pull > 0) tgt.addScaledVector(UP, -B.pull * z);
@@ -962,6 +1157,7 @@ export class Grapple {
     const punching = s && s.move.kind === 'punch' && s.phase !== 'recovery' ? (s.side === 'L' ? 0 : 1) : -1;
     if (this.phase === 'clinch') this.clinchShape(i, me, opp, B);
     else if (this.phase === 'part') this.partShape(me, B);
+    else if (this.phase === 'caught') this.caughtShape(me, B);
     else if (me === this.att) this.attShape(me, B);
     else this.defShape(B);
     if (punching >= 0) {
@@ -1078,6 +1274,98 @@ export class Grapple {
     };
     pole(0, B.grip[0]);
     pole(1, B.grip[1]);
+  }
+
+  /**
+   * The caught kick. The catcher: the leg clamped to the hip, turned in towards it, sitting
+   * down a little to hold the weight; then the sweep (stepping in, leg lifted, a palm in the
+   * chest) or the leg torn out of its hands. The kicker: leaning away on its one leg, a hand
+   * framing on them and the other flung out for balance, weight always just about to go.
+   */
+  private caughtShape(me: Fighter, B: Body) {
+    const t = this.t;
+    const asx = this.arm === 0 ? -1 : 1;
+    const trap = minJerk(t / CATCH.trap);
+    const dumpAt = this.dumpAt();
+    if (me === this.att) {
+      const sweep = this.dump ? smoothstep(dumpAt - 0.2, dumpAt + CATCH.sweep, t) : 0;
+      const lost = this.dump ? 0 : smoothstep(CATCH.free - 0.04, CATCH.free + 0.12, t);
+      B.crouch = 0.1 + 0.06 * trap + 0.05 * sweep;
+      B.pitch = 0.12 + 0.06 * trap + 0.16 * sweep - 0.1 * lost;
+      // (and the sweep turns them on round over the leg)
+      B.twist = asx * (0.24 * trap * (1 - lost) + 0.14 * sweep);
+      B.roll = asx * 0.06 * trap * (1 - lost);
+      B.hx = -asx * 0.03 * trap;
+      B.heel = 0.18 + 0.25 * sweep;
+      B.grip[this.arm] = 'leg';
+      // the free hand lets go of the ankle to shove the chest for the sweep
+      B.grip[1 - this.arm] = sweep > 0.3 ? 'frame' : 'ankle';
+      B.pole[this.arm].set(0.6, -1, -0.15);
+      B.pole[1 - this.arm].set(0.5, -0.7, -0.4);
+      B.roll2[this.arm] = 0.9;
+      const let_ = (1 - lost) * (1 - smoothstep(dumpAt + CATCH.sweep - 0.05, dumpAt + CATCH.sweep + 0.15, t));
+      B.gw = [let_, let_];
+      B.aw = [let_, let_];
+      if (this.dump) this.sweepFoot(me, B, dumpAt);
+    } else {
+      // (a fresh hop each step: the body bobs and the head steadies itself over it)
+      const wob = DM.sin(this.total * 9 + this.sway) * 0.03;
+      const yank = this.dump ? 0 : DM.sin(Math.PI * clamp01((t - CATCH.free + 0.06) / (CATCH.yank + 0.1)));
+      const lsx = this.leg === 0 ? -1 : 1;
+      B.crouch = 0.08 + 0.05 * trap - 0.04 * yank;
+      B.pitch = -0.08 - 0.14 * trap + wob + 0.22 * yank;
+      B.roll = -lsx * (0.1 * trap + wob);
+      B.twist = lsx * 0.12 * trap - lsx * 0.2 * yank;
+      B.hx = -lsx * 0.04 * trap;
+      B.hz = -0.02 * trap;
+      B.heel = 0;
+      // the hand on the caught side frames on their shoulder; the other one is out wide
+      const fr = this.leg;
+      B.grip = ['frame', 'frame'];
+      const g = smoothstep(0.05, 0.25, t) * (1 - yank);
+      B.gw[fr] = 0.85 * g;
+      B.gw[1 - fr] = 0;
+      const fling = trap * (1 - 0.6 * yank);
+      const f = B.fist[1 - fr];
+      f.set(lerp(0.16, 0.5, fling), lerp(0.12, 0.3 + wob * 2, fling), lerp(0.36, 0.08, fling));
+      B.pole[1 - fr].set(0.6, -0.4, -0.6);
+      B.roll2[1 - fr] = -0.3;
+    }
+  }
+
+  /**
+   * The sweep: the catcher's free-side foot steps in and reaps the leg they stand on,
+   * kicking it out from under them, then comes back to its spot.
+   */
+  private sweepFoot(me: Fighter, B: Body, dumpAt: number) {
+    const t = this.t;
+    const fs = 1 - this.arm, sx = fs === 0 ? -1 : 1;
+    const def = this.def;
+    me.stanceSpot(fs, _c);
+    // at their standing foot, from the outside of it
+    me.toLocal(def.body.pos[this.leg === 0 ? J.FootR : J.FootL], _b).sub(_c);
+    _b.y = 0;
+    const l = DM.hypot(_b.x, _b.z);
+    if (l > 0.5) _b.multiplyScalar(0.5 / l);
+    const off = B.foot[fs];
+    const a = dumpAt - 0.12, hit = dumpAt + CATCH.sweep, back = hit + 0.3;
+    if (t < a) return;
+    if (t < hit) {
+      // swung in low, round from the outside, the sole scything across their ankle
+      const k = minJerk((t - a) / (hit - a));
+      off.copy(_b).multiplyScalar(k);
+      off.x += sx * 0.12 * DM.sin(Math.PI * k) - sx * 0.1 * k;
+      off.y = 0.06 * DM.sin(Math.PI * k);
+    } else {
+      const k = minJerk((t - hit) / (back - hit));
+      off.copy(_b);
+      off.x -= sx * 0.1;
+      off.multiplyScalar(1 - k);
+      off.y = 0.07 * DM.sin(Math.PI * k);
+    }
+    off.x *= sx;
+    B.fw[fs] = t < back ? 1 : 0;
+    B.knee[fs] = 0.2;
   }
 
   /** Coming apart: palms on the chest and the arms driving out, or the hands just let go. */
@@ -1329,6 +1617,7 @@ export class Grapple {
       f.lift = 0;
       f.liftReach = -0.4;
       if (f.state === 'held') f.setState('fight');
+      this.poses[i].holdFoot = -1;
     }
   }
 

@@ -5,7 +5,7 @@ import type { Match } from './match';
  * any change to how a fight plays out that its short fixed fight might never reach (a knockdown,
  * a knockout, a finisher), so players on different builds can't share a fight that would drift.
  */
-export const SIM_REV = 1;
+export const SIM_REV = 2;
 
 const buf = new DataView(new ArrayBuffer(8));
 const PHASES = ['intro', 'countdown', 'greet', 'fight', 'ko', 'end'];

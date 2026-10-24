@@ -550,6 +550,8 @@ func on_event(type: String, d) -> void:
 				_callout("PINNED ON THE ROPES" if d.get("pinned", false) else "CLINCH", "small", 800)
 		"sprawl":
 			_callout("SPRAWL!", "small cyan", 800)
+		"kickCatch":
+			_callout("KICK CAUGHT!", "small cyan", 900)
 		"detach":
 			var p := int(d.part)
 			var what := "HEAD" if p == 0 else ("ARM" if p == 3 or p == 6 else ("FOREARM" if p == 4 or p == 7 else "LEG"))

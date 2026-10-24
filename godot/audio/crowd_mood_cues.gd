@@ -89,7 +89,7 @@ func event(type: String, data) -> void:
 			_cue("ooh", 0.45, 0.05)
 		"takedown":
 			_cue("ooh", 0.75, 0.0)
-		"sprawl", "takedownStuffed":
+		"sprawl", "kickCatch", "takedownStuffed":
 			_cue("ooh", 0.4, 0.05)
 		"dodge":
 			if randf() < 0.15:
