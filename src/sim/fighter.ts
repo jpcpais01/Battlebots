@@ -1444,6 +1444,11 @@ export class Fighter {
         s.phase = 'active';
         s.t -= s.windup;
         this.lockEnd(s);
+        // the rocket's launch kicks back through the shoulder into the braced legs
+        if (s.move.id === 'rocketPunch') {
+          this.rPitch.vel -= 3.4;
+          this.rShiftZ.vel -= 1.4;
+        }
         this.hooks?.emit('strikeActive', { f: this, s });
       }
     } else if (s.phase === 'active') {
@@ -2239,6 +2244,60 @@ export class Fighter {
           pivot[1 - rearI] = st * 0.6 * w;
         } else if (lead && m.path === 'upper') heel[1 - rearI] = Math.max(heel[1 - rearI], 0.25 * w);
         else if (lead) heel[rearI] = Math.max(heel[rearI], 0.35 * w);
+        // the specials each have a shape of their own, big enough to read from the stands (the
+        // other hand's part is specialOffHand, the launch's kick launchKick)
+        const fire = prog.ext * (1 - prog.ret);
+        switch (m.id) {
+          case 'haymaker':
+            // the wind-up winds the whole body: the shoulders turned right away from them, the
+            // weight rocked back onto the rear leg with the lead heel off the canvas; then it all
+            // falls over the punch, the rear foot dragged up onto its toes and turning out
+            shTw -= st * tw * 0.15 * ld;
+            hipTw -= st * tw * 0.12 * ld;
+            pd.z -= 0.04 * ld;
+            heel[1 - rearI] = Math.max(heel[1 - rearI], 0.4 * ld);
+            pitch += 0.08 * fire;
+            crouch += 0.03 * fire;
+            heel[rearI] = Math.max(heel[rearI], 0.85 * fire);
+            pivot[rearI] = -st * 0.75 * Math.max(w, fire);
+            break;
+          case 'rocketPunch':
+            // braced like a cannon: sat down low on flat feet behind the aimed arm, and it doesn't
+            // step through the shot, the fist goes on its own
+            crouch += 0.07 * Math.max(ld, w);
+            pd.z -= 0.09 * w;
+            pd.x -= st * 0.03 * w;
+            heel[rearI] = 0.1 * w;
+            pivot[rearI] = -st * 0.2 * w;
+            break;
+          case 'hammer':
+            // the fists go up together and it rises onto its toes, arching back under them and
+            // squaring up; then everything folds down through the slam
+            crouch += -0.04 * ld + 0.06 * fire;
+            pitch -= 0.06 * ld;
+            shTw = lerp(shTw, blade * 0.3, 0.7 * Math.max(ld, fire));
+            hipTw = lerp(hipTw, blade * 0.4, 0.5 * Math.max(ld, fire));
+            heel[0] = Math.max(heel[0], 0.6 * ld);
+            heel[1] = Math.max(heel[1], 0.6 * ld);
+            break;
+          case 'shockUpper':
+            // sunk right down over the punching side and coiled; then it springs up out of the
+            // legs onto its toes, the trunk opening up and back as the fist drives through
+            crouch += 0.06 * ld - 0.16 * fire;
+            pitch += 0.1 * ld - 0.14 * fire;
+            roll += sxp * 0.08 * ld;
+            hd.y -= 0.02 * ld;
+            heel[0] = Math.max(heel[0], 0.7 * fire);
+            heel[1] = Math.max(heel[1], 0.7 * fire);
+            break;
+          case 'flurry':
+            // the head weaving off the line away from each piston as it goes out
+            hd.x -= sxp * 0.05 * w;
+            roll -= sxp * 0.04 * w;
+            break;
+          default:
+            break;
+        }
       } else if (m.kind === 'grab') {
         const w = Math.max(prog.load, prog.sh, 0);
         if (m.path === 'shoot') {
@@ -2664,6 +2723,7 @@ export class Fighter {
         pole.lerp(_p.set(sx * 0.6, -0.3, gu.elbow), gu.w);
       }
       let roll = isLead ? 0.1 : 0.15;
+      let offPart = 0;
       if (d && d.type === 'sprawl') {
         // hands down on whatever is coming in low
         const sk = this.sprawlK();
@@ -2680,9 +2740,10 @@ export class Fighter {
         else if (s.move.kind === 'punch' && s.side === sideCh) {
           roll = this.punchHand(s, prog, hand, pole, sx);
         } else if (s.move.kind === 'punch') {
-          // the other hand shells up at the chin
+          // the other hand shells up at the chin (in a special it may have a part of its own)
           const w = Math.max(prog.load, prog.sh, 0) * (1 - lower * 0.6);
           this.faceGuard(sx, hand, pole, clamp01(w));
+          offPart = this.specialOffHand(s, prog, sx, hand, pole);
         } else {
           roll = this.kickArm(s, prog, side, hand, pole, head);
         }
@@ -2722,7 +2783,7 @@ export class Fighter {
       // every small push (the armour, the head's sway, a guard changing shape), so
       // guarding forearms drift and settle rather than twitch
       let calmT = 1;
-      if (s && s.move.kind === 'punch' && s.side === sideCh) calmT = 0;
+      if (s && s.move.kind === 'punch' && (s.side === sideCh || offPart > 0.05)) calmT = 0;
       else if (s && s.move.kind === 'kick') calmT = 0.4;
       // a block has to get there: it comes up on its own curve (see Cover), not the calm's
       if (cw > 0.02) calmT = Math.min(calmT, 1 - 0.75 * cw);
@@ -3132,6 +3193,58 @@ export class Fighter {
     if (w > 0.01) pole.copy(_tU).multiplyScalar(-1).addScaledVector(_tX, sx * 0.35).addScaledVector(_tZ, 0.2);
   }
 
+  /**
+   * The free hand's part in a special, over the chin guard it already holds: the haymaker's lead
+   * hand reaches out to measure them and is yanked back as the punch comes over, the rocket
+   * punch's steadies the launcher's forearm, and the guard breaker's joins the other fist
+   * overhead and comes down with it. Returns how much it took over (0..1).
+   */
+  private specialOffHand(s: StrikeAction, prog: StrikeProg, sx: number, hand: Vector3, pole: Vector3) {
+    const m = s.move;
+    const L = this.L;
+    const wk = s.phase === 'windup' ? clamp01(s.t / s.windup) : 1;
+    const hi = s.side === 'L' ? J.HandL : J.HandR;
+    const ei = s.side === 'L' ? J.ElL : J.ElR;
+    let w = 0;
+    switch (m.id) {
+      case 'haymaker':
+        w = s.phase === 'windup' ? smoothstep(0.05, 0.55, wk) : s.phase === 'active' ? 1 - smoothstep(0, 0.45, prog.k) : 0;
+        if (w > 0) {
+          // (straight at their head, whichever way the coiled trunk is turned)
+          const sh = L[sx < 0 ? J.ShL : J.ShR];
+          this.toLocal(this.opp.body.pos[J.Head], _p).sub(sh);
+          const d = _p.length();
+          _p.multiplyScalar(d > 1e-4 ? Math.min(0.5, d - 0.2) / d : 0).add(sh);
+          hand.lerp(_p, w);
+          pole.lerp(_w.copy(_tU).multiplyScalar(-1).addScaledVector(_tX, sx * 0.4), w);
+        }
+        break;
+      case 'rocketPunch':
+        // (the striking arm is last step's if it hasn't been posed yet this step: near enough)
+        w = s.phase === 'windup' ? smoothstep(0.1, 0.55, wk) : s.phase === 'active' ? 1 : 1 - smoothstep(0, 0.5, prog.ret);
+        if (w > 0) {
+          _p.subVectors(L[hi], L[ei]);
+          const len = _p.length();
+          _p.multiplyScalar(len > 1e-4 ? 0.2 / len : 0).add(L[ei]);
+          _p.addScaledVector(_tU, -0.06).addScaledVector(_tX, sx * 0.03);
+          hand.lerp(_p, w);
+          pole.lerp(_w.copy(_tU).multiplyScalar(-1).addScaledVector(_tX, sx * 0.6), w);
+        }
+        break;
+      case 'hammer':
+        w = s.phase === 'windup' ? smoothstep(0.1, 0.5, wk) : s.phase === 'active' ? 1 : 1 - smoothstep(0, 0.4, prog.ret);
+        if (w > 0) {
+          _p.copy(L[hi]).addScaledVector(_tX, sx * 0.1);
+          hand.lerp(_p, w);
+          pole.lerp(_w.copy(_tX).multiplyScalar(sx).addScaledVector(_tU, 0.1).addScaledVector(_tZ, -0.3), w);
+        }
+        break;
+      default:
+        break;
+    }
+    return w;
+  }
+
   /** Shoulder frame of the current local pose: _tX right, _tU up the spine, _tZ chest forward. */
   private trunkFrame() {
     const L = this.L;
@@ -3303,18 +3416,27 @@ export class Fighter {
         load.set(sx * 0.08, 0.02, -0.05);
         break;
       case 'upper':
-        load.set(sx * 0.03, -0.3, -0.03);
+        // (the shock uppercut sinks the fist right down by the hip)
+        if (m.id === 'shockUpper') load.set(sx * 0.06, -0.5, -0.06);
+        else load.set(sx * 0.03, -0.3, -0.03);
         break;
       case 'overhand':
-        // haymaker: draw the fist back and out behind the shoulder
-        load.set(sx * 0.2, 0.02, -0.3);
+        // haymaker: cocked high, back and out behind the shoulder
+        load.set(sx * 0.22, 0.12, -0.32);
         break;
       case 'hammer':
-        // hammer fist: lift it high above and just behind the head
-        load.set(sx * 0.02, 0.48, -0.28);
+        // guard breaker: both fists together high above and just behind the head
+        load.set(-C.x * 0.7 + sx * 0.04, 0.5, -0.26);
         break;
       default:
         break;
+    }
+    if (m.id === 'rocketPunch') {
+      // aimed like a cannon: the arm comes up level at them, elbow bent, the fist sighted down
+      // the line it fires along
+      const sh = this.L[s.side === 'L' ? J.ShL : J.ShR];
+      this.toLocal(s.aim, _p).sub(sh).normalize();
+      load.copy(sh).addScaledVector(_p, 0.46).sub(C);
     }
     pole.set(sx * 0.5, -1, -0.3);
     if (m.path === 'hook') pole.set(sx * 1, 0.35, -0.25);
@@ -3326,10 +3448,23 @@ export class Fighter {
     } else if (m.path === 'upper') pole.set(sx * 0.3, -1, 0.35);
 
     if (s.phase === 'windup') {
-      out.copy(C).addScaledVector(load, prog.load);
+      const u = prog.load;
+      if (m.path === 'overhand') {
+        // a windmill: the fist drops and swings back down past the hip, then on up and round
+        // behind the shoulder, the elbow leading it from behind then lifting
+        const a = 1 - u;
+        _p.set(C.x + sx * 0.2, C.y - 0.85, C.z - 0.35);
+        out.set(
+          a * a * C.x + 2 * a * u * _p.x + u * u * (C.x + load.x),
+          a * a * C.y + 2 * a * u * _p.y + u * u * (C.y + load.y),
+          a * a * C.z + 2 * a * u * _p.z + u * u * (C.z + load.z),
+        );
+        pole.set(sx * lerp(0.6, 1, u), lerp(-0.5, 0.6, u), lerp(-0.9, -0.45, u));
+      } else out.copy(C).addScaledVector(load, u);
       // the torso coils under the cocked fist: keep it in front of the plate
       if (this.trunkPush(out, 0.15, _w) > 0) out.add(_w);
-      return m.path === 'upper' ? -0.6 * prog.load : m.path === 'hook' ? 0.3 * prog.load : 0.05;
+      if (m.id === 'rocketPunch') return 0.05 + 0.95 * u;
+      return m.path === 'upper' ? -0.6 * u : m.path === 'hook' ? 0.3 * u : 0.05;
     }
     const start = C.add(load);
     if (this.trunkPush(start, 0.15, _w) > 0) start.add(_w);
@@ -3382,6 +3517,7 @@ export class Fighter {
         this.extend[idx] = m.extend * smoothstep(0.1, 0.7, k);
       }
       if (m.path === 'upper') return -0.85;
+      if (m.id === 'rocketPunch') return 1;
       if (m.path === 'hook') return lerp(0.3, 0.9, k);
       if (m.path === 'overhand') return lerp(0.2, 0.8, k);
       if (m.path === 'hammer') return -0.2;
@@ -3396,6 +3532,11 @@ export class Fighter {
     out.copy(s.recoverFrom).lerp(guard, r);
     // retract along a slightly lower line so the fist doesn't float back
     out.y -= DM.sin(Math.PI * r) * 0.03;
+    // big shots follow through before they come home, and further when they found nothing:
+    // the haymaker on down across the body, the shock uppercut on up past the head
+    const thru = DM.sin(Math.PI * clamp01(k / 0.6)) * (s.hasHit ? 0.35 : 1);
+    if (m.id === 'haymaker') out.add(_p.set(-sx * 0.22, -0.3, -0.04).multiplyScalar(thru));
+    else if (m.id === 'shockUpper') out.add(_p.set(-sx * 0.03, 0.22, -0.08).multiplyScalar(thru));
     const from = m.path === 'upper' ? -0.85 : m.path === 'straight' ? 1 : m.path === 'hammer' ? -0.2 : 0.8;
     return lerp(from, 0.12, smoothstep(0, 0.7, k));
   }

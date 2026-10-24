@@ -1433,6 +1433,9 @@ class Fighter extends RefCounted:
 				s.phase = "active"
 				s.t -= s.windup
 				lockEnd(s)
+				if (s.move.id == "rocketPunch"):
+					rPitch.vel -= 3.4
+					rShiftZ.vel -= 1.4
 				if hooks != null:
 					hooks.emit.call("strikeActive", {"f": self, "s": s})
 		elif (s.phase == "active"):
@@ -2241,6 +2244,41 @@ class Fighter extends RefCounted:
 					heel[(1.0 - rearI)] = maxf(heel[(1.0 - rearI)], (0.25 * w))
 				elif lead:
 					heel[rearI] = maxf(heel[rearI], (0.35 * w))
+				var fire: float = (prog.ext * ((1.0 - prog.ret)))
+				if m.id == "haymaker":
+					shTw -= (((st * tw) * 0.15) * ld)
+					hipTw -= (((st * tw) * 0.12) * ld)
+					pd.z -= (0.04 * ld)
+					heel[(1.0 - rearI)] = maxf(heel[(1.0 - rearI)], (0.4 * ld))
+					pitch += (0.08 * fire)
+					crouch += (0.03 * fire)
+					heel[rearI] = maxf(heel[rearI], (0.85 * fire))
+					pivot[rearI] = (((-st) * 0.75) * maxf(w, fire))
+				elif m.id == "rocketPunch":
+					crouch += (0.07 * maxf(ld, w))
+					pd.z -= (0.09 * w)
+					pd.x -= ((st * 0.03) * w)
+					heel[rearI] = (0.1 * w)
+					pivot[rearI] = (((-st) * 0.2) * w)
+				elif m.id == "hammer":
+					crouch += ((-0.04 * ld) + (0.06 * fire))
+					pitch -= (0.06 * ld)
+					shTw = TMath.lerp_(shTw, (blade * 0.3), (0.7 * maxf(ld, fire)))
+					hipTw = TMath.lerp_(hipTw, (blade * 0.4), (0.5 * maxf(ld, fire)))
+					heel[0.0] = maxf(heel[0], (0.6 * ld))
+					heel[1.0] = maxf(heel[1], (0.6 * ld))
+				elif m.id == "shockUpper":
+					crouch += ((0.06 * ld) - (0.16 * fire))
+					pitch += ((0.1 * ld) - (0.14 * fire))
+					roll += ((sxp * 0.08) * ld)
+					hd.y -= (0.02 * ld)
+					heel[0.0] = maxf(heel[0], (0.7 * fire))
+					heel[1.0] = maxf(heel[1], (0.7 * fire))
+				elif m.id == "flurry":
+					hd.x -= ((sxp * 0.05) * w)
+					roll -= ((sxp * 0.04) * w)
+				else:
+					pass
 			elif (m.kind == "grab"):
 				var w_2: float = maxf(maxf(prog.load_, prog.sh), 0.0)
 				if (m.path == "shoot"):
@@ -2713,6 +2751,7 @@ class Fighter extends RefCounted:
 				hand.lerp(_h_p.set3((sx * gu.hands[o]), gu.hands[(o + 1.0)], gu.hands[(o + 2.0)]), gu.w)
 				pole.lerp(_h_p.set3((sx * 0.6), -0.3, gu.elbow), gu.w)
 			var roll_2: float = (0.1 if isLead else 0.15)
+			var offPart: float = 0.0
 			if ((d != null) and (d.type == "sprawl")):
 				var sk_2: float = sprawlK()
 				trunkPoint((sx * 0.17), -0.22, 0.44, _h_p)
@@ -2736,6 +2775,7 @@ class Fighter extends RefCounted:
 				elif (s.move.kind == "punch"):
 					var w_4: float = (maxf(maxf(prog.load_, prog.sh), 0.0) * ((1.0 - (lower * 0.6))))
 					faceGuard(sx, hand, pole, (((0.0 if (w_4 < 0.0) else (1.0 if (w_4 > 1.0) else w_4)))))
+					offPart = specialOffHand(s, prog, sx, hand, pole)
 				else:
 					roll_2 = kickArm(s, prog, float(side), hand, pole, head)
 			if (em != null):
@@ -2802,7 +2842,7 @@ class Fighter extends RefCounted:
 			TFighter.ik2(L[shIdx_2], hand, TFighter.UPPER, fore, pole, L[elIdx], hand)
 			fitArm(shIdx_2, elIdx, handIdx, fore)
 			var calmT: float = 1.0
-			if (((s != null) and (s.move.kind == "punch")) and (s.side == sideCh)):
+			if (((s != null) and (s.move.kind == "punch")) and ((s.side == sideCh) or (offPart > 0.05))):
 				calmT = 0.0
 			elif ((s != null) and (s.move.kind == "kick")):
 				calmT = 0.4
@@ -3500,6 +3540,75 @@ class Fighter extends RefCounted:
 			pole.y += __v4.y * 0.2
 			pole.z += __v4.z * 0.2
 	
+	func specialOffHand(s, prog, sx: float, hand: V3, pole: V3) -> float:
+		var m = s.move
+		var L: Array = self.L
+		var wk: float = (TMath.clamp01((s.t / s.windup)) if (s.phase == "windup") else 1.0)
+		var hi: float = (6.0 if (s.side == "L") else 9.0)
+		var ei: float = (5.0 if (s.side == "L") else 8.0)
+		var w: float = 0.0
+		var _h_p: V3 = TFighter._p
+		var _h_w: V3 = TFighter._w
+		var _h_tU: V3 = TFighter._tU
+		var _h_tX: V3 = TFighter._tX
+		if m.id == "haymaker":
+			w = (TMath.smoothstep_(0.05, 0.55, wk) if (s.phase == "windup") else ((1.0 - TMath.smoothstep_(0.0, 0.45, prog.k)) if (s.phase == "active") else 0.0))
+			if (w > 0.0):
+				var sh: V3 = L[(4.0 if (sx < 0.0) else 7.0)]
+				toLocal(opp.body.pos[3.0], _h_p).sub(sh)
+				var d: float = sqrt(_h_p.x * _h_p.x + _h_p.y * _h_p.y + _h_p.z * _h_p.z)
+				var __v1: float = ((minf(0.5, (d - 0.2)) / d) if (d > 0.0001) else 0.0)
+				_h_p.x *= __v1
+				_h_p.y *= __v1
+				_h_p.z *= __v1
+				_h_p.x += sh.x
+				_h_p.y += sh.y
+				_h_p.z += sh.z
+				hand.lerp(_h_p, w)
+				pole.lerp(_h_w.copy(_h_tU).multiplyScalar(-1.0).addScaledVector(_h_tX, (sx * 0.4)), w)
+		elif m.id == "rocketPunch":
+			w = (TMath.smoothstep_(0.1, 0.55, wk) if (s.phase == "windup") else (1.0 if (s.phase == "active") else (1.0 - TMath.smoothstep_(0.0, 0.5, prog.ret))))
+			if (w > 0.0):
+				var __v2: V3 = L[hi]
+				var __v3: V3 = L[ei]
+				_h_p.x = __v2.x - __v3.x
+				_h_p.y = __v2.y - __v3.y
+				_h_p.z = __v2.z - __v3.z
+				var len_: float = sqrt(_h_p.x * _h_p.x + _h_p.y * _h_p.y + _h_p.z * _h_p.z)
+				var __v4: float = ((0.2 / len_) if (len_ > 0.0001) else 0.0)
+				_h_p.x *= __v4
+				_h_p.y *= __v4
+				_h_p.z *= __v4
+				var __v5: V3 = L[ei]
+				_h_p.x += __v5.x
+				_h_p.y += __v5.y
+				_h_p.z += __v5.z
+				_h_p.x += _h_tU.x * -0.06
+				_h_p.y += _h_tU.y * -0.06
+				_h_p.z += _h_tU.z * -0.06
+				var __v6: float = (sx * 0.03)
+				_h_p.x += _h_tX.x * __v6
+				_h_p.y += _h_tX.y * __v6
+				_h_p.z += _h_tX.z * __v6
+				hand.lerp(_h_p, w)
+				pole.lerp(_h_w.copy(_h_tU).multiplyScalar(-1.0).addScaledVector(_h_tX, (sx * 0.6)), w)
+		elif m.id == "hammer":
+			w = (TMath.smoothstep_(0.1, 0.5, wk) if (s.phase == "windup") else (1.0 if (s.phase == "active") else (1.0 - TMath.smoothstep_(0.0, 0.4, prog.ret))))
+			if (w > 0.0):
+				var __v7: V3 = L[hi]
+				_h_p.x = __v7.x
+				_h_p.y = __v7.y
+				_h_p.z = __v7.z
+				var __v8: float = (sx * 0.1)
+				_h_p.x += _h_tX.x * __v8
+				_h_p.y += _h_tX.y * __v8
+				_h_p.z += _h_tX.z * __v8
+				hand.lerp(_h_p, w)
+				pole.lerp(_h_w.copy(_h_tX).multiplyScalar(sx).addScaledVector(_h_tU, 0.1).addScaledVector(TFighter._tZ, -0.3), w)
+		else:
+			pass
+		return w
+	
 	func trunkFrame() -> void:
 		var L: Array = self.L
 		var _h_tU: V3 = TFighter._tU
@@ -3758,63 +3867,105 @@ class Fighter extends RefCounted:
 			load_.y = 0.02
 			load_.z = -0.05
 		elif m.path == "upper":
-			var __v3: float = (sx * 0.03)
-			load_.x = __v3
-			load_.y = -0.3
-			load_.z = -0.03
+			if (m.id == "shockUpper"):
+				var __v3: float = (sx * 0.06)
+				load_.x = __v3
+				load_.y = -0.5
+				load_.z = -0.06
+			else:
+				var __v4: float = (sx * 0.03)
+				load_.x = __v4
+				load_.y = -0.3
+				load_.z = -0.03
 		elif m.path == "overhand":
-			var __v4: float = (sx * 0.2)
-			load_.x = __v4
-			load_.y = 0.02
-			load_.z = -0.3
-		elif m.path == "hammer":
-			var __v5: float = (sx * 0.02)
+			var __v5: float = (sx * 0.22)
 			load_.x = __v5
-			load_.y = 0.48
-			load_.z = -0.28
+			load_.y = 0.12
+			load_.z = -0.32
+		elif m.path == "hammer":
+			var __v6: float = (((-C.x) * 0.7) + (sx * 0.04))
+			load_.x = __v6
+			load_.y = 0.5
+			load_.z = -0.26
 		else:
 			pass
-		var __v6: float = (sx * 0.5)
-		pole.x = __v6
+		var _h_p: V3 = TFighter._p
+		if (m.id == "rocketPunch"):
+			var sh: V3 = L[(4.0 if (s.side == "L") else 7.0)]
+			toLocal(s.aim, _h_p).sub(sh).normalize()
+			load_.x = sh.x
+			load_.y = sh.y
+			load_.z = sh.z
+			load_.x += _h_p.x * 0.46
+			load_.y += _h_p.y * 0.46
+			load_.z += _h_p.z * 0.46
+			load_.x -= C.x
+			load_.y -= C.y
+			load_.z -= C.z
+		var __v7: float = (sx * 0.5)
+		pole.x = __v7
 		pole.y = -1.0
 		pole.z = -0.3
 		if (m.path == "hook"):
-			var __v7: float = (sx * 1.0)
-			pole.x = __v7
+			var __v8: float = (sx * 1.0)
+			pole.x = __v8
 			pole.y = 0.35
 			pole.z = -0.25
 		elif (m.path == "overhand"):
-			var __v8: float = (sx * 1.0)
-			pole.x = __v8
+			var __v9: float = (sx * 1.0)
+			pole.x = __v9
 			pole.y = 0.6
 			pole.z = -0.45
 		elif (m.path == "hammer"):
 			var e: float = (prog.ext if (s.phase == "active") else (1.0 if (s.phase == "recovery") else 0.0))
-			var __v9: float = (sx * 0.9)
-			var __v10: float = ((0.25 + (((-0.7 - 0.25)) * e)))
-			var __v11: float = ((0.45 + (((-0.1 - 0.45)) * e)))
-			pole.x = __v9
-			pole.y = __v10
-			pole.z = __v11
+			var __v10: float = (sx * 0.9)
+			var __v11: float = ((0.25 + (((-0.7 - 0.25)) * e)))
+			var __v12: float = ((0.45 + (((-0.1 - 0.45)) * e)))
+			pole.x = __v10
+			pole.y = __v11
+			pole.z = __v12
 		elif (m.path == "upper"):
-			var __v12: float = (sx * 0.3)
-			pole.x = __v12
+			var __v13: float = (sx * 0.3)
+			pole.x = __v13
 			pole.y = -1.0
 			pole.z = 0.35
 		var _h_w: V3 = TFighter._w
 		if (s.phase == "windup"):
-			out.x = C.x
-			out.y = C.y
-			out.z = C.z
-			var __v13: float = prog.load_
-			out.x += load_.x * __v13
-			out.y += load_.y * __v13
-			out.z += load_.z * __v13
+			var u: float = prog.load_
+			if (m.path == "overhand"):
+				var a: float = (1.0 - u)
+				var __v14: float = (C.x + (sx * 0.2))
+				var __v15: float = (C.y - 0.85)
+				var __v16: float = (C.z - 0.35)
+				_h_p.x = __v14
+				_h_p.y = __v15
+				_h_p.z = __v16
+				var __v17: float = ((((a * a) * C.x) + (((2.0 * a) * u) * _h_p.x)) + ((u * u) * ((C.x + load_.x))))
+				var __v18: float = ((((a * a) * C.y) + (((2.0 * a) * u) * _h_p.y)) + ((u * u) * ((C.y + load_.y))))
+				var __v19: float = ((((a * a) * C.z) + (((2.0 * a) * u) * _h_p.z)) + ((u * u) * ((C.z + load_.z))))
+				out.x = __v17
+				out.y = __v18
+				out.z = __v19
+				var __v20: float = (sx * ((0.6 + (((1.0 - 0.6)) * u))))
+				var __v21: float = ((-0.5 + (((0.6 - -0.5)) * u)))
+				var __v22: float = ((-0.9 + (((-0.45 - -0.9)) * u)))
+				pole.x = __v20
+				pole.y = __v21
+				pole.z = __v22
+			else:
+				out.x = C.x
+				out.y = C.y
+				out.z = C.z
+				out.x += load_.x * u
+				out.y += load_.y * u
+				out.z += load_.z * u
 			if (trunkPush(out, 0.15, _h_w) > 0.0):
 				out.x += _h_w.x
 				out.y += _h_w.y
 				out.z += _h_w.z
-			return ((-0.6 * prog.load_) if (m.path == "upper") else ((0.3 * prog.load_) if (m.path == "hook") else 0.05))
+			if (m.id == "rocketPunch"):
+				return (0.05 + (0.95 * u))
+			return ((-0.6 * u) if (m.path == "upper") else ((0.3 * u) if (m.path == "hook") else 0.05))
 		var start: V3 = C.add(load_)
 		if (trunkPush(start, 0.15, _h_w) > 0.0):
 			start.x += _h_w.x
@@ -3824,7 +3975,7 @@ class Fighter extends RefCounted:
 		if (s.phase == "active"):
 			var swing: bool = ((m.path == "overhand") or (m.path == "hammer"))
 			var k: float = ((prog.k * ((0.35 + (0.65 * prog.k)))) if swing else prog.ext)
-			var a: float = (1.0 - k)
+			var a_2: float = (1.0 - k)
 			if (m.path == "hammer"):
 				end.y -= 0.12
 			var c1: V3 = _c1.lerpVectors(start, end, 0.33)
@@ -3838,61 +3989,63 @@ class Fighter extends RefCounted:
 				c2.x += (sx * 0.3)
 				c2.y = (end.y + 0.02)
 			elif m.path == "upper":
-				var __v14: float = (((start.x) + ((((end.x) - (start.x))) * 0.4)))
-				var __v15: float = (start.y - 0.06)
-				var __v16: float = (((start.z) + ((((end.z) - (start.z))) * 0.55)))
-				c1.x = __v14
-				c1.y = __v15
-				c1.z = __v16
-				var __v17: float = (((start.x) + ((((end.x) - (start.x))) * 0.85)))
-				var __v18: float = (((start.y) + ((((end.y) - (start.y))) * 0.55)))
-				var __v19: float = (end.z - 0.08)
-				c2.x = __v17
-				c2.y = __v18
-				c2.z = __v19
+				var __v23: float = (((start.x) + ((((end.x) - (start.x))) * 0.4)))
+				var __v24: float = (start.y - 0.06)
+				var __v25: float = (((start.z) + ((((end.z) - (start.z))) * 0.55)))
+				c1.x = __v23
+				c1.y = __v24
+				c1.z = __v25
+				var __v26: float = (((start.x) + ((((end.x) - (start.x))) * 0.85)))
+				var __v27: float = (((start.y) + ((((end.y) - (start.y))) * 0.55)))
+				var __v28: float = (end.z - 0.08)
+				c2.x = __v26
+				c2.y = __v27
+				c2.z = __v28
 			elif m.path == "overhand":
-				var __v20: float = (start.x + (sx * 0.32))
-				var __v21: float = (start.y + 0.16)
-				var __v22: float = (((start.z) + ((((end.z) - (start.z))) * 0.3)))
-				c1.x = __v20
-				c1.y = __v21
-				c1.z = __v22
-				var __v23: float = (end.x + (sx * 0.34))
-				var __v24: float = (end.y + 0.14)
-				var __v25: float = (end.z - 0.06)
-				c2.x = __v23
-				c2.y = __v24
-				c2.z = __v25
+				var __v29: float = (start.x + (sx * 0.32))
+				var __v30: float = (start.y + 0.16)
+				var __v31: float = (((start.z) + ((((end.z) - (start.z))) * 0.3)))
+				c1.x = __v29
+				c1.y = __v30
+				c1.z = __v31
+				var __v32: float = (end.x + (sx * 0.34))
+				var __v33: float = (end.y + 0.14)
+				var __v34: float = (end.z - 0.06)
+				c2.x = __v32
+				c2.y = __v33
+				c2.z = __v34
 			elif m.path == "hammer":
-				var __v26: float = (((start.x) + ((((end.x) - (start.x))) * 0.2)))
-				var __v27: float = (start.y + 0.22)
-				var __v28: float = (((start.z) + ((((end.z) - (start.z))) * 0.25)))
-				c1.x = __v26
-				c1.y = __v27
-				c1.z = __v28
-				var __v29: float = end.x
-				var __v30: float = (end.y + 0.6)
-				var __v31: float = (end.z + 0.02)
-				c2.x = __v29
-				c2.y = __v30
-				c2.z = __v31
+				var __v35: float = (((start.x) + ((((end.x) - (start.x))) * 0.2)))
+				var __v36: float = (start.y + 0.22)
+				var __v37: float = (((start.z) + ((((end.z) - (start.z))) * 0.25)))
+				c1.x = __v35
+				c1.y = __v36
+				c1.z = __v37
+				var __v38: float = end.x
+				var __v39: float = (end.y + 0.6)
+				var __v40: float = (end.z + 0.02)
+				c2.x = __v38
+				c2.y = __v39
+				c2.z = __v40
 			else:
 				pass
-			var b0: float = ((a * a) * a)
-			var b1: float = (((3.0 * a) * a) * k)
-			var b2: float = (((3.0 * a) * k) * k)
+			var b0: float = ((a_2 * a_2) * a_2)
+			var b1: float = (((3.0 * a_2) * a_2) * k)
+			var b2: float = (((3.0 * a_2) * k) * k)
 			var b3: float = ((k * k) * k)
-			var __v32: float = ((((b0 * start.x) + (b1 * c1.x)) + (b2 * c2.x)) + (b3 * end.x))
-			var __v33: float = ((((b0 * start.y) + (b1 * c1.y)) + (b2 * c2.y)) + (b3 * end.y))
-			var __v34: float = ((((b0 * start.z) + (b1 * c1.z)) + (b2 * c2.z)) + (b3 * end.z))
-			out.x = __v32
-			out.y = __v33
-			out.z = __v34
+			var __v41: float = ((((b0 * start.x) + (b1 * c1.x)) + (b2 * c2.x)) + (b3 * end.x))
+			var __v42: float = ((((b0 * start.y) + (b1 * c1.y)) + (b2 * c2.y)) + (b3 * end.y))
+			var __v43: float = ((((b0 * start.z) + (b1 * c1.z)) + (b2 * c2.z)) + (b3 * end.z))
+			out.x = __v41
+			out.y = __v42
+			out.z = __v43
 			if JS.truthy(m.get("extend")):
 				var idx: float = (0.0 if (s.side == "L") else 1.0)
 				extend[idx] = (m.get("extend") * TMath.smoothstep_(0.1, 0.7, k))
 			if (m.path == "upper"):
 				return -0.85
+			if (m.id == "rocketPunch"):
+				return 1.0
 			if (m.path == "hook"):
 				return ((0.3 + (((0.9 - 0.3)) * k)))
 			if (m.path == "overhand"):
@@ -3907,6 +4060,17 @@ class Fighter extends RefCounted:
 		var r: float = ((0.8 * TMath.minJerk(k_2)) + (0.2 * ((1.0 - (((1.0 - k_2)) * ((1.0 - k_2)))))))
 		out.copy(s.recoverFrom).lerp(guard, r)
 		out.y -= (DM.sin((PI * r)) * 0.03)
+		var thru: float = (DM.sin((PI * (((0.0 if (((k_2 / 0.6)) < 0.0) else (1.0 if (((k_2 / 0.6)) > 1.0) else ((k_2 / 0.6)))))))) * ((0.35 if s.hasHit else 1.0)))
+		if (m.id == "haymaker"):
+			var __v44: V3 = _h_p.set3(((-sx) * 0.22), -0.3, -0.04).multiplyScalar(thru)
+			out.x += __v44.x
+			out.y += __v44.y
+			out.z += __v44.z
+		elif (m.id == "shockUpper"):
+			var __v45: V3 = _h_p.set3(((-sx) * 0.03), 0.22, -0.08).multiplyScalar(thru)
+			out.x += __v45.x
+			out.y += __v45.y
+			out.z += __v45.z
 		var from: float = (-0.85 if (m.path == "upper") else (1.0 if (m.path == "straight") else (-0.2 if (m.path == "hammer") else 0.8)))
 		return TMath.lerp_(from, 0.12, TMath.smoothstep_(0.0, 0.7, k_2))
 	
