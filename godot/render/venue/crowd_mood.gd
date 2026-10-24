@@ -72,7 +72,7 @@ func event(type: String, data) -> void:
 			excite = maxf(excite, 0.8)
 		"clinch":
 			_bump(0.08)
-		"sprawl", "takedownStuffed":
+		"sprawl", "kickCatch", "takedownStuffed":
 			_bump(0.15)
 		"dodge":
 			_bump(0.04)

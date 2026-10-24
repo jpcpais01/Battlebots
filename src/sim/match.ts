@@ -10,7 +10,7 @@ import { FINISH_AT, FINISH_SELF, FINISHER_NAME, FinisherRun, pickFinisher, pickT
 import { TAG_TIME, TagMember, TagTeam } from './tag';
 import { fallAway, Grapple, grappleStrength, type GrappleBlow, type GrappleHost, type Tie } from './grapple';
 import { MOVES, type MoveDef, type Zone } from './moves';
-import { clamp, closestOnSegment, lerp, Rng, smoothstep } from './math';
+import { clamp, clamp01, closestOnSegment, lerp, Rng, smoothstep } from './math';
 import { armPart, CUT_JOINTS, legPart, LOOSE, P, type LossReason } from './damage';
 import { computeBuild } from '../game/items';
 import type { BotSpec } from '../game/loadout';
@@ -1133,7 +1133,8 @@ export class Match {
       } else {
         const stun = m.hitstun * (1 - def.passive('unstoppable')) * (crit ? 1.3 : 1);
         if (def.state === 'stun') def.stunTime = Math.max(def.stunTime, stun);
-        else {
+        // (hit while held, a caught leg say: it stays in their hands)
+        else if (def.state !== 'held') {
           if (def.strike && def.strike.phase === 'windup') def.finishStrike(def.strike, true, 'interrupted');
           if (def.action && def.action.kind === 'dodge') def.action = null;
           def.state = 'stun';
@@ -1226,6 +1227,43 @@ export class Match {
       ab.onTore(tore);
       dbn.onLost(tore);
     }
+    if (!knockdown && !stagger && !shielded && !parried && !checked && tore < 0) this.tryCatch(att, def, s, zone, blocked, blockHand);
+  }
+
+  /**
+   * A kick to the body met with the arm (or eaten and wrapped up) can be trapped there: the
+   * leg clamped to the hip, the kicker left hopping on the other one. Better wrestlers and
+   * sharper fighters catch more; a teep is harder to grab than a round kick.
+   */
+  private tryCatch(att: Fighter, def: Fighter, s: StrikeAction, zone: Zone, blocked: boolean, blockHand: number) {
+    const m = s.move;
+    if (m.kind !== 'kick' || (m.path !== 'roundKick' && m.path !== 'frontKick') || m.spin || zone !== 'body') return;
+    if (this.phase !== 'fight' || this.fin || (this.grapple && this.grapple.live)) return;
+    if ((def.state !== 'fight' && def.state !== 'stun') || att.state !== 'fight' || def.legLost >= 0 || att.legLost >= 0) return;
+    // their left leg comes in on my right; a block takes it on the arm it met
+    const arm = blocked && blockHand >= 0 ? blockHand : s.side === 'L' ? 1 : 0;
+    if (def.parts.armOut(0) || def.parts.armOut(1)) return;
+    const dt = this.brains[def.index].traits;
+    let p = 0.2 + dt.skill * 0.28 + dt.grappling * 0.3;
+    // eaten clean, it's a harder grab (and rocked, much harder)
+    if (!blocked) p *= def.state === 'stun' ? 0.3 : 0.6;
+    if (m.path === 'frontKick') p *= 0.7;
+    const rng = this.rng;
+    if (!rng.chance(clamp(p, 0.03, 0.55))) return;
+    if (this.grapple) {
+      this.grapple.finish();
+      this.grapple = null;
+    }
+    // swept, or they rip it back out: who's stronger, how balanced the kicker still is
+    const sd = grappleStrength(def), sa = grappleStrength(att);
+    const edge = (sd - sa) / (sd + sa);
+    const pd = 0.45 + edge * 0.9 + (1 - clamp01(att.poise / att.maxPoise)) * 0.3 + dt.grappling * 0.2 - att.passive('rooted') * 0.5;
+    const dump = rng.chance(clamp(pd, 0.15, 0.85));
+    const punch = rng.chance(0.3 + dt.aggression * 0.35);
+    if (def.state === 'stun') def.setState('fight');
+    const tie: [Tie, Tie] = [this.brains[0].clinchTie(), this.brains[1].clinchTie()];
+    this.grapple = Grapple.caught(this.grappleHost, def, att, tie, this.frame, s.side === 'L' ? 0 : 1, arm, m.path === 'frontKick', dump, punch);
+    this.brains[att.index].onGrabbed();
   }
 
   /** The attacker's part that does the hitting (a knee strike lands with the thigh). */

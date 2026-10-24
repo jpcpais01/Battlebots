@@ -43,6 +43,7 @@ static var TRIP
 static var THROW
 static var DOUBLE
 static var STUFF
+static var CATCH
 const PART: float = 0.36
 const AFTER: float = 0.72
 static var _a: V3
@@ -188,6 +189,15 @@ class Grapple extends RefCounted:
 	var partV: float
 	var refBreak: bool
 	var sway: float
+	var leg: float
+	var arm: float
+	var teep: bool
+	var dump: bool
+	var punch: bool
+	var punched: bool
+	var yanked: bool
+	var holdS: Array
+	var yankFrom: V3
 	
 	func _init(host = null, phase: String = "", att: TFighter.Fighter = null, def: TFighter.Fighter = null, tie: Array = [], frame: float = 0.0, holds: Array = []) -> void:
 		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
@@ -234,6 +244,15 @@ class Grapple extends RefCounted:
 		self.tripW = V3.new()
 		self.partV = 0.0
 		self.refBreak = false
+		self.leg = 0.0
+		self.arm = 0.0
+		self.teep = false
+		self.dump = false
+		self.punch = false
+		self.punched = false
+		self.yanked = false
+		self.holdS = [TMath.Spring1.new(), TMath.Spring1.new(), TMath.Spring1.new()]
+		self.yankFrom = V3.new()
 		self.host = host
 		self.gripNow = ([[holds[0], holds[0]], [holds[1], holds[1]]] if (att.index == 0.0) else [[holds[1], holds[1]], [holds[0], holds[0]]])
 		self.phase = phase
@@ -319,6 +338,57 @@ class Grapple extends RefCounted:
 		__v6.y *= 0.2
 		__v6.z *= 0.2
 		host.emit.call("sprawl", {"f": def, "opp": att})
+		return g
+	
+	static func caught(host, att: TFighter.Fighter, def: TFighter.Fighter, tie: Array, frame: float, leg: float, arm: float, teep: bool, dump: bool, punch: bool) -> TGrapple.Grapple:
+		var g: TGrapple.Grapple = TGrapple.Grapple.new(host, "caught", att, def, tie, frame, ["leg", "frame"])
+		g.kind = "catch"
+		g.leg = leg
+		g.arm = arm
+		g.teep = teep
+		g.dump = dump
+		g.punch = punch
+		var ai: float = (0.0 if (att == g.f[0]) else 1.0)
+		g.gripNow[ai][arm] = "leg"
+		g.gripNow[ai][(1.0 - arm)] = "ankle"
+		g.gripNow[(1.0 - ai)][1.0] = "frame"
+		g.gripNow[(1.0 - ai)][0.0] = g.gripNow[(1.0 - ai)][1.0]
+		g.hold(def)
+		var P0: TEmote.EmotePose = g.poses[(1.0 - ai)]
+		P0.holdFoot = leg
+		var fp: V3 = def.body.pos[(12.0 if (leg == 0.0) else 15.0)]
+		var __v1: V3 = P0.hold
+		__v1.x = fp.x
+		__v1.y = fp.y
+		__v1.z = fp.z
+		g.holdS[0].to(fp.x, 1.0, 1.0, 0.0)
+		g.holdS[1].to(fp.y, 1.0, 1.0, 0.0)
+		g.holdS[2].to(fp.z, 1.0, 1.0, 0.0)
+		var __v2: V3 = g.n0
+		var __v3: float = (def.root.x - att.root.x)
+		var __v4: float = (def.root.z - att.root.z)
+		__v2.x = __v3
+		__v2.y = 0.0
+		__v2.z = __v4
+		if (g.n0.lengthSq() < ((float(3022314549036573) / 4611686018427387904) / 65536)):
+			att.forward(g.n0)
+		var __v5: V3 = g.n0
+		var __v6: float = sqrt(__v5.x * __v5.x + __v5.y * __v5.y + __v5.z * __v5.z)
+		var __v7: float = 1.0 / (__v6 if __v6 != 0.0 else 1.0)
+		__v5.x *= __v7
+		__v5.y *= __v7
+		__v5.z *= __v7
+		g.dist0 = att.distTo(def)
+		var __v8: V3 = att.rootVel
+		__v8.x *= 0.2
+		__v8.y *= 0.2
+		__v8.z *= 0.2
+		var __v9: V3 = def.rootVel
+		__v9.x *= 0.2
+		__v9.y *= 0.2
+		__v9.z *= 0.2
+		def.liftReach = -0.3
+		host.emit.call("kickCatch", {"f": att, "opp": def})
 		return g
 	
 	func involves(f: TFighter.Fighter) -> bool:
@@ -521,9 +591,11 @@ class Grapple extends RefCounted:
 			partStep(dt)
 		elif phase == "after":
 			afterStep()
+		elif phase == "caught":
+			caughtStep(dt)
 		if (not live):
 			return
-		if ((phase != "throw") and (phase != "drive")):
+		if (((phase != "throw") and (phase != "drive")) and (phase != "caught")):
 			for f: TFighter.Fighter in self.f:
 				if (f.lift > 0.0):
 					f.lift = (0.0 if (f.lift < 0.004) else (f.lift * DM.exp((-10.0 * dt))))
@@ -875,6 +947,186 @@ class Grapple extends RefCounted:
 		if (t >= TGrapple.PART):
 			release(0.3)
 	
+	func caughtStep(dt: float) -> void:
+		var att: TFighter.Fighter = self.att
+		var def: TFighter.Fighter = self.def
+		var t: float = self.t
+		var P0: TEmote.EmotePose = poses[(0.0 if (def == f[0]) else 1.0)]
+		var _hCATCH = TGrapple.CATCH
+		if fell:
+			var __v1: V3 = att.intentVel
+			__v1.x = 0.0
+			__v1.y = 0.0
+			__v1.z = 0.0
+			slamCheck(20.0, "body")
+			if (t >= ((self.dumpAt() + _hCATCH.sweep) + 0.36)):
+				beginAfter()
+			return
+		if def.isDown:
+			P0.holdFoot = -1.0
+			self.fell = true
+			self.fellAt = t
+			self.slammed = true
+			return
+		if ((def.state != "held") or ((att.state != "fight") and (att.state != "stun"))):
+			P0.holdFoot = -1.0
+			release(0.3)
+			return
+		var pair: float = (((att.size_ + def.size_)) * 0.5)
+		var dumpAt: float = self.dumpAt()
+		var end: float = ((dumpAt + _hCATCH.sweep) if dump else (_hCATCH.free + _hCATCH.yank))
+		var _h_n: V3 = TGrapple._n
+		var __v2: float = (def.root.x - att.root.x)
+		var __v3: float = (def.root.z - att.root.z)
+		_h_n.x = __v2
+		_h_n.y = 0.0
+		_h_n.z = __v3
+		var d: float = sqrt(_h_n.x * _h_n.x + _h_n.y * _h_n.y + _h_n.z * _h_n.z)
+		if (d > 0.0001):
+			var __v4: float = (1.0 / d)
+			_h_n.x *= __v4
+			_h_n.y *= __v4
+			_h_n.z *= __v4
+		else:
+			_h_n.x = n0.x
+			_h_n.y = n0.y
+			_h_n.z = n0.z
+		var walk: float = ((TMath.smoothstep_((_hCATCH.trap * 0.5), (_hCATCH.trap + 0.15), t) * ((1.0 - TMath.smoothstep_((end - 0.25), end, t)))) * ((1.0 if (dump or (t < _hCATCH.free)) else 0.0)))
+		var want: float = TMath.clamp_(dist0, (0.82 * pair), (0.98 * pair))
+		var spring: float = TMath.clamp_((((d - want)) * 5.0), -1.6, 1.6)
+		var v: float = ((0.55 * walk) * TMath.smoothstep_((0.2 * def.size_), (0.7 * def.size_), TBody.ropeGap(def.root.x, def.root.z)))
+		var __v5: V3 = att.intentVel
+		__v5.x = _h_n.x
+		__v5.y = _h_n.y
+		__v5.z = _h_n.z
+		var __v6: float = (v + (spring * 0.5))
+		__v5.x *= __v6
+		__v5.y *= __v6
+		__v5.z *= __v6
+		var __v7: V3 = def.intentVel
+		__v7.x = _h_n.x
+		__v7.y = _h_n.y
+		__v7.z = _h_n.z
+		var __v8: float = (v - (spring * 0.5))
+		__v7.x *= __v8
+		__v7.y *= __v8
+		__v7.z *= __v8
+		var hz: float = 2.6
+		var hop: float = maxf(0.0, DM.sin((((PI * 2.0) * hz) * ((t - _hCATCH.trap)))))
+		def.lift = ((((0.045 * def.size_) * hop) * ((0.4 + (0.6 * walk)))) if ((t > _hCATCH.trap) and (t < (end - 0.1))) else (def.lift * DM.exp((-12.0 * dt))))
+		def.stamina = maxf(0.0, (def.stamina - (4.0 * dt)))
+		var _hMOVES = TMoves.MOVES
+		var _h_a: V3 = TGrapple._a
+		if ((punch and (not punched)) and (t >= _hCATCH.punch)):
+			self.punched = true
+			var ids: Array = (["cross", "rearHook"] if (att.strikeSide(_hMOVES.cross) == (("R" if (arm == 0.0) else "L"))) else ["leadHook", "jab"])
+			var id: String = (ids[0] if ((att.cooldownLeft(ids[0]) <= 0.0) and (att.stamina > _hMOVES[ids[0]].stamina)) else ids[1])
+			att.tryStrike(id, "head", _h_a.copy(def.body.pos[3.0]))
+		catchPoint(_h_a)
+		var _h_b: V3 = TGrapple._b
+		var _h_c: V3 = TGrapple._c
+		if dump:
+			var up: float = TMath.smoothstep_((dumpAt - 0.2), (dumpAt + 0.12), t)
+			_h_a.y += ((0.24 * att.size_) * up)
+			var __v9: float = ((0.1 * att.size_) * up)
+			_h_a.x += _h_n.x * __v9
+			_h_a.y += _h_n.y * __v9
+			_h_a.z += _h_n.z * __v9
+		elif (t >= _hCATCH.free):
+			if (not yanked):
+				self.yanked = true
+				var __v10: V3 = P0.hold
+				yankFrom.x = __v10.x
+				yankFrom.y = __v10.y
+				yankFrom.z = __v10.z
+			var k: float = TMath.minJerk((((t - _hCATCH.free)) / _hCATCH.yank))
+			def.stanceSpot(leg, _h_b)
+			def.toWorld(_h_b, _h_c)
+			_h_c.y = (0.08 * def.size_)
+			_h_a.x = yankFrom.x + (_h_c.x - yankFrom.x) * k
+			_h_a.y = yankFrom.y + (_h_c.y - yankFrom.y) * k
+			_h_a.z = yankFrom.z + (_h_c.z - yankFrom.z) * k
+			_h_a.y += ((0.12 * def.size_) * DM.sin((PI * k)))
+			var __v11: float = ((0.1 * def.size_) * DM.sin((PI * k)))
+			_h_a.x += _h_n.x * __v11
+			_h_a.y += _h_n.y * __v11
+			_h_a.z += _h_n.z * __v11
+		var om: float = (22.0 if (t < _hCATCH.trap) else (14.0 if (dump or (t < _hCATCH.free)) else 30.0))
+		var __v12: V3 = P0.hold
+		var __v13: float = holdS[0].to(_h_a.x, om, 1.0, dt)
+		var __v14: float = holdS[1].to(_h_a.y, om, 1.0, dt)
+		var __v15: float = holdS[2].to(_h_a.z, om, 1.0, dt)
+		__v12.x = __v13
+		__v12.y = __v14
+		__v12.z = __v15
+		if ((not dump) and (t >= _hCATCH.free)):
+			var share: float = (TMath.smoothstep_(_hCATCH.free, (_hCATCH.free + 0.2), t) - TMath.smoothstep_(_hCATCH.free, (_hCATCH.free + 0.2), (t - dt)))
+			var __v16: V3 = def.rootVel
+			var __v17: float = (1.1 * share)
+			__v16.x += n0.x * __v17
+			__v16.y += n0.y * __v17
+			__v16.z += n0.z * __v17
+			var __v18: V3 = att.rootVel
+			var __v19: float = (-0.3 * share)
+			__v18.x += n0.x * __v19
+			__v18.y += n0.y * __v19
+			__v18.z += n0.z * __v19
+			if (t >= end):
+				P0.holdFoot = -1.0
+				def.poise -= (def.maxPoise * 0.15)
+				var __v20: V3 = att.intentVel
+				__v20.x = 0.0
+				__v20.y = 0.0
+				__v20.z = 0.0
+				var __v21: V3 = def.intentVel
+				__v21.x = 0.0
+				__v21.y = 0.0
+				__v21.z = 0.0
+				release(0.3)
+				host.emit.call("kickFree", {"f": def, "opp": att})
+			return
+		var _h_r: V3 = TGrapple._r
+		if (dump and (t >= (dumpAt + _hCATCH.sweep))):
+			P0.holdFoot = -1.0
+			_h_a.x = _h_n.x
+			_h_a.y = _h_n.y
+			_h_a.z = _h_n.z
+			att.right(_h_r)
+			var __v22: float = (((1.0 if (arm == 0.0) else -1.0)) * 0.35)
+			_h_a.x += _h_r.x * __v22
+			_h_a.y += _h_r.y * __v22
+			_h_a.z += _h_r.z * __v22
+			var __v23: float = sqrt(_h_a.x * _h_a.x + _h_a.y * _h_a.y + _h_a.z * _h_a.z)
+			var __v24: float = 1.0 / (__v23 if __v23 != 0.0 else 1.0)
+			_h_a.x *= __v24
+			_h_a.y *= __v24
+			_h_a.z *= __v24
+			TGrapple.fallAway(def.root.x, def.root.z, _h_a, def.size_)
+			fall(def, _h_a, 1.3)
+			def.breakFall(_h_a)
+			def.poise = (def.maxPoise * 0.6)
+	
+	func dumpAt() -> float:
+		var _hCATCH = TGrapple.CATCH
+		return (_hCATCH.dumpPunch if punch else _hCATCH.dump)
+	
+	func catchPoint(out: V3) -> V3:
+		var c: TFighter.Fighter = att
+		var z: float = c.size_
+		var _h_f: V3 = TGrapple._f
+		c.forward(_h_f)
+		var _h_r: V3 = TGrapple._r
+		c.right(_h_r)
+		var asx: float = (-1.0 if (arm == 0.0) else 1.0)
+		var o: Array = c.body.pos
+		var __v1: V3 = o[0.0]
+		var __v2: V3 = o[1.0]
+		out.x = __v1.x + (__v2.x - __v1.x) * 0.3
+		out.y = __v1.y + (__v2.y - __v1.y) * 0.3
+		out.z = __v1.z + (__v2.z - __v1.z) * 0.3
+		out.y = maxf(out.y, (0.82 * z))
+		return out.addScaledVector(_h_r, ((asx * ((0.08 if teep else 0.2))) * z)).addScaledVector(_h_f, (((0.32 if teep else 0.16)) * z))
+	
 	func beginAfter() -> void:
 		setPhase("after")
 		for f: TFighter.Fighter in self.f:
@@ -960,7 +1212,7 @@ class Grapple extends RefCounted:
 })
 	
 	func writePoses(dt: float) -> void:
-		var om: float = (9.0 if (phase == "clinch") else (6.5 if (phase == "after") else (11.0 if (phase == "part") else 15.0)))
+		var om: float = (9.0 if (phase == "clinch") else (6.5 if (phase == "after") else (11.0 if (phase == "part") else (13.0 if (phase == "caught") else 15.0))))
 		var _hEC = TEmote.EC
 		var i: int = 0
 		while (i < 2.0):
@@ -1179,47 +1431,70 @@ class Grapple extends RefCounted:
 				tgt.x += _h_r.x * __v33
 				tgt.y += _h_r.y * __v33
 				tgt.z += _h_r.z * __v33
+			elif g == "leg":
+				var __v34: V3 = o[(11.0 if (leg == 0.0) else 14.0)]
+				var __v35: V3 = o[(12.0 if (leg == 0.0) else 15.0)]
+				tgt.x = __v34.x + (__v35.x - __v34.x) * 0.55
+				tgt.y = __v34.y + (__v35.y - __v34.y) * 0.55
+				tgt.z = __v34.z + (__v35.z - __v34.z) * 0.55
+				var __v36: float = (-0.06 * z)
+				tgt.x += _hUP.x * __v36
+				tgt.y += _hUP.y * __v36
+				tgt.z += _hUP.z * __v36
+			elif g == "ankle":
+				var __v37: V3 = o[(12.0 if (leg == 0.0) else 15.0)]
+				tgt.x = __v37.x
+				tgt.y = __v37.y
+				tgt.z = __v37.z
+				var __v38: float = (0.05 * z)
+				tgt.x += _hUP.x * __v38
+				tgt.y += _hUP.y * __v38
+				tgt.z += _hUP.z * __v38
+				var __v39: float = (0.03 * z)
+				tgt.x += _h_f.x * __v39
+				tgt.y += _h_f.y * __v39
+				tgt.z += _h_f.z * __v39
 			if (B.pull > 0.0):
-				var __v34: float = ((-B.pull) * z)
-				tgt.x += _hUP.x * __v34
-				tgt.y += _hUP.y * __v34
-				tgt.z += _hUP.z * __v34
+				var __v40: float = ((-B.pull) * z)
+				tgt.x += _hUP.x * __v40
+				tgt.y += _hUP.y * __v40
+				tgt.z += _hUP.z * __v40
 			if (B.swim[s] > 0.0):
 				tgt.lerp(_h_b, (0.55 * B.swim[s]))
 			var gp: V3 = self.gp[i][s]
 			var G: Array = gs[i]
 			var o3: float = (float(s) * 3.0)
 			if (not seeded):
-				var __v35: V3 = me.body.pos[(6.0 if (float(s) == 0.0) else 9.0)]
-				gp.x = __v35.x
-				gp.y = __v35.y
-				gp.z = __v35.z
+				var __v41: V3 = me.body.pos[(6.0 if (float(s) == 0.0) else 9.0)]
+				gp.x = __v41.x
+				gp.y = __v41.y
+				gp.z = __v41.z
 				G[o3].to(gp.x, 1.0, 1.0, 0.0)
 				G[(o3 + 1.0)].to(gp.y, 1.0, 1.0, 0.0)
 				G[(o3 + 2.0)].to(gp.z, 1.0, 1.0, 0.0)
 			if (gripNow[i][s] != g):
 				gripNow[i][s] = g
 				swimT[i][s] = TGrapple.SWIM
-				var __v36: V3 = swimFrom[i][s]
-				__v36.x = gp.x
-				__v36.y = gp.y
-				__v36.z = gp.z
+				var __v42: V3 = swimFrom[i][s]
+				__v42.x = gp.x
+				__v42.y = gp.y
+				__v42.z = gp.z
 			var om: float = 18.0
 			if (swimT[i][s] > 0.0):
 				swimT[i][s] = maxf(0.0, (swimT[i][s] - dt))
 				var k: float = (1.0 - (swimT[i][s] / TGrapple.SWIM))
 				tgt.lerpVectors(swimFrom[i][s], tgt, TMath.minJerk(k)).lerp(_h_b, (DM.sin((PI * k)) * 0.45))
 				om = 26.0
-			var __v37: float = G[o3].to(tgt.x, om, 1.0, dt)
-			var __v38: float = G[(o3 + 1.0)].to(tgt.y, om, 1.0, dt)
-			var __v39: float = G[(o3 + 2.0)].to(tgt.z, om, 1.0, dt)
-			gp.x = __v37
-			gp.y = __v38
-			gp.z = __v39
-			var __v40: V3 = P0.grip[s]
-			__v40.x = gp.x
-			__v40.y = gp.y
-			__v40.z = gp.z
+			var __v43: float = G[o3].to(tgt.x, om, 1.0, dt)
+			var __v44: float = G[(o3 + 1.0)].to(tgt.y, om, 1.0, dt)
+			var __v45: float = G[(o3 + 2.0)].to(tgt.z, om, 1.0, dt)
+			gp.x = __v43
+			gp.y = __v44
+			gp.z = __v45
+			var __v46: V3 = P0.grip[s]
+			__v46.x = gp.x
+			__v46.y = gp.y
+			__v46.z = gp.z
 			var want: float = (B.gw[s] * ((0.0 if me.isDown else 1.0)))
 			var w: float = gripW[i][s]
 			gripW[i][s] = (w + (((want - w)) * ((1.0 - DM.exp(((-((12.0 if (want > w) else 16.0))) * dt))))))
@@ -1235,6 +1510,8 @@ class Grapple extends RefCounted:
 			clinchShape(i, me, opp, B)
 		elif (phase == "part"):
 			partShape(me, B)
+		elif (phase == "caught"):
+			caughtShape(me, B)
 		elif (me == att):
 			attShape(me, B)
 		else:
@@ -1350,6 +1627,114 @@ class Grapple extends RefCounted:
 		var pole = __f1
 		pole.call(0.0, B.grip[0])
 		pole.call(1.0, B.grip[1])
+	
+	func caughtShape(me: TFighter.Fighter, B: TGrapple.Body) -> void:
+		var t: float = self.t
+		var asx: float = (-1.0 if (arm == 0.0) else 1.0)
+		var _hCATCH = TGrapple.CATCH
+		var trap: float = TMath.minJerk((t / _hCATCH.trap))
+		var dumpAt: float = self.dumpAt()
+		if (me == att):
+			var sweep: float = (TMath.smoothstep_((dumpAt - 0.2), (dumpAt + _hCATCH.sweep), t) if dump else 0.0)
+			var lost: float = (0.0 if dump else TMath.smoothstep_((_hCATCH.free - 0.04), (_hCATCH.free + 0.12), t))
+			B.crouch = ((0.1 + (0.06 * trap)) + (0.05 * sweep))
+			B.pitch = (((0.12 + (0.06 * trap)) + (0.16 * sweep)) - (0.1 * lost))
+			B.twist = (asx * ((((0.24 * trap) * ((1.0 - lost))) + (0.14 * sweep))))
+			B.roll = (((asx * 0.06) * trap) * ((1.0 - lost)))
+			B.hx = (((-asx) * 0.03) * trap)
+			B.heel = (0.18 + (0.25 * sweep))
+			B.grip[arm] = "leg"
+			B.grip[(1.0 - arm)] = ("frame" if (sweep > 0.3) else "ankle")
+			var __v1: V3 = B.pole[arm]
+			__v1.x = 0.6
+			__v1.y = -1.0
+			__v1.z = -0.15
+			var __v2: V3 = B.pole[(1.0 - arm)]
+			__v2.x = 0.5
+			__v2.y = -0.7
+			__v2.z = -0.4
+			B.roll2[arm] = 0.9
+			var let_: float = (((1.0 - lost)) * ((1.0 - TMath.smoothstep_(((dumpAt + _hCATCH.sweep) - 0.05), ((dumpAt + _hCATCH.sweep) + 0.15), t))))
+			B.gw = [let_, let_]
+			B.aw = [let_, let_]
+			if dump:
+				sweepFoot(me, B, dumpAt)
+		else:
+			var wob: float = (DM.sin(((total * 9.0) + sway)) * 0.03)
+			var yank: float = (0.0 if dump else DM.sin((PI * TMath.clamp01(((((t - _hCATCH.free) + 0.06)) / ((_hCATCH.yank + 0.1)))))))
+			var lsx: float = (-1.0 if (leg == 0.0) else 1.0)
+			B.crouch = ((0.08 + (0.05 * trap)) - (0.04 * yank))
+			B.pitch = (((-0.08 - (0.14 * trap)) + wob) + (0.22 * yank))
+			B.roll = ((-lsx) * (((0.1 * trap) + wob)))
+			B.twist = (((lsx * 0.12) * trap) - ((lsx * 0.2) * yank))
+			B.hx = (((-lsx) * 0.04) * trap)
+			B.hz = (-0.02 * trap)
+			B.heel = 0.0
+			var fr: float = leg
+			B.grip = ["frame", "frame"]
+			var g: float = (TMath.smoothstep_(0.05, 0.25, t) * ((1.0 - yank)))
+			B.gw[fr] = (0.85 * g)
+			B.gw[(1.0 - fr)] = 0.0
+			var fling: float = (trap * ((1.0 - (0.6 * yank))))
+			var f: V3 = B.fist[(1.0 - fr)]
+			var __v3: float = ((0.16 + (((0.5 - 0.16)) * fling)))
+			var __v4: float = ((0.12 + (((((0.3 + (wob * 2.0))) - 0.12)) * fling)))
+			var __v5: float = ((0.36 + (((0.08 - 0.36)) * fling)))
+			f.x = __v3
+			f.y = __v4
+			f.z = __v5
+			var __v6: V3 = B.pole[(1.0 - fr)]
+			__v6.x = 0.6
+			__v6.y = -0.4
+			__v6.z = -0.6
+			B.roll2[(1.0 - fr)] = -0.3
+	
+	func sweepFoot(me: TFighter.Fighter, B: TGrapple.Body, dumpAt: float) -> void:
+		var t: float = self.t
+		var fs: float = (1.0 - arm)
+		var sx: float = (-1.0 if (fs == 0.0) else 1.0)
+		var def: TFighter.Fighter = self.def
+		var _h_c: V3 = TGrapple._c
+		me.stanceSpot(fs, _h_c)
+		var _h_b: V3 = TGrapple._b
+		me.toLocal(def.body.pos[(15.0 if (leg == 0.0) else 12.0)], _h_b).sub(_h_c)
+		_h_b.y = 0.0
+		var l: float = DM.hypot(_h_b.x, _h_b.z)
+		if (l > 0.5):
+			var __v1: float = (0.5 / l)
+			_h_b.x *= __v1
+			_h_b.y *= __v1
+			_h_b.z *= __v1
+		var off: V3 = B.foot[fs]
+		var a: float = (dumpAt - 0.12)
+		var hit: float = (dumpAt + TGrapple.CATCH.sweep)
+		var back: float = (hit + 0.3)
+		if (t < a):
+			return
+		if (t < hit):
+			var k: float = TMath.minJerk((((t - a)) / ((hit - a))))
+			off.x = _h_b.x
+			off.y = _h_b.y
+			off.z = _h_b.z
+			off.x *= k
+			off.y *= k
+			off.z *= k
+			off.x += (((sx * 0.12) * DM.sin((PI * k))) - ((sx * 0.1) * k))
+			off.y = (0.06 * DM.sin((PI * k)))
+		else:
+			var k_2: float = TMath.minJerk((((t - hit)) / ((back - hit))))
+			off.x = _h_b.x
+			off.y = _h_b.y
+			off.z = _h_b.z
+			off.x -= (sx * 0.1)
+			var __v2: float = (1.0 - k_2)
+			off.x *= __v2
+			off.y *= __v2
+			off.z *= __v2
+			off.y = (0.07 * DM.sin((PI * k_2)))
+		off.x *= sx
+		B.fw[fs] = (1.0 if (t < back) else 0.0)
+		B.knee[fs] = 0.2
 	
 	func partShape(me: TFighter.Fighter, B: TGrapple.Body) -> void:
 		var t: float = self.t
@@ -1609,6 +1994,7 @@ class Grapple extends RefCounted:
 			f.liftReach = -0.4
 			if (f.state == "held"):
 				f.setState("fight")
+			poses[i].holdFoot = -1.0
 			i += 1
 	
 	func finish() -> void:
@@ -1627,6 +2013,7 @@ static func __init_module() -> void:
 	TGrapple.THROW = {"sink": 0.32, "lift": 0.78, "slam": 1.12, "end": 1.45}
 	TGrapple.DOUBLE = {"dump": 0.62, "end": 0.98}
 	TGrapple.STUFF = {"push": 0.62, "end": 0.88}
+	TGrapple.CATCH = {"trap": 0.2, "punch": 0.3, "dump": 0.62, "dumpPunch": 0.98, "sweep": 0.3, "free": 0.66, "yank": 0.3, "end": 0.62}
 	TGrapple._a = V3.new()
 	TGrapple._b = V3.new()
 	TGrapple._c = V3.new()

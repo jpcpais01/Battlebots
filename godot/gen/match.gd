@@ -1041,7 +1041,7 @@ class Match extends RefCounted:
 				var stun: float = ((m.hitstun * ((1.0 - def.passive("unstoppable")))) * ((1.3 if crit else 1.0)))
 				if (def.state == "stun"):
 					def.stunTime = maxf(def.stunTime, stun)
-				else:
+				elif (def.state != "held"):
 					if ((def.strike != null) and (def.strike.phase == "windup")):
 						def.finishStrike(def.strike, true, "interrupted")
 					if ((def.action != null) and (def.action.kind == "dodge")):
@@ -1126,6 +1126,43 @@ class Match extends RefCounted:
 		if ((tore >= 0.0) and (not JS.truthy(fatal))):
 			ab.onTore(tore)
 			dbn.onLost(tore)
+		if ((((((not knockdown) and (not stagger)) and (not shielded)) and (not parried)) and (not checked)) and (tore < 0.0)):
+			tryCatch(att, def, s, zone, blocked, blockHand)
+	
+	func tryCatch(att: TFighter.Fighter, def: TFighter.Fighter, s, zone: String, blocked: bool, blockHand: float) -> void:
+		var m = s.move
+		if ((((m.kind != "kick") or ((m.path != "roundKick") and (m.path != "frontKick"))) or (m.get("spin") == true)) or (zone != "body")):
+			return
+		if (((phase != "fight") or (fin != null)) or ((grapple != null) and grapple.live)):
+			return
+		if (((((def.state != "fight") and (def.state != "stun")) or (att.state != "fight")) or (def.legLost >= 0.0)) or (att.legLost >= 0.0)):
+			return
+		var arm: float = (blockHand if (blocked and (blockHand >= 0.0)) else (1.0 if (s.side == "L") else 0.0))
+		if (def.parts.armOut(0.0) or def.parts.armOut(1.0)):
+			return
+		var dt = brains[def.index].traits
+		var p: float = ((0.2 + (dt.skill * 0.28)) + (dt.grappling * 0.3))
+		if (not blocked):
+			p *= (0.3 if (def.state == "stun") else 0.6)
+		if (m.path == "frontKick"):
+			p *= 0.7
+		var rng: TMath.Rng = self.rng
+		if (not rng.chance((((0.03 if (p < 0.03) else (0.55 if (p > 0.55) else p)))))):
+			return
+		if (grapple != null):
+			grapple.finish()
+			self.grapple = null
+		var sd: float = TGrapple.grappleStrength(def)
+		var sa: float = TGrapple.grappleStrength(att)
+		var edge: float = (((sd - sa)) / ((sd + sa)))
+		var pd: float = ((((0.45 + (edge * 0.9)) + (((1.0 - TMath.clamp01((att.poise / att.maxPoise)))) * 0.3)) + (dt.grappling * 0.2)) - (att.passive("rooted") * 0.5))
+		var dump: bool = rng.chance((((0.15 if (pd < 0.15) else (0.85 if (pd > 0.85) else pd)))))
+		var punch: bool = rng.chance((0.3 + (dt.aggression * 0.35)))
+		if (def.state == "stun"):
+			def.setState("fight")
+		var tie: Array = [brains[0].clinchTie(), brains[1].clinchTie()]
+		self.grapple = TGrapple.Grapple.caught(grappleHost, def, att, tie, frame, (0.0 if (s.side == "L") else 1.0), arm, (m.path == "frontKick"), dump, punch)
+		brains[att.index].onGrabbed()
 	
 	func strikerPart(s) -> float:
 		var side: float = (0.0 if (s.side == "L") else 1.0)

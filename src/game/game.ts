@@ -1434,6 +1434,11 @@ export class Game {
         sfx?.thud(0.45, this.pan(data.f.body.pos[J.Pelvis]));
         this.arena.excite(0.35);
         break;
+      case 'kickCatch':
+        // the shin slapped into the ribs and clamped there
+        sfx?.thud(0.4, this.pan(data.f.body.pos[J.Chest]));
+        this.arena.excite(0.45);
+        break;
       case 'takedown':
         sfx?.whoosh(true, false, 0.7);
         this.arena.excite(0.8);

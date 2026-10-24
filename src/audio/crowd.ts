@@ -160,6 +160,7 @@ export class CrowdMood {
         this.bump(0.08);
         break;
       case 'sprawl':
+      case 'kickCatch':
       case 'takedownStuffed':
         this.bump(0.15);
         this.cue('ooh', 0.4, 0.05);

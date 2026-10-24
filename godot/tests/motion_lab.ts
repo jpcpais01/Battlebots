@@ -11,6 +11,8 @@
  *   stagger [secs 1.2]               B is rocked, staggering on its feet
  *   fall <x> <z> [down|ko] [power 2.8]  B is knocked down (or out by a head shot) along a local
  *                                    direction of its own (x right, z forward: 0 -1 = over backwards)
+ *   catch <move> <dump|free> [punch] [dist 1.0]  A kicks B's body, B blocks it and traps the leg:
+ *                                    then sweeps A (dump) or A rips it free, with a punch first
  * Env: FPS (60), SIZE_A / SIZE_B (frame sizes), STANCE_A (-1 orthodox, 1 southpaw).
  */
 import { Vector3 } from 'three';
@@ -20,6 +22,7 @@ import { Rng } from '../../src/sim/math';
 import { J } from '../../src/sim/body';
 import { MOVES, type MoveId, type Zone } from '../../src/sim/moves';
 import type { DodgeType } from '../../src/sim/fighter';
+import { Grapple, type GrappleHost } from '../../src/sim/grapple';
 
 const [scenario = 'idle', ...args] = process.argv.slice(2);
 const fps = Number(process.env.FPS ?? 60);
@@ -36,7 +39,7 @@ m.puppets = true;
 const [A, B] = m.fighters;
 if (process.env.STANCE_A) A.stance = Number(process.env.STANCE_A);
 B.stance = -1;
-const dist = Number(scenario === 'strike' ? args[1] ?? 1.0 : 1.4) * (A.size + B.size) * 0.5;
+const dist = Number(scenario === 'strike' ? args[1] ?? 1.0 : scenario === 'catch' ? args[3] ?? 1.0 : 1.4) * (A.size + B.size) * 0.5;
 A.place(new Vector3(-dist / 2, 0, 0), Math.PI / 2);
 B.place(new Vector3(dist / 2, 0, 0), -Math.PI / 2);
 for (const f of m.fighters) {
@@ -149,6 +152,25 @@ if (scenario === 'strike') {
   if (ko) B.fence();
   else B.breakFall(dir);
   rec(Math.round(Number(process.env.SECS ?? 3.5) * 120));
+} else if (scenario === 'catch') {
+  const id = (args[0] ?? 'roundhouse') as MoveId;
+  const aim = B.body.pos[J.Chest].clone();
+  aim.y -= 0.16 * B.size;
+  A.tryStrike(id, 'body', aim);
+  const s = A.strike!;
+  let caught = false;
+  m.on((t, d) => {
+    if (t !== 'hit' || caught || d.attacker !== A) return;
+    caught = true;
+    const mm = m as unknown as { grapple: Grapple | null; grappleHost: GrappleHost; frame: number };
+    mm.grapple?.finish();
+    const arm = d.blocked ? (s.side === 'L' ? 1 : 0) : s.side === 'L' ? 1 : 0;
+    mm.grapple = Grapple.caught(mm.grappleHost, B, A, ['plum', 'plum'], mm.frame, s.side === 'L' ? 0 : 1, arm, MOVES[id].path === 'frontKick', args[1] !== 'free', args[2] === 'punch');
+  });
+  // B sees it coming and gets the arm there
+  while (s.phase === 'windup' && s.t < s.windup * 0.4) rec(1);
+  B.coverUp(MOVES[id], 'body', s.side, s.uid * 16, false);
+  rec(Math.round(Number(process.env.SECS ?? 3) * 120));
 } else rec(Math.round(Number(args[0] ?? 3) * 120));
 
 function DMsin(v: number) {

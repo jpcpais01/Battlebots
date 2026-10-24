@@ -20,6 +20,8 @@ class EmotePose extends RefCounted:
 	var reach: V3
 	var grip: Array
 	var gripW: Array
+	var holdFoot: float
+	var hold: V3
 	
 	func _init() -> void:
 		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
@@ -37,6 +39,8 @@ class EmotePose extends RefCounted:
 		self.reach = V3.new()
 		self.grip = [V3.new(), V3.new()]
 		self.gripW = [0.0, 0.0]
+		self.holdFoot = -1.0
+		self.hold = V3.new()
 
 static func arm(at: Array, pole: Array, roll: float = 0.0):
 	return ({"at": at, "pole": pole, "roll": roll})
