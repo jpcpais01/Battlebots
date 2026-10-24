@@ -17,7 +17,7 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
-	"hour": "2026-10-24 01:00",
+	"hour": "2026-10-24 02:00",
 	"title": "The League",
 	"notes": [
 	"Android app: every quick fight is now a League fight. Twenty rival pilots, each with their own bot, name and temper, share one table with you. Start at #21 and climb: beat someone ranked above you to take their place.",
