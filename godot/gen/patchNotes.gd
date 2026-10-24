@@ -17,6 +17,17 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-24 14:00",
+	"title": "Special attacks with real showmanship",
+	"notes": [
+	"Haymaker: the fist winds back in a full windmill while the lead hand reaches out to measure the distance, then gets yanked back as the punch comes over the top. A miss carries on down across the body.",
+	"Rocket Punch: the robot sits down on flat feet and aims the arm like a cannon, steadying it with the other hand. The launch kicks its whole body back.",
+	"Guard Breaker: both fists go up together, the robot rises onto its toes, then slams down two-handed.",
+	"Shock Uppercut: the robot sinks low with the fist down by its hip, then springs up onto its toes as the punch drives through and follows past the head.",
+	"Piston Rush: the head weaves off the line away from each punch."
+]
+},
+	{
 	"hour": "2026-10-24 12:00",
 	"title": "Update from inside the game",
 	"notes": [
