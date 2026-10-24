@@ -394,6 +394,12 @@ func begin(match_, online: bool, fresh := true, talk = null) -> void:
 
 
 ## The fight is over and its screen is gone: stop talking.
+## Back on the air on match `match_` after end() (the instant replay's quiet): what it has said
+## so far, and the lines it has used, are kept.
+func resume(match_) -> void:
+	m = match_
+
+
 func end() -> void:
 	if _cur != null:
 		_cut()

@@ -81,6 +81,8 @@ var zoom := "normal"
 ## The performance overlay (the web's Performance stats). Off by default: it's a tool for
 ## looking into the game's cost, and it costs something itself.
 var perf_stats := false
+## The knockout's slow-motion instant replay (game/replay/instant_replay.gd).
+var ko_replay := true
 ## "" = Auto (picked for the device), else low / med / high.
 var quality := ""
 ## 0 = Auto (the governor), else a fixed share of the screen's pixels.
@@ -145,6 +147,7 @@ func load_and_apply() -> void:
 		if not ZOOMS.has(zoom):
 			zoom = "normal"
 		perf_stats = bool(cfg.get_value("game", "perf_stats", perf_stats))
+		ko_replay = bool(cfg.get_value("game", "ko_replay", ko_replay))
 		quality = str(cfg.get_value("graphics", "quality", ""))
 		if not QUALITIES.has(quality):
 			quality = ""
@@ -172,6 +175,7 @@ func save() -> void:
 	cfg.set_value("game", "commentary", commentary)
 	cfg.set_value("game", "zoom", zoom)
 	cfg.set_value("game", "perf_stats", perf_stats)
+	cfg.set_value("game", "ko_replay", ko_replay)
 	cfg.set_value("graphics", "quality", quality if quality != "" else "auto")
 	cfg.set_value("graphics", "resolution", resolution)
 	cfg.set_value("graphics", "fps", fps_cap)
@@ -247,6 +251,11 @@ func set_perf_stats(on: bool) -> void:
 	perf_stats = on
 	_write_renderer()
 	_apply_perf()
+	_changed()
+
+
+func set_ko_replay(on: bool) -> void:
+	ko_replay = on
 	_changed()
 
 

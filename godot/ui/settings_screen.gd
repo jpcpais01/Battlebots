@@ -61,7 +61,7 @@ func _init(s: Settings) -> void:
 func _build() -> void:
 	# Game feel: sound, commentary, camera, stats
 	var game := _col("Game")
-	for k in ["sound", "commentary", "zoom", "perf"]:
+	for k in ["sound", "commentary", "zoom", "replays", "perf"]:
 		_row(game, k)
 	# Graphics: quality, resolution, frame rate, ray tracing
 	var gfx := _col("Graphics")
@@ -90,6 +90,8 @@ func _label_for(k: String) -> Array:
 			return ["Commentary", ""]
 		"zoom":
 			return ["Camera zoom", ""]
+		"replays":
+			return ["KO replays", "The knockout again, in slow motion"]
 		"perf":
 			return ["Performance stats", "FPS and ms per part"]
 		"quality":
@@ -136,6 +138,8 @@ func _opts_for(k: String) -> Array:
 		"zoom":
 			for z: String in Settings.ZOOMS:
 				out.append([z.capitalize(), s.zoom == z, s.set_zoom.bind(z)])
+		"replays":
+			out = [["On", s.ko_replay, s.set_ko_replay.bind(true)], ["Off", not s.ko_replay, s.set_ko_replay.bind(false)]]
 		"perf":
 			out = [["On", s.perf_stats, s.set_perf_stats.bind(true)], ["Off", not s.perf_stats, s.set_perf_stats.bind(false)]]
 		"quality":
