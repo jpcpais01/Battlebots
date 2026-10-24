@@ -3,7 +3,8 @@
  * dumped like motion_dump.ts (every joint, the feet, what each is doing) for the stick-figure tools.
  *   node --experimental-transform-types --import <register> godot/tests/motion_lab.ts <scenario> [args] > out.json
  * Scenarios (A is fighter 0, B fighter 1; B stands still in its guard unless told otherwise):
- *   strike <move[,move...]> [dist 1.0] [zone head] [guard up|down]  A throws (a list chains them)
+ *   strike <move[,move...]> [dist 1.0] [zone head] [guard up|down]  A throws (a list chains them;
+ *                                    a move ending in ~ is feinted)
  *   move <x> <z> [secs 1.5]          A travels with a constant intent, local (x right, z forward)
  *   dodge <type> [dir 1]             A dodges (slip, duck, sway, backstep, sidestep, sprawl)
  *   idle [secs 3]                    both stand in their stances
@@ -95,7 +96,8 @@ function rec(steps: number) {
 
 rec(36);
 if (scenario === 'strike') {
-  const ids = (args[0] ?? 'jab').split(',') as MoveId[];
+  const list = (args[0] ?? 'jab').split(',');
+  const ids = list.map((x) => x.replace('~', '')) as MoveId[];
   const zone = (args[2] ?? 'head') as Zone;
   if (args[3] === 'down') B.guardDrop = 1;
   for (let k = 0; k < ids.length; k++) {
@@ -105,9 +107,10 @@ if (scenario === 'strike') {
     if (zone === 'legs') {
       aim.set(B.root.x - 0.15 * B.size, (MOVES[ids[k]].path === 'roundKick' ? 0.6 : 0.26) * B.size, B.root.z);
     }
-    if (!A.tryStrike(ids[k], zone, aim)) {
+    const feint = list[k].endsWith('~');
+    if (!A.tryStrike(ids[k], zone, aim, feint)) {
       // a chained follow-up waits for its window
-      for (let w = 0; w < 240 && !A.tryStrike(ids[k], zone, aim); w++) rec(1);
+      for (let w = 0; w < 240 && !A.tryStrike(ids[k], zone, aim, feint); w++) rec(1);
     }
     // the next one goes once this one is into its recovery (a combination), else when it is done
     if (k < ids.length - 1) {

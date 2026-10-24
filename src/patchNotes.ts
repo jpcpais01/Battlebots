@@ -16,6 +16,17 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-24 20:00",
+    title: "Punches thrown with the whole body",
+    notes: [
+      "Every punch now turns the hips and shoulders before the fist lands, so the fist rides the turn. The body no longer swivels round after a punch has already landed, and a punch stopped on a guard stays stopped.",
+      "Combinations flow from hand to hand. The next punch goes off the turn of the last one without winding up again, and the first hand snaps home to the chin as the second one goes out.",
+      "Body shots bend the knees to drop the level, with the head off the centre line. Body hooks dig in low under the ribs with the elbow tucked.",
+      "Head hooks swing with the elbow up and the arm bent, aimed at the jaw. A missed hook carries on across, and a missed power punch turns the robot past where it meant to stop.",
+      "Jabs and crosses snap straight back to the guard. Feints now sell: a sharp shoulder twitch and a half-thrown hand.",
+    ],
+  },
+  {
     hour: "2026-10-24 18:00",
     title: "Knockdowns that fall like fighters",
     notes: [
