@@ -292,6 +292,66 @@ const GETUP_FLAT = new Map<GetupKey[], number[][]>([
 ]);
 /** How long the legs take to fold under a knocked-out body before it drops as a ragdoll (s). */
 const BUCKLE = 0.36;
+
+/**
+ * A knockdown taken like a fighter: still conscious, it doesn't just drop. Each key is a body
+ * shape at a time (s) into the fall, in a frame that faces the way it falls (back falls) or
+ * along it (front falls): `d` is how far it has gone along the fall, pelvis height and offset,
+ * trunk pitch (forward +) and roll, how far the chin tucks; lead/rear hand targets (x outward
+ * from that side) around the travelling pelvis spot, lead/rear foot targets around where it
+ * stood (the feet stay put unless they step), the knees' bend direction (y, z) and the elbows'
+ * (out, y, z). Between keys the shape moves on smooth curves, like the get-up's.
+ */
+interface FallKey {
+  t: number;
+  d: number;
+  py: number;
+  pz: number;
+  pitch: number;
+  roll: number;
+  tuck: number;
+  hands: [number, number, number, number, number, number];
+  feet: [number, number, number, number, number, number];
+  knee: [number, number];
+  elbow: [number, number, number];
+}
+/**
+ * Over backwards: rocked onto its heels, arms thrown forward for balance and a catch step back
+ * that can't hold it; it sits down behind its heels, chin on its chest and hands reaching back
+ * for the canvas, rolls back onto its shoulders slapping the canvas out at its sides (the head
+ * never hits it), and lies there with its knees up.
+ */
+const FALL_BACK: FallKey[] = [
+  { t: 0, d: 0, py: 0.93, pz: -0.04, pitch: 0.1, roll: 0, tuck: 0.25, hands: [0.14, 1.63, 0.32, 0.11, 1.62, 0.25], feet: [0.15, 0.08, 0.16, 0.15, 0.1, -0.17], knee: [0.1, 1], elbow: [0.7, -0.7, 0] },
+  { t: 0.15, d: 0.2, py: 0.86, pz: 0, pitch: -0.3, roll: 0.06, tuck: 0.1, hands: [0.3, 1.35, 0.5, 0.32, 1.28, 0.42], feet: [0.15, 0.08, 0.13, 0.18, 0.2, -0.32], knee: [0.2, 1], elbow: [0.8, -0.3, -0.2] },
+  { t: 0.32, d: 0.36, py: 0.58, pz: 0, pitch: 0.12, roll: 0.04, tuck: 0.55, hands: [0.32, 0.72, 0.22, 0.34, 0.58, -0.12], feet: [0.16, 0.08, 0.1, 0.2, 0.08, -0.38], knee: [0.3, 1], elbow: [0.8, -0.2, -0.4] },
+  { t: 0.48, d: 0.5, py: 0.22, pz: 0, pitch: -0.15, roll: 0, tuck: 0.7, hands: [0.34, 0.08, -0.28, 0.36, 0.08, -0.3], feet: [0.18, 0.09, 0.22, 0.2, 0.09, -0.02], knee: [0.6, 0.8], elbow: [0.6, 0.2, -0.8] },
+  { t: 0.64, d: 0.58, py: 0.2, pz: 0, pitch: -1.2, roll: -0.05, tuck: 0.95, hands: [0.7, 0.08, -0.16, 0.72, 0.08, -0.2], feet: [0.2, 0.3, 0.05, 0.2, 0.22, -0.1], knee: [1, 0.3], elbow: [0.3, 1, 0] },
+  { t: 0.84, d: 0.6, py: 0.2, pz: 0, pitch: -1.42, roll: 0, tuck: 0.7, hands: [0.66, 0.08, -0.12, 0.68, 0.08, -0.14], feet: [0.2, 0.09, 0.0, 0.22, 0.09, -0.12], knee: [1, 0.4], elbow: [0.3, 1, 0] },
+];
+/**
+ * Over forwards: stumbles a step after the fall with its hands out, drops onto its knees and
+ * catches itself on its gloves, elbows giving to soak it up, then pushes up onto all fours, head up.
+ */
+const FALL_FRONT: FallKey[] = [
+  { t: 0, d: 0, py: 0.93, pz: -0.04, pitch: 0.1, roll: 0, tuck: 0.25, hands: [0.14, 1.63, 0.32, 0.11, 1.62, 0.25], feet: [0.15, 0.08, 0.16, 0.15, 0.1, -0.17], knee: [0.1, 1], elbow: [0.7, -0.7, 0] },
+  { t: 0.14, d: 0.22, py: 0.84, pz: 0.02, pitch: 0.5, roll: 0.04, tuck: -0.2, hands: [0.3, 1.05, 0.55, 0.3, 1.0, 0.5], feet: [0.15, 0.14, 0.42, 0.15, 0.08, -0.15], knee: [0, 1], elbow: [0.6, -0.5, 0] },
+  { t: 0.3, d: 0.34, py: 0.55, pz: 0, pitch: 0.62, roll: 0.02, tuck: -0.2, hands: [0.3, 0.35, 0.62, 0.3, 0.3, 0.58], feet: [0.15, 0.08, 0.45, 0.15, 0.1, -0.12], knee: [-0.3, 1], elbow: [0.6, -0.3, -0.3] },
+  { t: 0.46, d: 0.42, py: 0.46, pz: 0, pitch: 1.1, roll: 0, tuck: -0.35, hands: [0.27, 0.07, 0.6, 0.27, 0.07, 0.6], feet: [0.15, 0.08, 0.4, 0.15, 0.09, -0.15], knee: [-0.6, 1], elbow: [0.6, 0, -0.6] },
+  { t: 0.62, d: 0.46, py: 0.38, pz: 0, pitch: 1.3, roll: 0, tuck: -0.4, hands: [0.3, 0.07, 0.56, 0.3, 0.07, 0.56], feet: [0.14, 0.09, 0.05, 0.15, 0.09, -0.2], knee: [-1, 0.3], elbow: [0.7, 0.2, -0.6] },
+  { t: 0.84, d: 0.48, py: 0.42, pz: 0, pitch: 1.2, roll: 0, tuck: -0.45, hands: [0.29, 0.07, 0.53, 0.29, 0.07, 0.53], feet: [0.14, 0.09, -0.3, 0.15, 0.09, -0.3], knee: [-1, 0.2], elbow: [0.6, 0.1, -0.5] },
+];
+/** A key's channels in one list: d, py, pz, pitch, roll, tuck, hands (6), feet (6), knee (2), elbow (3). */
+const fallFlat = (k: FallKey) => [k.d, k.py, k.pz, k.pitch, k.roll, k.tuck, ...k.hands, ...k.feet, ...k.knee, ...k.elbow];
+const FALL_FLAT = [FALL_BACK.map(fallFlat), FALL_FRONT.map(fallFlat)];
+/** How long the snapshot of the body as it was hit takes to hand over to the fall's shapes (s). */
+const FALL_BLEND = 0.2;
+/** When the fall is over and it lies there (s): the last key. */
+const FALL_LAND = 0.84;
+/** A knocked-out head shot's stiff arm (the fencing response): rises, holds, lets go (s). */
+const FENCE_UP = 0.3;
+const FENCE_HOLD = 1.6;
+const FENCE_OUT = 2.4;
 /** How quickly a calmed arm follows its pose (rad/s, critically damped): settles in about a third of a second. */
 const CALM = 13;
 /**
@@ -583,6 +643,23 @@ export class Fighter {
   private buckleDur = BUCKLE;
   private buckleFeet = [new Vector3(), new Vector3()];
   private buckleFwd = new Vector3();
+  /**
+   * A guarded fall (breakFall): 0 none, 1 over backwards, 2 over forwards; its clock, frame (where
+   * it stood, which way the frame faces, the fall's direction in it) and the body as it was hit.
+   */
+  private fallKind = 0;
+  private fallT = 0;
+  private fallO = new Vector3();
+  private fallYaw = 0;
+  private fallUx = 0;
+  private fallUz = 0;
+  private fallSide = 1;
+  private fallSnap = Array.from({ length: JOINT_COUNT }, () => new Vector3());
+  private fallL = Array.from({ length: JOINT_COUNT }, () => new Vector3());
+  private _fch = new Array<number>(23).fill(0);
+  /** Knocked out by a head shot: the arm that goes stiff (0 L, 1 R; -1 none) and its clock. */
+  private fenceArm = -1;
+  private fenceT = 0;
   private bobPhase = 0;
   private noise: Noise1;
   private feet = [new Foot(), new Foot()]; // 0 = left, 1 = right
@@ -1201,6 +1278,8 @@ export class Fighter {
     }
     if (this.state !== 'down' && this.state !== 'ko') this.writeTargets(dt);
     else if (this.buckle > 0) this.buckleStep(dt);
+    else if (this.fallKind > 0) this.fallStep(dt);
+    else if (this.fenceArm >= 0) this.fenceStep(dt);
     this.body.step(dt);
     if (this.state === 'down' || this.state === 'ko') {
       // root follows the ragdoll
@@ -1432,6 +1511,8 @@ export class Fighter {
     this.downAge = 0;
     this.tries.length = 0;
     this.getupFail = 0;
+    this.fallKind = 0;
+    this.fenceArm = -1;
     this.setState(this.hp <= 0 ? 'ko' : 'down');
     this.body.tone = 0;
     _v.copy(dir).setY(0).normalize();
@@ -1485,8 +1566,211 @@ export class Fighter {
     }
   }
 
+  /**
+   * Still conscious as it goes down (just knocked down, tripped or shoved over, not knocked out):
+   * it falls like a fighter instead of dropping like a sack. Thrown along `dir` (the way the blow
+   * sent it), it goes over backwards (it sits down and rolls back, slapping the canvas) unless
+   * it is pitched forwards, when it drops to its knees and catches itself on its gloves. A fall
+   * across it turns it part way round as it goes. Call it right after knockDown.
+   */
+  breakFall(dir: Vector3) {
+    if (this.state !== 'down' || this.legLost >= 0) return;
+    const P = this.body.pos;
+    for (let i = 0; i < JOINT_COUNT; i++) if (this.body.outside[i]) return;
+    _u.copy(dir).setY(0);
+    if (_u.lengthSq() < 1e-6) this.forward(_u).negate();
+    _u.normalize();
+    this.forward(_w);
+    const front = _u.dot(_w) > 0.35;
+    // the frame faces away from the fall (back) or along it (front), turning the body at most
+    // ~35 degrees from where it faced
+    const want = front ? DM.atan2(_u.x, _u.z) : DM.atan2(-_u.x, -_u.z);
+    const turn = clamp(wrapAngle(want - this.faceYaw), -0.6, 0.6);
+    this.fallYaw = this.faceYaw + turn;
+    this.fallKind = front ? 2 : 1;
+    this.fallT = 0;
+    this.buckle = 0;
+    this.fallO.set(P[J.Pelvis].x, 0, P[J.Pelvis].z);
+    this.fallSide = this.stance < 0 ? -1 : 1;
+    // a quick one (tripped, shoved over) still goes all the way down before it gets up
+    this.downTime = Math.max(this.downTime, FALL_LAND + 0.2);
+    // the fall's direction in the frame (x right, z forward)
+    const s = DM.sin(this.fallYaw), c = DM.cos(this.fallYaw);
+    this.fallUx = -c * _u.x + s * _u.z;
+    this.fallUz = s * _u.x + c * _u.z;
+    for (let i = 0; i < JOINT_COUNT; i++) this.fallLocal(P[i], this.fallSnap[i]);
+  }
+
+  /** A world point in the fall's frame (unit space, x right, z forward, from where it stood). */
+  private fallLocal(world: Vector3, out: Vector3) {
+    const s = DM.sin(this.fallYaw), c = DM.cos(this.fallYaw), k = 1 / this.size;
+    const dx = (world.x - this.fallO.x) * k, dz = (world.z - this.fallO.z) * k;
+    return out.set(-c * dx + s * dz, world.y * k, s * dx + c * dz);
+  }
+
+  private fallWorld(local: Vector3, out: Vector3) {
+    const s = DM.sin(this.fallYaw), c = DM.cos(this.fallYaw), k = this.size;
+    const x = local.x * k, z = local.z * k;
+    return out.set(this.fallO.x - c * x + s * z, local.y * k, this.fallO.z + s * x + c * z);
+  }
+
+  /**
+   * The guarded fall, step by step: the keys' shapes as targets for a body held under half tone,
+   * so the ragdoll solver still carries it (the blow's momentum, the canvas, the ropes) while it
+   * steers itself down. Then it lies there, but alive: the head comes up off the canvas, a glove
+   * pushes at it, the knees shift, until the count's rise (or the referee's wave-off) takes over.
+   */
+  private fallStep(dt: number) {
+    const conscious = this.state === 'down';
+    if (!conscious && this.hp <= 0) {
+      this.fallKind = 0;
+      return;
+    }
+    this.fallT += dt;
+    const t = this.fallT;
+    const keys = this.fallKind === 2 ? FALL_FRONT : FALL_BACK;
+    const flat = FALL_FLAT[this.fallKind - 1];
+    const ch = this._fch;
+    const last = keys.length - 1;
+    if (t >= keys[last].t) for (let c = 0; c < ch.length; c++) ch[c] = flat[last][c];
+    else {
+      let a = 0;
+      while (a < last - 1 && t >= keys[a + 1].t) a++;
+      const b = a + 1;
+      const h = keys[b].t - keys[a].t;
+      const u = (t - keys[a].t) / h;
+      for (let c = 0; c < ch.length; c++) {
+        const m0 = a > 0 ? keySlope(flat[a - 1][c], flat[a][c], flat[b][c], keys[a].t - keys[a - 1].t, h) : 0;
+        const m1 = b < last ? keySlope(flat[a][c], flat[b][c], flat[b + 1][c], h, keys[b + 1].t - keys[b].t) : 0;
+        ch[c] = hermite(flat[a][c], flat[b][c], m0, m1, h, u);
+      }
+    }
+    let roll = ch[4], tuck = ch[5], pitch = ch[3];
+    const lie = smoothstep(FALL_LAND - 0.1, FALL_LAND + 0.4, t);
+    let lift = 0, push = 0, shift = 0;
+    if (conscious && lie > 0) {
+      // alive on the canvas: the head lifts to look, a glove pushes, the hips roll and the knees shift
+      const n = this.noise;
+      lift = Math.max(0, n.at(t * 0.9 + 200)) * lie;
+      push = Math.max(0, n.at(t * 0.7 + 230)) * lie;
+      shift = n.at(t * 0.6 + 260) * lie;
+      tuck += 0.35 * lift * (this.fallKind === 1 ? 1 : -1);
+      roll += 0.16 * shift;
+      if (this.fallKind === 1) pitch += 0.12 * push;
+    }
+    const d = ch[0], py = ch[1], pz = ch[2];
+    // the pelvis spot travels along the fall
+    const ox = this.fallUx * d, oz = this.fallUz * d;
+    const L = this.fallL;
+    // the trunk: spine up S, side X, chest forward Z
+    const sp = DM.sin(pitch), cp = DM.cos(pitch), sr = DM.sin(roll), cr = DM.cos(roll);
+    _tU.set(sr * cp, cr * cp, sp).normalize();
+    _tX.set(cr, -sr, 0);
+    _tZ.crossVectors(_tX, _tU).normalize();
+    _tX.crossVectors(_tU, _tZ);
+    L[J.Pelvis].set(ox, py, oz + pz);
+    L[J.Chest].copy(L[J.Pelvis]).addScaledVector(_tU, 0.42);
+    L[J.Neck].copy(L[J.Chest]).addScaledVector(_tU, 0.21);
+    const st = DM.sin(tuck), ct = DM.cos(tuck);
+    L[J.Head].copy(L[J.Neck]).addScaledVector(_tU, 0.2 * ct).addScaledVector(_tZ, 0.2 * st);
+    L[J.ShL].copy(L[J.Neck]).addScaledVector(_tX, -0.28).addScaledVector(_tU, -0.12);
+    L[J.ShR].copy(L[J.Neck]).addScaledVector(_tX, 0.28).addScaledVector(_tU, -0.12);
+    L[J.HipL].copy(L[J.Pelvis]).addScaledVector(_tX, -0.14).addScaledVector(_tU, -0.06);
+    L[J.HipR].copy(L[J.Pelvis]).addScaledVector(_tX, 0.14).addScaledVector(_tU, -0.06);
+    const sd = this.fallSide;
+    for (let lead = 0; lead < 2; lead++) {
+      // which side this is: the lead side is the left in an orthodox stance
+      const left = (lead === 0) === (sd < 0);
+      const sx = left ? -1 : 1;
+      const o = lead * 3;
+      const hand = L[left ? J.HandL : J.HandR];
+      hand.set(ox + sx * ch[6 + o], ch[7 + o], oz + ch[8 + o]);
+      if (lead === 1 && push > 0) {
+        // the rear glove pushes at the canvas
+        hand.y += 0.05 * push;
+        hand.addScaledVector(_tU, 0.06 * push);
+      }
+      const foot = L[left ? J.FootL : J.FootR];
+      foot.set(sx * ch[12 + o], ch[13 + o], ch[14 + o]);
+      if (lie > 0 && this.fallKind === 1) foot.z += 0.07 * shift * (lead === 0 ? 1 : -1);
+      _p.set(0, ch[18], ch[19]);
+      this.fallLimb(L[left ? J.HipL : J.HipR], foot, _p, THIGH, L[left ? J.KneeL : J.KneeR]);
+      _p.set(sx * ch[20], ch[21], ch[22]);
+      this.fallLimb(L[left ? J.ShL : J.ShR], hand, _p, UPPER, L[left ? J.ElL : J.ElR]);
+    }
+    // from the body as it was hit to the fall's shapes, then to world
+    const w = minJerk(t / FALL_BLEND);
+    const T = this.body.target;
+    for (let i = 0; i < JOINT_COUNT; i++) {
+      _v.lerpVectors(this.fallSnap[i], L[i], w);
+      this.fallWorld(_v, T[i]);
+    }
+    // the blow throws it first, then it takes over and steers itself down; on the canvas it
+    // lets go, still holding its shape. (A referee's stoppage: it just lies there.)
+    const grab = smoothstep(0.02, 0.14, t);
+    let tone = lerp(0.12, 0.42, grab);
+    tone = lerp(tone, conscious ? 0.22 : 0, smoothstep(FALL_LAND - 0.15, FALL_LAND + 0.25, t));
+    this.body.tone = tone;
+    if (!conscious && t > FALL_LAND + 0.25) this.fallKind = 0;
+  }
+
+  /** Middle joint of a two-bone limb (both bones `len`) from its root to its end, bending towards `pole`. */
+  private fallLimb(a: Vector3, b: Vector3, pole: Vector3, len: number, out: Vector3) {
+    _q.subVectors(b, a);
+    const dist = _q.length();
+    out.addVectors(a, b).multiplyScalar(0.5);
+    if (dist < 1e-6) return out;
+    _q.multiplyScalar(1 / dist);
+    // the pole, square to the limb
+    _w.copy(pole).addScaledVector(_q, -pole.dot(_q));
+    if (_w.lengthSq() < 1e-8) return out;
+    _w.normalize();
+    const h = dist * 0.5;
+    return out.addScaledVector(_w, Math.sqrt(Math.max(0, len * len - h * h)));
+  }
+
+  /**
+   * Knocked out cold by a head shot: as the body hits the canvas one arm goes rigid, straight up
+   * off it (the fencing response), and stays there a long moment before it lets go. Call it right
+   * after knockDown (the knockout's buckle plays first).
+   */
+  fence() {
+    if (this.state !== 'ko') return;
+    this.fenceArm = this.stance < 0 ? 0 : 1;
+    this.fenceT = 0;
+  }
+
+  private fenceStep(dt: number) {
+    this.fenceT += dt;
+    const t = this.fenceT;
+    if (t >= FENCE_OUT) {
+      this.fenceArm = -1;
+      return;
+    }
+    const P = this.body.pos, body = this.body;
+    // the chest's normal (spine x shoulders): which way the body lies
+    _u.subVectors(P[J.Neck], P[J.Pelvis]);
+    _w.subVectors(P[J.ShR], P[J.ShL]);
+    _v.crossVectors(_u, _w).normalize();
+    _u.normalize();
+    // face down, there's nowhere for the arm to go
+    const up = clamp01((_v.y + 0.1) / 0.4);
+    const k = smoothstep(0.05, FENCE_UP, t) * (1 - smoothstep(FENCE_HOLD, FENCE_OUT, t)) * up;
+    const sh = this.fenceArm === 0 ? J.ShL : J.ShR;
+    const el = this.fenceArm === 0 ? J.ElL : J.ElR;
+    const hd = this.fenceArm === 0 ? J.HandL : J.HandR;
+    // straight up off the chest, leaning towards the head, the elbow barely bent
+    _p.copy(_v).multiplyScalar(0.85).addScaledVector(_u, 0.45).normalize();
+    const z = this.size;
+    body.target[el].copy(P[sh]).addScaledVector(_p, UPPER * z * 0.97).addScaledVector(_u, 0.03 * z);
+    body.target[hd].copy(P[sh]).addScaledVector(_p, (UPPER + FORE) * 0.96 * z);
+    for (let i = 0; i < JOINT_COUNT; i++) body.loose[i] = i === el || i === hd ? 1 : 0;
+    body.tone = 0.45 * k;
+  }
+
   /** Up off the canvas (the count's rise; a tag team's knocked-out bot coming round to leave the ring). */
   beginGetUp() {
+    this.fallKind = 0;
     this.setState('getup');
     const P = this.body.pos;
     // which way up is it lying? chest normal = spine x shoulder axis

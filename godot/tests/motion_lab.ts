@@ -8,6 +8,8 @@
  *   dodge <type> [dir 1]             A dodges (slip, duck, sway, backstep, sidestep, sprawl)
  *   idle [secs 3]                    both stand in their stances
  *   stagger [secs 1.2]               B is rocked, staggering on its feet
+ *   fall <x> <z> [down|ko] [power 2.8]  B is knocked down (or out by a head shot) along a local
+ *                                    direction of its own (x right, z forward: 0 -1 = over backwards)
  * Env: FPS (60), SIZE_A / SIZE_B (frame sizes), STANCE_A (-1 orthodox, 1 southpaw).
  */
 import { Vector3 } from 'three';
@@ -133,6 +135,17 @@ if (scenario === 'strike') {
   // B is rocked: staggered on its feet for a while
   (m as unknown as { stagger: (f: unknown, d: number) => void }).stagger(B, Number(args[0] ?? 1.2));
   rec(Math.round((Number(args[0] ?? 1.2) + 0.8) * 120));
+} else if (scenario === 'fall') {
+  // B is knocked down along its own local (x, z), like Match.resolveHit does it
+  const x = Number(args[0] ?? 0), z = Number(args[1] ?? -1);
+  const y = B.faceYaw;
+  const dir = new Vector3(DMsin(y) * z - DMcos(y) * x, 0, DMcos(y) * z + DMsin(y) * x).normalize();
+  const ko = args[2] === 'ko';
+  if (ko) B.hp = 0;
+  B.knockDown(dir, Number(args[3] ?? 2.8));
+  if (ko) B.fence();
+  else B.breakFall(dir);
+  rec(Math.round(Number(process.env.SECS ?? 3.5) * 120));
 } else rec(Math.round(Number(args[0] ?? 3) * 120));
 
 function DMsin(v: number) {

@@ -996,6 +996,8 @@ class Match extends RefCounted:
 			if (def.hp <= 0.0):
 				def.hp = 0.0
 			def.knockDown(dir, (1.2 if (fatal == "head") else (2.5 + (kb * 0.8))), (not JS.truthy(fatal)))
+			if ((not JS.truthy(fatal)) and (zone == "head")):
+				def.fence()
 			if JS.truthy(fatal):
 				self.lossReason = fatal
 				ko(att, def, "Dismantled")
@@ -1009,10 +1011,12 @@ class Match extends RefCounted:
 		elif ((((not blocked) and (zone == "legs")) and JS.truthy(m.get("trip"))) and rng.chance(TMath.clamp_((((m.get("trip") + (att.passive("trip") * 0.5)) + ((0.25 if (def.poise < 0.0) else 0.0))) + ((0.3 if (def.legLost >= 0.0) else 0.0))), 0.0, 0.9))):
 			knockdown = true
 			def.knockDown(_h_c.copy(dir).negate(), 1.2, false)
+			def.breakFall(_h_c)
 			def.poise = (def.maxPoise * 0.6)
 		elif (((m.path == "push") and (not shielded)) and (((def.poise <= 0.0) or ((((not (not (ds != null))) and (ds.move.kind == "kick")) and (ds.phase != "recovery")) and rng.chance(0.7))) or ((def.legLost >= 0.0) and rng.chance(0.45)))):
 			knockdown = true
 			def.knockDown(TGrapple.fallAway(def.root.x, def.root.z, _h_c.copy(dir), def.size_), (1.6 + (kb * 0.3)), false)
+			def.breakFall(_h_c)
 			def.poise = (def.maxPoise * 0.6)
 		elif (def.poise <= 0.0):
 			var recentlyRocked: bool = ((time - def.lastStagger) < 7.0)
@@ -1020,6 +1024,7 @@ class Match extends RefCounted:
 			if (bigEnough and (not blocked)):
 				knockdown = true
 				def.knockDown(dir, (2.2 + (kb * 0.7)))
+				def.breakFall(dir)
 				def.poise = (def.maxPoise * 0.6)
 				if (def.knockdowns < 3.0):
 					rollCount(att, def)

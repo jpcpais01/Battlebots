@@ -1087,6 +1087,8 @@ export class Match {
       knockdown = true;
       if (def.hp <= 0) def.hp = 0;
       def.knockDown(dir, fatal === 'head' ? 1.2 : 2.5 + kb * 0.8, !fatal);
+      // out cold from a shot to the head: an arm goes rigid as it hits the canvas
+      if (!fatal && zone === 'head') def.fence();
       if (fatal) {
         this.lossReason = fatal;
         this.ko(att, def, 'Dismantled');
@@ -1100,11 +1102,13 @@ export class Match {
     } else if (!blocked && zone === 'legs' && m.trip && rng.chance(clamp(m.trip + att.passive('trip') * 0.5 + (def.poise < 0 ? 0.25 : 0) + (def.legLost >= 0 ? 0.3 : 0), 0, 0.9))) {
       knockdown = true;
       def.knockDown(_c.copy(dir).negate(), 1.2, false);
+      def.breakFall(_c);
       def.poise = def.maxPoise * 0.6;
     } else if (m.path === 'push' && !shielded && (def.poise <= 0 || (!!ds && ds.move.kind === 'kick' && ds.phase !== 'recovery' && rng.chance(0.7)) || (def.legLost >= 0 && rng.chance(0.45)))) {
       // shoved over: off balance (or stood on one leg), and down they go. Nobody counts it.
       knockdown = true;
       def.knockDown(fallAway(def.root.x, def.root.z, _c.copy(dir), def.size), 1.6 + kb * 0.3, false);
+      def.breakFall(_c);
       def.poise = def.maxPoise * 0.6;
     } else if (def.poise <= 0) {
       const recentlyRocked = this.time - def.lastStagger < 7;
@@ -1113,6 +1117,7 @@ export class Match {
       if (bigEnough && !blocked) {
         knockdown = true;
         def.knockDown(dir, 2.2 + kb * 0.7);
+        def.breakFall(dir);
         def.poise = def.maxPoise * 0.6;
         if (def.knockdowns < 3) this.rollCount(att, def);
       } else {

@@ -21,7 +21,9 @@ Firefox makes the two fights drift apart. In `src/sim` (and `computeBuild` in
 
 `npm run build` runs `scripts/check-sim.mjs`, which fails on the first three. Online
 players must also be on the same build: the lobby compares a fingerprint of the game data
-plus a short fixed fight (`src/net/fingerprint.ts`), so balance changes are fine.
+plus a short fixed fight (`src/net/fingerprint.ts`), so balance changes are fine. A sim change that
+short fight may never reach (knockdowns, knockouts, finishers) must bump `SIM_REV` in
+`src/sim/hash.ts`, then re-run `godot/tools/net/fingerprint.ts`.
 
 ## Patch notes (required on every merge to main)
 
