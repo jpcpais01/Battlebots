@@ -537,6 +537,22 @@ export class Fighter {
   private rShiftZ = new SpringNum(50, 19);
   private rGuard = new SpringNum(40, 16);
   /**
+   * What the blow was, read in the body (see recoil): the chin snapped up and back by an
+   * uppercut (the body rising onto its toes, arms flung loose), each knee buckling under a shot
+   * (the hip on that side sagging over it), and each arm clamped down over the ribs it was hit in.
+   */
+  private rChin = new SpringNum(70, 17);
+  private rKnee = [new SpringNum(55, 16), new SpringNum(55, 16)];
+  private rClutch = [new SpringNum(25, 9), new SpringNum(25, 9)];
+  /** Spun round by a hook or a head kick (rad/s): it dies away and the facing turns it back. */
+  private yawKick = 0;
+  /** A shot to the liver: the match time it sags a beat later (-1: none), and how hard. */
+  private sagAt = -1;
+  private sagK = 0;
+  /** Rocked on rubber legs: when (state time) the next knee gives, and which one. */
+  wobbleAt = 0;
+  private wobbleLeg = 0;
+  /**
    * Second-order smoothing of the body shape: crouch, pitch, roll, shoulder twist, hip
    * twist, head x/y/z, pelvis x/z. Springs start moving gently and carry a touch past
    * the target, so the trunk has mass instead of sliding on exponential eases.
@@ -781,6 +797,8 @@ export class Fighter {
     this.rootVel.set(0, 0, 0);
     this.yaw = yaw;
     this.spinYaw = 0;
+    this.yawKick = 0;
+    this.sagAt = -1;
     this.cover = null;
     // the feet come too, onto their stance spots: the pose stands on wherever they are, and
     // feet left behind where the body was would stride across to catch it up
@@ -1162,6 +1180,25 @@ export class Fighter {
     this.rShiftX.step(0, dt);
     this.rShiftZ.step(0, dt);
     this.rGuard.step(0, dt);
+    this.rChin.step(0, dt);
+    for (let i = 0; i < 2; i++) {
+      this.rKnee[i].step(0, dt);
+      this.rClutch[i].step(0, dt);
+    }
+    if (this.sagAt >= 0 && this.hooksTime >= this.sagAt) {
+      // the liver shot arrives: both knees go, the trunk folds again and the hand clutches it
+      const k = this.sagK;
+      this.sagAt = -1;
+      if (!this.isDown) {
+        this.rDip.vel += k * 2.4;
+        this.rPitch.vel += k * 2.2;
+        this.rKnee[0].vel += k * 1.1;
+        this.rKnee[1].vel += k * 1.6;
+        this.rRoll.vel += k * 1.4;
+        this.rClutch[1].vel += k * 4;
+        this.rGuard.vel += k * 2;
+      }
+    }
     if (this.state !== 'down' && this.state !== 'ko') this.writeTargets(dt);
     else if (this.buckle > 0) this.buckleStep(dt);
     this.body.step(dt);
@@ -1219,6 +1256,18 @@ export class Fighter {
         // drunken drift
         _v.set(this.noise.at(this.stateTime * 2.1 + 10), 0, this.noise.at(this.stateTime * 1.7 + 30));
         this.rootVel.addScaledVector(_v, dt * 3.2);
+        // rubber legs: a knee gives, it catches itself on the other leg, then that one goes,
+        // less and less as it comes round
+        if (this.stateTime >= this.wobbleAt) {
+          const i = this.wobbleLeg;
+          const k = 1 - smoothstep(0.45, 1, this.stateTime / (this.stateTime + Math.max(0, this.stunTime)));
+          this.rKnee[i].vel += 2.6 * k;
+          this.rRoll.vel += (i === 0 ? -1 : 1) * 1.2 * k;
+          this.rDip.vel += 0.6 * k;
+          this.rShiftX.vel += (i === 0 ? -1 : 1) * 0.35 * k;
+          this.wobbleLeg = 1 - i;
+          this.wobbleAt = this.stateTime + 0.36 + 0.12 * this.noise.at(this.stateTime * 3.3 + 400);
+        }
         if (this.stunTime <= 0) {
           this.body.tone = 1;
           this.setState('fight');
@@ -1272,24 +1321,75 @@ export class Fighter {
    * scaled by how hard it was and how much of it gets through to the head; `give` is how hard it
    * was. The head whips with it and the body is rocked: snapped back and turned away by a head
    * shot, folded over a body shot, sagging over a leg kicked out from under it, the hips shoved
-   * along the blow and the guard knocked loose.
+   * along the blow and the guard knocked loose. `path` is the shape of the shot and `side` the
+   * side of the body it landed on (0 left, 1 right; -1: read it off the blow), and each lands
+   * its own way: a hook or a head kick spins the body round over the far knee, an uppercut snaps
+   * the chin up and stands it on its toes, a straight drives it back onto its rear foot, a hammer
+   * drives it down into its knees; a body shot folds it over that side with the arm clamped to
+   * the ribs (one in the liver sags it again a beat later), and a low kick buckles that leg.
    */
-  recoil(x: number, y: number, z: number, zone: Zone, give: number) {
+  recoil(x: number, y: number, z: number, zone: Zone, give: number, path = '', side = -1) {
     this.flinch.kick(x * 1.2, y, z * 1.2);
     const g = Math.min(give, 4);
+    // (a blow travelling to the right lands on the left)
+    const hs = side >= 0 ? side : x > 0 ? 0 : 1;
+    const sg = hs === 0 ? -1 : 1;
     if (zone === 'head') {
       this.rPitch.vel += z * 2.6;
       this.rTwist.vel += x * 5;
       this.rRoll.vel += x * 2;
       this.rGuard.vel += g * 4;
+      if (path === 'hook' || path === 'overhand' || path === 'roundKick' || path === 'backKick') {
+        // turned round by it: the head whips, the shoulders and then the whole body follow, and
+        // the weight drops onto the knee it is spun over
+        const spin = path === 'hook' ? 4.5 : path === 'overhand' ? 3.2 : 5.5;
+        if (this.state !== 'held') this.yawKick = clamp(this.yawKick - x * spin, -8, 8);
+        this.rTwist.vel += x * 2.5;
+        this.rRoll.vel += x * 1.5;
+        this.rKnee[x > 0 ? 1 : 0].vel += Math.min(Math.abs(x), 2.5) * 1.1;
+        if (path === 'overhand') this.rDip.vel += g * 0.8;
+      } else if (path === 'upper' || path === 'knee') {
+        // up through the chin: the head snaps back, the body rises onto its toes, arms thrown loose
+        this.rChin.vel += g * 4.5;
+        this.rDip.vel -= g * 0.5;
+      } else if (path === 'hammer') {
+        // clubbed from above: driven down into both knees, the trunk folding over them
+        this.rDip.vel += g * 1.8;
+        this.rPitch.vel += g * 1.6;
+        this.rKnee[0].vel += g * 0.6;
+        this.rKnee[1].vel += g * 0.6;
+      } else {
+        // straight down the middle: snapped back onto the rear foot, the chin lifting with it
+        this.rChin.vel += g * 1.4;
+        this.rShiftZ.vel -= g * 0.3;
+        this.rKnee[this.stance < 0 ? 1 : 0].vel += g * 0.5;
+      }
     } else if (zone === 'body') {
       this.rPitch.vel += Math.max(0.4 * g, -z) * 4.5;
       this.rDip.vel += g * 0.6;
       this.rTwist.vel += x * 3;
       this.rGuard.vel += g * 2.5;
+      // folded over the side it landed on: that shoulder drops, the arm clamps down over the
+      // ribs and the knee under it gives
+      this.rRoll.vel += sg * g * 1.3;
+      this.rClutch[hs].vel += g * 7;
+      this.rKnee[hs].vel += g * 0.6;
+      if (path === 'frontKick') {
+        // jackknifed by a push kick: the hips driven back, the trunk folded down over them
+        this.rPitch.vel += g * 2.4;
+        this.rShiftZ.vel -= g * 0.5;
+      }
+      // a hook, an uppercut, a knee or a round kick in the liver: a beat later the body sags
+      if (hs === 1 && g > 1.2 && this.state !== 'held' && (path === 'hook' || path === 'upper' || path === 'knee' || path === 'roundKick')) {
+        this.sagAt = this.hooksTime + 0.16;
+        this.sagK = Math.min(g, 2.5) * 0.6;
+      }
     } else {
+      // the leg chopped out from under it: that knee buckles, the hip sags over it and the body
+      // drops onto that side
       this.rDip.vel += g * 1.1;
-      this.rRoll.vel += x * 3;
+      this.rKnee[hs].vel += g * (path === 'sweepKick' ? 2.6 : 2);
+      this.rRoll.vel += sg * g * 1.6;
     }
     // the knees soften under any shot
     this.rDip.vel += g * 0.3;
@@ -1327,6 +1427,8 @@ export class Fighter {
     this.spinYaw = 0;
     this.lift = 0;
     if (counts) this.knockdowns++;
+    this.yawKick = 0;
+    this.sagAt = -1;
     this.downAge = 0;
     this.tries.length = 0;
     this.getupFail = 0;
@@ -1594,6 +1696,11 @@ export class Fighter {
       sup.pos.z += mz;
     }
 
+    // spun round by a blow: the turn carries on a moment, then the facing brings it back
+    if (this.yawKick !== 0) {
+      this.yaw = wrapAngle(this.yaw + this.yawKick * dt);
+      this.yawKick = Math.abs(this.yawKick) < 0.01 ? 0 : damp(this.yawKick, 0, 6, dt);
+    }
     // facing
     if (this.opp) {
       let target = DM.atan2(this.opp.root.x - this.root.x, this.opp.root.z - this.root.z);
@@ -2576,6 +2683,22 @@ export class Fighter {
     pd.x += clamp(this.rShiftX.v, -0.08, 0.08);
     pd.z += clamp(this.rShiftZ.v, -0.08, 0.08);
     crouch += clamp(this.rDip.v, -0.03, 0.14);
+    // the chin snapped up: the head thrown back and up, the trunk leaning away from it, the body
+    // rising onto its toes
+    const chin = clamp(this.rChin.v, 0, 0.6);
+    hd.y += 0.07 * chin;
+    hd.z -= 0.09 * chin;
+    pitch -= 0.4 * chin;
+    crouch -= 0.04 * chin;
+    // a buckled knee: the body sinks and lurches over it, its heel peeling up as the knee drops
+    // forward (the hip sags over it: see the hips)
+    const kn0 = clamp(this.rKnee[0].v, -0.02, 0.18), kn1 = clamp(this.rKnee[1].v, -0.02, 0.18);
+    crouch += 0.45 * Math.max(kn0, kn1, 0);
+    pd.x += (kn1 - kn0) * 0.25;
+    if (this.state !== 'down' && this.state !== 'ko') {
+      heel[0] = Math.min(0.8, heel[0] + Math.max(0, kn0) * 4 + chin * 1.2);
+      heel[1] = Math.min(0.8, heel[1] + Math.max(0, kn1) * 4 + chin * 1.2);
+    }
     // breathing: slow and shallow when fresh, the chest heaving when spent
     if (dt > 0) this.breathPhase += dt * (1.7 + tired * 3.6);
     const breath = DM.sin(this.breathPhase) * (0.5 + 1.5 * tired);
@@ -2659,7 +2782,10 @@ export class Fighter {
     L[J.ShR].y += 0.01 * breath;
     L[J.ShL].y += 0.01 * breath;
     const htw = this.hipTwist;
-    _q.set(DM.cos(htw), 0, -DM.sin(htw));
+    // a buckled knee drops its hip: the pelvis tilts down over it (the hips keep their spacing)
+    const tilt = clamp(kn1 - kn0, -0.18, 0.18) * 1.6;
+    const ct = DM.cos(tilt);
+    _q.set(DM.cos(htw) * ct, -DM.sin(tilt), -DM.sin(htw) * ct);
     L[J.HipR].copy(L[J.Pelvis]).addScaledVector(_q, 0.15);
     L[J.HipL].copy(L[J.Pelvis]).addScaledVector(_q, -0.15);
     L[J.HipR].y -= 0.07;
@@ -2672,6 +2798,7 @@ export class Fighter {
     const gw = this.guardW;
     const lower = clamp01(this.guardDrop + tired * 0.35 + (this.state === 'stun' ? 0.25 : 0) + (this.state === 'stagger' ? 0.7 : 0) + clamp(this.rGuard.v, 0, 0.7));
     const paw = fighting ? 1 : 0.3;
+    let clutch = 0;
     for (let side = 0; side < 2; side++) {
       const sx = side === 0 ? -1 : 1; // -1 left
       const sideCh = side === 0 ? 'L' : 'R';
@@ -2713,7 +2840,17 @@ export class Fighter {
         // arms heavy and swaying, dragged back up as it comes round
         const back = smoothstep(0.55, 1, this.stateTime / (this.stateTime + Math.max(0, this.stunTime)));
         _p.set(sx * (0.32 + this.noise.at(t * 1.5 + side * 7 + 160) * 0.06), 0.78 + this.noise.at(t * 1.8 + side * 7 + 175) * 0.08, 0.24);
+        // as one knee gives, the other arm is thrown out for balance
+        const fl = clamp(this.rKnee[1 - side].v, 0, 0.16) / 0.16;
+        _p.x += sx * 0.22 * fl;
+        _p.y += 0.3 * fl;
         hand.lerp(_p, 0.6 * (1 - back));
+      }
+      // snapped up through the chin, the arms fly loose and out
+      if (chin > 0.01) {
+        hand.x += sx * 0.14 * chin;
+        hand.y += 0.05 * chin;
+        hand.z -= 0.06 * chin;
       }
       // pole: elbows down and out
       const pole = _q.set(sx * 0.55, -1, -0.35);
@@ -2747,6 +2884,18 @@ export class Fighter {
         } else {
           roll = this.kickArm(s, prog, side, hand, pole, head);
         }
+      }
+      // hit in the body, the arm on that side clamps down over the ribs: elbow tight to the side,
+      // the glove at the bottom of the chest (unless it is throwing, holding or covering)
+      const cl = clamp01(this.rClutch[side].v) * (1 - cw);
+      clutch = 0;
+      if (cl > 0.01 && !(s && (s.move.kind === 'grab' || s.move.path === 'push' || (s.move.kind === 'punch' && s.side === sideCh)))) {
+        clutch = cl;
+        this.trunkPoint(sx * 0.13, 0.08, 0.2, _p);
+        hand.lerp(_p, cl);
+        _w.copy(_tU).multiplyScalar(-1).addScaledVector(_tX, sx * 0.2).addScaledVector(_tZ, 0.1);
+        pole.lerp(_w, cl);
+        roll = lerp(roll, 0, cl);
       }
       if (em) {
         // emote fist and elbow, in the shoulder frame so they ride the body's bow and lean
@@ -2787,6 +2936,7 @@ export class Fighter {
       else if (s && s.move.kind === 'kick') calmT = 0.4;
       // a block has to get there: it comes up on its own curve (see Cover), not the calm's
       if (cw > 0.02) calmT = Math.min(calmT, 1 - 0.75 * cw);
+      if (clutch > 0.05) calmT = Math.min(calmT, 1 - clutch);
       if (gu || (this.state === 'win' && !this.emote) || (em && em.w * em.ch[EC.ARM + side * 8 + 7] > 0.05) || grip > 0.05) calmT = 0;
       this.calmW[side] = dt > 0 ? damp(this.calmW[side], calmT, calmT < this.calmW[side] ? 40 : 6, dt) : calmT;
       this.calmArm(side, L[shIdx], L[elIdx], hand, fore, dt);

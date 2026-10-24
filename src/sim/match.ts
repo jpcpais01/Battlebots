@@ -1015,7 +1015,8 @@ export class Match {
       _b.copy(dir).multiplyScalar(1.2);
       body.addVelocity(cs ? J.KneeR : J.KneeL, _b, SIM_DT);
       body.addVelocity(cs ? J.FootR : J.FootL, _b, SIM_DT);
-      att.recoil(0, -0.2, -0.3, 'legs', 1.4);
+      // (the shin jars all the way up into the standing knee)
+      att.recoil(0, -0.2, -0.3, 'legs', 1.4, 'check', s.side === 'L' ? 1 : 0);
     } else if (blocked) {
       for (const h of [J.HandL, J.HandR, J.ElL, J.ElR]) {
         _b.copy(dir).multiplyScalar(2 + kb * 0.8);
@@ -1048,7 +1049,9 @@ export class Match {
       def.toLocal(_c.copy(def.root).add(dir), _b);
       const fk = (blocked ? 0.35 : 1) * (0.8 + dmg / 45);
       const zk = zone === 'head' ? 1 : 0.6;
-      def.recoil(_b.x * fk * zk, (zone === 'body' ? -0.6 : 0.2) * fk, _b.z * fk * zk, zone, fk);
+      // which side of the body it landed on, and the shape of the shot, decide how it rocks
+      const side = def.toLocal(point, _c).x < 0 ? 0 : 1;
+      def.recoil(_b.x * fk * zk, (zone === 'body' ? -0.6 : 0.2) * fk, _b.z * fk * zk, zone, fk, m.path, side);
     }
 
     // a shot or a clinch attempt hit on the way in goes no further
@@ -1290,6 +1293,8 @@ export class Match {
     f.stateTime = 0;
     f.stunTime = dur;
     f.body.tone = 0.5;
+    // the first knee goes at once
+    f.wobbleAt = 0;
   }
 
   private ko(winner: Fighter, loser: Fighter, kind: FinishKind) {

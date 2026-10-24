@@ -904,9 +904,11 @@ class FinisherRun extends RefCounted:
 			_h_b.z *= __v8
 			for j in [11.0, 14.0, 12.0, 15.0]:
 				body.addVelocity(j, _h_b, (1.0 / 120.0))
-		def.toLocal(TFinisher._c.copy(def.root).add(dir), _h_b)
+		var _h_c: V3 = TFinisher._c
+		def.toLocal(_h_c.copy(def.root).add(dir), _h_b)
 		var fk: float = (0.8 + (blow.shown / 45.0))
-		def.recoil(((_h_b.x * fk) * ((1.0 if (blow.zone == "head") else 0.6))), (((-0.6 if (blow.zone == "body") else 0.2)) * fk), (_h_b.z * fk), blow.zone, fk)
+		var side: float = (0.0 if (def.toLocal(point, _h_c).x < 0.0) else 1.0)
+		def.recoil(((_h_b.x * fk) * ((1.0 if (blow.zone == "head") else 0.6))), (((-0.6 if (blow.zone == "body") else 0.2)) * fk), (_h_b.z * fk), blow.zone, fk, _hMOVES[blow.move].path, side)
 		if last:
 			self.struck = true
 			finalBlow(blow.get("final"), dir, point)
