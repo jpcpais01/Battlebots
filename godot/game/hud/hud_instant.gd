@@ -186,7 +186,7 @@ func _draw_replay(sz: Vector2) -> void:
 	# the flash as the blow lands, and its name across the middle
 	if _flash > 0.0:
 		_c.draw_rect(Rect2(Vector2.ZERO, sz), Color(1, 1, 1, 0.45 * _flash * _flash))
-	if _stamp_t >= 0.0 and move != "":
+	if _stamp_t >= 0.0:
 		var t := _stamp_t
 		var a := 1.0
 		var s := 1.0
@@ -201,7 +201,8 @@ func _draw_replay(sz: Vector2) -> void:
 		else:
 			s = 1.0 + 0.04 * (t - STAMP[0]) / STAMP[1]
 		var mfs := em * 3.4 * s
-		var mw := move.to_upper()
+		# (a part torn off by wear, say: the result's word instead)
+		var mw := move.to_upper() if move != "" else "KNOCKOUT" if result == "KO" else result
 		var ww := HudKit.width(font, mw, mfs)
 		var at := Vector2(sz.x * 0.5 - ww * 0.5, sz.y * 0.56)
 		_c.draw_string_outline(font, at, mw, HORIZONTAL_ALIGNMENT_LEFT, -1, int(mfs), maxi(3, int(mfs * 0.12)), Color(NAVY, 0.85 * a))
