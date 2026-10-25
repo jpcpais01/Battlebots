@@ -601,6 +601,7 @@ class Brain extends RefCounted:
 	(((0.1 + (t.grappling * 0.7)) + (ctl * 0.8)) if (((ctl > 0.1) and (not pinned)) and (me.stamina > 8.0)) else -9.0),
 	(((((-0.6 + (t.grappling * 1.5)) + (ctl * 1.3)) + (oppHurt * 0.5)) + fx.grab) if ((legs and (ctl > -0.1)) and (me.stamina > 12.0)) else -9.0),
 	(((((-0.6 + (t.grappling * 1.7)) + (ctl * 1.4)) + (oppHurt * 0.4)) + fx.grab) if (((legs and (tie == "lock")) and (ctl > 0.3)) and (me.stamina > 18.0)) else -9.0),
+	((((((-1.1 + (t.grappling * 1.5)) + (ctl * 0.6)) + (oppHurt * 0.5)) + (t.creativity * 0.4)) + fx.grab) if ((legs and (absf(ctl) < 0.45)) and (me.stamina > 16.0)) else -9.0),
 	((((((0.1 + (((1.0 - t.grappling)) * 0.8)) + (maxf(0.0, t.rangeBias) * 3.0)) + (maxf(0.0, (-ctl)) * 0.8)) + (cau * 0.4)) + (fear * 0.5)) - fx.grab),
 	(((((1.0 - stam)) * 1.1) + (maxf(0.0, ctl) * 0.2)) - (g.quiet * 0.3))
 ]
@@ -610,10 +611,15 @@ class Brain extends RefCounted:
 			var zone: String = ("head" if (((tie == "plum") and (ctl > 0.3)) and rng.chance((0.55 + ((0.3 if (fx.head != 0.0) else 0.0))))) else "body")
 			me.tryStrike("clinchKnee", zone, zoneAim(zone, p, V3.new()))
 		elif k == 1.0:
-			var ids: Array = ["leadUpper", "rearUpper", "leadHook", "rearHook"]
-			var id: String = ids[floorf((rng.next() * 4.0))]
-			var zone_2: String = ("head" if rng.chance((0.5 + ((0.3 if (fx.head != 0.0) else 0.0)))) else "body")
-			me.tryStrike(id, zone_2, zoneAim(zone_2, p, V3.new()))
+			while true:
+				if ((me.cooldownLeft("clinchElbow") <= 0.0) and rng.chance((0.4 + ((0.2 if (fx.head != 0.0) else 0.0))))):
+					me.tryStrike("clinchElbow", "head", zoneAim("head", p, V3.new()))
+					break
+				var ids: Array = ["leadUpper", "rearUpper", "leadHook", "rearHook"]
+				var id: String = ids[floorf((rng.next() * 4.0))]
+				var zone_2: String = ("head" if rng.chance((0.5 + ((0.3 if (fx.head != 0.0) else 0.0)))) else "body")
+				me.tryStrike(id, zone_2, zoneAim(zone_2, p, V3.new()))
+				break
 		elif k == 2.0:
 			g.startPummel(me)
 		elif k == 3.0:
@@ -623,6 +629,8 @@ class Brain extends RefCounted:
 		elif k == 5.0:
 			g.tryTakedown(me, "throw", rng)
 		elif k == 6.0:
+			g.tryTakedown(me, "toss", rng)
+		elif k == 7.0:
 			if g.breakAway(me, rng):
 				say("retreat", ((me.name_) + " pushes off."), 8.0)
 	

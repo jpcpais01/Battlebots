@@ -18,6 +18,7 @@ export type MoveId =
   | 'lowKick'
   | 'shove'
   | 'clinchKnee'
+  | 'clinchElbow'
   | 'tieUp'
   | 'shoot';
 
@@ -44,7 +45,7 @@ export interface MoveDef {
   kind: 'punch' | 'kick' | 'grab';
   limb: 'lead' | 'rear';
   path: Path;
-  striker: 'hand' | 'foot' | 'knee';
+  striker: 'hand' | 'foot' | 'knee' | 'elbow';
   windup: number;
   active: number;
   recovery: number;
@@ -211,6 +212,13 @@ export const MOVES: Record<MoveId, MoveDef> = {
     windup: 0.2, active: 0.14, recovery: 0.26, damage: 34, poise: 22, knockback: 0.45, stamina: 9, hitstun: 0.26,
     range: [0.25, 0.95], zones: ['body', 'head'], twist: 0.2, lean: 0.04, crouch: 0.05, lunge: 0, power: true,
     clinch: true,
+  }),
+  // a hand off the tie, the elbow lifted and whipped across onto the jaw: short, sharp, from the clinch
+  clinchElbow: M({
+    id: 'clinchElbow', name: 'Clinch Elbow', kind: 'punch', limb: 'rear', path: 'hook', striker: 'elbow',
+    windup: 0.16, active: 0.12, recovery: 0.24, damage: 28, poise: 24, knockback: 0.5, stamina: 8, hitstun: 0.28,
+    range: [0.25, 0.9], zones: ['head'], twist: 0.55, lean: 0.04, crouch: 0.03, lunge: 0, power: true,
+    clinch: true, cooldown: 1.6,
   }),
   // both hands reach for the neck and shoulders: contact ties them up in a clinch
   tieUp: M({

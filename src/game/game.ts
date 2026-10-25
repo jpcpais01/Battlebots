@@ -1905,6 +1905,7 @@ export class Game {
       if (f.trailActive[k]) {
         let j = joints[k];
         if (s && s.move.striker === 'knee') j = k === 2 ? J.KneeL : J.KneeR;
+        else if (s && s.move.striker === 'elbow') j = k === 0 ? J.ElL : J.ElR;
         trails[k].push(model.joints[j]);
       }
     }
