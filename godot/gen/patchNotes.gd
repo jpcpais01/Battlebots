@@ -20,6 +20,8 @@ static func __init_module() -> void:
 	"hour": "2026-10-25 00:00",
 	"title": "Battlebots on Windows",
 	"notes": [
+	"On Windows the game opens full screen. F11 or Alt+Enter switches between full screen and a window, and so does Settings > Graphics > Display.",
+	"The Windows game, its window and the taskbar now show the Battlebots robot boxer icon.",
 	"Battlebots now comes for Windows PCs too: every new build is on the Releases page as Battlebots-Windows.zip, next to the Android app.",
 	"On a PC, drag lists, tabs and part tiles with the mouse like a finger, or use the wheel.",
 	"The Windows game offers new builds on its home screen and updates itself in place."

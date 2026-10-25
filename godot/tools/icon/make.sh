@@ -7,7 +7,7 @@
 #                  middle two thirds (viewBox -256 -256 1536 1536).
 #   assets/boot/   the loading screen's big animated boxer (app/boot/boot_emblem.gd), a layer each
 #                  (the robot only: no tile).
-#   icon.png       the project's own icon.
+#   icon.png       the project's own icon (and assets/icons/icon.ico from it, for Windows).
 #   godot/tools/icon/make.sh   (then godot --headless --path godot --import for new files)
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -36,4 +36,10 @@ lum = 0.299 * a[..., 0] + 0.587 * a[..., 1] + 0.114 * a[..., 2]
 out = np.full(a.shape, 255, dtype=np.uint8)
 out[..., 3] = (a[..., 3] * np.clip((lum - 0.12) / 0.3, 0, 1) * 255).astype(np.uint8)
 Image.fromarray(out).save(sys.argv[2])
+PY
+# the Windows build's icon (.exe, window and taskbar): every size Windows asks for, from icon.png
+python3 - "$G/icon.png" "$I/icon.ico" <<'PY'
+import sys
+from PIL import Image
+Image.open(sys.argv[1]).convert('RGBA').save(sys.argv[2], sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 PY

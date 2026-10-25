@@ -67,6 +67,8 @@ func _build() -> void:
 	var gfx := _col("Graphics")
 	for k in ["quality", "resolution", "fps", "rt"]:
 		_row(gfx, k)
+	if Settings.has_window():
+		_row(gfx, "window")
 	_restart = MarginContainer.new()
 	_restart.add_theme_constant_override(&"margin_top", 4)
 	_restart.add_theme_constant_override(&"margin_bottom", 6)
@@ -105,6 +107,8 @@ func _label_for(k: String) -> Array:
 			return ["Frame rate", "Screen %d Hz" % Display.hz()]
 		"rt":
 			return ["Ray tracing", _rt_sub()]
+		"window":
+			return ["Display", "F11 or Alt+Enter switches"]
 	return [k, ""]
 
 
@@ -152,6 +156,8 @@ func _opts_for(k: String) -> Array:
 		"fps":
 			for c: int in Settings.FPS_CAPS:
 				out.append(["Max %d" % Display.hz() if c == 0 else str(c), s.fps_cap == c, s.set_fps_cap.bind(c)])
+		"window":
+			out = [["Full screen", s.fullscreen, s.set_fullscreen.bind(true)], ["Window", not s.fullscreen, s.set_fullscreen.bind(false)]]
 		"rt":
 			for m: String in Settings.RT_MODES:
 				out.append([m.capitalize(), s.rt == m, s.set_rt.bind(m)])
@@ -217,7 +223,7 @@ func _row(parent: VBoxContainer, k: String) -> void:
 
 
 ## The row for a setting ("sound", "commentary", "zoom", "perf", "quality", "resolution", "fps",
-## "rt").
+## "rt", "window").
 func row(k: String) -> SegRow:
 	for r in _rows:
 		if r.name == k:
