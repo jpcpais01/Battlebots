@@ -672,7 +672,7 @@ export class Brain {
 
   /**
    * One decision in the clinch: knee, a short punch, fight for the underhooks, walk them to
-   * the ropes, trip, throw, push off, or lean on them and breathe.
+   * the ropes, trip, throw, hip toss, push off, or lean on them and breathe.
    */
   private clinchThink(g: Grapple) {
     const me = this.me;
@@ -701,6 +701,8 @@ export class Brain {
       legs && ctl > -0.1 && me.stamina > 12 ? -0.6 + t.grappling * 1.5 + ctl * 1.3 + oppHurt * 0.5 + fx.grab : -9,
       // lift and slam: needs a body lock and the better of it
       legs && tie === 'lock' && ctl > 0.3 && me.stamina > 18 ? -0.6 + t.grappling * 1.7 + ctl * 1.4 + oppHurt * 0.4 + fx.grab : -9,
+      // hip toss off the underhook: from the over-under, before either of them has the better of it
+      legs && Math.abs(ctl) < 0.45 && me.stamina > 16 ? -1.1 + t.grappling * 1.5 + ctl * 0.6 + oppHurt * 0.5 + t.creativity * 0.4 + fx.grab : -9,
       // frame and push off
       0.1 + (1 - t.grappling) * 0.8 + Math.max(0, t.rangeBias) * 3 + Math.max(0, -ctl) * 0.8 + cau * 0.4 + this.fear * 0.5 - fx.grab,
       // lean on them and breathe (the referee is watching)
@@ -715,6 +717,11 @@ export class Brain {
         break;
       }
       case 1: {
+        // (an elbow, when it's ready: the head's right there)
+        if (me.cooldownLeft('clinchElbow') <= 0 && this.rng.chance(0.4 + (fx.head ? 0.2 : 0))) {
+          me.tryStrike('clinchElbow', 'head', this.zoneAim('head', p, new Vector3()));
+          break;
+        }
         const ids: MoveId[] = ['leadUpper', 'rearUpper', 'leadHook', 'rearHook'];
         const id = ids[Math.floor(this.rng.next() * 4)];
         const zone: Zone = this.rng.chance(0.5 + (fx.head ? 0.3 : 0)) ? 'head' : 'body';
@@ -734,6 +741,9 @@ export class Brain {
         g.tryTakedown(me, 'throw', this.rng);
         break;
       case 6:
+        g.tryTakedown(me, 'toss', this.rng);
+        break;
+      case 7:
         if (g.breakAway(me, this.rng)) this.say('retreat', `${me.name} pushes off.`, 8);
         break;
     }

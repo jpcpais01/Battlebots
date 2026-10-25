@@ -318,6 +318,8 @@ class Match extends RefCounted:
 		if (tag != null):
 			tag.update(dt)
 		separate()
+		if grapple != null:
+			grapple.settle()
 		if (fin != null):
 			fin.settle()
 		if ((fin != null) and fin.over):
@@ -1170,6 +1172,8 @@ class Match extends RefCounted:
 			return TDamage.armPart(side, 2.0)
 		if (s.move.striker == "knee"):
 			return TDamage.legPart(side, 0.0)
+		if (s.move.striker == "elbow"):
+			return TDamage.armPart(side, 1.0)
 		return TDamage.legPart(side, 2.0)
 	
 	func wearCheck(f: TFighter.Fighter, part: float) -> void:

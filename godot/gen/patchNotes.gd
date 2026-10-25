@@ -18,8 +18,18 @@ static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
 	"hour": "2026-10-25 00:00",
+	"title": "Hip tosses",
+	"notes": [
+	"New takedown: the hip toss. From the clinch a robot steps across, turns its back in under the other one, loads it onto its hip and throws it over, legs high, flat onto its back.",
+	"A tossed robot really rolls over the thrower's back and hip on the way down instead of passing through it."
+]
+},
+	{
+	"hour": "2026-10-25 00:00",
 	"title": "Battlebots on Windows",
 	"notes": [
+	"Robots throw short elbows in the clinch now: a hand comes off the tie, the elbow lifts out level and whips across onto the jaw.",
+	"Tripped or driven over by a double leg, a robot breaks its fall like a fighter (sits, rolls back and slaps the canvas) instead of dropping like a sack.",
 	"Battlebots now comes for Windows PCs too: every new build is on the Releases page as Battlebots-Windows.zip, next to the Android app.",
 	"On a PC, drag lists, tabs and part tiles with the mouse like a finger, or use the wheel.",
 	"The Windows game offers new builds on its home screen and updates itself in place."
