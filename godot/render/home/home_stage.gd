@@ -31,6 +31,9 @@ class SceneCam:
 	var lambda := 3.0
 	## A hard cut this frame (the director jumps instead of easing).
 	var cut := true
+	## Where the lens may go, or an empty box for anywhere: a swipe swings the camera round
+	## its look point, and inside a room that orbit would pass out through the walls.
+	var box := AABB()
 
 
 ## What a scene works with each frame (scene.ts SceneKit).
@@ -234,6 +237,7 @@ func _restart() -> void:
 		return
 	sound.home_level(1.0, 0.3)
 	sound.home_music(true)
+	cam.box = AABB()
 	_scene.start(k)
 	cam.cut = true
 
@@ -275,6 +279,7 @@ func update(dt: float, time: float) -> void:
 		d.scene_fov = cam.fov
 		d.scene_roll = cam.roll
 		d.scene_lambda = cam.lambda
+		d.scene_box = cam.box
 		if cam.cut:
 			d.snap()
 			d.cuts += 1

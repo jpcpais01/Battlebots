@@ -16,6 +16,9 @@ extends Node3D
 const BAKE := "res://assets/home/lounge"
 ## lounge.ts ROOM, WIN, TV, CLOCK, TANK.
 const X0 := -4.2
+## Where the camera may go: the room (x ±4.2, z from the window at -2.38 to the TV wall at 4,
+## ceiling 3) less the curtains, the sideboard, the bookcase, the tank and the TV's console.
+const CAM_BOX := AABB(Vector3(-3.55, 0.3, -1.95), Vector3(6.9, 2.4, 5.3))
 const WIN_Z := -2.38
 const TV_Y := 1.42
 const TV_Z := 3.9
@@ -274,7 +277,10 @@ func _idle_cam(k, time: float, snap := false) -> void:
 	var drift := sin(time * 0.05)
 	var c: HomeStage.SceneCam = k.cam
 	c.look = Vector3(-0.45 * z, 0.95 * z, -0.4 * z)
-	c.pos = Vector3((1.7 + 0.18 * drift) * z, (1.32 + 0.05 * sin(time * 0.08)) * z, (2.45 - 0.15 * drift) * z)
+	var at := Vector3((1.7 + 0.18 * drift) * z, (1.32 + 0.05 * sin(time * 0.08)) * z, (2.45 - 0.15 * drift) * z)
+	# a little nearer than the web's shot, so a big bot's camera stays clear of the TV wall
+	c.pos = c.look.lerp(at, 0.9)
+	c.box = CAM_BOX
 	c.fov = 1.0
 	c.roll = 0.0
 	c.lambda = 1.5
