@@ -48,8 +48,8 @@ export class RefCount {
       this.cur = null;
       return 'end';
     }
-    // a try that gives out is still on the canvas: the count goes on
-    if (r.f.state === 'down' || (r.f.state === 'getup' && r.f.getupFail)) {
+    // a try that gives out, or a rest on one knee, is still on the canvas: the count goes on
+    if (r.f.onCanvas) {
       const t = m.time - r.at;
       const n = t < 0.35 ? 0 : Math.min(10, 1 + Math.floor(t - 0.35));
       if (n <= r.n) return null;
