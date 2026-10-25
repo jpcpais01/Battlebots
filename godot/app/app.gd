@@ -136,6 +136,7 @@ func _setup() -> void:
 	updater = Updater.new()
 	add_child(updater)
 	updater.found.connect(_offer_update)
+	updater.downloaded.connect(_offer_install)
 	# (a mouse drags the finger-made lists and strips too: the Windows build)
 	if not OS.has_feature("mobile"):
 		add_child(DragScroll.new())
@@ -247,12 +248,25 @@ func _setup() -> void:
 ## itself once per version (unless it's been put off with Later) while the player is home with
 ## nothing else up: until then it looks again every few seconds.
 func _offer_update() -> void:
-	if not updater.available() or String(Store.pref("updateLater", "")) == updater.latest:
+	if not updater.available() or String(Store.pref("updateLater", "")) == updater.latest or updater.shown == updater.latest:
+		return
+	if updater.downloading() or UpdateScreen.current(ui) != null:
 		return
 	if current != "home" or results != null or Modal.current(ui) != null or _gift > 0.0:
 		get_tree().create_timer(3.0).timeout.connect(_offer_update)
 		return
 	UpdateCard.open(ui, updater, tap)
+
+
+## The new build finished downloading while the player went on playing (Keep playing): once
+## they're home with nothing up, the download screen comes back with Install now.
+func _offer_install() -> void:
+	if UpdateScreen.current(ui) != null or not updater.ready_to_install():
+		return
+	if current != "home" or results != null or Modal.current(ui) != null or _gift > 0.0:
+		get_tree().create_timer(3.0).timeout.connect(_offer_install)
+		return
+	UpdateScreen.open(ui, updater, tap, false)
 
 ## The one-time gift's moment (app.ts giftBanner): a gold banner with the credits, tap to close.
 func _gift_banner() -> void:

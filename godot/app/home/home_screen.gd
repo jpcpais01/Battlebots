@@ -207,20 +207,36 @@ func _update_button() -> Button:
 	b.visible = false
 	b.pressed.connect(func() -> void:
 		app.tap("tap")
-		UpdateCard.open(app.ui, app.updater, app.tap))
+		var u: Updater = app.updater
+		# (on its way or in: straight to the download screen; else the card with What's new)
+		if u.downloading() or u.ready_to_install():
+			UpdateScreen.open(app.ui, u, app.tap, u.downloading())
+		else:
+			UpdateCard.open(app.ui, u, app.tap))
 	if app != null and app.updater != null:
 		app.updater.found.connect(_sync_update)
 		app.updater.downloaded.connect(_sync_update)
+		app.updater.failed.connect(func(_why: String) -> void: _sync_update())
+		app.updater.progress.connect(func(_d: int, _t: int) -> void: _sync_update())
 	_sync_update.call_deferred()
 	return b
 
 
+## The pill's words: Update, how far a download has got (Updating 42%), or Install v0.1.61.
 func _sync_update() -> void:
 	var u: Updater = app.updater if app != null else null
 	_update.visible = u != null and u.available()
 	if _update.visible:
 		var l := _update.find_child("Text", true, false) as Label
-		l.text = "Install v" + u.latest if u.ready_to_install() else "Update"
+		var t := "Update"
+		if u.ready_to_install():
+			t = "Install v" + u.latest
+		elif u.stage == "verify":
+			t = "Checking…"
+		elif u.stage == "download":
+			t = "Updating %d%%" % int(u.fraction() * 100.0)
+		if l.text != t:
+			l.text = t
 
 
 static func app_version() -> String:
@@ -320,7 +336,7 @@ func cycle_home_place() -> void:
 
 
 ## The Settings card over the home screen (app.ts settings), the same one the pause menu opens,
-## with the web's Reset win record under the Game column.
+## with the web's Reset win record under the Game column and Updates under Graphics.
 func open_settings() -> void:
 	app.tap("tap")
 	var screen := SettingsScreen.new(app.game.settings)
@@ -330,6 +346,10 @@ func open_settings() -> void:
 	var game_col := screen.row("perf").get_parent() if screen.row("perf") != null else null
 	if game_col != null:
 		game_col.add_child(_reset_button())
+	# Updates (app/update/update_row.gd): this build, and Check now
+	var gfx_col := screen.row("rt").get_parent() if screen.row("rt") != null else null
+	if gfx_col != null and app.updater != null:
+		gfx_col.add_child(UpdateRow.new(app.updater, app.ui, app.tap))
 	m._layout()
 
 
