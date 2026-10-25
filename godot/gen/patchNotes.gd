@@ -20,6 +20,8 @@ static func __init_module() -> void:
 	"hour": "2026-10-25 00:00",
 	"title": "Hip tosses and clinch elbows",
 	"notes": [
+	"On Windows the game opens full screen. F11 or Alt+Enter switches between full screen and a window, and so does Settings > Graphics > Display.",
+	"The Windows game, its window and the taskbar now show the Battlebots robot boxer icon.",
 	"New takedown: the hip toss. From the clinch a robot steps across, turns its back in under the other one, loads it onto its hip and throws it over, legs high, flat onto its back.",
 	"A tossed robot really rolls over the thrower's back and hip on the way down instead of passing through it.",
 	"Robots throw short elbows in the clinch now: a hand comes off the tie, the elbow lifts out level and whips across onto the jaw."

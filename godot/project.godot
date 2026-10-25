@@ -14,6 +14,9 @@ config/name="Battlebots"
 config/version="dev"
 config/description="Auto 1v1 robot fighting."
 run/main_scene="res://app/boot/boot.tscn"
+# the robot boxer (tools/icon/make.sh): the window and taskbar on a PC, from the .ico on Windows
+config/icon="res://icon.png"
+config/windows_native_icon="res://assets/icons/icon.ico"
 # the engine's own splash (while it starts) in the loading screen's darkest blue, no picture: the
 # loading screen (app/boot/) comes up over it with no flash
 boot_splash/bg_color=Color(0.0118, 0.0196, 0.051, 1)

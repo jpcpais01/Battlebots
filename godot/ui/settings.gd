@@ -8,6 +8,7 @@
 ## Graphics: a quality tier (Auto picks one for the device), the 3D resolution (Auto holds the
 ## frame rate by moving it, between camera cuts), the frame-rate cap and ray tracing (the web's
 ## bb.rt: Off, Light on the phone's usual renderer, Heavy on Forward+ after a restart).
+## Window (PC only): full screen or a window; F11 and Alt+Enter flip it from anywhere.
 ##
 ## The fight sets the targets (sfx, voice, booth, director, hud, env, key, arena, contact_ao, ray) and
 ## calls load_and_apply() once they exist. Anything left null is skipped, so this also works for
@@ -91,6 +92,8 @@ var resolution := 0.0
 var fps_cap := 0
 ## "off", "light" or "heavy" (what the player picked: rt_mode() says what is in force now).
 var rt := "off"
+## Full screen (PC builds; phones are always full screen). The Windows build starts in it.
+var fullscreen := OS.get_name() == "Windows"
 
 var sfx: Sfx
 var voice: Voice
@@ -153,6 +156,7 @@ func load_and_apply() -> void:
 			quality = ""
 		resolution = _pick(float(cfg.get_value("graphics", "resolution", 0.0)), RESOLUTIONS, 0.0)
 		fps_cap = int(_pick(float(cfg.get_value("graphics", "fps", 0)), [0.0, 60.0, 30.0], 0.0))
+		fullscreen = bool(cfg.get_value("graphics", "fullscreen", fullscreen))
 		rt = str(cfg.get_value("graphics", "rt", "off"))
 		if not RT_MODES.has(rt):
 			rt = "off"
@@ -180,6 +184,7 @@ func save() -> void:
 	cfg.set_value("graphics", "resolution", resolution)
 	cfg.set_value("graphics", "fps", fps_cap)
 	cfg.set_value("graphics", "rt", rt)
+	cfg.set_value("graphics", "fullscreen", fullscreen)
 	var err := cfg.save(path)
 	if err != OK:
 		push_warning("settings: couldn't save %s (%s)" % [path, error_string(err)])
@@ -192,6 +197,7 @@ func apply_all() -> void:
 	_apply_perf()
 	_apply_quality()
 	_apply_fps()
+	_apply_window()
 
 
 ## The renderer running now: "mobile" (phones, and this project's default), "forward_plus" (Heavy)
@@ -254,6 +260,17 @@ func set_perf_stats(on: bool) -> void:
 	_changed()
 
 
+func set_fullscreen(on: bool) -> void:
+	fullscreen = on
+	_apply_window()
+	_changed()
+
+
+## A PC, with a window to put in full screen (not a phone, not the headless tests).
+static func has_window() -> bool:
+	return not OS.has_feature("mobile") and DisplayServer.get_name() != "headless"
+
+
 func set_ko_replay(on: bool) -> void:
 	ko_replay = on
 	_changed()
@@ -296,6 +313,39 @@ func _changed() -> void:
 
 
 # ------------------------------------------------------------------ applying
+func _ready() -> void:
+	if has_window():
+		var keys := _WindowKeys.new()
+		keys.settings = self
+		add_child(keys)
+
+
+## F11 and Alt+Enter, from any screen and while paused too.
+class _WindowKeys extends Node:
+	var settings: Settings
+
+	func _ready() -> void:
+		process_mode = Node.PROCESS_MODE_ALWAYS
+
+	func _input(e: InputEvent) -> void:
+		var k := e as InputEventKey
+		if k == null or not k.pressed or k.echo:
+			return
+		if k.keycode == KEY_F11 or ((k.keycode == KEY_ENTER or k.keycode == KEY_KP_ENTER) and k.alt_pressed):
+			# (the window may have been put in full screen some other way: flip what's on screen)
+			var now := DisplayServer.window_get_mode() >= DisplayServer.WINDOW_MODE_FULLSCREEN
+			settings.set_fullscreen(not now)
+			get_viewport().set_input_as_handled()
+
+
+func _apply_window() -> void:
+	if not has_window():
+		return
+	var full := DisplayServer.window_get_mode() >= DisplayServer.WINDOW_MODE_FULLSCREEN
+	if fullscreen and not full:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+	elif not fullscreen and full:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MAXIMIZED)
 func _apply_sound() -> void:
 	# (sfx.ts setMuted: the whole mix, commentary included; Sfx.muted mutes the master bus)
 	if sfx != null:
