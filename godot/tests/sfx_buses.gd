@@ -5,13 +5,15 @@
 ## - Master: the final mix (sfx.ts `out` and after): MASTER volume 0.7, the fast limiter
 ##   (threshold -4 dB, ratio 20, 2 ms attack, 120 ms release, plus the make-up gain Chromium's
 ##   DynamicsCompressor adds by itself) and a -1 dB ceiling in place of the soft clipper.
-## - Fx -> Master: effects, the crowd and the music, through the glue compressor (threshold -14,
+## - Mix -> Master: effects, the crowd and the music, through the glue compressor (threshold -14,
 ##   ratio 4, a 30 dB knee: on a steady tone it is a +0.6 dB lift that eases off near full scale).
+## - Fx -> Mix: the sound effects (their own bus so Settings' Effects slider leaves the crowd and
+##   the music alone).
 ## - Hits -> Fx: the impacts' arena slap: one echo off each side wall (83 ms left, 131 ms right)
 ##   and their darker repeats. As in the web, each impact plays dry into the mix and sends into the
 ##   slap; Godot can't split a bus, so sfx.gd plays the dry impact on Fx and its send (baked
 ##   band-limited, the slap's 160 Hz - 2.4 kHz filters) on Hits.
-## - Crowd -> Fx, Music -> Fx (walk-ons and the chant), Voice -> Master (the commentary).
+## - Crowd -> Mix, Music -> Mix (walk-ons and the chant), Voice -> Master (the commentary).
 ##
 ## Godot's compressor works its ratio on 2.08x the overshoot in dB (audio_effect_compressor.cpp),
 ## so a web ratio R is set as 1 / (1 - (1 - 1/R) / 2.08); the values below were then fitted on
@@ -50,7 +52,7 @@ static func build() -> AudioBusLayout:
 	ceiling.ceiling_db = -1.0
 	ceiling.release = 0.12
 	srv.add_bus_effect(0, ceiling)
-	_bus("Fx", "Master")
+	_bus("Mix", "Master")
 	var glue := AudioEffectCompressor.new()
 	glue.threshold = -8.0
 	glue.ratio = ratio(1.1)
@@ -58,6 +60,7 @@ static func build() -> AudioBusLayout:
 	glue.release_ms = 250.0
 	glue.gain = 0.6
 	srv.add_bus_effect(1, glue)
+	_bus("Fx", "Mix")
 	_bus("Hits", "Fx")
 	# the hit bus's arena slap (sfx.ts makeHitBus), fed by each impact's band-limited send (sfx.gd)
 	var slap := AudioEffectDelay.new()
@@ -81,9 +84,9 @@ static func build() -> AudioBusLayout:
 	slap.feedback_delay_ms = 83.0
 	slap.feedback_level_db = linear_to_db(0.32)
 	slap.feedback_lowpass = 2400.0
-	srv.add_bus_effect(2, slap)
-	_bus("Crowd", "Fx")
-	_bus("Music", "Fx")
+	srv.add_bus_effect(3, slap)
+	_bus("Crowd", "Mix")
+	_bus("Music", "Mix")
 	_bus("Voice", "Master")
 	return srv.generate_bus_layout()
 

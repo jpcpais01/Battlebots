@@ -1,5 +1,6 @@
 ## Clicks through the pause menu and every setting with real input (taps, as a phone sends them,
-## and mouse clicks), and checks each one lands: the master bus, the commentary bus and booth,
+## and mouse clicks), and checks each one lands: the master bus, the volume bars (tapped and
+## dragged with the mouse: their buses, the commentary bus and booth),
 ## the camera zoom, the FPS counter, the quality tier's MSAA, shadow, glow and beams, the 3D
 ## scale, Engine.max_fps, and user://settings.cfg written and read back. Then pauses mid-fight
 ## for a few seconds and checks nothing moved (sim frame, clocks, sound players), resumes and
@@ -126,6 +127,39 @@ func _click(c: Control) -> void:
 		await _wait(2)
 
 
+## The mouse pressed at one canvas position, moved to another in steps, and let go there.
+func _drag(from: Vector2, to: Vector2) -> void:
+	var xf := get_root().get_final_transform()
+	var mv := InputEventMouseMotion.new()
+	mv.position = xf * from
+	Input.parse_input_event(mv)
+	await _wait(1)
+	var e := InputEventMouseButton.new()
+	e.position = xf * from
+	e.button_index = MOUSE_BUTTON_LEFT
+	e.pressed = true
+	e.button_mask = MOUSE_BUTTON_MASK_LEFT
+	Input.parse_input_event(e)
+	await _wait(1)
+	for i in range(1, 9):
+		var m := InputEventMouseMotion.new()
+		m.position = xf * from.lerp(to, i / 8.0)
+		m.relative = xf.basis_xform((to - from) / 8.0)
+		m.button_mask = MOUSE_BUTTON_MASK_LEFT
+		Input.parse_input_event(m)
+		await _wait(1)
+	var u := InputEventMouseButton.new()
+	u.position = xf * to
+	u.button_index = MOUSE_BUTTON_LEFT
+	u.pressed = false
+	Input.parse_input_event(u)
+	await _wait(2)
+
+
+static func voice_bus_name(k: String) -> StringName:
+	return &"Voice" if k == "commentary" else Settings.VOLUMES[k]
+
+
 func _cfg(section: String, k: String):
 	var c := ConfigFile.new()
 	if c.load(CFG) != OK:
@@ -187,13 +221,9 @@ func _run() -> void:
 	await _tap(card.find_child("Settings", true, false))
 	_check(menu.showing_settings(), "Settings opened from the pause menu")
 	var scr: SettingsScreen = menu.screen()
-	var voice_bus := AudioServer.get_bus_index("Voice")
 	var expect := {
 		"sound": {"Off": func(): return AudioServer.is_bus_mute(0) and _cfg("game", "sound") == false,
 			"On": func(): return not AudioServer.is_bus_mute(0) and _cfg("game", "sound") == true},
-		"commentary": {"Quiet": func(): return is_equal_approx(AudioServer.get_bus_volume_db(voice_bus), linear_to_db(0.5)) and f.booth.enabled and _cfg("game", "commentary") == 0.5,
-			"Off": func(): return AudioServer.get_bus_volume_db(voice_bus) < -70.0 and not f.booth.enabled and _cfg("game", "commentary") == 0.0,
-			"On": func(): return is_equal_approx(AudioServer.get_bus_volume_db(voice_bus), 0.0) and f.booth.enabled and _cfg("game", "commentary") == 1.0},
 		"zoom": {"Close": func(): return f.director.zoom == "close" and _cfg("game", "zoom") == "close",
 			"Wide": func(): return f.director.zoom == "wide" and _cfg("game", "zoom") == "wide",
 			"Normal": func(): return f.director.zoom == "normal" and _cfg("game", "zoom") == "normal"},
@@ -229,8 +259,33 @@ func _run() -> void:
 			_check(expect[k][text].call(), "%s: %s applied and saved" % [k, text])
 		print("  %s: %s" % [row.title(), row.subtitle()])
 
+	# the volume bars: a finger a quarter of the way along, then the mouse dragged to the far left
+	# (off) and back to the middle
+	for k in ["master", "effects", "music", "crowd", "commentary"]:
+		var bar: SettingsScreen.VolRow = scr.bar(k)
+		if bar == null:
+			_check(false, "a %s bar" % k)
+			continue
+		var bus := AudioServer.get_bus_index(voice_bus_name(k))
+		var sl := bar.slider
+		var r := sl.get_global_rect()
+		await _tap_at(Vector2(r.position.x + r.size.x * 0.25, r.get_center().y))
+		var v := s.volume(k)
+		_check(absf(v - 0.25) < 0.08, "%s: a tap a quarter along sets %.2f" % [k, v])
+		_check(absf(AudioServer.get_bus_volume_db(bus) - linear_to_db(v * v)) < 0.01, "%s: its bus follows (%.1f dB)" % [k, AudioServer.get_bus_volume_db(bus)])
+		await _drag(Vector2(r.get_center().x, r.get_center().y), Vector2(r.position.x - 30.0, r.get_center().y))
+		_check(s.volume(k) == 0.0 and AudioServer.get_bus_volume_db(bus) < -70.0, "%s: dragged left with the mouse, off" % k)
+		if k == "commentary":
+			_check(not f.booth.enabled, "commentary off quiets the booth")
+		await _drag(Vector2(r.position.x + 2.0, r.get_center().y), Vector2(r.get_center().x, r.get_center().y))
+		_check(s.volume(k) > 0.4 and s.volume(k) < 0.7, "%s: dragged back up to the middle (%.2f)" % [k, s.volume(k)])
+		if k == "commentary":
+			_check(f.booth.enabled, "commentary back on")
+		await _wait_secs(0.6)
+		var saved = _cfg("game" if k == "commentary" else "audio", k)
+		_check(saved != null and absf(float(saved) - s.volume(k)) < 0.001, "%s: saved once it rests (%s)" % [k, saved])
+
 	# a last mixed set, read back by a fresh store as at the next launch
-	await _tap(scr.row("commentary").button("Quiet"))
 	await _tap(scr.row("zoom").button("Wide"))
 	await _tap(scr.row("quality").button("Low"))
 	await _tap(scr.row("resolution").button("Normal (0.75x)"))
@@ -238,7 +293,7 @@ func _run() -> void:
 	await _tap(scr.row("perf").button("Off"))
 	var fresh := Settings.new()
 	fresh.load_and_apply()
-	_check(fresh.commentary == 0.5 and fresh.zoom == "wide" and fresh.quality == "low" and fresh.resolution == 0.75 and fresh.fps_cap == 30 and not fresh.perf_stats and fresh.sound, "a fresh Settings reads back what was picked")
+	_check(absf(fresh.commentary - s.commentary) < 0.001 and absf(fresh.volumes.music - s.volumes.music) < 0.001 and fresh.zoom == "wide" and fresh.quality == "low" and fresh.resolution == 0.75 and fresh.fps_cap == 30 and not fresh.perf_stats and fresh.sound, "a fresh Settings reads back what was picked")
 	fresh.free()
 	print("  saved: ", FileAccess.get_file_as_string(CFG).replace("\n", " | "))
 
