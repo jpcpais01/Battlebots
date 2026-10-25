@@ -4,6 +4,8 @@
 class_name HudFloat
 extends HudPart
 
+## A hit met by more than a guard (HitInfo.guard), as hud.ts says it.
+const GUARD_LABEL := {"parry": "PARRY", "check": "CHECKED", "roll": "ROLLED"}
 ## sim/body.ts J.Chest, J.Head.
 const J_CHEST := 1
 const J_HEAD := 3
@@ -72,8 +74,8 @@ func on_event(type: String, d) -> void:
 			var dmg := roundi(float(d.damage))
 			# met by a parry or a checking shin: say so where it was met
 			var how := str(d.get("guard", ""))
-			if how == "parry" or how == "check":
-				_add(_v(d.point), "PARRY" if how == "parry" else "CHECKED", "guard")
+			if how == "parry" or how == "check" or how == "roll":
+				_add(_v(d.point), str(GUARD_LABEL[how]), "guard")
 				return
 			if d.get("blocked") == true:
 				if dmg >= 4:

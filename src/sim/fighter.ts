@@ -28,8 +28,12 @@ import { EC, type EmotePose } from './emote';
 /** 'held': caught in an opponent's finisher; the finisher moves and poses it. */
 export type FState = 'ready' | 'fight' | 'stun' | 'stagger' | 'down' | 'getup' | 'ko' | 'win' | 'held';
 export type GuardMode = 'normal' | 'high' | 'body' | 'low';
-/** sprawl: legs shot back and hips down onto a takedown shot. */
-export type DodgeType = 'slip' | 'duck' | 'sway' | 'backstep' | 'sidestep' | 'sprawl' | 'pivot';
+/**
+ * sprawl: legs shot back and hips down onto a takedown shot. roll: the shoulder roll, the lead
+ * shoulder turned up across the chin so a shot to the head skids off it, the weight rocked back
+ * onto the rear leg (and the rear hand loaded).
+ */
+export type DodgeType = 'slip' | 'duck' | 'sway' | 'backstep' | 'sidestep' | 'sprawl' | 'pivot' | 'roll';
 export type StrikeResult = 'pending' | 'hit' | 'blocked' | 'whiff' | 'dodged' | 'interrupted' | 'feint';
 
 export interface StrikeAction {
@@ -72,6 +76,8 @@ export interface StrikeAction {
    */
   shEnd: number;
   hipEnd: number;
+  /** The dodge it was thrown straight out of, a counter ('' when none: see Fighter.counterOut). */
+  outOf: string;
 }
 
 export interface DodgeAction {
@@ -115,6 +121,27 @@ export interface Cover {
   /** A checking foot's spot on the canvas (world), where it goes back down. */
   plant: Vector3;
 }
+
+/**
+ * A counter thrown out of a dodge (Fighter.counterOut): the dodge's shape (type, side, how far
+ * through it was and how deep) unwinds through the counter's wind-up into the shot, so the
+ * body comes back out of the slip, the weave or the roll and the punch rides that.
+ */
+export interface DodgeCarry {
+  uid: number;
+  type: DodgeType;
+  dir: number;
+  k: number;
+  env: number;
+  t: number;
+  dur: number;
+}
+
+/** The dodges a counter can come straight out of (head movement: the feet stay put). */
+export const COUNTER_DODGES: DodgeType[] = ['slip', 'duck', 'sway', 'roll'];
+
+/** How deep into a slip, duck, sway or roll it is at fraction k: in fast, held, out. */
+export const dodgeEnvAt = (k: number) => (k < 0.16 ? easeOutQuad(k / 0.16) : k < 0.6 ? 1 : 1 - easeInOut((k - 0.6) / 0.4));
 
 /** A strike as an observer tells it apart (each piston punch of a flurry is its own): Observation.uid. */
 export const strikeId = (s: StrikeAction) => s.uid * 16 + s.sub;
@@ -616,6 +643,8 @@ export class Fighter {
   /** A guard shaped to the shot coming in (see Cover). */
   cover: Cover | null = null;
   lastAction: StrikeAction | null = null;
+  /** The dodge the strike under way came out of (see DodgeCarry). */
+  outOf: DodgeCarry | null = null;
   stunTime = 0;
   invuln = 0;
   downTime = 0;
@@ -1108,7 +1137,8 @@ export class Fighter {
     return a.t >= a.recovery * (0.35 - whip);
   }
 
-  tryStrike(id: MoveId, zone: Zone, aim: Vector3, feint = false): boolean {
+  /** `load` scales the wind-up (a counter out of a dodge is already loaded: see counterOut). */
+  tryStrike(id: MoveId, zone: Zone, aim: Vector3, feint = false, load = 1): boolean {
     const move = MOVES[id];
     const chain = !!this.strike;
     if (!this.canStrike(chain)) return false;
@@ -1128,7 +1158,30 @@ export class Fighter {
       windupMul = alt ? 0.7 : 0.9;
       speed *= 1 + this.passive('whiplash');
     }
-    this.launchStrike(move, zone, aim, side, speed, windupMul, feint);
+    this.launchStrike(move, zone, aim, side, speed, windupMul * load, feint);
+    return true;
+  }
+
+  /**
+   * A punch straight out of the slip, weave, sway or shoulder roll under way, once it is a
+   * third of the way through: the dodge has loaded one side (the weight and the shoulders went
+   * over onto it), so the shot from there goes out quicker, and the body unwinds out of the
+   * dodge into it (outOf). False when there is no such dodge, or the punch can't go.
+   */
+  counterOut(id: MoveId, zone: Zone, aim: Vector3): boolean {
+    const d = this.dodge;
+    if (!d || COUNTER_DODGES.indexOf(d.type) < 0 || this.state !== 'fight') return false;
+    const k = d.t / d.dur;
+    if (k < 0.25) return false;
+    this.action = null;
+    if (!this.tryStrike(id, zone, aim, false, 0.72)) {
+      this.action = d;
+      return false;
+    }
+    const s = this.strike!;
+    s.outOf = d.type;
+    this.outOf = { uid: s.uid, type: d.type, dir: d.dir, k, env: dodgeEnvAt(k), t: 0, dur: s.windup + s.active * 0.6 };
+    this.hooks?.emit('counterOut', { f: this, s, d });
     return true;
   }
 
@@ -1179,6 +1232,7 @@ export class Fighter {
       pullFrom: new Vector3(),
       shEnd: 1,
       hipEnd: 1,
+      outOf: '',
     };
     if (prev && prev.move.kind === 'punch' && move.kind === 'punch' && prev.side !== side && !move.multi && !scripted) {
       // a combination: the hand that just threw is still on its way back, and its return is this
@@ -1326,7 +1380,7 @@ export class Fighter {
     const cost = 5 * (1 - this.passive('slipstream'));
     if (this.stamina < cost) return false;
     this.stamina -= cost;
-    const baseDur = type === 'backstep' || type === 'sidestep' ? 0.38 : type === 'duck' ? 0.48 : type === 'sprawl' ? 0.62 : type === 'pivot' ? 0.5 : 0.44;
+    const baseDur = type === 'backstep' || type === 'sidestep' ? 0.38 : type === 'duck' ? 0.48 : type === 'sprawl' ? 0.62 : type === 'pivot' ? 0.5 : type === 'roll' ? 0.46 : 0.44;
     const d: DodgeAction = { kind: 'dodge', type, dir, t: 0, dur: baseDur / agility, uid: UID++ };
     if (type === 'pivot') d.dur = (baseDur * (0.85 + reach * 0.3)) / Math.sqrt(agility);
     this.action = d;
@@ -1611,6 +1665,13 @@ export class Fighter {
    * the ribs (one in the liver sags it again a beat later), and a low kick buckles that leg.
    */
   recoil(x: number, y: number, z: number, zone: Zone, give: number, path = '', side = -1) {
+    if (path === 'roll') {
+      // a punch rolled with: the shoulders give on round the way they were turning, the weight
+      // rocks back a touch more, and that's all
+      this.rTwist.vel -= this.stance * 2.4 * give;
+      this.rShiftZ.vel -= 0.5 * give;
+      return;
+    }
     this.flinch.kick(x * 1.2, y, z * 1.2);
     const g = Math.min(give, 4);
     // (a blow travelling to the right lands on the left)
@@ -2089,6 +2150,11 @@ export class Fighter {
     }
     const s = a;
     s.t += dt;
+    const oo = this.outOf;
+    if (oo) {
+      oo.t += dt;
+      if (oo.uid !== s.uid || oo.t >= oo.dur) this.outOf = null;
+    }
     if (s.phase === 'windup') {
       if (s.feint && s.t >= s.windup * 0.65) {
         s.result = 'feint';
@@ -3168,23 +3234,29 @@ export class Fighter {
       }
     }
     let dodgeEnv = 0;
-    if (d) {
-      const k = d.t / d.dur;
-      const env = k < 0.16 ? easeOutQuad(k / 0.16) : k < 0.6 ? 1 : 1 - easeInOut((k - 0.6) / 0.4);
-      dodgeEnv = d.type === 'slip' || d.type === 'duck' || d.type === 'sway' ? env : 0;
-      switch (d.type) {
+    let rollEnv = 0;
+    // a counter thrown out of a dodge: the dodge's shape as it was when the punch went, let go
+    // of over the wind-up so the body comes back out of it behind the shot
+    const oo = !d && s && this.outOf && this.outOf.uid === s.uid ? this.outOf : null;
+    const dType: DodgeType | null = d ? d.type : oo ? oo.type : null;
+    if (dType !== null) {
+      const dDir = d ? d.dir : oo!.dir;
+      const k = d ? d.t / d.dur : oo!.k;
+      const env = d ? dodgeEnvAt(k) : oo!.env * (1 - minJerk(oo!.t / oo!.dur));
+      dodgeEnv = dType === 'slip' || dType === 'duck' || dType === 'sway' ? env : 0;
+      switch (dType) {
         case 'slip':
-          hd.x += d.dir * 0.3 * env;
+          hd.x += dDir * 0.3 * env;
           hd.y -= 0.06 * env;
-          roll += d.dir * 0.32 * env;
+          roll += dDir * 0.32 * env;
           crouch += 0.12 * env;
-          shTw += d.dir * st * 0.2 * env;
-          hipTw += d.dir * st * 0.08 * env;
+          shTw += dDir * st * 0.2 * env;
+          hipTw += dDir * st * 0.08 * env;
           break;
         case 'duck': {
           // bob and weave: the knees drop it under the shot, the head and shoulders roll across
           // beneath it in a U, and it comes up on the far side, loaded to throw back
-          const across = -d.dir * minJerk(clamp01((k - 0.08) / 0.62));
+          const across = -dDir * minJerk(clamp01((k - 0.08) / 0.62));
           crouch += 0.3 * env;
           pitch += 0.34 * env;
           hd.y -= 0.04 * env;
@@ -3195,18 +3267,37 @@ export class Fighter {
           hipTw += across * st * 0.08 * env;
           break;
         }
+        case 'roll': {
+          // the shoulder roll: the trunk turns away (more bladed than its stance), the lead
+          // shoulder rising up across the chin, the chin tucked down behind it, and the weight
+          // rocked back and over onto the bent rear leg, its heel down: the rear hand is loaded
+          rollEnv = env;
+          shTw += blade * 1.15 * env;
+          hipTw += blade * 0.45 * env;
+          roll -= st * 0.2 * env;
+          pitch -= 0.1 * env;
+          crouch += 0.07 * env;
+          pd.z -= 0.07 * env;
+          pd.x -= st * 0.05 * env;
+          hd.x -= st * 0.07 * env;
+          hd.y -= 0.05 * env;
+          hd.z -= 0.05 * env;
+          heel[rearI] = heel[rearI] * (1 - env);
+          break;
+        }
         case 'sway':
           pitch -= 0.38 * env;
           pd.z -= 0.08 * env;
           hd.z -= 0.1 * env;
-          heel[rearI] = 0;
+          // (pulling a counter out of it, the heel comes up as the weight goes forward again)
+          heel[rearI] = d ? 0 : heel[rearI] * (1 - env);
           break;
         case 'backstep':
           pitch -= 0.12 * env;
           crouch += 0.05 * env;
           break;
         case 'sidestep':
-          roll -= d.dir * 0.12 * env;
+          roll -= dDir * 0.12 * env;
           crouch += 0.05 * env;
           break;
         case 'pivot': {
@@ -3630,6 +3721,16 @@ export class Fighter {
       }
       // slipping, ducking or swaying, the hands stay glued to the chin
       if (dodgeEnv > 0.001 && !s) this.faceGuard(sx, hand, pole, dodgeEnv * 0.75);
+      // rolling the shoulder: the rear glove tight to the cheek, the lead arm dropped across the
+      // belly (the shell); the lead shoulder does the guarding
+      if (rollEnv > 0.001 && !s) {
+        if (isLead) {
+          this.trunkPoint(-sx * 0.05, -0.2, 0.27, _p);
+          hand.lerp(_p, rollEnv * 0.85);
+          _w.copy(_tU).multiplyScalar(-1).addScaledVector(_tX, sx * 0.55).addScaledVector(_tZ, -0.15);
+          pole.lerp(_w, rollEnv);
+        } else this.faceGuard(sx, hand, pole, rollEnv);
+      }
       if (cov) roll = this.coverArm(cov, cw, side, hand, pole, head, roll);
       if (s && prog) {
         if (s.move.path === 'push') roll = this.pushHand(s, prog, sx, hand, pole);

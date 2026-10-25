@@ -83,8 +83,13 @@ export interface HitInfo {
   tore: number;
   /** A blow of a finisher. */
   finisher?: boolean;
-  /** How it was met, when not just a guard: 'parry' (knocked off line) or 'check' (a shin raised into a kick). */
+  /**
+   * How it was met, when not just a guard: 'parry' (knocked off line), 'check' (a shin raised
+   * into a kick) or 'roll' (it skidded off a rolled shoulder).
+   */
   guard?: string;
+  /** A counter thrown straight out of this dodge ('slip', 'duck', 'sway', 'roll'), or ''. */
+  outOf?: string;
 }
 
 /** A finisher starting: who, on whom, which one. */
@@ -656,6 +661,22 @@ export class Match {
           how = 'check';
         }
       }
+      // a shoulder roll: a punch at the head skids off the lead shoulder turned up across the
+      // chin, or the head going away with it (so long as the roll is in, and not on its way out)
+      const rd = def.dodge;
+      if (!hit && canGuard && rd && rd.type === 'roll' && s.zone === 'head' && s.move.kind === 'punch' && s.move.path !== 'upper') {
+        const rk = rd.t / rd.dur;
+        const ls = def.leadSide === 'L' ? 0 : 1;
+        if (rk > 0.1 && rk < 0.8 && !dp.armOut(ls)) {
+          const sh = db[ls === 0 ? J.ShL : J.ShR];
+          closestOnSegment(_p, sh, db[ls === 0 ? J.ElL : J.ElR], _c);
+          if (_p.distanceTo(sh) < r + 0.14 * z || _c.distanceTo(_p) < r + 0.07 * z || _p.distanceTo(db[J.Head]) < r + 0.17 * z) {
+            hit = 'block';
+            part = armPart(ls, 0);
+            how = 'roll';
+          }
+        }
+      }
       if (canGuard && !hit) {
         for (let side = 0; side < 2; side++) {
           const ds = def.strike;
@@ -755,7 +776,7 @@ export class Match {
     if (def.state !== 'fight' && def.state !== 'stun') return;
     const dd = def.dodge;
     // slipped or stepped off it: it runs on, and likely misses
-    if (dd && dd.type !== 'sprawl' && (!shot || dd.type === 'backstep' || dd.type === 'sidestep' || dd.type === 'pivot')) return;
+    if (dd && dd.type !== 'sprawl' && dd.type !== 'roll' && (!shot || dd.type === 'backstep' || dd.type === 'sidestep' || dd.type === 'pivot')) return;
     if (old) {
       old.finish();
       this.grapple = null;
@@ -908,6 +929,7 @@ export class Match {
   private resolveHit(att: Fighter, def: Fighter, s: StrikeAction, zone: Zone, blocked: boolean, point: Vector3, blockHand: number, part: number, how = '') {
     const parried = blocked && how === 'parry';
     const checked = blocked && how === 'check';
+    const rolled = blocked && how === 'roll';
     const m = s.move;
     const ast = att.build.stats;
     const dst = def.build.stats;
@@ -924,6 +946,8 @@ export class Match {
     const ds = def.strike;
     const counter = !!ds && !blocked && ds.phase !== 'recovery' && !ds.feint;
     if (counter) dmg *= 1.2 + att.passive('retaliate');
+    // straight back out of a slip, a weave or a roll: on the way in, with the weight behind it
+    if (s.outOf !== '' && !blocked) dmg *= 1.1;
     dmg *= 1 + att.rage * att.passive('rage');
     dmg *= 1 + att.heat * att.passive('furnace');
     // a diesel engine pulls harder once it's warm
@@ -953,6 +977,8 @@ export class Match {
     }
     // knocked off line: it goes past, nothing in it
     if (parried) dmg = 0;
+    // rolled with: it skids off the shoulder, most of it gone with the turn
+    if (rolled) dmg *= 0.5;
     let shielded = false;
     if (def.shield && !blocked) {
       shielded = true;
@@ -968,8 +994,10 @@ export class Match {
     // a shove moves them guard or no guard
     if (blocked) poiseDmg *= m.guardBreak ? 1.2 : m.path === 'push' ? 0.85 : 0.3;
     if (shielded || parried) poiseDmg = 0;
+    if (rolled) poiseDmg *= 0.4;
     if (crit) poiseDmg *= 1.3;
     if (counter) poiseDmg *= 1.3;
+    if (s.outOf !== '' && !blocked) poiseDmg *= 1.2;
 
     def.hp = Math.max(0, def.hp - dmg);
     def.poise -= poiseDmg;
@@ -1017,6 +1045,8 @@ export class Match {
       s.recovery *= 1.4;
       att.poise -= m.poise * 0.35;
     }
+    // it slid off the shoulder and kept going: a touch over-extended
+    if (rolled) s.recovery *= 1.2;
     if (!blocked) {
       att.stats.dealt += dmg;
       att.stats.landed++;
@@ -1040,8 +1070,8 @@ export class Match {
 
     // knockback
     let kb = m.knockback * (blocked && m.path !== 'push' ? 0.55 : 1) * (1 - def.passive('rooted'));
-    // a parry or a check takes it without being moved
-    if (parried || checked) kb = 0;
+    // a parry, a check or a roll takes it without being moved
+    if (parried || checked || rolled) kb = 0;
     if (m.id === 'pushKick') kb *= 1 + att.passive('trip');
     // a big frame shoves a small one about, and barely moves for it
     kb *= Math.sqrt(att.size / def.size);
@@ -1061,6 +1091,15 @@ export class Match {
       _b.multiplyScalar(across * 3.2).addScaledVector(_a, 0.8);
       att.body.addVelocity(att.strikerJoint(s), _b, SIM_DT);
       body.addVelocity(blockHand === 0 ? J.HandL : J.HandR, _b.multiplyScalar(0.35), SIM_DT);
+    } else if (rolled) {
+      // the fist skids up off the shoulder and on past the ear, the way the shoulder turned it
+      def.right(_b);
+      const away = def.stance < 0 ? -1 : 1;
+      _b.multiplyScalar(away * 1.6).addScaledVector(_a, 1.2);
+      _b.y += 2.2;
+      att.body.addVelocity(att.strikerJoint(s), _b, SIM_DT);
+      // and the roll gives a little more with it
+      def.recoil(0, 0, 0, 'head', 1, 'roll');
     } else if (checked) {
       // the kick bounces off the shin; the checking leg gives a little and holds
       att.body.addVelocity(att.strikerJoint(s), _b.copy(dir).multiplyScalar(-3), SIM_DT);
@@ -1098,7 +1137,7 @@ export class Match {
       for (const k of [J.KneeL, J.KneeR, J.FootL, J.FootR]) body.addVelocity(k, _b, SIM_DT);
     }
     // readable flinch in local space
-    if (!shielded && !parried && !checked) {
+    if (!shielded && !parried && !checked && !rolled) {
       def.toLocal(_c.copy(def.root).add(dir), _b);
       const fk = (blocked ? 0.35 : 1) * (0.8 + dmg / 45);
       const zk = zone === 'head' ? 1 : 0.6;
@@ -1263,6 +1302,7 @@ export class Match {
       shielded,
       guardBreak,
       guard: how,
+      outOf: s.outOf,
     };
     this.emit('hit', info);
     if (knockdown) this.emit('knockdown', info);
@@ -1280,7 +1320,7 @@ export class Match {
       ab.onTore(tore);
       dbn.onLost(tore);
     }
-    if (!knockdown && !stagger && !shielded && !parried && !checked && tore < 0) this.tryCatch(att, def, s, zone, blocked, blockHand);
+    if (!knockdown && !stagger && !shielded && !parried && !checked && !rolled && tore < 0) this.tryCatch(att, def, s, zone, blocked, blockHand);
   }
 
   /**

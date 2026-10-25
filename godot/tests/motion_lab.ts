@@ -15,6 +15,9 @@
  *                                    direction of its own (x right, z forward: 0 -1 = over backwards)
  *   catch <move> <dump|free> [punch] [dist 1.0]  A kicks B's body, B blocks it and traps the leg:
  *                                    then sweeps A (dump) or A rips it free, with a punch first
+ *   counter <slip|duck|sway|roll> [dir 1] [move cross] [their cross] [dist 1.0]  B throws at A's head;
+ *                                    A dodges it that way, then counters straight out of the dodge
+ *                                    (move 'none': just the dodge)
  *   takedown <trip|throw|toss|double|elbow> [under 1] [tie lock] [block]  A ties B up, and after a
  *                                    moment in the clinch takes B down that way (double: a shot
  *                                    straight in; elbow: a clinch elbow instead; block: B stops it)
@@ -46,7 +49,7 @@ m.puppets = true;
 const [A, B] = m.fighters;
 if (process.env.STANCE_A) A.stance = Number(process.env.STANCE_A);
 B.stance = -1;
-const dist = Number(scenario === 'strike' ? args[1] ?? 1.0 : scenario === 'catch' ? args[3] ?? 1.0 : scenario === 'takedown' ? 0.62 : 1.4) * (A.size + B.size) * 0.5;
+const dist = Number(scenario === 'strike' ? args[1] ?? 1.0 : scenario === 'catch' ? args[3] ?? 1.0 : scenario === 'counter' ? args[4] ?? 1.0 : scenario === 'takedown' ? 0.62 : 1.4) * (A.size + B.size) * 0.5;
 const shift = Number(process.env.SHIFT ?? 0);
 A.place(new Vector3(shift - dist / 2, 0, 0), Math.PI / 2);
 B.place(new Vector3(shift + dist / 2, 0, 0), -Math.PI / 2);
@@ -62,7 +65,7 @@ for (let i = 0; i < 90; i++) m.step();
 
 const events: unknown[] = [];
 m.on((t, d) => {
-  if (t === 'hit') events.push({ f: m.frame, t, att: d.attacker.index, move: d.move.id, zone: d.zone, blocked: d.blocked, dmg: d.damage, kd: d.knockdown });
+  if (t === 'hit') events.push({ f: m.frame, t, att: d.attacker.index, move: d.move.id, zone: d.zone, blocked: d.blocked, dmg: d.damage, kd: d.knockdown, how: d.guard, outOf: d.outOf });
   else if (t === 'strikeStart') events.push({ f: m.frame, t, who: d.f.index, move: d.s.move.id });
   else if (t === 'dodgeStart') events.push({ f: m.frame, t, who: d.f.index, type: d.d.type });
   else if (t === 'step') events.push({ f: m.frame, t, who: d.f.index, foot: d.foot });
@@ -143,6 +146,26 @@ if (scenario === 'strike') {
   }
   A.intentVel.set(0, 0, 0);
   rec(120);
+} else if (scenario === 'counter') {
+  const type = (args[0] ?? 'slip') as DodgeType, dir = Number(args[1] ?? 1);
+  const mine = (args[2] ?? 'cross') as MoveId | 'none', theirs = (args[3] ?? 'cross') as MoveId;
+  B.tryStrike(theirs, 'head', A.body.pos[J.Head].clone());
+  const bs = B.strike!;
+  // A sees it and goes with a little time to spare
+  while (bs.phase === 'windup' && bs.t < bs.windup * 0.45) rec(1);
+  A.tryDodge(type, dir);
+  const du = A.dodge!.uid;
+  let thrown = false;
+  while (A.action) {
+    const d = A.dodge;
+    if (!thrown && mine !== 'none' && d && d.uid === du && d.t / d.dur >= 0.36 && (bs.hasHit || bs.phase === 'recovery')) {
+      const aim = B.body.pos[J.Head].clone();
+      thrown = A.counterOut(mine, 'head', aim);
+      if (thrown) events.push({ f: m.frame, t: 'counterOut', move: mine });
+    }
+    rec(1);
+  }
+  rec(90);
 } else if (scenario === 'dodge') {
   A.tryDodge(args[0] as DodgeType, Number(args[1] ?? 1), Number(args[2] ?? 0.55));
   while (A.action) rec(1);

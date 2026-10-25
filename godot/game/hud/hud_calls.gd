@@ -6,6 +6,8 @@
 class_name HudCalls
 extends HudPart
 
+## hud.ts OUT_OF_CALL: what a counter straight out of a dodge is called.
+const OUT_OF_CALL := {"slip": "SLIP & COUNTER", "duck": "WEAVE & COUNTER", "sway": "PULL COUNTER", "roll": "ROLL & COUNTER"}
 ## How long the end-of-fight word waits after the knockout, in match time (hud.ts FINISH_DELAY).
 const FINISH_DELAY := 0.9
 ## The finishing word, in the pieces that slam in one by one (hud.ts FINISH_WORD).
@@ -518,7 +520,11 @@ func on_event(type: String, d) -> void:
 				return
 			if d.knockdown:
 				return
-			if d.counter and dmg >= 30:
+			# thrown straight back out of a slip, a weave, a sway or a shoulder roll
+			var out_of := str(d.get("outOf", ""))
+			if out_of != "" and dmg >= 15:
+				_callout(str(OUT_OF_CALL.get(out_of, "COUNTER!")), "small cyan")
+			elif d.counter and dmg >= 30:
 				_callout("COUNTER!", "small")
 			elif d.crit:
 				_callout("CRITICAL", "small")
