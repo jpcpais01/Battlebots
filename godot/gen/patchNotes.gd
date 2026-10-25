@@ -17,6 +17,17 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-25 01:00",
+	"title": "Updates you can watch",
+	"notes": [
+	"When a new version is out, the update card shows its number, its size, when it came out and everything new in it since your version.",
+	"Update now opens a full download screen: a ring that fills up, megabytes so far, download speed and time left, then Verify and Install steps.",
+	"Every download is checked against the published file before it installs. If it fails, you get a clear reason and Try again.",
+	"Tap Keep playing and the download carries on in the background, with the home screen's Update button showing how far it has got.",
+	"Settings has an Updates row with your version and Check now, so you can look for a new build any time, on Android and Windows."
+]
+},
+	{
 	"hour": "2026-10-25 00:00",
 	"title": "Volume bars",
 	"notes": [
