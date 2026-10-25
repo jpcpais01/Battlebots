@@ -16,6 +16,16 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-25 04:00",
+    title: "Taking angles",
+    notes: [
+      "Robots now pivot: one foot steps out round the opponent, the body swings round on it and the other foot sweeps round behind, so they come out of a combination at a new angle.",
+      "A robot that gets out-angled is caught flat-footed for a moment, turning to find its opponent, and sharp fighters jump on that opening.",
+      "Pinned on the ropes, a robot can spin off along them, and it can step off the line when the other one charges in.",
+      "Robots turn on the ball of the lead foot like a boxer, the rear foot sweeping round after it, instead of twisting on the spot.",
+    ],
+  },
+  {
     hour: "2026-10-25 03:00",
     title: "Full K.O.",
     notes: [

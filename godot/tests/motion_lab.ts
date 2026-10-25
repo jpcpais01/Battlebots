@@ -6,7 +6,9 @@
  *   strike <move[,move...]> [dist 1.0] [zone head] [guard up|down]  A throws (a list chains them;
  *                                    a move ending in ~ is feinted)
  *   move <x> <z> [secs 1.5]          A travels with a constant intent, local (x right, z forward)
- *   dodge <type> [dir 1]             A dodges (slip, duck, sway, backstep, sidestep, sprawl)
+ *   dodge <type> [dir 1] [reach .55] A dodges (slip, duck, sway, backstep, sidestep, sprawl, pivot:
+ *                                    reach = how far round B it steps, body lengths)
+ *   circle [dir 1] [secs 2]          B circles round A at a steady walk; A turns to follow
  *   idle [secs 3]                    both stand in their stances
  *   stagger [secs 1.2]               B is rocked, staggering on its feet
  *   fall <x> <z> [down|ko] [power 2.8]  B is knocked down (or out by a head shot) along a local
@@ -78,7 +80,7 @@ function rec(steps: number) {
         phase: m.phase,
         bots: m.fighters.map((f) => {
           const s = f.strike, d = f.dodge;
-          const feet = (f as unknown as { feet: { stepping: boolean; locked: boolean }[] }).feet;
+          const feet = (f as unknown as { feet: { stepping: boolean; locked: boolean; sweep: boolean; pos: Vector3 }[] }).feet;
           return {
             j: f.body.pos.map((p) => [r(p.x), r(p.y), r(p.z)]),
             root: [r(f.root.x), r(f.root.z)],
@@ -86,7 +88,7 @@ function rec(steps: number) {
             yaw: r(f.faceYaw),
             state: f.state,
             act: s ? `${s.move.id}:${s.phase}:${r(s.t / (s.phase === 'windup' ? s.windup : s.phase === 'active' ? s.active : s.recovery))}` : d ? `${d.type}:${r(d.t / d.dur)}` : '',
-            feet: feet.map((ft) => ({ s: ft.stepping ? 1 : 0, l: ft.locked ? 1 : 0 })),
+            feet: feet.map((ft) => ({ s: ft.stepping ? 1 : 0, l: ft.locked ? 1 : 0, w: ft.sweep ? 1 : 0, p: [r(ft.pos.x), r(ft.pos.z)] })),
             heel: f.footHeel.map(r),
             fyaw: f.footYaw.map(r),
             stance: f.stance,
@@ -142,9 +144,18 @@ if (scenario === 'strike') {
   A.intentVel.set(0, 0, 0);
   rec(120);
 } else if (scenario === 'dodge') {
-  A.tryDodge(args[0] as DodgeType, Number(args[1] ?? 1));
+  A.tryDodge(args[0] as DodgeType, Number(args[1] ?? 1), Number(args[2] ?? 0.55));
   while (A.action) rec(1);
   rec(90);
+} else if (scenario === 'circle') {
+  const dir = Number(args[0] ?? 1), steps = Math.round(Number(args[1] ?? 2) * 120);
+  for (let i = 0; i < steps; i++) {
+    const y = B.faceYaw;
+    B.intentVel.set(-DMcos(y) * dir * 0.9, 0, DMsin(y) * dir * 0.9);
+    rec(1);
+  }
+  B.intentVel.set(0, 0, 0);
+  rec(120);
 } else if (scenario === 'stagger') {
   // B is rocked: staggered on its feet for a while
   (m as unknown as { stagger: (f: unknown, d: number) => void }).stagger(B, Number(args[0] ?? 1.2));
