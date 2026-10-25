@@ -134,6 +134,9 @@ func _setup() -> void:
 	updater = Updater.new()
 	add_child(updater)
 	updater.found.connect(_offer_update)
+	# (a mouse drags the finger-made lists and strips too: the Windows build)
+	if not OS.has_feature("mobile"):
+		add_child(DragScroll.new())
 	player = Store.load_player()
 	record = Store.load_record()
 	# a one-time gift (career.ts GIFTS) paid just now: saved at once, shown once home is up

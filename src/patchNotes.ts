@@ -16,6 +16,15 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-25 00:00",
+    title: "Battlebots on Windows",
+    notes: [
+      "Battlebots now comes for Windows PCs too: every new build is on the Releases page as Battlebots-Windows.zip, next to the Android app.",
+      "On a PC, drag lists, tabs and part tiles with the mouse like a finger, or use the wheel.",
+      "The Windows game offers new builds on its home screen and updates itself in place.",
+    ],
+  },
+  {
     hour: "2026-10-24 22:00",
     title: "Kicks get caught",
     notes: [

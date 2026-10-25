@@ -1,6 +1,6 @@
 ## The "Update available" card (app/update/updater.gd finds the build): the new version and its
 ## patch notes, then one button that downloads it (a bar with the megabytes as they come) and
-## hands it to Android's installer. The first time, Android has to be told to allow installs from
+## hands it to Android's installer (on Windows, swaps it in and restarts). The first time, Android has to be told to allow installs from
 ## Battlebots: the card says so and opens that settings page, and the install goes ahead by
 ## itself once the player is back with it allowed.
 ##
@@ -137,7 +137,10 @@ func _set_state(s: String) -> void:
 		"ready":
 			UiTheme.set_button(_main, "Install", "check")
 			UiTheme.set_button(_later, "Later")
-			_status.text = "Downloaded. Tap Install, then Install again on Android's screen. Your bots, record and career stay as they are."
+			if OS.get_name() == "Windows":
+				_status.text = "Downloaded. Click Install: Battlebots closes, updates itself and opens again. Your bots, record and career stay as they are."
+			else:
+				_status.text = "Downloaded. Tap Install, then Install again on Android's screen. Your bots, record and career stay as they are."
 			_show_fill(1.0)
 		"allow":
 			UiTheme.set_button(_main, "Open settings", "gear")
@@ -172,7 +175,10 @@ func _install() -> void:
 		_set_state("allow")
 		return
 	if not _u.install():
-		_status.text = "Android wouldn't open the installer. Download it from the Releases page instead: github.com/%s/releases/latest" % Updater.REPO
+		if OS.get_name() == "Windows":
+			_status.text = "Battlebots couldn't update its folder (it may need to be somewhere you can write, not Program Files). Download %s from the Releases page instead and unzip it over the old one: github.com/%s/releases/latest" % [Updater.WIN_NAME, Updater.REPO]
+		else:
+			_status.text = "Android wouldn't open the installer. Download it from the Releases page instead: github.com/%s/releases/latest" % Updater.REPO
 		_status.visible = true
 
 
