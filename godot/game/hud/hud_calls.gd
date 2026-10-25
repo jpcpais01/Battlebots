@@ -482,7 +482,7 @@ func capture(m_) -> void:
 	for i in 2:
 		var f = m_.fighters[i]
 		_fstate[i] = str(f.state)
-		_ffail[i] = float(f.getupFail) != 0.0
+		_ffail[i] = bool(f.onCanvas)
 	if _phase == "countdown":
 		var n := int(TMatch.COUNTDOWN) - floori(_pt)
 		if n != _last_count and n >= 1:

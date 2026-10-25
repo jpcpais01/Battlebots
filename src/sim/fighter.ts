@@ -247,9 +247,10 @@ const BEND_RATE = 24;
 
 /**
  * Get-up choreography. Each key is a body shape at a fraction of the get-up: pelvis
- * height and offset, trunk pitch, and lead/rear foot and hand targets (x in units of
- * the side's sign) with knee poles. Between keys the pose moves on minimum-jerk
- * curves; after the last key it blends into the normal fighting pose.
+ * height and offset, trunk pitch and roll, how far the head follows the spine (0: upright,
+ * eyes on the opponent; 1: bowed or lying along it), and lead/rear foot and hand targets
+ * (x in units of the side's sign) with knee and elbow poles. Between keys the pose moves on
+ * smooth curves; after the last key it blends into the normal fighting pose.
  */
 interface GetupKey {
   t: number;
@@ -257,51 +258,149 @@ interface GetupKey {
   pz: number;
   pitch: number;
   roll: number;
+  head: number;
   feet: [number, number, number, number, number, number];
   hands: [number, number, number, number, number, number];
   /** knee pole y for lead and rear leg (negative drives the knee down to the canvas) */
   knee: [number, number];
-  /** elbow pole z for both arms (negative points the elbows back, posting on the floor) */
-  elbow: number;
+  /** elbow pole y and z for both arms (z negative points the elbows back, posting on the floor) */
+  elbow: [number, number];
 }
 // lead foot, rear foot / lead hand, rear hand
 const KNEEL: Omit<GetupKey, 't'> = {
-  py: 0.52, pz: -0.02, pitch: 0.5, roll: 0,
+  py: 0.52, pz: -0.02, pitch: 0.5, roll: 0, head: 0,
   feet: [0.16, 0.08, 0.34, 0.15, 0.1, -0.5],
   hands: [0.1, 0.6, 0.38, 0.22, 0.5, 0.3],
-  knee: [0.3, -0.5], elbow: -0.6,
+  knee: [0.3, -0.5], elbow: [-0.3, -0.6],
 };
 const RISE: Omit<GetupKey, 't'> = {
-  py: 0.84, pz: 0, pitch: 0.22, roll: 0,
+  py: 0.84, pz: 0, pitch: 0.22, roll: 0, head: 0,
   feet: [0.15, 0.08, 0.26, 0.17, 0.14, -0.26],
   hands: [0.15, 1.22, 0.3, 0.12, 1.18, 0.2],
-  knee: [0.2, 0.1], elbow: -0.3,
+  knee: [0.2, 0.1], elbow: [-0.3, -0.3],
 };
 /** On the back: sit up, tuck a leg, roll forward onto the knee, drive up. */
 const GETUP_BACK: GetupKey[] = [
-  { t: 0, py: 0.2, pz: -0.3, pitch: 0.25, roll: 0, feet: [0.17, 0.09, 0.22, 0.17, 0.09, 0.12], hands: [0.32, 0.07, -0.42, 0.32, 0.07, -0.42], knee: [0.6, 0.6], elbow: -1 },
-  { t: 0.2, py: 0.2, pz: -0.3, pitch: 0.4, roll: 0, feet: [0.17, 0.09, 0.22, 0.17, 0.09, 0.12], hands: [0.3, 0.07, -0.36, 0.32, 0.07, -0.4], knee: [0.6, 0.6], elbow: -1 },
-  { t: 0.42, py: 0.36, pz: -0.12, pitch: 0.85, roll: 0.12, feet: [0.16, 0.09, 0.3, 0.14, 0.1, -0.42], hands: [0.12, 0.42, 0.34, 0.26, 0.07, 0.3], knee: [0.4, -0.5], elbow: -0.8 },
+  { t: 0, py: 0.2, pz: -0.3, pitch: 0.25, roll: 0, head: 0, feet: [0.17, 0.09, 0.22, 0.17, 0.09, 0.12], hands: [0.32, 0.07, -0.42, 0.32, 0.07, -0.42], knee: [0.6, 0.6], elbow: [-0.3, -1] },
+  { t: 0.2, py: 0.2, pz: -0.3, pitch: 0.4, roll: 0, head: 0, feet: [0.17, 0.09, 0.22, 0.17, 0.09, 0.12], hands: [0.3, 0.07, -0.36, 0.32, 0.07, -0.4], knee: [0.6, 0.6], elbow: [-0.3, -1] },
+  { t: 0.42, py: 0.36, pz: -0.12, pitch: 0.85, roll: 0.12, head: 0, feet: [0.16, 0.09, 0.3, 0.14, 0.1, -0.42], hands: [0.12, 0.42, 0.34, 0.26, 0.07, 0.3], knee: [0.4, -0.5], elbow: [-0.3, -0.8] },
   { t: 0.6, ...KNEEL },
   { t: 0.82, ...RISE },
 ];
 /** Face down: push up onto hands and knees, step a foot through, drive up. */
 const GETUP_FRONT: GetupKey[] = [
-  { t: 0, py: 0.3, pz: -0.28, pitch: 1.35, roll: 0, feet: [0.14, 0.09, -0.75, 0.14, 0.09, -0.75], hands: [0.26, 0.06, 0.28, 0.26, 0.06, 0.28], knee: [-0.6, -0.6], elbow: -1 },
-  { t: 0.18, py: 0.3, pz: -0.28, pitch: 1.35, roll: 0, feet: [0.14, 0.09, -0.75, 0.14, 0.09, -0.75], hands: [0.26, 0.06, 0.28, 0.26, 0.06, 0.28], knee: [-0.6, -0.6], elbow: -1 },
-  { t: 0.38, py: 0.42, pz: -0.12, pitch: 1.15, roll: 0, feet: [0.14, 0.09, -0.5, 0.14, 0.09, -0.5], hands: [0.22, 0.06, 0.4, 0.22, 0.06, 0.4], knee: [-0.5, -0.5], elbow: -0.9 },
+  { t: 0, py: 0.3, pz: -0.28, pitch: 1.35, roll: 0, head: 0, feet: [0.14, 0.09, -0.75, 0.14, 0.09, -0.75], hands: [0.26, 0.06, 0.28, 0.26, 0.06, 0.28], knee: [-0.6, -0.6], elbow: [-0.3, -1] },
+  { t: 0.18, py: 0.3, pz: -0.28, pitch: 1.35, roll: 0, head: 0, feet: [0.14, 0.09, -0.75, 0.14, 0.09, -0.75], hands: [0.26, 0.06, 0.28, 0.26, 0.06, 0.28], knee: [-0.6, -0.6], elbow: [-0.3, -1] },
+  { t: 0.38, py: 0.42, pz: -0.12, pitch: 1.15, roll: 0, head: 0, feet: [0.14, 0.09, -0.5, 0.14, 0.09, -0.5], hands: [0.22, 0.06, 0.4, 0.22, 0.06, 0.4], knee: [-0.5, -0.5], elbow: [-0.3, -0.9] },
   { t: 0.6, ...KNEEL },
   { t: 0.82, ...RISE },
 ];
+/**
+ * The technical stand-up (on the back, a fighter who knows the ground): sits up facing the
+ * other one with the lead glove up by its face, posts the rear hand on the canvas behind it,
+ * bridges its hips up off that hand and the planted lead foot, swings the rear leg back
+ * through underneath itself, and comes up out of a long, low stance with its hands up. It
+ * never turns its back or puts its head down.
+ */
+const GETUP_TECH: GetupKey[] = [
+  { t: 0, py: 0.2, pz: -0.28, pitch: 0.15, roll: 0.05, head: 0, feet: [0.17, 0.09, 0.2, 0.2, 0.11, 0.42], hands: [0.15, 0.86, 0.14, 0.34, 0.08, -0.5], knee: [0.7, 0.35], elbow: [-1, -0.6] },
+  { t: 0.2, py: 0.22, pz: -0.3, pitch: -0.12, roll: 0.25, head: 0, feet: [0.17, 0.08, 0.2, 0.2, 0.12, 0.42], hands: [0.15, 0.88, 0.16, 0.4, 0.07, -0.55], knee: [0.7, 0.35], elbow: [-1, -0.6] },
+  { t: 0.4, py: 0.38, pz: -0.3, pitch: 0.05, roll: 0.42, head: 0, feet: [0.17, 0.08, 0.2, 0.13, 0.22, -0.12], hands: [0.15, 0.96, 0.2, 0.42, 0.08, -0.5], knee: [0.6, -0.2], elbow: [-1, -0.6] },
+  { t: 0.57, py: 0.5, pz: -0.22, pitch: 0.42, roll: 0.2, head: 0, feet: [0.17, 0.08, 0.22, 0.2, 0.08, -0.62], hands: [0.15, 1.02, 0.3, 0.36, 0.34, -0.32], knee: [0.4, -0.2], elbow: [-0.9, -0.4] },
+  { t: 0.75, py: 0.7, pz: -0.1, pitch: 0.3, roll: 0.05, head: 0, feet: [0.16, 0.08, 0.24, 0.18, 0.08, -0.42], hands: [0.15, 1.15, 0.3, 0.12, 1.1, 0.18], knee: [0.2, 0.1], elbow: [-0.3, -0.3] },
+  { t: 0.9, ...RISE, feet: [0.15, 0.08, 0.24, 0.17, 0.08, -0.3] },
+];
+/**
+ * The kip-up (on the back, a nimble frame with plenty left in it): rocks back onto its
+ * shoulders with the knees to its chest and the gloves flat by its head, then snaps the hips
+ * up and whips the legs down under itself, landing in a crouch and rising straight into its
+ * guard. The crowd's favourite.
+ */
+const GETUP_KIP: GetupKey[] = [
+  { t: 0, py: 0.2, pz: -0.1, pitch: -1.45, roll: 0, head: 0.8, feet: [0.17, 0.09, 0.25, 0.17, 0.09, 0.18], hands: [0.26, 0.08, -0.85, 0.26, 0.08, -0.85], knee: [0.8, 0.8], elbow: [1, 0] },
+  { t: 0.17, py: 0.4, pz: 0, pitch: -2.0, roll: 0, head: 0.9, feet: [0.16, 0.55, -0.72, 0.16, 0.52, -0.64], hands: [0.26, 0.08, -0.85, 0.26, 0.08, -0.85], knee: [1.3, 1.3], elbow: [1, 0] },
+  { t: 0.32, py: 0.56, pz: 0.04, pitch: -1.05, roll: 0, head: 0.55, feet: [0.17, 0.16, 0.14, 0.17, 0.13, -0.08], hands: [0.27, 0.12, -0.62, 0.27, 0.12, -0.62], knee: [0.9, 0.9], elbow: [0.6, -0.2] },
+  { t: 0.45, py: 0.52, pz: -0.02, pitch: 0.55, roll: 0, head: 0, feet: [0.16, 0.08, 0.2, 0.17, 0.08, -0.15], hands: [0.3, 0.75, 0.35, 0.28, 0.7, 0.3], knee: [0.3, 0.3], elbow: [-0.3, -0.3] },
+  { t: 0.7, ...RISE, feet: [0.15, 0.08, 0.24, 0.17, 0.08, -0.26] },
+];
+/**
+ * Taking a knee (hurt, with the count running): gets as far as one knee, the lead forearm
+ * draped over the raised knee and the rear glove down on the canvas, head bowed, and stays
+ * there breathing while the referee counts; then looks up, both gloves go to the knee and it
+ * pushes itself up off its thigh. The rest at ON_KNEE is held for as long as the count lets it.
+ */
+const ON_KNEE: Omit<GetupKey, 't'> = {
+  py: 0.48, pz: -0.04, pitch: 0.72, roll: 0.1, head: 0.6,
+  feet: [0.16, 0.08, 0.32, 0.15, 0.1, -0.48],
+  hands: [0.08, 0.5, 0.46, 0.28, 0.12, 0.2],
+  knee: [0.35, -0.5], elbow: [-0.8, -0.2],
+};
+const ON_KNEE_UP: Omit<GetupKey, 't'> = {
+  py: 0.52, pz: -0.03, pitch: 0.48, roll: 0, head: 0,
+  feet: [0.16, 0.08, 0.32, 0.15, 0.1, -0.48],
+  hands: [0.1, 0.56, 0.4, -0.04, 0.58, 0.36],
+  knee: [0.35, -0.5], elbow: [-0.8, -0.1],
+};
+const PUSH_UP: Omit<GetupKey, 't'> = {
+  py: 0.72, pz: -0.02, pitch: 0.4, roll: 0, head: 0,
+  feet: [0.16, 0.08, 0.3, 0.16, 0.12, -0.34],
+  hands: [0.13, 0.72, 0.3, 0.02, 0.76, 0.28],
+  knee: [0.25, 0.05], elbow: [-0.6, -0.2],
+};
+const GETUP_KNEE_BACK: GetupKey[] = [
+  { ...GETUP_BACK[0], t: 0 },
+  { ...GETUP_BACK[2], t: 0.18 },
+  { t: 0.32, ...ON_KNEE },
+  { t: 0.46, ...ON_KNEE_UP },
+  { t: 0.64, ...PUSH_UP },
+  { t: 0.84, ...RISE },
+];
+const GETUP_KNEE_FRONT: GetupKey[] = [
+  { ...GETUP_FRONT[0], t: 0 },
+  { ...GETUP_FRONT[2], t: 0.16 },
+  { t: 0.32, ...ON_KNEE },
+  { t: 0.46, ...ON_KNEE_UP },
+  { t: 0.64, ...PUSH_UP },
+  { t: 0.84, ...RISE },
+];
+/** Ways back up: the index is Fighter.getupKind. */
+export const enum GetupKind {
+  Back,
+  Front,
+  Tech,
+  Kip,
+  KneeBack,
+  KneeFront,
+}
+/** A key's channels in one list: py, pz, pitch, roll, head, feet (6), hands (6), knees (2), elbow (2). */
+const flatKey = (k: GetupKey) => [k.py, k.pz, k.pitch, k.roll, k.head, ...k.feet, ...k.hands, ...k.knee, ...k.elbow];
+/**
+ * Each way up: its keys (and flattened), how long it takes (s, on two good legs), where it
+ * starts handing over to the fighting pose (fraction), the key it may rest on (-1: none) and
+ * the body's tone as it starts (it firms to full as it rises).
+ */
+interface GetupPlan {
+  keys: GetupKey[];
+  flat: number[][];
+  dur: number;
+  hand: number;
+  rest: number;
+  tone: number;
+}
+const getupPlan = (keys: GetupKey[], dur: number, hand: number, rest: number, tone: number): GetupPlan => ({ keys, flat: keys.map(flatKey), dur, hand, rest, tone });
+const GETUPS: GetupPlan[] = [
+  getupPlan(GETUP_BACK, 1.55, 0.72, -1, 0.5),
+  getupPlan(GETUP_FRONT, 1.35, 0.72, -1, 0.5),
+  getupPlan(GETUP_TECH, 1.5, 0.8, -1, 0.55),
+  getupPlan(GETUP_KIP, 1.15, 0.64, -1, 0.75),
+  getupPlan(GETUP_KNEE_BACK, 2.1, 0.74, 2, 0.5),
+  getupPlan(GETUP_KNEE_FRONT, 2.0, 0.74, 2, 0.5),
+];
+/** When a knee rest starts (s into the get-up): both knee get-ups reach the knee then. */
+const KNEE_AT = Math.max(GETUPS[GetupKind.KneeBack].dur * GETUP_KNEE_BACK[2].t, GETUPS[GetupKind.KneeFront].dur * GETUP_KNEE_FRONT[2].t);
 const GETUP_BLEND_IN = 0.2;
-/** Where the get-up starts handing over to the fighting pose (it keeps moving through the last key). */
-const GETUP_HANDOVER = 0.72;
-/** A key's channels in one list: py, pz, pitch, roll, feet (6), hands (6), knees (2), elbow. */
-const flatKey = (k: GetupKey) => [k.py, k.pz, k.pitch, k.roll, ...k.feet, ...k.hands, ...k.knee, k.elbow];
-const GETUP_FLAT = new Map<GetupKey[], number[][]>([
-  [GETUP_BACK, GETUP_BACK.map(flatKey)],
-  [GETUP_FRONT, GETUP_FRONT.map(flatKey)],
-]);
+/** Height of the middle rope a bot on its knee reaches up for (world m). */
+const ROPE_MID = 0.95;
 /** How long the legs take to fold under a knocked-out body before it drops as a ragdoll (s). */
 const BUCKLE = 0.36;
 
@@ -504,12 +603,22 @@ export class Fighter {
   /** Non-zero while a doomed attempt runs: the get-up fraction it collapses at. */
   getupFail = 0;
   getupFrom = new Vector3();
-  /** Get-up: lying pose (local, in the get-up frame), which script, and its length. */
+  /** Get-up: lying pose (local, in the get-up frame), which way up (GetupKind), and its length (rests included). */
   private getupSnap = Array.from({ length: JOINT_COUNT }, () => new Vector3());
-  private getupKeys: GetupKey[] = GETUP_BACK;
+  getupKind = 0;
   getupDur = 1.5;
-  private _gch = new Array<number>(19).fill(0);
-  private _gk = { py: 0, pz: 0, pitch: 0, roll: 0, w: 0, feet: [0, 0, 0, 0, 0, 0], hands: [0, 0, 0, 0, 0, 0], knee: [0, 0], elbow: 0 };
+  /** The get-up's own length without a rest (s), and the rest on one knee: when it starts and how long (s). */
+  private getupBase = 1.5;
+  private getupRestAt = 0;
+  private getupRest = 0;
+  /** Whether this count's knockdown was a counted one, and the knee rest planned for it (s; 0: none). */
+  private downCounted = false;
+  private kneePlan = 0;
+  /** Hauling itself up on the ropes from its knee: which hand (-1: none) and where it grips (world). */
+  private ropeHand = -1;
+  private ropeGrip = new Vector3();
+  private _gch = new Array<number>(21).fill(0);
+  private _gk = { py: 0, pz: 0, pitch: 0, roll: 0, head: 0, w: 0, feet: [0, 0, 0, 0, 0, 0], hands: [0, 0, 0, 0, 0, 0], knee: [0, 0], elbow: [0, 0], rope: 0, ropeL: new Vector3() };
   knockdowns = 0;
   /** Condition of every body part (locational damage). */
   readonly parts: Parts;
@@ -810,6 +919,20 @@ export class Fighter {
   }
   get isDown() {
     return this.state === 'down' || this.state === 'getup' || this.state === 'ko';
+  }
+  /**
+   * Still on the canvas as far as the referee's count goes: lying there, on a try that will
+   * give out, or resting on one knee before it rises.
+   */
+  get onCanvas() {
+    return this.state === 'down' || (this.state === 'getup' && (this.getupFail > 0 || this.stateTime < this.getupRestAt + this.getupRest));
+  }
+  /** How far through its get-up's choreography it is (0..1): a rest on one knee holds it still. */
+  get getupProgress() {
+    if (this.state !== 'getup') return 0;
+    const t = this.stateTime, at = this.getupRestAt;
+    const kt = this.getupRest > 0 && t > at ? Math.max(at, t - this.getupRest) : t;
+    return clamp01(kt / this.getupBase);
   }
   get canAct() {
     return this.state === 'fight' && !this.action;
@@ -1407,10 +1530,15 @@ export class Fighter {
           // tries to get up, but hasn't the strength
           this.getupFail = this.tries.shift()!.fail;
           this.beginGetUp();
+        } else if (this.kneePlan > 0 && this.hp > 0 && !this.tries.length && this.downAge >= FALL_LAND + 0.3 && this.downTime <= KNEE_AT + this.kneePlan) {
+          // hurt, it gets as far as one knee early and takes the rest of the count there,
+          // rising on the count's own moment (or not at all, if too little of it is left)
+          this.kneePlan = 0;
+          if (this.downTime > KNEE_AT + 0.3) this.beginGetUp(true);
         }
         break;
       case 'getup': {
-        const k = clamp01(this.stateTime / this.getupDur);
+        const k = this.getupProgress;
         if (this.getupFail) {
           this.downTime -= dt;
           this.downAge += dt;
@@ -1425,8 +1553,8 @@ export class Fighter {
           break;
         }
         // firm enough to follow the choreography from the first frame, stiffening as it rises
-        this.body.tone = lerp(0.5, 1, smoothstep(0, 0.45, k));
-        if (k >= 1) {
+        this.body.tone = lerp(GETUPS[this.getupKind].tone, 1, smoothstep(0, 0.45, k));
+        if (this.stateTime >= this.getupDur) {
           this.body.tone = 1;
           this.invuln = 0.7;
           this.poise = this.maxPoise * 0.8;
@@ -1552,6 +1680,11 @@ export class Fighter {
     this.spinYaw = 0;
     this.lift = 0;
     if (counts) this.knockdowns++;
+    // hurt and counted, it will take a knee before it rises: the worse it's hurt, the likelier
+    this.downCounted = counts;
+    this.kneePlan = 0;
+    if (counts && this.hp > 0 && this.legLost < 0 && this.rng.chance(clamp(0.25 + (1 - this.hpRatio) * 0.6 + this.knockdowns * 0.12, 0, 0.85)))
+      this.kneePlan = this.rng.range(0.55, 1.35);
     this.yawKick = 0;
     this.sagAt = -1;
     this.downAge = 0;
@@ -1814,8 +1947,12 @@ export class Fighter {
     body.tone = 0.45 * k;
   }
 
-  /** Up off the canvas (the count's rise; a tag team's knocked-out bot coming round to leave the ring). */
-  beginGetUp() {
+  /**
+   * Up off the canvas (the count's rise; a tag team's knocked-out bot coming round to leave the
+   * ring). `knee`: hurt during a count, it gets to one knee early and rests there until the
+   * count's own moment to rise (downTime from now).
+   */
+  beginGetUp(knee = false) {
     this.fallKind = 0;
     this.setState('getup');
     const P = this.body.pos;
@@ -1824,10 +1961,20 @@ export class Fighter {
     _w.subVectors(P[J.ShR], P[J.ShL]);
     _v.crossVectors(_u, _w);
     const faceDown = _v.y < 0;
-    this.getupKeys = faceDown ? GETUP_FRONT : GETUP_BACK;
-    this.getupDur = faceDown ? 1.35 : 1.55;
+    const kind = this.pickGetup(faceDown, knee);
+    const plan = GETUPS[kind];
+    this.getupKind = kind;
+    this.getupBase = plan.dur;
     // on one leg it has to push most of the way up with its hands
-    if (this.legLost >= 0) this.getupDur *= 1.3;
+    if (this.legLost >= 0) this.getupBase *= 1.3;
+    this.getupRestAt = 0;
+    this.getupRest = 0;
+    if (plan.rest >= 0) {
+      this.getupRestAt = plan.keys[plan.rest].t * this.getupBase;
+      // (a failed try never gets to rest: it gives out on the way)
+      if (knee) this.getupRest = Math.max(0, this.downTime - this.getupRestAt);
+    }
+    this.getupDur = this.getupBase + this.getupRest;
     // get up facing along the body: towards the head from a push-up, towards the feet
     // from sitting up. The fight turns it to the opponent once it is on its feet.
     _u.y = 0;
@@ -1835,8 +1982,15 @@ export class Fighter {
     _u.normalize();
     if (!faceDown) _u.negate();
     this.yaw = DM.atan2(_u.x, _u.z);
+    // a technical stand-up keeps its eyes on the other one: it sits up facing them (shuffling
+    // round on its seat as it does)
+    if (kind === GetupKind.Tech && this.opp) {
+      const want = DM.atan2(this.opp.root.x - P[J.Pelvis].x, this.opp.root.z - P[J.Pelvis].z);
+      this.yaw += clamp(wrapAngle(want - this.yaw), -0.9, 0.9);
+      _u.set(DM.sin(this.yaw), 0, DM.cos(this.yaw));
+    }
     // the first key's pelvis sits where the lying pelvis is
-    const pz = this.getupKeys[0].pz * this.size;
+    const pz = plan.keys[0].pz * this.size;
     this.root.set(P[J.Pelvis].x - _u.x * pz, 0, P[J.Pelvis].z - _u.z * pz);
     // getting up under the ropes: stand up just inside them, not out past them
     const gap = ropeGap(this.root.x, this.root.z);
@@ -1846,12 +2000,53 @@ export class Fighter {
       this.root.x -= SIDE_NX[s] * (clear - gap);
       this.root.z -= SIDE_NZ[s] * (clear - gap);
     }
+    // on a knee by the ropes it reaches up and hauls itself up on them: it kneels along them,
+    // the near hand on the middle rope
+    this.ropeHand = -1;
+    if (plan.rest >= 0 && this.legLost < 0) {
+      const g = ropeGap(this.root.x, this.root.z);
+      if (g < 0.8 * this.size) {
+        const s = ropeSide(this.root.x, this.root.z);
+        const nx = SIDE_NX[s], nz = SIDE_NZ[s];
+        // along the rope, whichever way is nearer the way it was going to face
+        let ax = nz, az = -nx;
+        if (ax * _u.x + az * _u.z < 0) {
+          ax = -ax;
+          az = -az;
+        }
+        this.yaw = DM.atan2(ax, az);
+        // its right is (-cos, sin) of the yaw: is the rope on that side?
+        this.ropeHand = -DM.cos(this.yaw) * nx + DM.sin(this.yaw) * nz > 0 ? 1 : 0;
+        // the grip: on the rope beside the shoulder, a touch ahead of it
+        const reach = Math.max(0, g - 0.06 * this.size);
+        this.ropeGrip.set(this.root.x + nx * reach + ax * 0.12 * this.size, ROPE_MID, this.root.z + nz * reach + az * 0.12 * this.size);
+      }
+    }
     this.rootVel.set(0, 0, 0);
     for (let i = 0; i < JOINT_COUNT; i++) this.toLocal(P[i], this.getupSnap[i]);
     this.computeLocalPose(0);
     this.toWorld(this.L[J.FootL], this.feet[0].pos);
     this.toWorld(this.L[J.FootR], this.feet[1].pos);
     for (let i = 0; i < 2; i++) this.feet[i].yaw = this.yaw + this.stanceFootYaw(i);
+  }
+
+  /**
+   * Which way up: hurt during a count, it takes a knee; otherwise the usual sit-up or push-up,
+   * unless (on its back) it has the legs for a technical stand-up, or the spring for a kip-up.
+   * A quick fall (tripped, thrown, shoved over) and a fresh body make the flashy ones likelier.
+   */
+  private pickGetup(faceDown: boolean, knee: boolean): number {
+    if (this.legLost >= 0) return faceDown ? GetupKind.Front : GetupKind.Back;
+    // (a doomed try by a bot that means to take a knee gives out on its way there)
+    if (knee || (this.getupFail > 0 && this.kneePlan > 0)) return faceDown ? GetupKind.KneeFront : GetupKind.KneeBack;
+    if (this.getupFail > 0 || faceDown) return faceDown ? GetupKind.Front : GetupKind.Back;
+    const st = this.build.stats;
+    const quick = !this.downCounted;
+    const hp = this.hpRatio;
+    const spring = clamp((st.agility * this.parts.mobility() - 0.95) * 2.5, 0, 1) * (this.size > 1.1 ? 0.3 : 1);
+    if (hp > 0.45 && this.rng.chance(spring * (quick ? 0.45 : 0.25) * (0.6 + hp * 0.4))) return GetupKind.Kip;
+    if (this.rng.chance((quick ? 0.5 : 0.28) + 0.2 * clamp(st.agility - 1, -0.5, 0.5))) return GetupKind.Tech;
+    return GetupKind.Back;
   }
 
   // ---------------------------------------------------------------- actions
@@ -2040,7 +2235,7 @@ export class Fighter {
       if (this.state === 'stagger') turn = 1;
       if (this.state === 'win') turn = 1.5;
       if (this.state === 'held') turn = 2;
-      if (this.state === 'getup') turn = this.stateTime / this.getupDur < 0.6 ? 0 : 3;
+      if (this.state === 'getup') turn = this.getupProgress < 0.6 ? 0 : 3;
       // one leg turns slowly, a shuffle on the ball of the foot
       if (stand) turn *= 0.6;
       const em = this.emote;
@@ -3059,7 +3254,7 @@ export class Fighter {
     // moves its mass a little quicker than a heavy one.
     const spr = this.sp;
     const q = clamp(0.88 + 0.12 * this.build.stats.agility, 0.85, 1.12) * 0.8;
-    const fast = (s && s.phase !== 'windup') || d;
+    const fast = (s && s.phase !== 'windup') || d || gu !== null;
     this.crouch = spr[0].to(crouch, (fast ? 72 : 40) * q, 0.78, dt);
     this.pitch = spr[1].to(pitch, (fast ? 72 : 40) * q, 0.72, dt);
     this.roll = spr[2].to(roll, (fast ? 72 : 40) * q, 0.72, dt);
@@ -3117,8 +3312,10 @@ export class Fighter {
     _v.set(sr * cp, cr * cp, sp); // spine up
     L[J.Chest].copy(L[J.Pelvis]).addScaledVector(_v, 0.42);
     L[J.Neck].copy(L[J.Chest]).addScaledVector(_v, 0.22);
-    // head stays more upright than the spine — eyes on the opponent
+    // head stays more upright than the spine — eyes on the opponent (getting up off the canvas
+    // it may lie along the spine, or hang)
     _p.set(_v.x * 0.5, 1, _v.z * 0.35).normalize();
+    if (gu && gu.head > 0) _p.lerp(_v, gu.head * gu.w).normalize();
     L[J.Head].copy(L[J.Neck]).addScaledVector(_p, 0.21).add(this.headOff);
     const tw = this.twist;
     // shoulder axis (towards +x = right), square to the spine: a side bend tilts the shoulders
@@ -3205,7 +3402,12 @@ export class Fighter {
       if (gu) {
         const o = isLead ? 0 : 3;
         hand.lerp(_p.set(sx * gu.hands[o], gu.hands[o + 1], gu.hands[o + 2]), gu.w);
-        pole.lerp(_p.set(sx * 0.6, -0.3, gu.elbow), gu.w);
+        pole.lerp(_p.set(sx * 0.6, gu.elbow[0], gu.elbow[1]), gu.w);
+        // a glove on the ropes
+        if (side === this.ropeHand && gu.rope > 0) {
+          hand.lerp(gu.ropeL, gu.rope * gu.w);
+          pole.lerp(_p.set(sx * 0.8, -0.6, -0.2), gu.rope * gu.w);
+        }
       }
       let roll = isLead ? 0.1 : 0.15;
       let offPart = 0;
@@ -4531,14 +4733,15 @@ export class Fighter {
   /** Current get-up shape, interpolated between keys; `w` is how much it overrides the fight pose. */
   private getupPose() {
     const g = this._gk;
-    const keys = this.getupKeys;
-    const k = clamp01(this.stateTime / this.getupDur);
-    const last = keys[keys.length - 1];
-    const flat = GETUP_FLAT.get(keys)!;
+    const plan = GETUPS[this.getupKind];
+    const keys = plan.keys;
+    const k = this.getupProgress;
+    const last = keys.length - 1;
+    const flat = plan.flat;
     const ch = this._gch;
-    let a = keys.length - 1, u = 0;
-    if (k < last.t) {
-      for (let i = 0; i < keys.length - 1; i++) {
+    let a = last, u = 0;
+    if (k < keys[last].t) {
+      for (let i = 0; i < last; i++) {
         if (k < keys[i + 1].t) {
           a = i;
           u = (k - keys[i].t) / (keys[i + 1].t - keys[i].t);
@@ -4546,7 +4749,7 @@ export class Fighter {
         }
       }
     }
-    if (a === keys.length - 1) for (let c = 0; c < ch.length; c++) ch[c] = flat[a][c];
+    if (a === last) for (let c = 0; c < ch.length; c++) ch[c] = flat[a][c];
     else {
       // one continuous movement through the keys (sit up, roll onto the knee, drive up),
       // not a stop at each: every channel keeps its speed through a key unless it turns
@@ -4554,7 +4757,7 @@ export class Fighter {
       const h = keys[b].t - keys[a].t;
       for (let c = 0; c < ch.length; c++) {
         const m0 = a > 0 ? keySlope(flat[a - 1][c], flat[a][c], flat[b][c], keys[a].t - keys[a - 1].t, h) : 0;
-        const m1 = b < keys.length - 1 ? keySlope(flat[a][c], flat[b][c], flat[b + 1][c], h, keys[b + 1].t - keys[b].t) : 0;
+        const m1 = b < last ? keySlope(flat[a][c], flat[b][c], flat[b + 1][c], h, keys[b + 1].t - keys[b].t) : 0;
         ch[c] = hermite(flat[a][c], flat[b][c], m0, m1, h, u);
       }
     }
@@ -4562,17 +4765,39 @@ export class Fighter {
     g.pz = ch[1];
     g.pitch = ch[2];
     g.roll = ch[3];
+    g.head = ch[4];
     for (let i = 0; i < 6; i++) {
-      g.feet[i] = ch[4 + i];
-      g.hands[i] = ch[10 + i];
+      g.feet[i] = ch[5 + i];
+      g.hands[i] = ch[11 + i];
     }
     // the rear foot lifts as it steps up out of the kneel
-    if (a < keys.length - 1 && keys[a].knee[1] < 0 && keys[a + 1].knee[1] >= 0) g.feet[4] += DM.sin(Math.PI * u) * 0.12;
-    g.knee[0] = ch[16];
-    g.knee[1] = ch[17];
-    g.elbow = ch[18];
+    if (a < last && keys[a].knee[1] < 0 && keys[a + 1].knee[1] >= 0 && keys[a].py < 0.6) g.feet[4] += DM.sin(Math.PI * u) * 0.12;
+    g.knee[0] = ch[17];
+    g.knee[1] = ch[18];
+    g.elbow[0] = ch[19];
+    g.elbow[1] = ch[20];
+    // resting on the knee for the count: the chest heaves, the head hangs, and it looks up at
+    // the referee as the count comes round to its rise
+    const rt = this.stateTime - this.getupRestAt;
+    if (this.getupRest > 0 && rt > 0 && rt < this.getupRest + 0.3) {
+      const r = clamp01(rt / this.getupRest);
+      const life = smoothstep(0, 0.25, rt) * (1 - smoothstep(this.getupRest, this.getupRest + 0.3, rt));
+      const t = this.stateTime;
+      g.pitch += life * (0.05 * DM.sin(t * 5.2) + 0.05 * this.noise.at(t * 0.7 + 410));
+      g.py -= life * 0.02 * DM.sin(t * 5.2);
+      g.head = Math.max(0, g.head + life * (0.25 * this.noise.at(t * 0.5 + 430) - 0.7 * smoothstep(0.55, 1, r)));
+      g.hands[1] += life * 0.04 * this.noise.at(t * 0.8 + 450);
+    }
+    // by the ropes: the near hand goes up to the middle rope as it gets to its knee, and holds
+    // on while it hauls itself up, letting go as it finds its feet
+    g.rope = 0;
+    if (this.ropeHand >= 0 && plan.rest >= 0) {
+      const at = keys[plan.rest].t;
+      g.rope = smoothstep(at - 0.12, at, k) * (1 - smoothstep(0.66, 0.8, k));
+      this.toLocal(this.ropeGrip, g.ropeL);
+    }
     // hand over to the fighting pose while still rising, so it never pauses on the last key
-    g.w = 1 - minJerk((k - GETUP_HANDOVER) / (1 - GETUP_HANDOVER));
+    g.w = 1 - minJerk((k - plan.hand) / (1 - plan.hand));
     return g;
   }
 

@@ -16,7 +16,9 @@
  *   takedown <trip|throw|toss|double|elbow> [under 1] [tie lock]  A ties B up, and after a moment in
  *                                    the clinch takes B down that way (double: a shot straight in;
  *                                    elbow: a clinch elbow instead)
- * Env: FPS (60), SIZE_A / SIZE_B (frame sizes), STANCE_A (-1 orthodox, 1 southpaw).
+ * Env: FPS (60), SIZE_A / SIZE_B (frame sizes), STANCE_A (-1 orthodox, 1 southpaw), SHIFT (both
+ * start that far along +x: 3.9 puts B by the ropes). fall: GETUP (force a GetupKind), KNEE (rest
+ * that long on one knee first, s).
  */
 import { Vector3 } from 'three';
 import { Match } from '../../src/sim/match';
@@ -43,8 +45,9 @@ const [A, B] = m.fighters;
 if (process.env.STANCE_A) A.stance = Number(process.env.STANCE_A);
 B.stance = -1;
 const dist = Number(scenario === 'strike' ? args[1] ?? 1.0 : scenario === 'catch' ? args[3] ?? 1.0 : scenario === 'takedown' ? 0.62 : 1.4) * (A.size + B.size) * 0.5;
-A.place(new Vector3(-dist / 2, 0, 0), Math.PI / 2);
-B.place(new Vector3(dist / 2, 0, 0), -Math.PI / 2);
+const shift = Number(process.env.SHIFT ?? 0);
+A.place(new Vector3(shift - dist / 2, 0, 0), Math.PI / 2);
+B.place(new Vector3(shift + dist / 2, 0, 0), -Math.PI / 2);
 for (const f of m.fighters) {
   f.intentVel.set(0, 0, 0);
   f.guardMode = 'normal';
@@ -89,6 +92,8 @@ function rec(steps: number) {
             stance: f.stance,
             size: f.size,
             tone: r(f.body.tone),
+            canvas: f.onCanvas ? 1 : 0,
+            gk: r(f.getupProgress),
             flow: '',
             plan: '',
             intent: [r(f.intentVel.x), r(f.intentVel.z)],
@@ -151,9 +156,20 @@ if (scenario === 'strike') {
   const dir = new Vector3(DMsin(y) * z - DMcos(y) * x, 0, DMcos(y) * z + DMsin(y) * x).normalize();
   const ko = args[2] === 'ko';
   if (ko) B.hp = 0;
+  if (process.env.GETUP) {
+    const kind = Number(process.env.GETUP);
+    (B as unknown as { pickGetup: () => number }).pickGetup = () => kind;
+  }
   B.knockDown(dir, Number(args[3] ?? 2.8));
   if (ko) B.fence();
   else B.breakFall(dir);
+  if (process.env.KNEE) {
+    // counted, and it rests on its knee until the count's rise
+    const bb = B as unknown as { kneePlan: number; downTime: number; tries: unknown[] };
+    bb.kneePlan = Number(process.env.KNEE);
+    bb.downTime = 2.2 + bb.kneePlan;
+    bb.tries.length = 0;
+  }
   rec(Math.round(Number(process.env.SECS ?? 3.5) * 120));
 } else if (scenario === 'catch') {
   const id = (args[0] ?? 'roundhouse') as MoveId;

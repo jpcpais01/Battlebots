@@ -494,7 +494,7 @@ class Showman extends RefCounted:
 		elif (kind == "taunt"):
 			if (((((m.phase != "fight") or (me.state != "fight")) or (me.action != null)) or (opp.state == "fight")) or (opp.state == "ko")):
 				cancel(0.14)
-			elif (((opp.state == "getup") and (not (opp.getupFail != 0.0))) and (opp.stateTime > (opp.getupDur * 0.4))):
+			elif ((((opp.state == "getup") and (not (opp.getupFail != 0.0))) and (not opp.onCanvas)) and (opp.getupProgress > 0.4)):
 				cancel(0.3)
 		elif (((((((m.phase == "fight") and (not tauntedThisCount)) and (not (m.grapple != null))) and (opp.state == "down")) and (me.state == "fight")) and (not (me.action != null))) and ((m.time - downAt) > 0.45)):
 			self.tauntedThisCount = true

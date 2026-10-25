@@ -17,6 +17,15 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-25 02:00",
+	"title": "Back on their feet",
+	"notes": [
+	"Robots get up off the canvas in new ways: a quick technical stand-up that keeps the gloves up and the eyes on you, and a kip-up from nimble bots with energy left.",
+	"A hurt robot now takes a knee during the count, breathing hard with a glove on the canvas, then looks up and pushes itself up off its thigh as the referee reaches its number.",
+	"Knocked down by the ropes, a robot reaches up and hauls itself back to its feet on them."
+]
+},
+	{
 	"hour": "2026-10-25 01:00",
 	"title": "Armour meets armour",
 	"notes": [
