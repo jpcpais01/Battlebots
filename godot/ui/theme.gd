@@ -225,6 +225,22 @@ static func theme() -> Theme:
 	for c in [&"font_color", &"font_hover_color", &"font_pressed_color", &"font_hover_pressed_color", &"font_focus_color"]:
 		t.set_color(c, &"SegOn", INK)
 
+	# the Sound column's volume bars: a faint rounded groove, filled white up to a white knob
+	var groove := _box(Color(1, 1, 1, 0.1), 99)
+	groove.content_margin_top = 3
+	groove.content_margin_bottom = 3
+	t.set_stylebox(&"slider", &"HSlider", groove)
+	var fill := _box(Color(1, 1, 1, 0.92), 99)
+	fill.content_margin_top = 3
+	fill.content_margin_bottom = 3
+	t.set_stylebox(&"grabber_area", &"HSlider", fill)
+	t.set_stylebox(&"grabber_area_highlight", &"HSlider", fill)
+	t.set_icon(&"grabber", &"HSlider", _knob(22, Color.WHITE))
+	t.set_icon(&"grabber_highlight", &"HSlider", _knob(22, Color.WHITE))
+	t.set_icon(&"grabber_disabled", &"HSlider", _knob(22, MUTED))
+	t.set_constant(&"center_grabber", &"HSlider", 0)
+	t.set_constant(&"grabber_offset", &"HSlider", 0)
+
 	# .modal .box: a solid card, rounded 24, a hairline, a deep shadow
 	var card := _box(PANEL_2, 24, LINE, 1)
 	card.shadow_color = Color(0, 0, 0, 0.55)
@@ -252,6 +268,21 @@ static func theme() -> Theme:
 	_label_type(t, &"SetSub", 13, 500, MUTED)
 	_theme = t
 	return t
+
+
+## A round slider knob `px` across, antialiased, with a soft dark rim so it reads on the white fill.
+static func _knob(px: int, c: Color) -> Texture2D:
+	var img := Image.create(px, px, false, Image.FORMAT_RGBA8)
+	var r := px * 0.5
+	for y in px:
+		for x in px:
+			var d := Vector2(x + 0.5 - r, y + 0.5 - r).length()
+			# the face to r - 2, a 2-unit darker rim fading out at the edge
+			var face := clampf(r - 2.0 - d + 0.5, 0.0, 1.0)
+			var edge := clampf(r - d + 0.5, 0.0, 1.0)
+			var rim := Color(0, 0, 0, 0.35 * edge)
+			img.set_pixel(x, y, rim.blend(Color(c, c.a * face)))
+	return ImageTexture.create_from_image(img)
 
 
 static func _label_type(t: Theme, type: StringName, size: int, weight: int, color: Color, spacing := 0) -> void:

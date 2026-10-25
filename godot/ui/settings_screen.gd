@@ -1,6 +1,7 @@
 ## The Settings card (src/ui/app.ts settings(), style.css .box.settings, .set-grid, .set-col,
-## .set-row, .seg.fit): a heading with a close button over two columns, Game and Graphics, each a
-## list of rows with what the setting is on the left and its choices on the right. Every row
+## .set-row, .seg.fit): a heading with a close button over the columns, Sound, Graphics and Game,
+## each a list of rows with what the setting is on the left and its choices (or a volume bar)
+## on the right. Every row
 ## re-reads the live state after any change, so the lit choice and the labels ("Auto, now 0.8x")
 ## always say what is really in force.
 class_name SettingsScreen
@@ -20,6 +21,7 @@ var settings: Settings
 var blip: Callable = func(_kind: String) -> void: pass
 
 var _rows: Array[SegRow] = []
+var _bars: Array[VolRow] = []
 ## Under Graphics while a ray tracing pick waits for the renderer to change at the next start.
 var _restart: Control
 var _grid := GridContainer.new()
@@ -59,10 +61,15 @@ func _init(s: Settings) -> void:
 
 
 func _build() -> void:
-	# Game feel: sound, commentary, camera, stats
-	var game := _col("Game")
-	for k in ["sound", "commentary", "zoom", "replays", "perf"]:
-		_row(game, k)
+	# Sound: on/off, then a bar for each part of the mix
+	var snd := _col("Sound")
+	_row(snd, "sound")
+	for k in VOLUME_ROWS:
+		var r := VolRow.new(VOLUME_ROWS[k], settings.volume.bind(k), _set_volume.bind(k))
+		r.name = k
+		r.released.connect(func() -> void: blip.call("tap"))
+		snd.add_child(r)
+		_bars.append(r)
 	# Graphics: quality, resolution, frame rate, ray tracing
 	var gfx := _col("Graphics")
 	for k in ["quality", "resolution", "fps", "rt"]:
@@ -80,6 +87,29 @@ func _build() -> void:
 	_restart.add_child(b)
 	gfx.add_child(_restart)
 	_restart.visible = settings.rt_note() == "restart"
+	# Game feel: camera, replays, stats
+	var game := _col("Game")
+	for k in ["zoom", "replays", "perf"]:
+		_row(game, k)
+
+
+## The volume bars: key -> label.
+const VOLUME_ROWS := {"master": "Master", "effects": "Effects", "music": "Music", "crowd": "Crowd", "commentary": "Commentary"}
+
+
+func _set_volume(v: float, k: String) -> void:
+	if k == "commentary":
+		settings.set_commentary(v)
+	else:
+		settings.set_volume(k, v)
+
+
+## The volume bar for "master", "effects", "music", "crowd" or "commentary".
+func bar(k: String) -> VolRow:
+	for r in _bars:
+		if r.name == k:
+			return r
+	return null
 
 
 ## A row's label: [what it is, its quieter second line or ""].
@@ -88,8 +118,6 @@ func _label_for(k: String) -> Array:
 	match k:
 		"sound":
 			return ["Sound", ""]
-		"commentary":
-			return ["Commentary", ""]
 		"zoom":
 			return ["Camera zoom", ""]
 		"replays":
@@ -136,9 +164,6 @@ func _opts_for(k: String) -> Array:
 	match k:
 		"sound":
 			out = [["On", s.sound, s.set_sound.bind(true)], ["Off", not s.sound, s.set_sound.bind(false)]]
-		"commentary":
-			for o in [["On", 1.0], ["Quiet", 0.5], ["Off", 0.0]]:
-				out.append([o[0], is_equal_approx(s.commentary, o[1]), s.set_commentary.bind(o[1])])
 		"zoom":
 			for z: String in Settings.ZOOMS:
 				out.append([z.capitalize(), s.zoom == z, s.set_zoom.bind(z)])
@@ -222,8 +247,8 @@ func _row(parent: VBoxContainer, k: String) -> void:
 	_rows.append(r)
 
 
-## The row for a setting ("sound", "commentary", "zoom", "perf", "quality", "resolution", "fps",
-## "rt", "window").
+## The row for a setting ("sound", "zoom", "perf", "quality", "resolution", "fps", "rt",
+## "window").
 func row(k: String) -> SegRow:
 	for r in _rows:
 		if r.name == k:
@@ -234,6 +259,8 @@ func row(k: String) -> SegRow:
 ## Re-read every row (after any change: one pick can move another row's label).
 func refresh() -> void:
 	for r in _rows:
+		r.sync()
+	for r in _bars:
 		r.sync()
 	if _restart != null:
 		_restart.visible = settings.rt_note() == "restart"
@@ -370,4 +397,100 @@ class SegRow extends Container:
 		elif what == NOTIFICATION_RESIZED:
 			update_minimum_size()
 		elif what == NOTIFICATION_DRAW and not _first:
+			draw_line(Vector2(0, 0.5), Vector2(size.x, 0.5), UiTheme.LINE, 1.0)
+
+
+## One volume: its name on the left, a bar and its percentage on the right, laid out like a SegRow
+## (dropping under the name when both don't fit). The bar answers a tap or a drag anywhere along
+## it, with a finger or a mouse; the wheel is left to scroll the card.
+class VolRow extends Container:
+	## The bar was let go (or tapped): time for the menu blip, which also lets the player hear
+	## the new level.
+	signal released
+
+	const PAD := 7.0
+	const GAP_X := 13.0
+	const GAP_Y := 6.0
+	const BAR_H := 42.0
+	const BAR_W := 168.0
+	const PCT_W := 44.0
+	## The names' column, so every bar starts at the same place ("Commentary" fits).
+	const LABEL_W := 100.0
+
+	var _get: Callable
+	var _set: Callable
+	var _main := Label.new()
+	var _right := HBoxContainer.new()
+	var _pct := Label.new()
+	var slider := HSlider.new()
+
+	func _init(label: String, getter: Callable, setter: Callable) -> void:
+		_get = getter
+		_set = setter
+		size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_main.theme_type_variation = &"SetLabel"
+		_main.text = label
+		_main.custom_minimum_size.x = LABEL_W
+		add_child(_main)
+		_right.add_theme_constant_override(&"separation", 8)
+		slider.min_value = 0.0
+		slider.max_value = 1.0
+		slider.step = 0.01
+		slider.custom_minimum_size = Vector2(BAR_W, BAR_H)
+		slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		slider.scrollable = false
+		slider.focus_mode = Control.FOCUS_NONE
+		slider.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		slider.value_changed.connect(func(v: float) -> void:
+			_pct.text = _percent(v)
+			_set.call(v))
+		slider.drag_ended.connect(func(_changed: bool) -> void: released.emit())
+		_right.add_child(slider)
+		_pct.theme_type_variation = &"SetSub"
+		_pct.custom_minimum_size.x = PCT_W
+		_pct.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		_pct.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		_right.add_child(_pct)
+		add_child(_right)
+		sync()
+
+	## Re-read the level (without saying it changed).
+	func sync() -> void:
+		var v: float = _get.call()
+		slider.set_value_no_signal(v)
+		_pct.text = _percent(v)
+
+	static func _percent(v: float) -> String:
+		return "Off" if v <= 0.0 else "%d%%" % roundi(v * 100.0)
+
+	func title() -> String:
+		return _main.text
+
+	func _one_line(w: float) -> bool:
+		return _main.get_combined_minimum_size().x + GAP_X + _right.get_combined_minimum_size().x <= w
+
+	func _get_minimum_size() -> Vector2:
+		var a := _main.get_combined_minimum_size()
+		var b := _right.get_combined_minimum_size()
+		if size.x <= 0.0 or _one_line(size.x):
+			return Vector2(a.x + GAP_X + b.x, maxf(a.y, b.y) + PAD * 2.0)
+		return Vector2(maxf(a.x, b.x), a.y + GAP_Y + b.y + PAD * 2.0)
+
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_SORT_CHILDREN:
+			var a := _main.get_combined_minimum_size()
+			var b := _right.get_combined_minimum_size()
+			if _one_line(size.x):
+				var h := maxf(a.y, b.y)
+				# (the bar takes the room the name leaves, from its own minimum up)
+				var w := size.x - a.x - GAP_X
+				fit_child_in_rect(_main, Rect2(0, PAD + (h - a.y) * 0.5, a.x, a.y))
+				fit_child_in_rect(_right, Rect2(size.x - w, PAD + (h - b.y) * 0.5, w, b.y))
+			else:
+				fit_child_in_rect(_main, Rect2(0, PAD, a.x, a.y))
+				fit_child_in_rect(_right, Rect2(0, PAD + a.y + GAP_Y, size.x, b.y))
+		elif what == NOTIFICATION_RESIZED:
+			update_minimum_size()
+		elif what == NOTIFICATION_DRAW:
 			draw_line(Vector2(0, 0.5), Vector2(size.x, 0.5), UiTheme.LINE, 1.0)

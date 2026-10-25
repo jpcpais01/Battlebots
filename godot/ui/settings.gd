@@ -4,7 +4,9 @@
 ## src/render/pacer.ts, src/game/director.ts and src/ui/perfOverlay.ts) and its resolution
 ## governor (src/render/governor.ts, driven as src/render/stage.ts govern does).
 ##
-## Game: sound, commentary level, camera zoom, the FPS counter.
+## Sound: on/off, and a volume for the whole mix, the effects, the music, the crowd and the
+## commentary (each a bus in default_bus_layout.tres; commentary at 0 also stops the booth).
+## Game: camera zoom, KO replays, the FPS counter.
 ## Graphics: a quality tier (Auto picks one for the device), the 3D resolution (Auto holds the
 ## frame rate by moving it, between camera cuts), the frame-rate cap and ray tracing (the web's
 ## bb.rt: Off, Light on the phone's usual renderer, Heavy on Forward+ after a restart).
@@ -21,8 +23,8 @@ extends Node
 signal changed
 
 const PATH := "user://settings.cfg"
-## Commentary levels (sfx.ts setCommentary: 1 on, 0.5 quiet, 0 off).
-const COMMENTARY := [1.0, 0.5, 0.0]
+## The volume sliders and the bus each one turns (commentary is the Voice bus, through Voice).
+const VOLUMES := {"master": &"Master", "effects": &"Fx", "music": &"Music", "crowd": &"Crowd"}
 const ZOOMS := ["close", "normal", "wide"]
 const QUALITIES := ["low", "med", "high"]
 ## Fixed resolutions offered (0 = Auto), as a share of the screen's own pixels.
@@ -77,7 +79,10 @@ static var path := PATH
 static var renderer_path := RENDERER_PATH
 
 var sound := true
+## The commentary's volume, 0..1 like the sliders (0: the booth stays quiet).
 var commentary := 1.0
+## Each slider's position, 0..1 (VOLUMES' keys).
+var volumes := {"master": 1.0, "effects": 1.0, "music": 1.0, "crowd": 1.0}
 var zoom := "normal"
 ## The performance overlay (the web's Performance stats). Off by default: it's a tool for
 ## looking into the game's cost, and it costs something itself.
@@ -145,7 +150,9 @@ func load_and_apply() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(path) == OK:
 		sound = bool(cfg.get_value("game", "sound", sound))
-		commentary = _pick(float(cfg.get_value("game", "commentary", commentary)), COMMENTARY, 1.0)
+		commentary = _unit(cfg.get_value("game", "commentary", commentary), 1.0)
+		for k: String in VOLUMES:
+			volumes[k] = _unit(cfg.get_value("audio", k, 1.0), 1.0)
 		zoom = str(cfg.get_value("game", "zoom", zoom))
 		if not ZOOMS.has(zoom):
 			zoom = "normal"
@@ -173,13 +180,29 @@ static func _pick(v: float, choices: Array, fallback: float) -> float:
 	return fallback
 
 
+## A saved slider position: a number, held to 0..1.
+static func _unit(v: Variant, fallback: float) -> float:
+	if not (v is float or v is int):
+		return fallback
+	return clampf(float(v), 0.0, 1.0)
+
+
+## A slider's position as a gain: squared, so the bar's middle sounds like half as loud and the
+## low end still has room to fine-tune (a straight line crams all the audible change into its top).
+static func gain(v: float) -> float:
+	return v * v
+
+
 func save() -> void:
+	_save_due = false
 	var cfg := ConfigFile.new()
 	cfg.set_value("game", "sound", sound)
 	cfg.set_value("game", "commentary", commentary)
 	cfg.set_value("game", "zoom", zoom)
 	cfg.set_value("game", "perf_stats", perf_stats)
 	cfg.set_value("game", "ko_replay", ko_replay)
+	for k: String in VOLUMES:
+		cfg.set_value("audio", k, volumes[k])
 	cfg.set_value("graphics", "quality", quality if quality != "" else "auto")
 	cfg.set_value("graphics", "resolution", resolution)
 	cfg.set_value("graphics", "fps", fps_cap)
@@ -192,6 +215,8 @@ func save() -> void:
 
 func apply_all() -> void:
 	_apply_sound()
+	for k: String in VOLUMES:
+		_apply_volume(k)
 	_apply_commentary()
 	_apply_zoom()
 	_apply_perf()
@@ -241,10 +266,26 @@ func set_sound(on: bool) -> void:
 	_changed()
 
 
+## 0..1. A slider being dragged calls this on every step: it takes effect at once, and the file
+## is written once the bar has rested a moment (not sixty times a second).
 func set_commentary(v: float) -> void:
-	commentary = v
+	commentary = clampf(v, 0.0, 1.0)
 	_apply_commentary()
-	_changed()
+	_changed_soon()
+
+
+## A volume slider (VOLUMES' keys), 0..1. Saved like set_commentary.
+func set_volume(k: String, v: float) -> void:
+	if not VOLUMES.has(k):
+		return
+	volumes[k] = clampf(v, 0.0, 1.0)
+	_apply_volume(k)
+	_changed_soon()
+
+
+## A slider's position by its key ("master", "effects", "music", "crowd", "commentary").
+func volume(k: String) -> float:
+	return commentary if k == "commentary" else float(volumes.get(k, 1.0))
 
 
 func set_zoom(z: String) -> void:
@@ -312,6 +353,29 @@ func _changed() -> void:
 	changed.emit()
 
 
+var _save_due := false
+
+
+func _changed_soon() -> void:
+	changed.emit()
+	if _save_due:
+		return
+	_save_due = true
+	if not is_inside_tree():
+		save()
+		return
+	get_tree().create_timer(0.4, true).timeout.connect(func() -> void:
+		if _save_due:
+			save())
+
+
+func _notification(what: int) -> void:
+	# (the app going away mid-drag still keeps the last position)
+	if what == NOTIFICATION_PREDELETE or what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_PAUSED:
+		if _save_due:
+			save()
+
+
 # ------------------------------------------------------------------ applying
 func _ready() -> void:
 	if has_window():
@@ -359,7 +423,19 @@ func _apply_commentary() -> void:
 	if booth != null:
 		booth.enabled = commentary > 0.0
 	if voice != null:
-		voice.set_level(commentary)
+		voice.set_level(gain(commentary))
+	else:
+		_set_bus(&"Voice", gain(commentary))
+
+
+func _apply_volume(k: String) -> void:
+	_set_bus(VOLUMES[k], gain(volumes[k]))
+
+
+static func _set_bus(bus: StringName, g: float) -> void:
+	var i := AudioServer.get_bus_index(bus)
+	if i >= 0:
+		AudioServer.set_bus_volume_db(i, linear_to_db(maxf(g, 0.0001)))
 
 
 func _apply_zoom() -> void:

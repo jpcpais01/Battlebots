@@ -18,6 +18,13 @@ static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
 	"hour": "2026-10-25 00:00",
+	"title": "Volume bars",
+	"notes": [
+	"Settings has a new Sound column with volume bars for Master, Effects, Music, Crowd and Commentary, kept between launches. Drag them with a finger or the mouse."
+]
+},
+	{
+	"hour": "2026-10-25 00:00",
 	"title": "Hip tosses and clinch elbows",
 	"notes": [
 	"On Windows the game opens full screen. F11 or Alt+Enter switches between full screen and a window, and so does Settings > Graphics > Display.",
