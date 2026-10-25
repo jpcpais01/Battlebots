@@ -86,6 +86,8 @@ for (let i = 0; i < N; i++) {
     if (type === 'takedown') tally(`takedown(${d.kind})`);
     if (type === 'takedownStuffed') tally(`stuffed(${d.kind})`);
     if (type === 'sprawl') tally('sprawl');
+    if (type === 'counterOut') tally(`counter out of ${d.d.type}`);
+    if (type === 'hit' && d.outOf && !d.blocked) tally(`counter out of ${d.outOf} landed`);
     if (type === 'kickCatch') tally('kick caught');
     if (type === 'kickFree') tally('caught kick freed');
     if (type === 'knockdown' && d.move.path === 'push') tally('shoved down');

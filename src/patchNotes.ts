@@ -16,6 +16,15 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-25 08:00",
+    title: "Counterpunching",
+    notes: [
+      "Robots now fire back straight out of their defence: slip a punch and the right hand is already coming, weave under a hook and come up throwing a hook of your own, pull back from a cross and land the straight right over the top as they come on.",
+      "New defence, the shoulder roll: crafty robots turn the lead shoulder up across the chin so a punch skids off it, then roll the shoulders back into a counter. Look for ROLLED over the fight.",
+      "A counter thrown out of a dodge goes out quicker and hits a little harder, and the bot's whole body unwinds out of the slip or the roll into it. Look for SLIP & COUNTER, WEAVE & COUNTER, PULL COUNTER and ROLL & COUNTER.",
+    ],
+  },
+  {
     hour: "2026-10-25 06:00",
     title: "Titans, rebuilt",
     notes: [

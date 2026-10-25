@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { Fighter, makeObservation, rangeScale, type DodgeType, type GuardMode, type Observation, type StrikeAction } from './fighter';
+import { COUNTER_DODGES, Fighter, makeObservation, rangeScale, strikeId, type DodgeAction, type DodgeType, type GuardMode, type Observation, type StrikeAction } from './fighter';
 import { BASIC_PUNCHES, MOVES, type MoveDef, type MoveId, type Zone } from './moves';
 import { clamp, clamp01, lerp, Rng, smoothstep, sigmoid, softmaxPick, wrapAngle } from './math';
 import { J, ropeGap } from './body';
@@ -19,25 +19,28 @@ import { grappleStrength, type Grapple, type Tie } from './grapple';
  */
 
 type PlanKind = 'pressure' | 'outbox' | 'counter' | 'circle' | 'retreat' | 'swarm' | 'wait';
-type Response = 'block' | 'slip' | 'duck' | 'sway' | 'backstep' | 'sidestep' | 'counter' | 'absorb' | 'sprawl';
+type Response = 'block' | 'slip' | 'duck' | 'sway' | 'backstep' | 'sidestep' | 'counter' | 'absorb' | 'sprawl' | 'roll';
 type AttackClass = 'straight' | 'hook' | 'upper' | 'overhead' | 'kickHigh' | 'kickMid' | 'kickLow' | 'lunge' | 'shoot' | 'tie';
 
-const RESPONSES: Response[] = ['block', 'slip', 'duck', 'sway', 'backstep', 'sidestep', 'counter', 'absorb', 'sprawl'];
+const RESPONSES: Response[] = ['block', 'slip', 'duck', 'sway', 'backstep', 'sidestep', 'counter', 'absorb', 'sprawl', 'roll'];
 
-/** Priors: how well a response tends to work against a class of attack. */
+/**
+ * Priors: how well a response tends to work against a class of attack. (roll: the shoulder roll,
+ * for punches at the head, a straight or an overhand best.)
+ */
 const PRIOR: Record<AttackClass, Partial<Record<Response, number>>> = {
-  straight: { block: 0.55, slip: 0.6, duck: 0.35, sway: 0.45, backstep: 0.45, sidestep: 0.3, counter: 0.45, absorb: 0.1 },
-  hook: { block: 0.5, slip: 0.15, duck: 0.65, sway: 0.4, backstep: 0.5, sidestep: 0.2, counter: 0.4, absorb: 0.1 },
-  upper: { block: 0.45, slip: 0.35, duck: 0.05, sway: 0.55, backstep: 0.55, sidestep: 0.3, counter: 0.3, absorb: 0.1 },
-  overhead: { block: 0.3, slip: 0.5, duck: 0.4, sway: 0.4, backstep: 0.6, sidestep: 0.55, counter: 0.5, absorb: 0.05 },
-  kickHigh: { block: 0.45, slip: 0.1, duck: 0.65, sway: 0.4, backstep: 0.55, sidestep: 0.2, counter: 0.25, absorb: 0.05 },
-  kickMid: { block: 0.4, slip: 0.1, duck: 0.05, sway: 0.15, backstep: 0.6, sidestep: 0.55, counter: 0.2, absorb: 0.1 },
-  kickLow: { block: 0.5, slip: 0.05, duck: 0.0, sway: 0.1, backstep: 0.7, sidestep: 0.45, counter: 0.3, absorb: 0.15 },
-  lunge: { block: 0.4, slip: 0.25, duck: 0.3, sway: 0.2, backstep: 0.35, sidestep: 0.65, counter: 0.35, absorb: 0.05 },
+  straight: { block: 0.55, slip: 0.6, duck: 0.35, sway: 0.45, backstep: 0.45, sidestep: 0.3, counter: 0.45, absorb: 0.1, roll: 0.5 },
+  hook: { block: 0.5, slip: 0.15, duck: 0.65, sway: 0.4, backstep: 0.5, sidestep: 0.2, counter: 0.4, absorb: 0.1, roll: 0.2 },
+  upper: { block: 0.45, slip: 0.35, duck: 0.05, sway: 0.55, backstep: 0.55, sidestep: 0.3, counter: 0.3, absorb: 0.1, roll: 0 },
+  overhead: { block: 0.3, slip: 0.5, duck: 0.4, sway: 0.4, backstep: 0.6, sidestep: 0.55, counter: 0.5, absorb: 0.05, roll: 0.4 },
+  kickHigh: { block: 0.45, slip: 0.1, duck: 0.65, sway: 0.4, backstep: 0.55, sidestep: 0.2, counter: 0.25, absorb: 0.05, roll: 0 },
+  kickMid: { block: 0.4, slip: 0.1, duck: 0.05, sway: 0.15, backstep: 0.6, sidestep: 0.55, counter: 0.2, absorb: 0.1, roll: 0 },
+  kickLow: { block: 0.5, slip: 0.05, duck: 0.0, sway: 0.1, backstep: 0.7, sidestep: 0.45, counter: 0.3, absorb: 0.15, roll: 0 },
+  lunge: { block: 0.4, slip: 0.25, duck: 0.3, sway: 0.2, backstep: 0.35, sidestep: 0.65, counter: 0.35, absorb: 0.05, roll: 0.1 },
   // a shot at the legs: sprawl on it, step off it, or knee it in the face
-  shoot: { block: 0.05, slip: 0.05, duck: 0, sway: 0.05, backstep: 0.5, sidestep: 0.5, counter: 0.4, absorb: 0.05, sprawl: 0.85 },
+  shoot: { block: 0.05, slip: 0.05, duck: 0, sway: 0.05, backstep: 0.5, sidestep: 0.5, counter: 0.4, absorb: 0.05, sprawl: 0.85, roll: 0 },
   // reaching to tie up: get out of there, punch them on the way in, or let them have the clinch
-  tie: { block: 0.1, slip: 0.35, duck: 0.25, sway: 0.3, backstep: 0.55, sidestep: 0.45, counter: 0.45, absorb: 0.25 },
+  tie: { block: 0.1, slip: 0.35, duck: 0.25, sway: 0.3, backstep: 0.55, sidestep: 0.45, counter: 0.45, absorb: 0.25, roll: 0 },
 };
 
 const PERCEPTION_BUFFER = 120; // 1s at 120Hz
@@ -149,6 +152,11 @@ export class Brain {
   /** mine: the strike I was already throwing when I chose this (0 if none). */
   private pending: { at: number; resp: Response; uid: number; cls: AttackClass; zone: Zone; dir: number; mine: number; move: MoveId } | null = null;
   private activeResp: { resp: Response; uid: number; cls: AttackClass } | null = null;
+  /**
+   * A counter to throw straight out of the dodge under way (Fighter.counterOut): for their strike
+   * uid, out of my dodge dodge, once it is `at` of the way through and their shot has gone by.
+   */
+  private dodgeCounter: { uid: number; dodge: number; at: number } | null = null;
   private guardHoldUntil = 0;
   private holdGuard: GuardMode = 'normal';
   private punishUntil = 0;
@@ -534,6 +542,7 @@ export class Brain {
 
     this.watchForAttacks();
     if (this.pending && time >= this.pending.at) this.executeResponse();
+    this.updateDodgeCounter();
 
     if (me.state !== 'fight') {
       // rocked or stunned: instinctively cover up
@@ -880,7 +889,7 @@ export class Brain {
       const inRange = d < Math.max(this.oppAttackRange.v, 1.1) + 0.15;
       if (inRange && !me.strike && me.staminaRatio > 0.3 && this.rng.chance(t.headMovement * 0.28)) {
         const k = this.rng.next();
-        const kind: DodgeType = k < 0.45 ? 'slip' : k < 0.75 ? 'duck' : 'sway';
+        const kind: DodgeType = k < 0.42 ? 'slip' : k < 0.7 ? 'duck' : k < 0.9 || t.skill < 0.45 ? 'sway' : 'roll';
         me.tryDodge(kind, this.rng.sign());
       }
     }
@@ -1729,6 +1738,7 @@ export class Brain {
       counter: (MOVES.jab.windup + MOVES.jab.active * 0.5) / me.speedMult(),
       absorb: 0,
       sprawl: 0.12 / agility,
+      roll: 0.07 / agility,
     };
     const utils: number[] = [];
     const agg = this.effAggression();
@@ -1746,6 +1756,11 @@ export class Brain {
     for (const r of RESPONSES) {
       // only a shot is worth sprawling on
       if (r === 'sprawl' && (cls !== 'shoot' || me.legLost >= 0)) {
+        utils.push(-99);
+        continue;
+      }
+      // and only a punch at the head is worth rolling with
+      if (r === 'roll' && (zone !== 'head' || move.kind !== 'punch')) {
         utils.push(-99);
         continue;
       }
@@ -1773,6 +1788,8 @@ export class Brain {
       // style: some roll with punches, some move their feet, some shell up
       const t = this.traits;
       if (r === 'slip' || r === 'duck' || r === 'sway') v *= 0.8 + t.headMovement * 0.6;
+      // the shoulder roll is a craftsman's defence: slick, patient counter-punchers live on it
+      if (r === 'roll') v *= 0.45 + t.headMovement * 0.4 + t.skill * 0.5 + (t.counterBias - 1) * 0.6;
       if (r === 'backstep' || r === 'sidestep') v *= 0.8 + t.footwork * 0.5;
       // wrestlers sprawl, and let a clinch come
       if (r === 'sprawl') v *= 0.7 + t.grappling * 0.6 + t.skill * 0.2;
@@ -1828,10 +1845,13 @@ export class Brain {
       case 'slip':
       case 'duck':
       case 'sway':
+      case 'roll':
       case 'backstep':
       case 'sidestep': {
         const dir = pr.resp === 'sidestep' ? this.circleDir : pr.dir;
-        if (!me.tryDodge(pr.resp as DodgeType, dir)) {
+        if (me.tryDodge(pr.resp as DodgeType, dir)) {
+          if (COUNTER_DODGES.indexOf(pr.resp as DodgeType) >= 0) this.planDodgeCounter(pr.resp, pr.uid);
+        } else {
           // couldn't move: cover up instead
           this.holdGuard = guardFor(pr.zone);
           this.guardHoldUntil = this.time + 0.4;
@@ -1858,6 +1878,79 @@ export class Brain {
       case 'absorb':
         break;
     }
+  }
+
+  /**
+   * Out of a slip, a weave, a sway or a roll, throw back off it: a counter-puncher mostly does, a
+   * brawler now and then. It goes once their shot has gone by (updateDodgeCounter).
+   */
+  private planDodgeCounter(resp: Response, uid: number) {
+    const me = this.me;
+    const t = this.traits;
+    const d = me.dodge;
+    if (!d || me.staminaRatio < 0.12) return;
+    let p = 0.22 + t.skill * 0.3 + this.effAggression() * 0.15 + (t.counterBias - 1) * 0.35 + this.anger * 0.1 + (this.plan === 'counter' ? 0.15 : 0);
+    // the roll is there to throw back off
+    if (resp === 'roll') p += 0.3;
+    p *= this.fx.trade;
+    if (!this.rng.chance(clamp(p, 0.03, 0.85))) return;
+    // a weave has to come up out from under it first
+    const at = resp === 'duck' ? this.rng.range(0.42, 0.55) : this.rng.range(0.3, 0.42);
+    this.dodgeCounter = { uid, dodge: d.uid, at };
+  }
+
+  private updateDodgeCounter() {
+    const dc = this.dodgeCounter;
+    if (!dc) return;
+    const me = this.me;
+    const d = me.dodge;
+    if (!d || d.uid !== dc.dodge || me.state !== 'fight') {
+      this.dodgeCounter = null;
+      return;
+    }
+    if (d.t / d.dur < dc.at) return;
+    // not while their shot is still on its way in
+    const os = this.opp.strike;
+    if (os && strikeId(os) === dc.uid && !os.hasHit && os.phase !== 'recovery') return;
+    this.dodgeCounter = null;
+    const pick = this.counterPunch(d);
+    if (!pick) return;
+    const aim = this.zoneAim(pick.zone, this.perceived, new Vector3(), MOVES[pick.id]);
+    if (!me.counterOut(pick.id, pick.zone, aim)) return;
+    this.beginBurst(this.rng.chance(0.3 + this.effAggression() * 0.35) ? 2 : 1);
+    this.returnFireUntil = this.time + 0.8;
+  }
+
+  /**
+   * The punch a dodge loads. The weight and the shoulders went over onto one side: the hand on
+   * that side goes. Slipped to the right, the right hand (a straight, or a hook or uppercut in
+   * close); weaved under, a hook from the side it came up on; pulled back out of range, the
+   * straight right over the top as they come on (the pull counter); off the shoulder roll, the
+   * straight right as the shoulders turn back, or the check hook.
+   */
+  private counterPunch(d: DodgeAction): { id: MoveId; zone: Zone } | null {
+    const me = this.me;
+    const rng = this.rng;
+    let side: 'L' | 'R' = me.rearSide;
+    if (d.type === 'slip') side = d.dir > 0 ? 'R' : 'L';
+    else if (d.type === 'duck') side = d.dir > 0 ? 'L' : 'R';
+    const rear = side === me.rearSide;
+    const u = rng.next();
+    let id: MoveId;
+    if (d.type === 'sway') id = 'cross';
+    else if (d.type === 'roll') id = u < 0.72 ? 'cross' : u < 0.88 ? 'leadHook' : 'rearUpper';
+    else if (d.type === 'duck') id = rear ? (u < 0.65 ? 'rearHook' : 'rearUpper') : u < 0.7 ? 'leadHook' : 'leadUpper';
+    else id = rear ? (u < 0.55 ? 'cross' : u < 0.8 ? 'rearHook' : 'rearUpper') : u < 0.6 ? 'leadHook' : u < 0.8 ? 'jab' : 'leadUpper';
+    // too far for a hook or an uppercut: a straight off the same hand
+    const dd = this.perceivedDist();
+    const reach = me.build.stats.reach;
+    const m = MOVES[id];
+    if (dd > m.range[1] + reach + m.lunge) id = rear ? 'cross' : 'jab';
+    const m2 = MOVES[id];
+    if (dd > m2.range[1] + reach + m2.lunge + 0.15) return null;
+    // a hook or an uppercut ripped to the body now and then (slip and rip)
+    const zone: Zone = m2.path !== 'straight' && rng.chance(0.3) && m2.zones.indexOf('body') >= 0 ? 'body' : 'head';
+    return { id, zone };
   }
 
   /**

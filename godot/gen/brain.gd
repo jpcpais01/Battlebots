@@ -39,6 +39,7 @@ class Brain extends RefCounted:
 	var lastSeenUid: float
 	var pending
 	var activeResp
+	var dodgeCounter
 	var guardHoldUntil: float
 	var holdGuard: String
 	var punishUntil: float
@@ -140,6 +141,7 @@ class Brain extends RefCounted:
 		self.lastSeenUid = 0.0
 		self.pending = null
 		self.activeResp = null
+		self.dodgeCounter = null
 		self.guardHoldUntil = 0.0
 		self.holdGuard = "normal"
 		self.punishUntil = 0.0
@@ -467,6 +469,7 @@ class Brain extends RefCounted:
 		watchForAttacks()
 		if ((pending != null) and (time >= pending.at)):
 			executeResponse()
+		updateDodgeCounter()
 		if (me.state != "fight"):
 			me.guardMode = "high"
 			var __v7: V3 = me.intentVel
@@ -752,7 +755,7 @@ class Brain extends RefCounted:
 			var inRange_2: bool = (d < (maxf(oppAttackRange.v, 1.1) + 0.15))
 			if (((inRange_2 and (not (me.strike != null))) and (me.staminaRatio > 0.3)) and rng.chance((t.headMovement * 0.28))):
 				var k: float = rng.next()
-				var kind: String = ("slip" if (k < 0.45) else ("duck" if (k < 0.75) else "sway"))
+				var kind: String = ("slip" if (k < 0.42) else ("duck" if (k < 0.7) else ("sway" if ((k < 0.9) or (t.skill < 0.45)) else "roll")))
 				me.tryDodge(kind, rng.sign_())
 	
 	func breakStandoff() -> void:
@@ -1511,7 +1514,8 @@ class Brain extends RefCounted:
 	"sidestep": (0.1 / agility),
 	"counter": (((_hMOVES.jab.windup + (_hMOVES.jab.active * 0.5))) / me.speedMult()),
 	"absorb": 0.0,
-	"sprawl": (0.12 / agility)
+	"sprawl": (0.12 / agility),
+	"roll": (0.07 / agility)
 }
 		var utils: Array = []
 		var agg: float = effAggression()
@@ -1523,6 +1527,9 @@ class Brain extends RefCounted:
 		var _hRESPONSES: Array = TBrain.RESPONSES
 		for r: String in _hRESPONSES:
 			if ((r == "sprawl") and ((cls != "shoot") or (me.legLost >= 0.0))):
+				utils.append(-99.0)
+				continue
+			if ((r == "roll") and ((zone != "head") or (move.kind != "punch"))):
 				utils.append(-99.0)
 				continue
 			var v: float = responseValue(cls, r)
@@ -1559,6 +1566,8 @@ class Brain extends RefCounted:
 			var t = traits
 			if (((r == "slip") or (r == "duck")) or (r == "sway")):
 				v *= (0.8 + (t.headMovement * 0.6))
+			if (r == "roll"):
+				v *= (((0.45 + (t.headMovement * 0.4)) + (t.skill * 0.5)) + (((t.counterBias - 1.0)) * 0.6))
 			if ((r == "backstep") or (r == "sidestep")):
 				v *= (0.8 + (t.footwork * 0.5))
 			if (r == "sprawl"):
@@ -1621,9 +1630,12 @@ class Brain extends RefCounted:
 			self.guardHoldUntil = (time + 0.45)
 			me.guardMode = holdGuard
 			coverFor(pr.move, pr.zone, pr.uid)
-		elif pr.resp == "slip" or pr.resp == "duck" or pr.resp == "sway" or pr.resp == "backstep" or pr.resp == "sidestep":
+		elif pr.resp == "slip" or pr.resp == "duck" or pr.resp == "sway" or pr.resp == "roll" or pr.resp == "backstep" or pr.resp == "sidestep":
 			var dir: float = (circleDir if (pr.resp == "sidestep") else pr.dir)
-			if (not me.tryDodge(pr.resp, dir)):
+			if me.tryDodge(pr.resp, dir):
+				if (JS.index_of(TFighter.COUNTER_DODGES, pr.resp) >= 0.0):
+					planDodgeCounter(pr.resp, pr.uid)
+			else:
 				self.holdGuard = guardFor.call(pr.zone)
 				self.guardHoldUntil = (time + 0.4)
 				activeResp.resp = "block"
@@ -1642,6 +1654,76 @@ class Brain extends RefCounted:
 				beginBurst((2.0 if rng.chance((0.35 + (effAggression() * 0.3))) else 1.0))
 		elif pr.resp == "absorb":
 			pass
+	
+	func planDodgeCounter(resp: String, uid: float) -> void:
+		var me: TFighter.Fighter = self.me
+		var t = traits
+		var d = me.dodge
+		if ((not (d != null)) or (me.staminaRatio < 0.12)):
+			return
+		var p: float = (((((0.22 + (t.skill * 0.3)) + (effAggression() * 0.15)) + (((t.counterBias - 1.0)) * 0.35)) + (anger * 0.1)) + ((0.15 if (plan == "counter") else 0.0)))
+		if (resp == "roll"):
+			p += 0.3
+		p *= fx.trade
+		if (not rng.chance((((0.03 if (p < 0.03) else (0.85 if (p > 0.85) else p)))))):
+			return
+		var at: float = (rng.range_(0.42, 0.55) if (resp == "duck") else rng.range_(0.3, 0.42))
+		self.dodgeCounter = {"uid": uid, "dodge": d.uid, "at": at}
+	
+	func updateDodgeCounter() -> void:
+		var dc = dodgeCounter
+		if (not (dc != null)):
+			return
+		var me: TFighter.Fighter = self.me
+		var d = me.dodge
+		if (((not (d != null)) or (d.uid != dc.dodge)) or (me.state != "fight")):
+			self.dodgeCounter = null
+			return
+		if ((d.t / d.dur) < dc.at):
+			return
+		var os = opp.strike
+		if ((((os != null) and (TFighter.strikeId(os) == dc.uid)) and (not os.hasHit)) and (os.phase != "recovery")):
+			return
+		self.dodgeCounter = null
+		var pick = counterPunch(d)
+		if (not (pick != null)):
+			return
+		var aim: V3 = zoneAim(pick.zone, perceived, V3.new(), TMoves.MOVES[pick.id])
+		if (not me.counterOut(pick.id, pick.zone, aim)):
+			return
+		beginBurst((2.0 if rng.chance((0.3 + (effAggression() * 0.35))) else 1.0))
+		self.returnFireUntil = (time + 0.8)
+	
+	func counterPunch(d):
+		var me: TFighter.Fighter = self.me
+		var rng: TMath.Rng = self.rng
+		var side: String = me.rearSide
+		if (d.type == "slip"):
+			side = ("R" if (d.dir > 0.0) else "L")
+		elif (d.type == "duck"):
+			side = ("L" if (d.dir > 0.0) else "R")
+		var rear: bool = (side == me.rearSide)
+		var u: float = rng.next()
+		var id: String
+		if (d.type == "sway"):
+			id = "cross"
+		elif (d.type == "roll"):
+			id = ("cross" if (u < 0.72) else ("leadHook" if (u < 0.88) else "rearUpper"))
+		elif (d.type == "duck"):
+			id = ((("rearHook" if (u < 0.65) else "rearUpper")) if rear else ("leadHook" if (u < 0.7) else "leadUpper"))
+		else:
+			id = ((("cross" if (u < 0.55) else ("rearHook" if (u < 0.8) else "rearUpper"))) if rear else ("leadHook" if (u < 0.6) else ("jab" if (u < 0.8) else "leadUpper")))
+		var dd: float = perceivedDist()
+		var reach: float = me.build.stats.reach
+		var _hMOVES = TMoves.MOVES
+		var m = _hMOVES[id]
+		if (dd > ((m.range_[1] + reach) + m.lunge)):
+			id = ("cross" if rear else "jab")
+		var m2 = _hMOVES[id]
+		if (dd > (((m2.range_[1] + reach) + m2.lunge) + 0.15)):
+			return null
+		var zone: String = ("body" if (((m2.path != "straight") and rng.chance(0.3)) and (JS.index_of(m2.zones, "body") >= 0.0)) else "head")
+		return {"id": id, "zone": zone}
 	
 	func coverFor(id: String, zone: String, uid: float) -> void:
 		var move = TMoves.MOVES[id]
@@ -1860,18 +1942,29 @@ static func copyObs(a, b) -> void:
 	b.stance = a.stance
 
 static func __init_module() -> void:
-	TBrain.RESPONSES = ["block", "slip", "duck", "sway", "backstep", "sidestep", "counter", "absorb", "sprawl"]
+	TBrain.RESPONSES = ["block", "slip", "duck", "sway", "backstep", "sidestep", "counter", "absorb", "sprawl", "roll"]
 	TBrain.PRIOR = {
-	"straight": {"block": 0.55, "slip": 0.6, "duck": 0.35, "sway": 0.45, "backstep": 0.45, "sidestep": 0.3, "counter": 0.45, "absorb": 0.1},
-	"hook": {"block": 0.5, "slip": 0.15, "duck": 0.65, "sway": 0.4, "backstep": 0.5, "sidestep": 0.2, "counter": 0.4, "absorb": 0.1},
-	"upper": {"block": 0.45, "slip": 0.35, "duck": 0.05, "sway": 0.55, "backstep": 0.55, "sidestep": 0.3, "counter": 0.3, "absorb": 0.1},
-	"overhead": {"block": 0.3, "slip": 0.5, "duck": 0.4, "sway": 0.4, "backstep": 0.6, "sidestep": 0.55, "counter": 0.5, "absorb": 0.05},
-	"kickHigh": {"block": 0.45, "slip": 0.1, "duck": 0.65, "sway": 0.4, "backstep": 0.55, "sidestep": 0.2, "counter": 0.25, "absorb": 0.05},
-	"kickMid": {"block": 0.4, "slip": 0.1, "duck": 0.05, "sway": 0.15, "backstep": 0.6, "sidestep": 0.55, "counter": 0.2, "absorb": 0.1},
-	"kickLow": {"block": 0.5, "slip": 0.05, "duck": 0.0, "sway": 0.1, "backstep": 0.7, "sidestep": 0.45, "counter": 0.3, "absorb": 0.15},
-	"lunge": {"block": 0.4, "slip": 0.25, "duck": 0.3, "sway": 0.2, "backstep": 0.35, "sidestep": 0.65, "counter": 0.35, "absorb": 0.05},
-	"shoot": {"block": 0.05, "slip": 0.05, "duck": 0.0, "sway": 0.05, "backstep": 0.5, "sidestep": 0.5, "counter": 0.4, "absorb": 0.05, "sprawl": 0.85},
-	"tie": {"block": 0.1, "slip": 0.35, "duck": 0.25, "sway": 0.3, "backstep": 0.55, "sidestep": 0.45, "counter": 0.45, "absorb": 0.25}
+	"straight": {"block": 0.55, "slip": 0.6, "duck": 0.35, "sway": 0.45, "backstep": 0.45, "sidestep": 0.3, "counter": 0.45, "absorb": 0.1, "roll": 0.5},
+	"hook": {"block": 0.5, "slip": 0.15, "duck": 0.65, "sway": 0.4, "backstep": 0.5, "sidestep": 0.2, "counter": 0.4, "absorb": 0.1, "roll": 0.2},
+	"upper": {"block": 0.45, "slip": 0.35, "duck": 0.05, "sway": 0.55, "backstep": 0.55, "sidestep": 0.3, "counter": 0.3, "absorb": 0.1, "roll": 0.0},
+	"overhead": {"block": 0.3, "slip": 0.5, "duck": 0.4, "sway": 0.4, "backstep": 0.6, "sidestep": 0.55, "counter": 0.5, "absorb": 0.05, "roll": 0.4},
+	"kickHigh": {"block": 0.45, "slip": 0.1, "duck": 0.65, "sway": 0.4, "backstep": 0.55, "sidestep": 0.2, "counter": 0.25, "absorb": 0.05, "roll": 0.0},
+	"kickMid": {"block": 0.4, "slip": 0.1, "duck": 0.05, "sway": 0.15, "backstep": 0.6, "sidestep": 0.55, "counter": 0.2, "absorb": 0.1, "roll": 0.0},
+	"kickLow": {"block": 0.5, "slip": 0.05, "duck": 0.0, "sway": 0.1, "backstep": 0.7, "sidestep": 0.45, "counter": 0.3, "absorb": 0.15, "roll": 0.0},
+	"lunge": {"block": 0.4, "slip": 0.25, "duck": 0.3, "sway": 0.2, "backstep": 0.35, "sidestep": 0.65, "counter": 0.35, "absorb": 0.05, "roll": 0.1},
+	"shoot": {
+	"block": 0.05,
+	"slip": 0.05,
+	"duck": 0.0,
+	"sway": 0.05,
+	"backstep": 0.5,
+	"sidestep": 0.5,
+	"counter": 0.4,
+	"absorb": 0.05,
+	"sprawl": 0.85,
+	"roll": 0.0
+},
+	"tie": {"block": 0.1, "slip": 0.35, "duck": 0.25, "sway": 0.3, "backstep": 0.55, "sidestep": 0.45, "counter": 0.45, "absorb": 0.25, "roll": 0.0}
 }
 	TBrain.FIGHT_STYLES = ["Boxer", "Brawler", "Swarmer", "Out-fighter", "Counter-puncher"]
 	TBrain.STYLE_SHAPE = {

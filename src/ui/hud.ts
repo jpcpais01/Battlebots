@@ -16,6 +16,11 @@ import { botCardHtml, paintOf } from './botCard';
 import { ReplayBar } from './replayBar';
 import { WALK_ON_NAME, walkOnFor } from '../audio/walkOn';
 
+/** A hit met by more than a guard (HitInfo.guard). */
+const GUARD_LABEL: Record<string, string> = { parry: 'PARRY', check: 'CHECKED', roll: 'ROLLED' };
+/** What a counter straight out of a dodge is called (HitInfo.outOf). */
+const OUT_OF_CALL: Record<string, string> = { slip: 'SLIP & COUNTER', duck: 'WEAVE & COUNTER', sway: 'PULL COUNTER', roll: 'ROLL & COUNTER' };
+
 const _p = new THREE.Vector3();
 
 interface BarEls {
@@ -871,8 +876,8 @@ export class Hud {
         }
         const dmg = Math.round(h.damage);
         // met by a parry or a checking shin: say so where it was met
-        if (h.guard === 'parry' || h.guard === 'check') {
-          this.floatAt(h.point, h.guard === 'parry' ? 'PARRY' : 'CHECKED', 'blk');
+        if (h.guard === 'parry' || h.guard === 'check' || h.guard === 'roll') {
+          this.floatAt(h.point, GUARD_LABEL[h.guard], 'blk');
           break;
         }
         if (h.blocked) {
@@ -882,7 +887,10 @@ export class Hud {
         }
         this.floatAt(h.point, h.crit ? `${dmg}!` : String(dmg), h.crit ? 'crit' : '');
         if (h.knockdown) break; // handled below
-        if (h.counter && dmg >= 30) {
+        // thrown straight back out of a slip, a weave, a sway or a shoulder roll
+        if (h.outOf && dmg >= 15) {
+          this.callout(OUT_OF_CALL[h.outOf] ?? 'COUNTER!', 'small cyan');
+        } else if (h.counter && dmg >= 30) {
           this.callout('COUNTER!', 'small');
         } else if (h.crit) {
           this.callout('CRITICAL', 'small');

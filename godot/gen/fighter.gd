@@ -2,6 +2,10 @@
 class_name TFighter
 extends RefCounted
 
+static var COUNTER_DODGES: Array
+
+static func dodgeEnvAt(k: float) -> float:
+	return ((((1.0 - (((1.0 - ((k / 0.16)))) * ((1.0 - ((k / 0.16))))))) if (k < 0.16) else (1.0 if (k < 0.6) else (1.0 - TMath.easeInOut((((k - 0.6)) / 0.4))))))
 
 static func strikeId(s) -> float:
 	return ((s.uid * 16.0) + s.sub)
@@ -270,6 +274,7 @@ class Fighter extends RefCounted:
 	var action
 	var cover
 	var lastAction
+	var outOf
 	var stunTime: float
 	var invuln: float
 	var downTime: float
@@ -512,6 +517,7 @@ class Fighter extends RefCounted:
 		self.action = null
 		self.cover = null
 		self.lastAction = null
+		self.outOf = null
 		self.stunTime = 0.0
 		self.invuln = 0.0
 		self.downTime = 0.0
@@ -880,7 +886,7 @@ class Fighter extends RefCounted:
 		var whip: float = passive("whiplash")
 		return (a.t >= (a.recovery * ((0.35 - whip))))
 	
-	func tryStrike(id: String, zone: String, aim: V3, feint: bool = false) -> bool:
+	func tryStrike(id: String, zone: String, aim: V3, feint: bool = false, load_: float = 1.0) -> bool:
 		var move = TMoves.MOVES[id]
 		var chain: bool = (not (not (strike != null)))
 		if (not canStrike(chain)):
@@ -903,7 +909,33 @@ class Fighter extends RefCounted:
 			var alt: bool = (((prev.side != side) and (move.kind == "punch")) and (prev.move.kind == "punch"))
 			windupMul = (0.7 if alt else 0.9)
 			speed *= (1.0 + passive("whiplash"))
-		launchStrike(move, zone, aim, side, speed, windupMul, feint)
+		launchStrike(move, zone, aim, side, speed, (windupMul * load_), feint)
+		return true
+	
+	func counterOut(id: String, zone: String, aim: V3) -> bool:
+		var d = dodge
+		if (((not (d != null)) or (JS.index_of(TFighter.COUNTER_DODGES, d.type) < 0.0)) or (state != "fight")):
+			return false
+		var k: float = (d.t / d.dur)
+		if (k < 0.25):
+			return false
+		self.action = null
+		if (not tryStrike(id, zone, aim, false, 0.72)):
+			self.action = d
+			return false
+		var s = strike
+		s.outOf = d.type
+		self.outOf = {
+	"uid": s.uid,
+	"type": d.type,
+	"dir": d.dir,
+	"k": k,
+	"env": (((((1.0 - (((1.0 - ((k / 0.16)))) * ((1.0 - ((k / 0.16))))))) if (k < 0.16) else (1.0 if (k < 0.6) else (1.0 - TMath.easeInOut((((k - 0.6)) / 0.4))))))),
+	"t": 0.0,
+	"dur": (s.windup + (s.active * 0.6))
+}
+		if hooks != null:
+			hooks.emit.call("counterOut", {"f": self, "s": s, "d": d})
 		return true
 	
 	func forceStrike(id: String, zone: String, aim: V3, speed: float):
@@ -949,7 +981,8 @@ class Fighter extends RefCounted:
 	"pull": 0.0,
 	"pullFrom": V3.new(),
 	"shEnd": 1.0,
-	"hipEnd": 1.0
+	"hipEnd": 1.0,
+	"outOf": ""
 }
 		if ((((((prev != null) and (prev.move.kind == "punch")) and (move.kind == "punch")) and (prev.side != side)) and (not JS.truthy(move.get("multi")))) and (not scripted)):
 			s.pull = 1.0
@@ -1127,7 +1160,7 @@ class Fighter extends RefCounted:
 		if (stamina < cost):
 			return false
 		self.stamina -= cost
-		var baseDur: float = (0.38 if ((type == "backstep") or (type == "sidestep")) else (0.48 if (type == "duck") else (0.62 if (type == "sprawl") else (0.5 if (type == "pivot") else 0.44))))
+		var baseDur: float = (0.38 if ((type == "backstep") or (type == "sidestep")) else (0.48 if (type == "duck") else (0.62 if (type == "sprawl") else (0.5 if (type == "pivot") else (0.46 if (type == "roll") else 0.44)))))
 		var __t1 = TFighter.UID
 		TFighter.UID += 1.0
 		var d = {"kind": "dodge", "type": type, "dir": dir, "t": 0.0, "dur": (baseDur / agility), "uid": __t1}
@@ -1385,6 +1418,10 @@ class Fighter extends RefCounted:
 			body.tone = 0.0
 	
 	func recoil(x: float, y: float, z: float, zone: String, give: float, path: String = "", side: float = -1.0) -> void:
+		if (path == "roll"):
+			rTwist.vel -= ((stance * 2.4) * give)
+			rShiftZ.vel -= (0.5 * give)
+			return
 		flinch.kick((x * 1.2), y, (z * 1.2))
 		var g: float = minf(give, 4.0)
 		var hs: float = (side if (side >= 0.0) else (0.0 if (x > 0.0) else 1.0))
@@ -2106,6 +2143,11 @@ class Fighter extends RefCounted:
 			return
 		var s = a
 		s.t += dt
+		var oo = outOf
+		if (oo != null):
+			oo.t += dt
+			if ((oo.uid != s.uid) or (oo.t >= oo.dur)):
+				self.outOf = null
 		if (s.phase == "windup"):
 			if (s.feint and (s.t >= (s.windup * 0.65))):
 				s.result = "feint"
@@ -3178,19 +3220,23 @@ class Fighter extends RefCounted:
 				crouch += k.crouch
 				shTw += k.twist
 		var dodgeEnv: float = 0.0
-		if (d != null):
-			var k_2: float = (d.t / d.dur)
-			var env: float = (((1.0 - (((1.0 - ((k_2 / 0.16)))) * ((1.0 - ((k_2 / 0.16))))))) if (k_2 < 0.16) else (1.0 if (k_2 < 0.6) else (1.0 - TMath.easeInOut((((k_2 - 0.6)) / 0.4)))))
-			dodgeEnv = (env if (((d.type == "slip") or (d.type == "duck")) or (d.type == "sway")) else 0.0)
-			if d.type == "slip":
-				hd.x += ((d.dir * 0.3) * env)
+		var rollEnv: float = 0.0
+		var oo = (outOf if ((((not (d != null)) and (s != null)) and (outOf != null)) and (outOf.uid == s.uid)) else null)
+		var dType = (d.type if (d != null) else (oo.type if (oo != null) else null))
+		if (dType != null):
+			var dDir: float = (d.dir if (d != null) else oo.dir)
+			var k_2: float = ((d.t / d.dur) if (d != null) else oo.k)
+			var env: float = ((((((1.0 - (((1.0 - ((k_2 / 0.16)))) * ((1.0 - ((k_2 / 0.16))))))) if (k_2 < 0.16) else (1.0 if (k_2 < 0.6) else (1.0 - TMath.easeInOut((((k_2 - 0.6)) / 0.4))))))) if (d != null) else (oo.env * ((1.0 - TMath.minJerk((oo.t / oo.dur))))))
+			dodgeEnv = (env if (((dType == "slip") or (dType == "duck")) or (dType == "sway")) else 0.0)
+			if dType == "slip":
+				hd.x += ((dDir * 0.3) * env)
 				hd.y -= (0.06 * env)
-				roll += ((d.dir * 0.32) * env)
+				roll += ((dDir * 0.32) * env)
 				crouch += (0.12 * env)
-				shTw += (((d.dir * st) * 0.2) * env)
-				hipTw += (((d.dir * st) * 0.08) * env)
-			elif d.type == "duck":
-				var across: float = ((-d.dir) * TMath.minJerk(TMath.clamp01((((k_2 - 0.08)) / 0.62))))
+				shTw += (((dDir * st) * 0.2) * env)
+				hipTw += (((dDir * st) * 0.08) * env)
+			elif dType == "duck":
+				var across: float = ((-dDir) * TMath.minJerk(TMath.clamp01((((k_2 - 0.08)) / 0.62))))
 				crouch += (0.3 * env)
 				pitch += (0.34 * env)
 				hd.y -= (0.04 * env)
@@ -3199,18 +3245,31 @@ class Fighter extends RefCounted:
 				roll += ((across * 0.22) * env)
 				shTw += (((across * st) * 0.22) * env)
 				hipTw += (((across * st) * 0.08) * env)
-			elif d.type == "sway":
+			elif dType == "roll":
+				rollEnv = env
+				shTw += ((blade * 1.15) * env)
+				hipTw += ((blade * 0.45) * env)
+				roll -= ((st * 0.2) * env)
+				pitch -= (0.1 * env)
+				crouch += (0.07 * env)
+				pd.z -= (0.07 * env)
+				pd.x -= ((st * 0.05) * env)
+				hd.x -= ((st * 0.07) * env)
+				hd.y -= (0.05 * env)
+				hd.z -= (0.05 * env)
+				heel[rearI] = (heel[rearI] * ((1.0 - env)))
+			elif dType == "sway":
 				pitch -= (0.38 * env)
 				pd.z -= (0.08 * env)
 				hd.z -= (0.1 * env)
-				heel[rearI] = 0.0
-			elif d.type == "backstep":
+				heel[rearI] = (0.0 if (d != null) else (heel[rearI] * ((1.0 - env))))
+			elif dType == "backstep":
 				pitch -= (0.12 * env)
 				crouch += (0.05 * env)
-			elif d.type == "sidestep":
-				roll -= ((d.dir * 0.12) * env)
+			elif dType == "sidestep":
+				roll -= ((dDir * 0.12) * env)
 				crouch += (0.05 * env)
-			elif d.type == "pivot":
+			elif dType == "pivot":
 				var sw: float = DM.sin((PI * pivotK()))
 				var dirT: float = (-1.0 if (pvTurn < 0.0) else 1.0)
 				var amt: float = minf(1.0, (absf(pvTurn) / 0.5))
@@ -3219,7 +3278,7 @@ class Fighter extends RefCounted:
 				crouch += (0.03 * env)
 				pitch += (0.04 * env)
 				heel[pvLead] = maxf(heel[pvLead], (0.5 * sw))
-			elif d.type == "sprawl":
+			elif dType == "sprawl":
 				var sk: float = sprawlK()
 				crouch += (0.34 * sk)
 				pitch += (0.72 * sk)
@@ -3684,6 +3743,26 @@ class Fighter extends RefCounted:
 					pole.z = -0.6
 			if ((dodgeEnv > 0.001) and (not (s != null))):
 				faceGuard(sx, hand, pole, (dodgeEnv * 0.75))
+			if ((rollEnv > 0.001) and (not (s != null))):
+				if isLead:
+					trunkPoint(((-sx) * 0.05), -0.2, 0.27, _h_p)
+					hand.lerp(_h_p, (rollEnv * 0.85))
+					_h_w.x = _h_tU.x
+					_h_w.y = _h_tU.y
+					_h_w.z = _h_tU.z
+					_h_w.x *= -1.0
+					_h_w.y *= -1.0
+					_h_w.z *= -1.0
+					var __v46: float = (sx * 0.55)
+					_h_w.x += _h_tX.x * __v46
+					_h_w.y += _h_tX.y * __v46
+					_h_w.z += _h_tX.z * __v46
+					_h_w.x += _h_tZ.x * -0.15
+					_h_w.y += _h_tZ.y * -0.15
+					_h_w.z += _h_tZ.z * -0.15
+					pole.lerp(_h_w, rollEnv)
+				else:
+					faceGuard(sx, hand, pole, rollEnv)
 			if (cov != null):
 				roll_2 = coverArm(cov, cw, float(side), hand, pole, head, roll_2)
 			if ((s != null) and (prog != null)):
@@ -3713,10 +3792,10 @@ class Fighter extends RefCounted:
 				_h_w.x *= -1.0
 				_h_w.y *= -1.0
 				_h_w.z *= -1.0
-				var __v46: float = (sx * 0.2)
-				_h_w.x += _h_tX.x * __v46
-				_h_w.y += _h_tX.y * __v46
-				_h_w.z += _h_tX.z * __v46
+				var __v47: float = (sx * 0.2)
+				_h_w.x += _h_tX.x * __v47
+				_h_w.y += _h_tX.y * __v47
+				_h_w.z += _h_tX.z * __v47
 				_h_w.x += _h_tZ.x * 0.1
 				_h_w.y += _h_tZ.y * 0.1
 				_h_w.z += _h_tZ.z * 0.1
@@ -3732,56 +3811,56 @@ class Fighter extends RefCounted:
 					_h_w.x = _h_tX.x
 					_h_w.y = _h_tX.y
 					_h_w.z = _h_tX.z
-					var __v47: float = (sx * e_2[(o_3 + 3.0)])
-					_h_w.x *= __v47
-					_h_w.y *= __v47
-					_h_w.z *= __v47
-					var __v48: float = e_2[(o_3 + 4.0)]
-					_h_w.x += _h_tU.x * __v48
-					_h_w.y += _h_tU.y * __v48
-					_h_w.z += _h_tU.z * __v48
-					var __v49: float = e_2[(o_3 + 5.0)]
-					_h_w.x += _h_tZ.x * __v49
-					_h_w.y += _h_tZ.y * __v49
-					_h_w.z += _h_tZ.z * __v49
+					var __v48: float = (sx * e_2[(o_3 + 3.0)])
+					_h_w.x *= __v48
+					_h_w.y *= __v48
+					_h_w.z *= __v48
+					var __v49: float = e_2[(o_3 + 4.0)]
+					_h_w.x += _h_tU.x * __v49
+					_h_w.y += _h_tU.y * __v49
+					_h_w.z += _h_tU.z * __v49
+					var __v50: float = e_2[(o_3 + 5.0)]
+					_h_w.x += _h_tZ.x * __v50
+					_h_w.y += _h_tZ.y * __v50
+					_h_w.z += _h_tZ.z * __v50
 					pole.lerp(_h_w, aw)
 					roll_2 = ((roll_2 + ((((e_2[(o_3 + 6.0)]) - roll_2)) * aw)))
 				var rw: float = (em.w * em.reachW)
 				if ((rw > 0.001) and ((float(side) == em.reachSide) or (em.reachSide == 2.0))):
 					toLocal(em.reach, _h_p)
 					if (em.reachSide == 2.0):
-						var __v50: float = (sx * 0.075)
-						_h_p.x += _h_tX.x * __v50
-						_h_p.y += _h_tX.y * __v50
-						_h_p.z += _h_tX.z * __v50
+						var __v51: float = (sx * 0.075)
+						_h_p.x += _h_tX.x * __v51
+						_h_p.y += _h_tX.y * __v51
+						_h_p.z += _h_tX.z * __v51
 					hand.lerp(_h_p, rw)
 			var grip: float = (emote.gripW[side] if (emote != null) else 0.0)
 			if (grip > 0.001):
 				hand.lerp(toLocal(emote.grip[side], _h_p), grip)
 			handRollT[side] = roll_2
 			var fore: float = (TFighter.FORE + extend[side])
-			var __v51: float = (pole.x * _h_tX.x + pole.y * _h_tX.y + pole.z * _h_tX.z)
-			var __v52: float = (pole.x * _h_tU.x + pole.y * _h_tU.y + pole.z * _h_tU.z)
-			var __v53: float = (pole.x * _h_tZ.x + pole.y * _h_tZ.y + pole.z * _h_tZ.z)
-			_h_bd.x = __v51
-			_h_bd.y = __v52
-			_h_bd.z = __v53
+			var __v52: float = (pole.x * _h_tX.x + pole.y * _h_tX.y + pole.z * _h_tX.z)
+			var __v53: float = (pole.x * _h_tU.x + pole.y * _h_tU.y + pole.z * _h_tU.z)
+			var __v54: float = (pole.x * _h_tZ.x + pole.y * _h_tZ.y + pole.z * _h_tZ.z)
+			_h_bd.x = __v52
+			_h_bd.y = __v53
+			_h_bd.z = __v54
 			smoothPole(float(side), _h_bd, dt)
 			pole.x = _h_tX.x
 			pole.y = _h_tX.y
 			pole.z = _h_tX.z
-			var __v54: float = _h_bd.x
-			pole.x *= __v54
-			pole.y *= __v54
-			pole.z *= __v54
-			var __v55: float = _h_bd.y
-			pole.x += _h_tU.x * __v55
-			pole.y += _h_tU.y * __v55
-			pole.z += _h_tU.z * __v55
-			var __v56: float = _h_bd.z
-			pole.x += _h_tZ.x * __v56
-			pole.y += _h_tZ.y * __v56
-			pole.z += _h_tZ.z * __v56
+			var __v55: float = _h_bd.x
+			pole.x *= __v55
+			pole.y *= __v55
+			pole.z *= __v55
+			var __v56: float = _h_bd.y
+			pole.x += _h_tU.x * __v56
+			pole.y += _h_tU.y * __v56
+			pole.z += _h_tU.z * __v56
+			var __v57: float = _h_bd.z
+			pole.x += _h_tZ.x * __v57
+			pole.y += _h_tZ.y * __v57
+			pole.z += _h_tZ.z * __v57
 			keepBend(float(side), L[shIdx_2], hand, pole)
 			TFighter.ik2(L[shIdx_2], hand, TFighter.UPPER, fore, pole, L[elIdx], hand)
 			fitArm(shIdx_2, elIdx, handIdx, fore)
@@ -3798,8 +3877,8 @@ class Fighter extends RefCounted:
 				calmT = 0.0
 			calmW[side] = (TMath.damp(calmW[side], calmT, (40.0 if (calmT < calmW[side]) else 6.0), dt) if (dt > 0.0) else calmT)
 			calmArm(float(side), L[shIdx_2], L[elIdx], hand, fore, dt)
-			var __t57 = (s if s != null else d)
-			settleArm(float(side), L[shIdx_2], L[elIdx], hand, fore, dt, (__t57 if __t57 != null else null))
+			var __t58 = (s if s != null else d)
+			settleArm(float(side), L[shIdx_2], L[elIdx], hand, fore, dt, (__t58 if __t58 != null else null))
 			storeBend(float(side), L[shIdx_2], L[elIdx], hand, dt)
 			side += 1
 		var side_2: int = 0
@@ -3814,10 +3893,10 @@ class Fighter extends RefCounted:
 			footAirT[side_2] = 0.0
 			footFlexT[side_2] = 0.0
 			if (float(side_2) == lost):
-				var __v58: V3 = L[hipIdx]
-				foot.x = __v58.x
-				foot.y = __v58.y
-				foot.z = __v58.z
+				var __v59: V3 = L[hipIdx]
+				foot.x = __v59.x
+				foot.y = __v59.y
+				foot.z = __v59.z
 				foot.x += (sx_2 * 0.02)
 				foot.y -= 0.55
 				foot.z += 0.3
@@ -3827,8 +3906,8 @@ class Fighter extends RefCounted:
 				footAirT[side_2] = 1.0
 			elif ((emote != null) and (emote.holdFoot == float(side_2))):
 				toLocal(emote.hold, foot)
-				var __v59: float = ((-sx_2) * 0.25)
-				pole_2.x = __v59
+				var __v60: float = ((-sx_2) * 0.25)
+				pole_2.x = __v60
 				pole_2.y = 0.55
 				pole_2.z = 1.0
 				f_5.locked = true
@@ -3844,14 +3923,14 @@ class Fighter extends RefCounted:
 				footFlexT[side_2] = flex
 			elif ((((cov != null) and (cov.kind == "check")) and (float(side_2) == cov.side)) and (lost < 0.0)):
 				toLocal(cov.plant, _h_p)
-				var __v60: float = (_h_p.x + ((sx_2 * 0.04) * cw))
-				var __v61: float = (TFighter.FOOT_Y + (((0.34 if (cov.zone == "legs") else 0.44)) * cw))
-				var __v62: float = (_h_p.z + (0.14 * cw))
-				foot.x = __v60
-				foot.y = __v61
-				foot.z = __v62
-				var __v63: float = (sx_2 * ((0.25 + (((0.85 - 0.25)) * cw))))
-				pole_2.x = __v63
+				var __v61: float = (_h_p.x + ((sx_2 * 0.04) * cw))
+				var __v62: float = (TFighter.FOOT_Y + (((0.34 if (cov.zone == "legs") else 0.44)) * cw))
+				var __v63: float = (_h_p.z + (0.14 * cw))
+				foot.x = __v61
+				foot.y = __v62
+				foot.z = __v63
+				var __v64: float = (sx_2 * ((0.25 + (((0.85 - 0.25)) * cw))))
+				pole_2.x = __v64
 				pole_2.y = 0.1
 				pole_2.z = 1.0
 				f_5.locked = true
@@ -3860,17 +3939,17 @@ class Fighter extends RefCounted:
 				footAirT[side_2] = TMath.smoothstep_(0.0, 0.05, (foot.y - TFighter.FOOT_Y))
 				footFlexT[side_2] = (0.3 * cw)
 			elif (((((lost < 0.0) and (s != null)) and (s.move.path == "shoot")) and (float(side_2) == rearI)) and ((s.phase == "active") or ((s.phase == "recovery") and (s.t < (s.recovery * 0.4))))):
-				var __v64: float = (sx_2 * 0.17)
-				var __v65: float = TFighter.FOOT_Y
-				foot.x = __v64
-				foot.y = __v65
+				var __v65: float = (sx_2 * 0.17)
+				var __v66: float = TFighter.FOOT_Y
+				foot.x = __v65
+				foot.y = __v66
 				foot.z = -0.52
 				if (dt > 0.0):
 					toLocal(f_5.pos, _h_p)
-					var __v66: float = (1.0 - DM.exp((-14.0 * dt)))
-					foot.x = _h_p.x + (foot.x - _h_p.x) * __v66
-					foot.y = _h_p.y + (foot.y - _h_p.y) * __v66
-					foot.z = _h_p.z + (foot.z - _h_p.z) * __v66
+					var __v67: float = (1.0 - DM.exp((-14.0 * dt)))
+					foot.x = _h_p.x + (foot.x - _h_p.x) * __v67
+					foot.y = _h_p.y + (foot.y - _h_p.y) * __v67
+					foot.z = _h_p.z + (foot.z - _h_p.z) * __v67
 				f_5.locked = true
 				f_5.stepping = false
 				toWorld(foot, f_5.pos)
@@ -3883,10 +3962,10 @@ class Fighter extends RefCounted:
 				foot.x += ((sx_2 * e_3[(o_4 + 2.0)]) * fw)
 				foot.y += (e_3[(o_4 + 3.0)] * fw)
 				foot.z += (e_3[(o_4 + 4.0)] * fw)
-				var __v67: float = (sx_2 * 0.25)
-				var __v68: float = ((0.1 + ((((e_3[(o_4 + 5.0)]) - 0.1)) * fw)))
-				pole_2.x = __v67
-				pole_2.y = __v68
+				var __v68: float = (sx_2 * 0.25)
+				var __v69: float = ((0.1 + ((((e_3[(o_4 + 5.0)]) - 0.1)) * fw)))
+				pole_2.x = __v68
+				pole_2.y = __v69
 				pole_2.z = 1.0
 				f_5.locked = true
 				f_5.stepping = false
@@ -3897,19 +3976,19 @@ class Fighter extends RefCounted:
 				var isLead_2: bool = (((float(side_2) == 0.0)) == ((st < 0.0)))
 				var o_5: float = (0.0 if isLead_2 else 3.0)
 				stanceFoot(float(side_2), _h_p)
-				var __v69: float = (sx_2 * gu.feet[o_5])
-				var __v70: float = gu.feet[(o_5 + 1.0)]
-				var __v71: float = gu.feet[(o_5 + 2.0)]
-				foot.x = __v69
-				foot.y = __v70
-				foot.z = __v71
+				var __v70: float = (sx_2 * gu.feet[o_5])
+				var __v71: float = gu.feet[(o_5 + 1.0)]
+				var __v72: float = gu.feet[(o_5 + 2.0)]
+				foot.x = __v70
+				foot.y = __v71
+				foot.z = __v72
 				if (lost >= 0.0):
-					var __v72: float = (foot.x * 0.6)
-					var __v73: float = foot.y
-					var __v74: float = (foot.z * 0.55)
-					foot.x = __v72
-					foot.y = __v73
-					foot.z = __v74
+					var __v73: float = (foot.x * 0.6)
+					var __v74: float = foot.y
+					var __v75: float = (foot.z * 0.55)
+					foot.x = __v73
+					foot.y = __v74
+					foot.z = __v75
 				foot.lerp(_h_p, (1.0 - gu.w))
 				pole_2.set3((sx_2 * 0.2), gu.knee[(0.0 if isLead_2 else 1.0)], 1.0).lerp(_h_w.set3((sx_2 * 0.25), 0.1, 1.0), (1.0 - gu.w))
 				f_5.locked = true
@@ -3923,10 +4002,10 @@ class Fighter extends RefCounted:
 				foot.z += (lift * liftReach)
 				if (((state == "held") or clinched) and (dt > 0.0)):
 					toLocal(f_5.pos, _h_p)
-					var __v75: float = (1.0 - DM.exp((-9.0 * dt)))
-					foot.x = _h_p.x + (foot.x - _h_p.x) * __v75
-					foot.y = _h_p.y + (foot.y - _h_p.y) * __v75
-					foot.z = _h_p.z + (foot.z - _h_p.z) * __v75
+					var __v76: float = (1.0 - DM.exp((-9.0 * dt)))
+					foot.x = _h_p.x + (foot.x - _h_p.x) * __v76
+					foot.y = _h_p.y + (foot.y - _h_p.y) * __v76
+					foot.z = _h_p.z + (foot.z - _h_p.z) * __v76
 				f_5.locked = true
 				f_5.stepping = false
 				toWorld(foot, f_5.pos)
@@ -5849,6 +5928,7 @@ class Fighter extends RefCounted:
 		self.yaw = TMath.wrapAngle(yaw)
 
 static func __init_module() -> void:
+	TFighter.COUNTER_DODGES = ["slip", "duck", "sway", "roll"]
 	TFighter.PIVOT = {"lead": 0.38, "sweep": 0.2, "slide": 0.6}
 	TFighter.UID = 1.0
 	TFighter._v = V3.new()
