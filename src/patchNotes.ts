@@ -19,6 +19,7 @@ export const PATCH_NOTES: PatchNote[] = [
     hour: "2026-10-25 00:00",
     title: "Battlebots on Windows",
     notes: [
+      "In the lounge, the camera now stays inside the flat: swing it round and it moves in closer instead of ending up behind a wall.",
       "Battlebots now comes for Windows PCs too: every new build is on the Releases page as Battlebots-Windows.zip, next to the Android app.",
       "On a PC, drag lists, tabs and part tiles with the mouse like a finger, or use the wheel.",
       "The Windows game offers new builds on its home screen and updates itself in place.",
