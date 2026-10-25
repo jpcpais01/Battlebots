@@ -82,12 +82,14 @@ var carrying: bool:
 	get:
 		return m != null and _mv.phase == "end" and _mv.winner != null and _mv.phaseTime < Stretcher.ride_end(m.result)
 var _acc := 0.0
-## Titan battles (render/titan): the fight is in the Titan Colosseum, and the robots are 30 m
-## titans. The sim is the same; the world round it is built to their scale, and the fight runs
-## slower (time_k), filmed and heard like giants (Director.titan, Sfx.titan, TitanFx).
+## Titan battles (render/titan): the fight is in the titan city's square, and the robots are
+## 30 m titans. The world round them is built to their scale and keeps real time; the titans
+## themselves move a beat heavier (Match.titan: the sim's own pace for them, which keeps the
+## round's clock and the referee's count on real seconds), and they are filmed and heard like
+## giants (Director.titan / TitanCam, Sfx.titan, TitanFx).
 var titan := false
-## How fast the fight's time runs against the clock on the wall: 1, or slower for titans (a body
-## fifteen times the size swings about four times slower; the titans meet it halfway).
+## How fast the fight's time runs against the clock on the wall: 1, or the titans' pace
+## (Match.titanPace: slowest as they wind up a blow, nearly full speed as it comes through).
 var time_k := 1.0
 ## The titans' own effects: dust, ground scars, footfalls (render/titan/titan_fx.gd).
 var titan_fx: TitanFx
@@ -639,6 +641,9 @@ func start_match(a, b, seed: float, partners = null, opts := {}) -> void:
 	else:
 		tape = ReplayTape.make(a, b, seed, partners, opts.get("arena", "grand"))
 		timeline = ReplayTimeline.new()
+	# a titan battle: the titans' own pace, the round's clock on real seconds (the tape's venue,
+	# so its replay is the same fight)
+	m.titan = str(tape.get("arena", "grand")) == "titan"
 	m.on(_queue_event)
 	_listen()
 	# the walkout's checkpoint: every seek back to the start runs from it
@@ -733,12 +738,12 @@ func _attach_view(fresh: bool) -> void:
 	effects.m = _mv
 	# each corner's entrance is lit in its robot's colours (game.ts startMatch)
 	arena.corners.set_accents(int(tape.a.paint.accent), int(tape.b.paint.accent))
-	# the Titan Colosseum dresses in the two titans' colours: fans, flags, banners, gates
+	# the titan city dresses in the two titans' colours: fans, flags, the stage's lights
 	if titan:
 		var tv = venues.current
 		tv.set_teams(_lin(int(tape.a.paint.accent)), _lin(int(tape.b.paint.accent)))
 		titan_fx.start()
-		time_k = TITAN_TIME.get(m.phase, 0.5)
+		time_k = float(m.titanPace)
 	else:
 		time_k = 1.0
 	arena.corners.on_cue = func(i: int, cue: String) -> void:
@@ -964,21 +969,16 @@ func _take_snap() -> void:
 	timeline.add(SimSnap.take(m, _uid))
 
 
-## How fast titan time runs in each phase of the fight (time_k): the walk-outs and the
-## countdown nearer real time, the fighting itself at half speed.
-const TITAN_TIME := {"intro": 0.8, "countdown": 0.75, "greet": 0.6, "fight": 0.5, "ko": 0.5, "end": 0.6}
+## The titans' sparks, smoke and torn-off parts fly at their scale: things fifteen times the
+## size fall and drift about four times slower than a robot's (a share of the titans' own time).
+const TITAN_FX := 0.55
 
 
-## time_k this frame in a titan fight: eased towards its phase's pace (no jolt between phases).
-func _titan_time(dt: float) -> float:
-	var want: float = TITAN_TIME.get(m.phase, 0.5)
-	return time_k + (want - time_k) * (1.0 - exp(-dt * 1.5))
-
-
-## Fight titan battles (render/titan) or not: the world map's venues call this as the Titan
-## Colosseum goes up round the ring (EventVenues._use) or gives way to another. The indoor
-## ring's stage, posts and ropes give way to the titans' deck, pylons and energy ropes; the key
-## spot gives way to the venue's sun; the camera, the sound and the effects go titan scale.
+## Fight titan battles (render/titan) or not: the world map's venues call this as the titan city
+## goes up round the ring (EventVenues._use) or gives way to another. The indoor ring's stage,
+## posts and ropes give way to the Titan Ring's deck, pylons and cables; the key spot gives way
+## to the venue's sun; the camera, the sound and the effects go titan scale, and the arena's
+## camera drones and referee drone (robot-sized, they'd shrink the titans) stay home.
 func set_titan(on: bool) -> void:
 	if on == titan:
 		return
@@ -990,7 +990,10 @@ func set_titan(on: bool) -> void:
 	if on:
 		follow.off()
 	director.titan = on
+	var tv = venues.current if venues != null else null
+	director.titan_roofs = tv.city.roof_spots if on and tv is TitanVenue else ([] as Array[Vector3])
 	sfx.titan = on
+	_show_flyers()
 	if on and titan_fx == null:
 		titan_fx = TitanFx.new(self)
 		add_child(titan_fx)
@@ -1003,6 +1006,16 @@ func set_titan(on: bool) -> void:
 	for fm in arena.mats.by_kind.get("pyro_fire", []):
 		fm.set_shader_parameter("smoke", Vector3(0.3, 0.29, 0.28) if on else Vector3(0.05, 0.05, 0.055))
 	time_k = 1.0
+
+
+## The arena's camera drones and the referee drone fly in the arena, but not over the titans.
+func _show_flyers() -> void:
+	var in_arena := place == "arena"
+	drones.visible = in_arena and not titan
+	referee.visible = in_arena and not titan
+	# (and the titan city's evening sounds round the fight)
+	if sfx != null:
+		sfx.city_bed(in_arena and titan)
 
 
 ## Leave the fight on screen (game.ts endMatch): the sim stops, the robots and everything they
@@ -1290,8 +1303,7 @@ func set_place(p: String) -> void:
 		ray.set_place(p)
 	if settings != null:
 		settings.place_changed()
-	drones.visible = in_arena
-	referee.visible = in_arena
+	_show_flyers()
 	if _showcase_due and p != "home" and p != "map":
 		_showcase_due = false
 		_make_showcase(_shown_spec)
@@ -1305,8 +1317,8 @@ func set_place(p: String) -> void:
 	# back in the arena, its venue's light again (game.ts setPlace: applyLook(this.look))
 	if venues != null:
 		venues.place_changed(p)
-	# (the home and the map put back the key spot as they found it: in the Titan Colosseum the
-	# sun stands in for it)
+	# (the home and the map put back the key spot as they found it: in the titan city the sun
+	# stands in for it)
 	if in_arena:
 		_key.visible = not titan
 
@@ -1714,11 +1726,11 @@ func _process(dt: float) -> void:
 	# frame poses, lights and draws
 	var steps := 0
 	if titan:
-		time_k = _titan_time(dt)
+		time_k = float(m.titanPace)
 	# the instant replay runs as slow as it wants at each step (through the sim's own slow motion)
 	if instant.on():
-		# (titans' own half-speed time is mostly undone: their replay would drag on)
-		speed = instant.rate(int(m.frame)) / maxf(0.2, float(m.slowmo)) * (0.75 / time_k if titan else 1.0)
+		# (the replay's own slow motion: the titans' heavier time is undone)
+		speed = instant.rate(int(m.frame)) / maxf(0.2, float(m.slowmo)) * (1.0 / time_k if titan else 1.0)
 		instant_view.rate = instant.rate(int(m.frame))
 	var still := replay != null and replay.still(m)
 	if still:
@@ -1827,14 +1839,10 @@ func _process(dt: float) -> void:
 		md.ao_masks(contact_ao)
 	# sparks, smoke, vapour and oil off the wrecked parts, the debris, the trails (the view's)
 	# (a titan's sparks and smoke drift down slowly, at the titans' scale)
-	effects.update(fdt * time_k, flow, cam)
+	effects.update(fdt * time_k * (TITAN_FX if titan else 1.0), flow, cam)
 	if titan:
 		titan_fx.update(fdt, flow, _mv, models)
-		# the fight's sound crosses the stadium to the lens (sound's speed at the titans' scale,
-		# eased so a blow never lags its picture by much), and the sun's shadows follow the
-		# graphics settings as the key spot's do
-		var mid := (models[0].global_position + models[1].global_position) * 0.5
-		sfx.titan_delay = minf(0.35, cam.global_position.distance_to(mid) * 0.026)
+		# the sun's shadows follow the graphics settings as the key spot's do
 		var tv = venues.current
 		if tv is TitanVenue:
 			tv.sun.shadow_enabled = _key.shadow_enabled

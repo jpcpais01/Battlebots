@@ -15,7 +15,7 @@ const SCRIPTS := {
 	"grove": "",
 	"falls": "",
 	"rooftop": "res://render/venues/rooftop.gd",
-	# the Android app's own: titan battles' Colosseum, built in code (render/titan)
+	# the Android app's own: titan battles' city, built in code (render/titan)
 	"titan": "res://render/titan/titan_venue.gd",
 }
 
@@ -80,7 +80,7 @@ func set_arena(id: String) -> void:
 		_use(_built[id])
 	elif id == "titan":
 		# a titan fight can't start in the old ring and change round the titans halfway: the
-		# Colosseum is quick to build, so it is finished now (it is usually built ahead from home)
+		# city is quick to build, so it is finished now (it is usually built ahead from home)
 		if _tasks.has(id):
 			WorkerThreadPool.wait_for_task_completion(_tasks[id])
 			_tasks.erase(id)

@@ -142,7 +142,7 @@ func _replay(tag: bool) -> void:
 	if tag:
 		_check(g.crew.size() == 4, "all four robots back")
 	else:
-		_check(g.titan, "in the Titan Colosseum")
+		_check(g.titan, "in the titan city")
 	g.net_hash_every = HASH
 	var mark: int = g.net_hashes.size()
 	# from the walkout, through the tapped intro (the cut comes where it came)

@@ -41,15 +41,6 @@ const POV_MIN := 3.0
 const POV_MAX := 7.0
 ## How far apart the fighters may be for a bot's-eye shot (m).
 const POV_SEP := [0.8, 4.0]
-## Titan battles: how far the lens may roam the plain (the stadium's podium wall is at 21), how
-## often a cut goes to a fan's view from the stands, and that view's seats: rows of the lower tier
-## (titan_build.gd TIERS[0]: front 21.8, 0.06 a row, first tread 1.55, 0.038 a row up).
-const TITAN_FREE_R := 19.0
-const CROWD_GAP := 9.0
-const CROWD_CHANCE := 0.35
-const CROWD_TIER := [21.8, 0.06, 1.55, 0.038]
-## The fan's eye above their tread (standing, 1.6 m at the titans' 1/15).
-const CROWD_EYE := 0.105
 ## The bowl (src/render/bowl.ts): front row half-extents, upper-tier set-back and height.
 const AX := 13.0
 const AZ := 10.0
@@ -273,12 +264,15 @@ var zoom := "normal"
 var player := 0
 ## Number of hard cuts so far (the drones hand over on each one).
 var cuts := 0
-## Filming titans (titan battles, render/titan): the fighters are 30 m tall in a stadium 1.5 km
-## across, so the camera roams the whole plain, keeps low and looks up at them, and now and then
-## cuts to a fan's view from the stands (the "crowd" shot).
+## Filming titans (titan battles, render/titan): the fight goes to the city's camera crews
+## (TitanCam) instead of the arena's shots, and the picture shakes the way the ground does.
 var titan := false
-## While the crowd shot is on: where the fan filming it stands (xz) and how wildly the fans round
-## them cheer (w, 0..1); the stadium's crowd reads it. Zero otherwise.
+## The titan city's roofs a crew can film from (Game.set_titan: TitanCity.roof_spots).
+var titan_roofs: Array[Vector3] = []
+var tcam := TitanCam.new()
+## While a fan's phone is filming the titans: where the fan stands (xz), how far round them
+## people are on their feet (z) and how wildly they cheer (w, 0..1); the square's crowd reads it.
+## Zero otherwise.
 var crowd_seat := Vector4.ZERO
 ## Viewport width / height, read from the camera's viewport (the web reads camera.aspect).
 var aspect := 16.0 / 9.0
@@ -288,6 +282,9 @@ var _look := Vector3(0, 1.2, 0)
 var _trauma := 0.0
 var _jolt_off := Vector3.ZERO
 var _jolt_vel := Vector3.ZERO
+# titans: the ground's jump under the lens (a pitch spring)
+var _thump := 0.0
+var _thump_vel := 0.0
 var _fov_kick := 0.0
 var _base_fov := 38.0
 var _noise: TMath.Noise1
@@ -325,9 +322,6 @@ var _aligned_for := 0.0
 var _raw_axis := 0.0
 var _pov_by := -1
 var _pov_gap := 0.0
-var _crowd_gap := 0.0
-var _crowd_eye := Vector3.ZERO
-var _crowd_look := Vector3.ZERO
 var _pov_eye := Vector3.ZERO
 var _pov_look := Vector3.ZERO
 var _pov_roll := 0.0
@@ -400,8 +394,18 @@ func shake(amount: float) -> void:
 
 
 ## Knocks the camera a few centimetres the way a blow travelled (~0.5 a jab, ~3 a crushing hit).
+## (Titans: a lens across the square isn't knocked by a blow; the ground under it jumps a little.)
 func jolt(dir: Vector3, amount: float) -> void:
+	if titan and mode == "match":
+		thump(minf(3.5, amount) * 0.0012)
+		return
 	_jolt_vel += dir * (minf(3.5, amount) * 0.9)
+
+
+## Titans: the ground jumps under the lens (a footfall, a body hitting the deck): a quick dip and
+## bounce of the picture, `amount` radians, as much of it as reaches this shot's lens.
+func thump(amount: float) -> void:
+	_thump_vel -= amount * 60.0 * tcam.shake_k
 
 
 func punch(amount: float) -> void:
@@ -453,9 +457,8 @@ func reset() -> void:
 	_beat = ""
 	_pov_by = -1
 	_pov_gap = 0.0
-	_crowd_gap = 0.0
 	crowd_seat = Vector4.ZERO
-	if _shot.kind == "pov" or _shot.kind == "crowd":
+	if _shot.kind == "pov" or _shot.kind == "titan":
 		_shot = make_shot("wide", _rng)
 
 
@@ -494,6 +497,8 @@ func begin(m) -> void:
 	_fl_a = 0.0
 	_fl_dir = 1.0
 	_was_ext = false
+	if titan:
+		tcam.begin(self, m, titan_roofs)
 	step(m, 0.0)
 
 
@@ -530,6 +535,9 @@ func film(pos: Vector3, look: Vector3, fov_k: float, cut: bool) -> void:
 ## Match events the camera reacts to (call before the step they came from is stepped).
 func cue(type: String, data) -> void:
 	if mode != "match":
+		return
+	if titan:
+		tcam.cue(type, data)
 		return
 	# a part tearing off is the shot: stay on it while the piece flies, then cut
 	if type == "detach":
@@ -648,8 +656,9 @@ func update(dt: float, m, alpha: float = 1.0) -> void:
 		lens_roll = _roll
 
 	_snap_next = false
-	# trauma shake
-	_trauma = maxf(0.0, _trauma - dt * 1.6)
+	var giant := titan and mode == "match"
+	# trauma shake (a titan's ground shock rumbles on longer)
+	_trauma = maxf(0.0, _trauma - dt * (1.0 if giant else 1.6))
 	var sh := _trauma * _trauma
 	var nt := _t * 28.0
 	# jolt spring (semi-implicit, stable at any frame rate we run at)
@@ -660,6 +669,22 @@ func update(dt: float, m, alpha: float = 1.0) -> void:
 		lens_pos.x + _noise.at(nt) * sh * 0.25 + _jolt_off.x,
 		lens_pos.y + _noise.at(nt + 10.0) * sh * 0.2 + _jolt_off.y,
 		lens_pos.z + _noise.at(nt + 20.0) * sh * 0.25 + _jolt_off.z)
+	# titans: the lens stays where its crew is and the picture shakes instead, the way a camera
+	# shakes on a tripod when the ground under it heaves: a low rumble, mostly up and down, and the
+	# jump of each heavy footfall (a pitch spring at ~7 Hz)
+	var tilt := Vector3.ZERO
+	if giant:
+		p = lens_pos
+		var gk := tcam.shake_k
+		var g := sh * gk
+		var rt := _t * 17.0
+		tilt = Vector3(
+			(_noise.at(rt + 5.0) * 0.016 + _noise.at(_t * 4.0 + 50.0) * 0.008) * g,
+			(_noise.at(rt + 15.0) * 0.01 + _noise.at(_t * 3.0 + 60.0) * 0.006) * g,
+			_noise.at(rt + 25.0) * 0.006 * g)
+		_thump_vel = (_thump_vel + _thump * (-1900.0 * jdt)) * exp(-9.0 * jdt)
+		_thump += _thump_vel * jdt
+		tilt.x += _thump
 	_shift = _damp(_shift, shift_x, 4.0, dt)
 	_fov_kick = _damp(_fov_kick, 0.0, 5.0, dt)
 	if camera == null:
@@ -670,10 +695,14 @@ func update(dt: float, m, alpha: float = 1.0) -> void:
 	if fwd.length_squared() > 1e-10:
 		var f := fwd.normalized()
 		basis = Basis.looking_at(f, Vector3.BACK if absf(f.y) > 0.9999 else Vector3.UP)
-	basis = basis * Basis(Vector3(0, 0, 1), lens_roll + _noise.at(nt + 30.0) * sh * 0.04)
+	if giant:
+		basis = basis * Basis.from_euler(Vector3(tilt.x, tilt.y, lens_roll + tilt.z))
+	else:
+		basis = basis * Basis(Vector3(0, 0, 1), lens_roll + _noise.at(nt + 30.0) * sh * 0.04)
 	camera.transform = Transform3D(basis, p)
 	# behind a bot's eyes, its own guard comes right up to the lens: clip what is nearer than a visor
-	camera.fov = lens_fov - _fov_kick
+	# (a titan's long lens punches in by the same share of its picture)
+	camera.fov = lens_fov - _fov_kick * (lens_fov / _base_fov if giant else 1.0)
 	camera.near = clip[0] if clip.size() == 2 else 0.2 if pov >= 0 else 0.1
 	camera.far = clip[1] if clip.size() == 2 else far
 	# the picture slides sideways by shift_x of its width (three's setViewOffset, director.ts): an
@@ -708,6 +737,9 @@ static func _keep_in(p: Vector3, look: Vector3, box: AABB) -> Vector3:
 # ------------------------------------------------------------------ fight
 
 func _fight(dt: float, m) -> void:
+	if titan:
+		tcam.step(self, dt, m)
+		return
 	var pa = m.fighters[0].body.pos[J_PELVIS]
 	var pb = m.fighters[1].body.pos[J_PELVIS]
 	var sx: float = pb.x - pa.x
@@ -799,15 +831,9 @@ func _fight(dt: float, m) -> void:
 		_direct(dt, m)
 	if sh.kind != "pov":
 		_pov_gap += dt
-	if sh.kind != "crowd":
-		_crowd_gap += dt
-	if _shot.kind != "crowd":
-		crowd_seat.w = 0.0
 	if ph != "intro" and ph != "countdown":
 		if _shot.kind == "pov":
 			_pov_frame(dt, m)
-		elif _shot.kind == "crowd":
-			_crowd_frame(dt, m)
 		else:
 			_frame(dt, m)
 
@@ -843,10 +869,6 @@ func _direct(dt: float, m) -> void:
 			_cut(m, k)
 			_next_shot = ""
 			return
-	if sh.kind == "crowd":
-		if sh.t > sh.dur or m.fin != null:
-			_cut(m)
-		return
 	if sh.kind == "pov":
 		# past its locked-in first seconds, a bot's-eye shot cuts the moment it stops working, and
 		# never outstays POV_MAX
@@ -871,11 +893,6 @@ func _cut(m, kind: String = "") -> void:
 	var was_pov := _shot.kind == "pov"
 	_end_pov()
 	if kind == "" and not was_pov and _pov_gap > POV_GAP and _rng.next() < POV_CHANCE and _start_pov(m):
-		return
-	if titan and _shot.kind == "crowd":
-		_crowd_gap = 0.0
-	elif titan and kind == "" and _crowd_gap > CROWD_GAP and _rng.next() < CROWD_CHANCE and m.phase == "fight":
-		_start_crowd(m)
 		return
 	var prev_yaw := _yaw
 	var prev_dist := _dist
@@ -907,8 +924,6 @@ func _cut(m, kind: String = "") -> void:
 					k = wt[0]
 					break
 		var s := _special(make_shot(k, _rng))
-		if titan:
-			_titanize(s)
 		# stay on the player's side of the line; every third candidate tries the reverse angle,
 		# which only wins when the home side is badly cramped
 		var side := -home if i % 3 == 2 else home
@@ -1109,79 +1124,6 @@ func _pov_frame(dt: float, m) -> void:
 	_dist = maxf(0.5, sqrt(cx * cx + cz * cz))
 
 
-## A titan fight's shots: longer lenses from further off and lower down, looking up at them (a
-## giant seen by a cameraman on the ground, with the stadium stacked up behind it).
-func _titanize(s: Shot) -> void:
-	s.fov_k *= 0.85
-	match s.kind:
-		"wide":
-			s.el *= 0.7
-		"medium":
-			s.el = s.el * 0.5 - 0.04
-		"low":
-			s.el -= 0.06
-		"orbit", "ots":
-			s.el *= 0.6
-
-
-## Hard cut to a fan's view of the fight: a seat in the lower tier on the player's side of the
-## fight line, the fans round them up on their feet, the titans out on the deck past their heads.
-func _start_crowd(m) -> void:
-	var s := make_shot("crowd", _rng)
-	s.dur = 3.2 + _rng.next() * 1.8
-	s.wobble = 0.0
-	var home := _home_side()
-	_side = home
-	if _sep > 0.3:
-		_axis_ang = _raw_axis
-	var a := _wrap(_axis_ang + home * (PI / 2.0 + (_rng.next() - 0.5) * 0.9))
-	# not in front of the titans' gates (on the x axis)
-	if absf(sin(a)) < 0.2:
-		a = _wrap(a + (0.24 if sin(a) >= 0.0 else -0.24) * (1.0 if cos(a) >= 0.0 else -1.0))
-	var row := floorf(6.0 + _rng.next() * 30.0)
-	var r: float = CROWD_TIER[0] + (row + 0.3) * CROWD_TIER[1]
-	var y: float = CROWD_TIER[2] + row * CROWD_TIER[3] + CROWD_EYE
-	_crowd_eye = Vector3(cos(a) * r, y, sin(a) * r)
-	_shot = s
-	cuts += 1
-	_cut_in = -1.0
-	_next_shot = ""
-	_kick = Vector3.ZERO
-	_cramped_for = 0.0
-	_aligned_for = 0.0
-	_crowd_look = _crowd_target(m)
-	_roll = (_rng.next() - 0.5) * 0.06
-	_crowd_frame(0.0, m)
-
-
-## Where the fan's lens points: just over the titans, tilted down past them so the heads and arms
-## of the rows in front come into the bottom of the picture.
-func _crowd_target(m) -> Vector3:
-	var c := (_jp(m.fighters[0], J_CHEST) + _jp(m.fighters[1], J_CHEST)) * 0.5
-	var to := c - _crowd_eye
-	var flat := Vector2(to.x, to.z).length()
-	var pitch := atan2(to.y, flat) - 0.15
-	return _crowd_eye + Vector3(to.x / flat * cos(pitch), sin(pitch), to.z / flat * cos(pitch)) * to.length()
-
-
-## The fan's view: a phone held up in the stands, following the titans, a little unsteady.
-func _crowd_frame(dt: float, m) -> void:
-	var g := _crowd_target(m)
-	_crowd_look = Vector3(_damp(_crowd_look.x, g.x, 3.0, dt), _damp(_crowd_look.y, g.y, 2.0, dt), _damp(_crowd_look.z, g.z, 3.0, dt))
-	var shake := 0.012 + 0.02 * clampf(_heat, 0.0, 1.0)
-	_pos = _crowd_eye + Vector3(_noise.at(_ft * 0.9 + 51.0), _noise.at(_ft * 1.1 + 57.0) * 0.6, _noise.at(_ft * 0.9 + 63.0)) * shake * 0.3
-	_look = _crowd_look + Vector3(_noise.at(_ft * 0.7 + 71.0), _noise.at(_ft * 0.8 + 77.0), _noise.at(_ft * 0.7 + 83.0)) * shake + _kick * 0.3
-	_fov = 46.0 * ZOOM[zoom].fov
-	_roll = _damp(_roll, _noise.at(_ft * 0.3 + 91.0) * 0.03, 2.0, dt)
-	crowd_seat = Vector4(_crowd_eye.x, _crowd_eye.z, 1.4, minf(1.0, 0.6 + _heat * 0.4))
-	# keep the polar state on this side of the fighters, so the next cut judges its jump from here
-	var p0 = m.fighters[0].body.pos[J_PELVIS]
-	var p1 = m.fighters[1].body.pos[J_PELVIS]
-	_center = Vector3((p0.x + p1.x) / 2.0, 1.0, (p0.z + p1.z) / 2.0)
-	_yaw = atan2(_pos.z - _center.z, _pos.x - _center.x)
-	_dist = Vector2(_pos.x - _center.x, _pos.z - _center.z).length()
-
-
 func _shot_yaw(s: Shot) -> float:
 	# KO: look past the fallen fighter toward the winner standing over them
 	if s.kind == "ko":
@@ -1244,11 +1186,7 @@ func _frame(dt: float, m) -> void:
 	var ce := cos(_el)
 	_dir = Vector3(cos(_yaw) * ce, sin(_el), sin(_yaw) * ce)
 	_pos = _center + _dir * _dist
-	if titan:
-		# a titan is filmed from the ground: down on the plain beyond the deck, on the deck's turf
-		_pos.y = maxf(0.25 if Vector2(_pos.x, _pos.z).length() < 5.6 else -0.42, _pos.y)
-	else:
-		_pos.y = maxf(0.35, _pos.y)
+	_pos.y = maxf(0.35, _pos.y)
 	var wob := s.wobble
 	_look = Vector3(
 		_center.x + _kick.x + _noise.at(_ft * 0.6 + 3.0) * wob,
@@ -1459,7 +1397,7 @@ func _measure(m, s: Shot) -> void:
 		fit = maxf(fit, maxf(depth + absf(rel.dot(right)) / (tan_h * mm), depth + absf(rel.dot(up)) / (tan_v * mm)))
 	var dist: float = maxf(safe, fit * z.dist)
 	# how far back the arena lets us go along this direction (the ring itself is no limit)
-	var cap := _reach(c.x, c.z, cos(_yaw), sin(_yaw), TITAN_FREE_R if titan else FREE_R) / maxf(0.2, ce)
+	var cap := _reach(c.x, c.z, cos(_yaw), sin(_yaw), FREE_R) / maxf(0.2, ce)
 	_fit_dist = dist
 	_fit_norm = maxf(safe, fit)
 	_fit_cap = maxf(1.2 if s.kind == "ko" else 1.6, cap)

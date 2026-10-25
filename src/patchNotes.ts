@@ -17,6 +17,17 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-25 06:00",
+    title: "Titans, rebuilt",
+    notes: [
+      "Titan battles are rebuilt from scratch: the giants now fight on a steel stage in a harbour city in the evening sun, with crowds, buses, fire engines and camera crews at their feet, and a bridge, cranes and ships on the skyline.",
+      "Titan fights are filmed like a real broadcast of 30-metre robots: from the street, the rooftops, a news helicopter, a boat in the harbour and the edge of the stage.",
+      "Time no longer slows down in titan battles: the titans still move with heavy weight, but the round clock and the referee's count run in real seconds, and their heavier blows hit harder.",
+      "Every step and slam is felt: dust rolls off the stage, the deck cracks and glows, the ground shakes the cameras, car alarms go off and people nearby duck for cover.",
+      "New titan sounds: deep booms that echo off the buildings, the city humming around the fight and a ship's horn for the knockout.",
+    ],
+  },
+  {
+    hour: "2026-10-25 06:00",
     title: "Not so fast",
     notes: [
       "Takedowns in the clinch that fail now play out: you see the attempt and the counter instead of nothing happening.",

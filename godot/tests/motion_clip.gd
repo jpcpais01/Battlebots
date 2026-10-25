@@ -3,6 +3,7 @@
 ## ahead with the 3D off, then every frame saved as <out>_0000.png... Run it with a fixed frame
 ## rate so each frame is the same slice of fight time, then make a video of the frames:
 ##   GD_FPS=30 sh godot/tools/shots/clip.sh <out> [bots seed] [fight seed] [from s] [frames] [cam] [speed] [lab]
+## Env: BB_ARENA=titan (or a world map venue's id) fights there instead of the indoor arena.
 ## cam: "side" (a lens square on to the line between the robots, gliding with them: the clearest
 ## view of how they move), "low" (the same, lower and closer), "director" (the broadcast cameras,
 ## as the game cuts them).
@@ -88,6 +89,10 @@ func _start() -> void:
 	var rng = TMath.Rng.new(bots_seed)
 	var a = TLoadout.randomBot(rng)
 	var b = TLoadout.randomBot(rng, 0.35, a.paint)
+	# BB_ARENA: fight in a venue of the world map's, or "titan" (a titan battle)
+	if OS.get_environment("BB_ARENA") != "":
+		OS.set_environment("BB_VENUE_SYNC", "1")
+		fight.set_arena(OS.get_environment("BB_ARENA"))
 	fight.start_match(a, b, fight_seed)
 	print("bots: ", a.name_, " vs ", b.name_, " (sizes ", a.size_, ", ", b.size_, ")")
 

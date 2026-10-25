@@ -13,6 +13,14 @@ const COUNT_OUT: float = 9.6
 const GETUP_PER_SECOND: float = 0.36
 const TRY_GAP: float = 2.0
 const ROUND_TIME: float = 99.0
+static var TITAN_PACE
+const TITAN_IDLE: float = 0.84
+const TITAN_INTRO: float = 0.92
+const TITAN_FALL: float = 0.72
+const TITAN_FALL_S: float = 1.1
+const TITAN_GETUP: float = 0.86
+const TITAN_EASE: float = 0.11
+const TITAN_HIT: float = 1.25
 const COUNTDOWN: float = 3.0
 const ROPE_REACH: float = 0.25
 const ROPE_STRETCH: float = 0.4
@@ -41,6 +49,8 @@ class Match extends RefCounted:
 	var hitSpan: float
 	var slowmo: float
 	var puppets: bool
+	var titan: bool
+	var titanPace: float
 	var winner: TFighter.Fighter
 	var result
 	var lossReason
@@ -81,6 +91,8 @@ class Match extends RefCounted:
 		self.hitSpan = 0.0
 		self.slowmo = 1.0
 		self.puppets = false
+		self.titan = false
+		self.titanPace = 1.0
 		self.winner = null
 		self.result = null
 		self.lossReason = null
@@ -211,6 +223,40 @@ class Match extends RefCounted:
 			coachLog.append(JS.merge([c, {"frame": frame}]))
 			emit("coach", {"f": fighters[c.side], "kind": c.kind})
 	
+	func titanWant() -> float:
+		if (phase == "intro"):
+			return TMatch.TITAN_INTRO
+		if ((phase == "countdown") or (phase == "end")):
+			return 1.0
+		var want: float = (TMatch.TITAN_GETUP if (phase == "ko") else TMatch.TITAN_IDLE)
+		var fall: bool = false
+		var count: bool = false
+		var rise: bool = false
+		for f: TFighter.Fighter in fighters:
+			if (((f.state == "down") or (f.state == "ko")) or (f.state == "getup")):
+				if (f.downAge < TMatch.TITAN_FALL_S):
+					fall = true
+				elif (f.state == "getup"):
+					rise = true
+				else:
+					count = true
+		if fall:
+			return TMatch.TITAN_FALL
+		if rise:
+			return TMatch.TITAN_GETUP
+		if count:
+			return 1.0
+		var _hTITAN_PACE = TMatch.TITAN_PACE
+		for f_2: TFighter.Fighter in fighters:
+			var s = f_2.strike
+			if (not (s != null)):
+				continue
+			var p: float = _hTITAN_PACE[s.phase]
+			if (s.phase == "active"):
+				return p
+			want = minf(want, p)
+		return want
+	
 	func impact(s: float) -> void:
 		if (s <= hitstop):
 			return
@@ -237,6 +283,8 @@ class Match extends RefCounted:
 		ropeCooldown[1.0] -= dt
 		if (tag != null):
 			tag.begin(dt)
+		if titan:
+			self.titanPace += (((titanWant() - titanPace)) * TMatch.TITAN_EASE)
 		var _hENTRY = TEntrance.ENTRY
 		if phase == "intro":
 			var i: int = 0
@@ -265,7 +313,7 @@ class Match extends RefCounted:
 			while true:
 				if ((self.fin != null) or ((tag != null) and tag.paused)):
 					break
-				self.clock = maxf(0.0, (clock - dt))
+				self.clock = maxf(0.0, (clock - (((dt / titanPace) if titan else dt))))
 				for f_3: TFighter.Fighter in fighters:
 					checkRingOut(f_3)
 				var co = countOut
@@ -629,7 +677,7 @@ class Match extends RefCounted:
 		if ((phase != "fight") or (def.state == "ko")):
 			return
 		var dst = def.build.stats
-		var dmg: float = ((b.damage * rng.range_(0.92, 1.08)) * ((1.0 + att.overdrive)))
+		var dmg: float = (((b.damage * rng.range_(0.92, 1.08)) * ((1.0 + att.overdrive))) * ((TMatch.TITAN_HIT if titan else 1.0)))
 		dmg *= (1.0 - dst.armor)
 		if (b.zone == "body"):
 			dmg *= (1.0 - def.passive("bulwark"))
@@ -728,7 +776,7 @@ class Match extends RefCounted:
 		var side: float = (0.0 if (s.side == "L") else 1.0)
 		var power: float = ((ast.punchPower * att.parts.fistPower(side)) if (m.kind == "punch") else (ast.kickPower * att.parts.footPower(side)))
 		var timing: float = (0.55 + (0.45 * TMath.smoothstep_(0.08, 0.6, s.activeProgress)))
-		var dmg: float = ((m.damage * power) * timing)
+		var dmg: float = (((m.damage * power) * timing) * ((TMatch.TITAN_HIT if titan else 1.0)))
 		if (zone == "head"):
 			dmg *= 1.15
 		if (zone == "legs"):
@@ -1299,6 +1347,7 @@ class Match extends RefCounted:
 		emit(ev, data)
 
 static func __init_module() -> void:
+	TMatch.TITAN_PACE = {"windup": 0.66, "active": 0.94, "recovery": 0.78}
 	TMatch._a = V3.new()
 	TMatch._b = V3.new()
 	TMatch._c = V3.new()
