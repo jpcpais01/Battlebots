@@ -1,9 +1,11 @@
 ## The Skin Vault: where skins are won. The vault is its own place, a neon-lit bank vault
 ## (render/vault/vault_stage.gd): the player's bot on a glowing turntable on the right (drag to turn
 ## round it) in front of the vault's great round door; the panel on the left has two tabs.
-##   Vault: today's featured Epic turning in its halo, the rates and how close the Epic pity is,
-##   the free pull (or when it's back), and the pulls (one, or ten with a Rare or better in them),
-##   paid in career credits. The first visit has a free 10-pull waiting.
+##   Vault: today's featured Epic turning in its halo, the rates, how close the Epic pity is (the
+##   vault's combination dial, a lamp lit for every pull since the last Epic: tap it for the free
+##   pull when one's waiting), the free pull (or when it's back), and the pulls (one, or ten with
+##   a Rare or better in them, a tenth off), paid in career credits, a glint running over them now
+##   and then. The first visit has a free 10-pull waiting.
 ##   Collection: every skin as a card (the ones not owned yet veiled), by rarity. Tapping one
 ##   paints it onto the bot with a sweep of light: one owned goes on for good, one not owned is
 ##   only tried on, with the shards it costs.
@@ -35,8 +37,6 @@ var _feat_orb: SkinOrb
 var _feat_name: Label
 var _feat_blurb: Label
 var _feat_clock: Label
-var _pity_l: Label
-var _pity_bar: Control
 var _free_btn: Button
 var _free_l: Label
 var _one: Button
@@ -49,12 +49,16 @@ var _strip_info: Label
 var _strip_btn: Button
 var _wearing: Button
 var _toast: Label
-## The idle capsule on the vault tab, its light pool, and a nudge when it's tapped.
-var _cap: Button
-var _cap_mat: ShaderMaterial
-var _cap_pool: TextureRect
-var _cap_kick := 0.0
-var _cap_t := 0.0
+## The pity dial on the vault tab: its face, the pulls left in its middle, the words beside it,
+## its turn (and a spin when it's tapped), and its lamps easing to how many are lit.
+var _dial: Button
+var _dial_mat: ShaderMaterial
+var _dial_n: Label
+var _dial_big: Label
+var _dial_sub: Label
+var _dial_turn := 0.0
+var _dial_kick := 0.0
+var _dial_fill := -1.0
 var _clock_t := 0.0
 var _spin := {"dragging": false, "vel": 0.0, "idle": 0.0, "x": 0.0, "t": 0}
 var _fade_tw: Tween
@@ -300,67 +304,71 @@ func _draw_vault() -> void:
 	MenuKit.pad_button(info, 14, 34)
 	info.pressed.connect(_details)
 	rates.add_child(info)
-	# the pity: how close an Epic is
-	var pity := VBoxContainer.new()
-	pity.add_theme_constant_override(&"separation", 5)
-	_body.add_child(pity)
-	_pity_l = MenuKit.label("", 0.82 * EM, 650, UiTheme.TEXT_2)
-	pity.add_child(_pity_l)
-	_pity_bar = CareerKit.bar(0.0)
-	pity.add_child(_pity_bar)
-	# the vault's capsule, waiting: hovering over a pool of light, its seam breathing through the
-	# rarity colours (tap it: the free pull if one's waiting)
-	var stage := Control.new()
-	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	stage.custom_minimum_size.y = 90
-	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_body.add_child(stage)
-	var pool := TextureRect.new()
-	var gt := GradientTexture2D.new()
-	gt.fill = GradientTexture2D.FILL_RADIAL
-	gt.fill_from = Vector2(0.5, 0.5)
-	gt.fill_to = Vector2(0.5, 0.0)
-	var gr := Gradient.new()
-	gr.set_color(0, Color(1, 1, 1, 0.9))
-	gr.set_color(1, Color(1, 1, 1, 0.0))
-	gr.add_point(0.4, Color(1, 1, 1, 0.3))
-	gt.gradient = gr
-	pool.texture = gt
-	pool.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	pool.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(pool)
-	_cap = Button.new()
-	_cap.flat = true
-	_cap.focus_mode = Control.FOCUS_NONE
+	# the pity: the vault's combination dial, a lamp for every pull since the last Epic, the pulls
+	# left in its middle (tap it: the free pull if one's waiting, or just a spin)
+	var prow := HBoxContainer.new()
+	prow.add_theme_constant_override(&"separation", 16)
+	prow.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	prow.custom_minimum_size.y = 92
+	_body.add_child(prow)
+	_dial = Button.new()
+	_dial.flat = true
+	_dial.focus_mode = Control.FOCUS_NONE
 	for st in [&"normal", &"hover", &"pressed", &"hover_pressed", &"focus"]:
-		_cap.add_theme_stylebox_override(st, StyleBoxEmpty.new())
-	_cap_mat = ShaderMaterial.new()
-	_cap_mat.shader = preload("res://app/gacha/capsule.gdshader")
-	var cr := ColorRect.new()
-	cr.material = _cap_mat
-	cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cr.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_cap.add_child(cr)
-	_cap.pressed.connect(func() -> void:
+		_dial.add_theme_stylebox_override(st, StyleBoxEmpty.new())
+	_dial.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_dial_mat = ShaderMaterial.new()
+	_dial_mat.shader = preload("res://app/gacha/pity_dial.gdshader")
+	_dial_mat.set_shader_parameter("lamps", float(Gacha.HARD_PITY))
+	_dial_mat.set_shader_parameter("soft", float(Gacha.SOFT_PITY) / float(Gacha.HARD_PITY))
+	var face := ColorRect.new()
+	face.material = _dial_mat
+	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	face.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_dial.add_child(face)
+	var mid := VBoxContainer.new()
+	mid.alignment = BoxContainer.ALIGNMENT_CENTER
+	mid.add_theme_constant_override(&"separation", -4)
+	mid.set_anchors_preset(Control.PRESET_FULL_RECT)
+	mid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_dial.add_child(mid)
+	_dial_n = MenuKit.label("", 1.6 * EM, 400)
+	_dial_n.add_theme_font_override(&"font", MenuKit.broadcast(400))
+	_dial_n.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mid.add_child(_dial_n)
+	var left_l := MenuKit.label("LEFT", 0.55 * EM, 800, UiTheme.MUTED, 1)
+	left_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mid.add_child(left_l)
+	_dial.pressed.connect(func() -> void:
 		if Gacha.gift_ready(g()):
 			_free_pull()
 		else:
 			app.tap("tap")
-			_cap_kick = 1.0)
-	stage.add_child(_cap)
-	_cap_pool = pool
-	stage.resized.connect(func() -> void:
-		var hh := stage.size.y
-		var cw := hh * 0.75
-		_cap.size = Vector2(cw, hh)
-		_cap.position = Vector2((stage.size.x - cw) * 0.5, 0)
-		_cap_mat.set_shader_parameter("aspect", 0.75)
-		pool.size = Vector2(hh * 2.4, hh * 0.5)
-		pool.position = Vector2((stage.size.x - pool.size.x) * 0.5, hh * 0.78))
+			sound.play("crank", 0.35, 1.6)
+			_dial_kick = 1.0)
+	prow.add_child(_dial)
+	prow.resized.connect(func() -> void:
+		var d := clampf(prow.size.y, 80.0, 132.0)
+		_dial.custom_minimum_size = Vector2(d, d))
+	var words := VBoxContainer.new()
+	words.alignment = BoxContainer.ALIGNMENT_CENTER
+	words.add_theme_constant_override(&"separation", 2)
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	prow.add_child(words)
+	words.add_child(MenuKit.label("EPIC GUARANTEE", 0.68 * EM, 800, Skins.RARITY_COL[2], 2))
+	_dial_big = MenuKit.label("", 1.35 * EM, 400)
+	_dial_big.add_theme_font_override(&"font", MenuKit.broadcast(400))
+	MenuKit.text_shadow(_dial_big, 0.5)
+	words.add_child(_dial_big)
+	_dial_sub = MenuKit.label("", 0.78 * EM, 600, UiTheme.TEXT_2)
+	_dial_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_dial_sub.custom_minimum_size.x = 120
+	words.add_child(_dial_sub)
 	# the free pull (or the welcome gift), then the paid pulls
 	_free_btn = UiTheme.button("", "star", &"BtnPrimary")
 	MenuKit.pad_button(_free_btn, 18, 50)
 	_free_btn.pressed.connect(_free_pull)
+	_sheen(_free_btn, 999.0, 4.2, 0.5, 0.45)
 	_body.add_child(_free_btn)
 	_free_l = MenuKit.label("", 0.8 * EM, 600, UiTheme.MUTED)
 	_free_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -374,6 +382,7 @@ func _draw_vault() -> void:
 	_ten = _pull_button("Pull ×10", 10, Gacha.TEN_COST, "Rare or better inside")
 	_ten.pressed.connect(func() -> void: pull(10))
 	pulls.add_child(_ten)
+	_sheen(card, 18.0, 5.5, 0.2, 0.22)
 	_tick_clocks()
 
 
@@ -408,8 +417,39 @@ func _pull_button(text: String, n: int, cost: int, sub: String) -> Button:
 		var s := MenuKit.label(sub, 0.68 * EM, 700, Color(UiTheme.INK, 0.75) if ten else UiTheme.MUTED)
 		s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		v.add_child(s)
+	if ten:
+		_sheen(b, 18.0, 3.6, 0.0, 0.5)
+		# a tenth off, on a ribbon across its corner
+		var off := int(round((1.0 - float(cost) / float(n * Gacha.PULL_COST)) * 100.0))
+		if off > 0:
+			var tag := MenuKit.pill(MenuKit.box(Color(0.92, 0.12, 0.3), 999, [8, 2, 8, 2], Color(1, 1, 1, 0.5), 1))
+			tag.get_node("Row").add_child(MenuKit.label("SAVE %d%%" % off, 0.62 * EM, 900, Color.WHITE, 1))
+			tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			b.add_child(tag)
+			tag.rotation = 0.12
+			b.resized.connect(func() -> void:
+				var ts := tag.get_combined_minimum_size()
+				tag.size = ts
+				tag.position = Vector2(b.size.x - ts.x + 6.0, -ts.y * 0.45))
 	b.set_meta("cost", cost)
 	return b
+
+
+## A glint of light that slides over `on` every `period` seconds (`radius` its corners).
+func _sheen(on: Control, radius: float, period: float, phase: float, strength: float) -> void:
+	var m := ShaderMaterial.new()
+	m.shader = preload("res://app/gacha/sheen.gdshader")
+	m.set_shader_parameter("period", period)
+	m.set_shader_parameter("phase", phase)
+	m.set_shader_parameter("strength", strength)
+	var r := ColorRect.new()
+	r.material = m
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	r.set_anchors_preset(Control.PRESET_FULL_RECT)
+	on.add_child(r)
+	r.resized.connect(func() -> void:
+		m.set_shader_parameter("rect", r.size)
+		m.set_shader_parameter("radius", minf(radius, minf(r.size.x, r.size.y) * 0.5)))
 
 
 func _tick_clocks() -> void:
@@ -418,8 +458,11 @@ func _tick_clocks() -> void:
 	var gs := g()
 	_feat_clock.text = "New featured skin in " + Gacha.clock(Gacha.featured_in())
 	var left := Gacha.pity_left(gs)
-	_pity_l.text = "An Epic in at most %d pull%s" % [left, "" if left == 1 else "s"] if left > 1 else "Your next pull is an Epic"
-	CareerKit.set_bar(_pity_bar, float(gs.since_epic) / float(Gacha.HARD_PITY))
+	_dial_n.text = str(left)
+	_dial_big.text = "In at most %d pulls" % left if left > 1 else "Your next pull is an Epic"
+	var pct := int(round(Gacha.epic_chance(gs) * 100.0))
+	var boosted := int(gs.since_epic) + 1 > Gacha.SOFT_PITY
+	_dial_sub.text = "Epic chance boosted to %d%% a pull" % pct if boosted else "Epic chance %d%% a pull, rising after %d pulls" % [pct, Gacha.SOFT_PITY]
 	var credits: float = app.record.career.credits
 	if not gs.welcome:
 		_free_btn.visible = true
@@ -445,27 +488,21 @@ func tick(dt: float) -> void:
 	# the sounds are made a few at a time before they're needed
 	GachaSound.warm_one()
 	_spin_tick(dt)
-	_cap_tick(dt)
+	_dial_tick(dt)
 
 
-## The idle capsule: a slow bob and tilt, the seam breathing and drifting Common, Rare, Epic.
-func _cap_tick(dt: float) -> void:
-	if _cap == null or not is_instance_valid(_cap) or not _cap.is_visible_in_tree():
+## The pity dial: turning slowly (a spin when tapped), its lamps easing to the pulls since the
+## last Epic, glowing while a free pull waits.
+func _dial_tick(dt: float) -> void:
+	if _dial == null or not is_instance_valid(_dial) or not _dial.is_visible_in_tree():
 		return
-	_cap_t += dt
-	_cap_kick = maxf(0.0, _cap_kick - dt * 2.5)
-	var ph := fmod(_cap_t * 0.25, 3.0)
-	var i := int(ph)
-	var k := smoothstep(0.75, 1.0, ph - float(i))
-	var col: Color = Skins.RARITY_COL[i].lerp(Skins.RARITY_COL[(i + 1) % 3], k)
-	var ready := Gacha.gift_ready(g())
-	_cap_mat.set_shader_parameter("seam", col)
-	_cap_mat.set_shader_parameter("charge", (0.32 if ready else 0.16) + 0.1 * sin(_cap_t * 2.2) + _cap_kick * 0.4)
-	_cap.pivot_offset = _cap.size * 0.5
-	_cap.rotation = sin(_cap_t * 0.9) * 0.05 + sin(_cap_t * 30.0) * 0.06 * _cap_kick
-	var bob := sin(_cap_t * 1.4) * _cap.size.y * 0.03
-	_cap.position.y = bob
-	_cap_pool.modulate = Color(col, 0.5 + 0.2 * sin(_cap_t * 2.2))
+	_dial_kick = maxf(0.0, _dial_kick - dt * 0.9)
+	_dial_turn += dt * (0.12 + _dial_kick * _dial_kick * 9.0)
+	_dial_mat.set_shader_parameter("turn", _dial_turn)
+	var to := float(g().since_epic) / float(Gacha.HARD_PITY)
+	_dial_fill = to if _dial_fill < 0.0 else move_toward(_dial_fill, to, dt * 0.35)
+	_dial_mat.set_shader_parameter("fill", _dial_fill)
+	_dial_mat.set_shader_parameter("ready", 1.0 if Gacha.gift_ready(g()) else 0.0)
 
 
 # ------------------------------------------------------------------------------ pulling

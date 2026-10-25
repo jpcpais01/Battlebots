@@ -16,6 +16,17 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-25 05:00",
+    title: "Vault heist",
+    notes: [
+      "Skin reveals now stamp in the rarity's stars, shoot a streak of light behind its name and set god rays wheeling behind your robot in its colour.",
+      "A ×10 pull with an Epic in it puts that Epic in the spotlight on your robot before the cards deal.",
+      "The Epic pity is now the vault's combination dial: a lamp lights for every pull since your last Epic, and it shows your Epic chance.",
+      "The vault has shafts of light with dust drifting in them, stacks of gold bars, security cameras that follow the pods, and today's featured Epic in a glass case.",
+      "Pods leave a trail of light as they glide out of the vault, and the ×10 pull now says how much it saves.",
+    ],
+  },
+  {
     hour: "2026-10-25 04:00",
     title: "Crack the vault",
     notes: [

@@ -5,6 +5,10 @@
 ## with a spoked wheel, a ring of locking bolts round its edge and a neon ring round its frame,
 ## under the SKIN VAULT sign, between two alarm beacons; a status panel beside it says what the
 ## vault is doing. Inside, a steel tube lined with glowing display pods, blazing at its far end.
+## Shafts of light fall through the haze onto the robot and the door with dust drifting in them,
+## pallets of gold bars sit either side of the door, a security camera pans the room from each back
+## corner (it follows the pod once a pull is on), and today's featured Epic turns in a glass case
+## on a plinth under its own spot.
 ## Game builds it the first time the world goes to "vault" (Game.PLACES) and calls enter(game),
 ## exit() and update(dt, time) round it: it lights the world its own way meanwhile
 ## (HomeStage.HomeLook) and flies its own camera (the director's "scene" mode).
@@ -17,7 +21,9 @@
 ## neon turns with it; an Epic sets the vault off: alarms, red beacons sweeping the walls, a grid
 ## of lasers snapping on across the room, every box light blinking red, until it bursts and
 ## everything turns gold under a shower of coins. Then the camera cuts to the robot as a beam of
-## light paints the skin onto it. Ten: ten pods fly out of the door onto pads in an arc and pop
+## light paints the skin onto it, god rays in its rarity's colour wheeling behind it (grander the
+## rarer) and sparks rising round it. The gliding pod leaves a trail: pale, or violet for a Rare or
+## better (an Epic keeps its secret till the charge). Ten: ten pods fly out of the door onto pads in an arc and pop
 ## one after another into hovering lights in their rarity's colour, an Epic tripping the alarm
 ## first. Each moment is told through `beat`. When the pull is done the door swings shut again.
 class_name VaultStage
@@ -164,6 +170,32 @@ var _beam: MeshInstance3D
 var _beam_mat: ShaderMaterial
 var _confetti: CPUParticles3D
 var _coins: CPUParticles3D
+## The reveal's glory: god rays wheeling behind the robot (in the skin's rarity colour, `_aura_lvl`
+## by rarity, eased in by `_aura_k`, its ring racing out `_aura_t`), sparks rising round it.
+var _aura: MeshInstance3D
+var _aura_mat: ShaderMaterial
+var _aura_k := 0.0
+var _aura_lvl := 0.0
+var _aura_col := Vector3.ONE
+var _aura_t := 1.0
+var _motes: CPUParticles3D
+## The trail of light a single pull's pod leaves as it glides out of the vault.
+var _trail: CPUParticles3D
+
+## The room's dressing: shafts of light from the ceiling (the one on the robot takes a reveal's
+## colour), dust drifting in them, the security cameras (their heads, their red lights), the
+## featured skin turning in its display case.
+var _shaft_mat: ShaderMaterial
+var _shaft_door: ShaderMaterial
+var _haze: CPUParticles3D
+var _cams: Array[Node3D] = []
+var _cam_led: ShaderMaterial
+var _feat: MeshInstance3D
+var _feat_mat: ShaderMaterial
+var _feat_id := ""
+var _feat_name: Label3D
+var _feat_tag: Label3D
+var _feat_light: SpotLight3D
 
 ## The camera: where it is, what it looks at, the lens (x the screen's base), how tightly it
 ## follows (100+: exactly), a cut this frame.
@@ -204,6 +236,7 @@ func _init() -> void:
 	_build_door()
 	_build_vault()
 	_build_alarm()
+	_build_dressing()
 	_build_pull_props()
 	var sky_mat := ShaderMaterial.new()
 	sky_mat.shader = preload("res://render/vault/vault_env.gdshader")
@@ -282,6 +315,38 @@ static func _cyl(r: float, h: float, segs: int, r2 := -1.0) -> CylinderMesh:
 	c.radial_segments = segs
 	c.rings = 1
 	return c
+
+
+## A soft round dot (white, fading to clear at its edge) for the haze and the sparks.
+static func _soft_tex() -> GradientTexture2D:
+	var soft := GradientTexture2D.new()
+	soft.fill = GradientTexture2D.FILL_RADIAL
+	soft.fill_from = Vector2(0.5, 0.5)
+	soft.fill_to = Vector2(0.5, 0.0)
+	soft.width = 64
+	soft.height = 64
+	var sg := Gradient.new()
+	sg.set_color(0, Color(1, 1, 1, 1))
+	sg.set_color(1, Color(1, 1, 1, 0))
+	soft.gradient = sg
+	return soft
+
+
+## Glowing specks for particles: a soft dot `size` across, added over the scene in the particle's
+## colour.
+static func _speck(size: float) -> QuadMesh:
+	var q := QuadMesh.new()
+	q.size = Vector2(size, size)
+	var m := StandardMaterial3D.new()
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	m.vertex_color_use_as_albedo = true
+	m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	m.albedo_texture = _soft_tex()
+	q.material = m
+	return q
 
 
 func _shadowless(mi: GeometryInstance3D) -> GeometryInstance3D:
@@ -485,17 +550,7 @@ func _build_door() -> void:
 	sm.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
 	sm.vertex_color_use_as_albedo = true
 	sm.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
-	var soft := GradientTexture2D.new()
-	soft.fill = GradientTexture2D.FILL_RADIAL
-	soft.fill_from = Vector2(0.5, 0.5)
-	soft.fill_to = Vector2(0.5, 0.0)
-	soft.width = 64
-	soft.height = 64
-	var sg := Gradient.new()
-	sg.set_color(0, Color(1, 1, 1, 1))
-	sg.set_color(1, Color(1, 1, 1, 0))
-	soft.gradient = sg
-	sm.albedo_texture = soft
+	sm.albedo_texture = _soft_tex()
 	puff.material = sm
 	_steam.mesh = puff
 	_steam.position = DOOR + Vector3(0, 0, 0.6)
@@ -669,6 +724,194 @@ func _build_alarm() -> void:
 		_lasers.append(mi)
 
 
+## The room's dressing: shafts of light down through the haze onto the robot and the door, dust
+## drifting in them, pallets of gold bars either side of the door, a security camera high in each
+## back corner panning the room, and the featured skin turning in a glass case under its own spot.
+func _build_dressing() -> void:
+	# the shafts: open cones from the ceiling, brightest at the lamp
+	_shaft_mat = ShaderMaterial.new()
+	_shaft_mat.shader = preload("res://render/vault/vault_ray.gdshader")
+	_shaft_mat.set_shader_parameter("height", ROOM_H)
+	_shaft_door = ShaderMaterial.new()
+	_shaft_door.shader = preload("res://render/vault/vault_ray.gdshader")
+	_shaft_door.set_shader_parameter("height", ROOM_H)
+	_shaft_door.set_shader_parameter("color", Vector3(0.55, 0.62, 0.9))
+	_shaft_door.set_shader_parameter("alpha", 0.11)
+	var shaft := _cyl(0.12, ROOM_H, 24, 2.3)
+	shaft.cap_top = false
+	shaft.cap_bottom = false
+	_shadowless(_mesh(shaft, _shaft_mat, Vector3(0, ROOM_H * 0.5, 0)))
+	for x in [-3.4, 3.0]:
+		var sh := _shadowless(_mesh(shaft, _shaft_door, Vector3(DOOR.x + x, ROOM_H * 0.5, -8.6)))
+		sh.scale = Vector3(0.8, 1.0, 0.8)
+	var lamp := _cyl(0.22, 0.1, 20)
+	for at in [Vector3(0, ROOM_H - 0.07, 0), Vector3(DOOR.x - 3.4, ROOM_H - 0.07, -8.6), Vector3(DOOR.x + 3.0, ROOM_H - 0.07, -8.6)]:
+		_shadowless(_mesh(lamp, _neon(Vector3(1.0, 0.95, 0.9), 1.4), at))
+	# the dust in the light
+	_haze = CPUParticles3D.new()
+	_haze.amount = 90
+	_haze.lifetime = 9.0
+	_haze.preprocess = 9.0
+	_haze.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	_haze.emission_box_extents = Vector3(5.0, 2.8, 5.5)
+	_haze.direction = Vector3(0.3, 1.0, 0.1)
+	_haze.spread = 180.0
+	_haze.initial_velocity_min = 0.02
+	_haze.initial_velocity_max = 0.12
+	_haze.gravity = Vector3(0, 0.01, 0)
+	_haze.scale_amount_min = 0.5
+	_haze.scale_amount_max = 1.3
+	var dfade := Gradient.new()
+	dfade.offsets = PackedFloat32Array([0.0, 0.25, 0.75, 1.0])
+	dfade.colors = PackedColorArray([Color(1, 0.92, 0.8, 0.0), Color(1, 0.92, 0.8, 0.55), Color(1, 0.92, 0.8, 0.55), Color(1, 0.92, 0.8, 0.0)])
+	_haze.color_ramp = dfade
+	_haze.mesh = _speck(0.035)
+	_haze.position = Vector3(-0.2, 3.0, -4.0)
+	add_child(_shadowless(_haze))
+	# the gold: bars stacked crosswise on a pallet either side of the door
+	var bar := _cyl(0.072, 0.075, 4, 0.1)
+	var bars := MultiMesh.new()
+	bars.transform_format = MultiMesh.TRANSFORM_3D
+	bars.mesh = bar
+	var xf: Array[Transform3D] = []
+	for side in [[DOOR.x - 5.6, -9.4, 0.25], [DOOR.x + 5.9, -9.6, -0.3]]:
+		var c := Vector3(side[0], 0.0, side[1])
+		var turn := Basis(Vector3.UP, float(side[2]))
+		var pal := BoxMesh.new()
+		pal.size = Vector3(1.5, 0.14, 1.1)
+		var pm := _mesh(pal, _std(0x2b2116, 0.0, 0.8), c + Vector3(0, 0.07, 0))
+		pm.basis = turn
+		# layers of bars, crossing each other, each layer a bar shorter
+		for layer in 5:
+			var n := 5 - layer
+			var along := layer % 2 == 0
+			for i in n:
+				var off := (i - (n - 1) * 0.5) * (0.23 if along else 0.2)
+				# (the bar: a four-sided frustum turned square-on, stretched along its length)
+				var b := Basis(Vector3.UP, PI * 0.25).scaled(Vector3(1.0, 1.0, 1.0))
+				var stretch := Basis.from_scale(Vector3(0.95, 1.0, 2.6) if along else Vector3(2.6, 1.0, 0.95))
+				var at := Vector3(off, 0.14 + 0.04 + layer * 0.078, 0) if along else Vector3(0, 0.14 + 0.04 + layer * 0.078, off)
+				xf.append(Transform3D(turn * stretch * b, c + turn * at))
+	bars.instance_count = xf.size()
+	for i in xf.size():
+		bars.set_instance_transform(i, xf[i])
+	var gold := StandardMaterial3D.new()
+	gold.albedo_color = Color(1.0, 0.74, 0.28)
+	gold.metallic = 1.0
+	gold.roughness = 0.18
+	gold.emission_enabled = true
+	gold.emission = Color(1.0, 0.6, 0.2)
+	gold.emission_energy_multiplier = 0.25
+	var gmi := MultiMeshInstance3D.new()
+	gmi.multimesh = bars
+	gmi.material_override = gold
+	add_child(gmi)
+	for side in [[DOOR.x - 5.6, -9.4], [DOOR.x + 5.9, -9.6]]:
+		var gl := OmniLight3D.new()
+		gl.light_color = Color(1.0, 0.72, 0.35)
+		gl.light_energy = 1.2
+		gl.omni_range = 2.6
+		gl.position = Vector3(side[0], 1.4, side[1] + 0.6)
+		add_child(gl)
+	# the security cameras, high in the back corners
+	_cam_led = _neon(RED, 3.0)
+	var body := BoxMesh.new()
+	body.size = Vector3(0.24, 0.24, 0.6)
+	var hood := BoxMesh.new()
+	hood.size = Vector3(0.32, 0.04, 0.72)
+	var lens := _cyl(0.085, 0.08, 16)
+	var arm := _cyl(0.035, 0.5, 8)
+	var led := SphereMesh.new()
+	led.radius = 0.03
+	led.height = 0.06
+	led.radial_segments = 8
+	led.rings = 4
+	var shell := _std(0xd9dce2, 0.3, 0.35)
+	var dark := _std(0x111116, 0.8, 0.3)
+	for side in [-1.0, 1.0]:
+		var at := Vector3(DOOR.x + side * 7.8, 6.3, -ROOM + 0.2)
+		var mount := BoxMesh.new()
+		mount.size = Vector3(0.22, 0.32, 0.06)
+		_mesh(mount, dark, at)
+		_mesh(arm, dark, at + Vector3(0, -0.1, 0.25)).rotation.x = PI * 0.5
+		var head := Node3D.new()
+		head.position = at + Vector3(0, -0.12, 0.5)
+		add_child(head)
+		var tilt := Node3D.new()
+		tilt.rotation.x = -0.45
+		head.add_child(tilt)
+		_mesh(body, shell, Vector3(0, 0, 0.18), tilt)
+		_mesh(hood, dark, Vector3(0, 0.14, 0.22), tilt)
+		_mesh(lens, dark, Vector3(0, 0, 0.5), tilt).rotation.x = PI * 0.5
+		var ring := _mesh(_torus(0.07, 0.012, 16, 4), _neon(Vector3(0.4, 0.5, 0.8), 1.5), Vector3(0, 0, 0.545), tilt)
+		ring.rotation.x = PI * 0.5
+		_shadowless(_mesh(led, _cam_led, Vector3(0.08, 0.07, 0.42), tilt))
+		head.set_meta("side", side)
+		_cams.append(head)
+	# the featured skin: a ball of plating wearing it, turning in a glass case on a plinth, under a
+	# spot of its own, its name over it
+	var fc := Vector3(-2.4, 0.0, -2.7)
+	var plinth := _cyl(0.46, 1.0, 32, 0.52)
+	_mesh(plinth, _steel(0x24262d, 0.3, 0.0), fc + Vector3(0, 0.5, 0))
+	var trim := _cyl(0.5, 0.05, 32)
+	_mesh(trim, _std(0xd8a650, 1.0, 0.22), fc + Vector3(0, 1.02, 0))
+	var base_ring := _mesh(_torus(0.56, 0.02, 48, 4), _neon(GOLD, 3.0), fc + Vector3(0, 0.05, 0))
+	_shadowless(base_ring)
+	var orb := SphereMesh.new()
+	orb.radius = 0.3
+	orb.height = 0.6
+	orb.radial_segments = 28
+	orb.rings = 14
+	_feat_mat = ShaderMaterial.new()
+	_feat_mat.shader = preload("res://render/vault/vault_skin.gdshader")
+	_feat = _mesh(orb, _feat_mat, fc + Vector3(0, 1.45, 0))
+	var glass := _cyl(0.44, 0.92, 32)
+	glass.cap_bottom = false
+	var gm := ShaderMaterial.new()
+	gm.shader = preload("res://render/vault/vault_case.gdshader")
+	_shadowless(_mesh(glass, gm, fc + Vector3(0, 1.51, 0)))
+	_mesh(_cyl(0.47, 0.05, 32), _std(0xd8a650, 1.0, 0.22), fc + Vector3(0, 1.99, 0))
+	_feat_light = SpotLight3D.new()
+	_feat_light.light_color = Color(1.0, 0.92, 0.8)
+	_feat_light.light_energy = 6.0
+	_feat_light.spot_range = 7.0
+	_feat_light.spot_angle = 11.0
+	add_child(_feat_light)
+	_feat_light.look_at_from_position(fc + Vector3(0.6, 6.0, 1.4), fc + Vector3(0, 1.4, 0))
+	var tag := Label3D.new()
+	_feat_tag = tag
+	tag.text = "FEATURED EPIC"
+	tag.font = MenuKit.broadcast(400)
+	tag.font_size = 64
+	tag.pixel_size = 0.0034
+	tag.outline_size = 0
+	tag.shaded = false
+	tag.modulate = Color(2.2, 1.5, 0.5)
+	tag.billboard = BaseMaterial3D.BILLBOARD_FIXED_Y
+	tag.position = fc + Vector3(0, 2.5, 0)
+	add_child(tag)
+	_feat_name = Label3D.new()
+	_feat_name.font = MenuKit.broadcast(400)
+	_feat_name.font_size = 80
+	_feat_name.pixel_size = 0.0034
+	_feat_name.outline_size = 18
+	_feat_name.outline_modulate = Color(0, 0, 0, 0.6)
+	_feat_name.shaded = false
+	_feat_name.billboard = BaseMaterial3D.BILLBOARD_FIXED_Y
+	_feat_name.position = fc + Vector3(0, 2.27, 0)
+	add_child(_feat_name)
+
+
+## Today's featured skin into its case (it changes every day).
+func _feature() -> void:
+	var f = Gacha.featured()
+	if f == null or String(f.id) == _feat_id:
+		return
+	_feat_id = String(f.id)
+	Skins.apply(_feat_mat, f)
+	_feat_name.text = String(f.name).to_upper()
+
+
 func _build_pull_props() -> void:
 	_pod_mesh = CapsuleMesh.new()
 	_pod_mesh.radius = POD_R
@@ -766,7 +1009,7 @@ func _build_pull_props() -> void:
 	_coins.amount = 100
 	_coins.lifetime = 2.8
 	_coins.explosiveness = 0.92
-	var coin := _cyl(0.07, 0.014, 10)
+	var coin := _cyl(0.07, 0.014, 8)
 	var gm := StandardMaterial3D.new()
 	gm.albedo_color = Color(1.0, 0.78, 0.3)
 	gm.metallic = 1.0
@@ -789,6 +1032,57 @@ func _build_pull_props() -> void:
 	_coins.angle_min = -180.0
 	_coins.angle_max = 180.0
 	add_child(_shadowless(_coins))
+	# the reveal's glory behind the robot, and the sparks rising round it
+	var aq := QuadMesh.new()
+	aq.size = Vector2(7.5, 7.5)
+	_aura_mat = ShaderMaterial.new()
+	_aura_mat.shader = preload("res://render/vault/vault_aura.gdshader")
+	_aura = _shadowless(_mesh(aq, _aura_mat, Vector3(0, 1.4, -1.6))) as MeshInstance3D
+	_aura.visible = false
+	_motes = CPUParticles3D.new()
+	_motes.emitting = false
+	_motes.amount = 70
+	_motes.lifetime = 2.6
+	_motes.emission_shape = CPUParticles3D.EMISSION_SHAPE_RING
+	_motes.emission_ring_axis = Vector3.UP
+	_motes.emission_ring_radius = 1.5
+	_motes.emission_ring_inner_radius = 0.7
+	_motes.emission_ring_height = 0.1
+	_motes.direction = Vector3.UP
+	_motes.spread = 12.0
+	_motes.initial_velocity_min = 0.5
+	_motes.initial_velocity_max = 1.4
+	_motes.gravity = Vector3(0, 0.3, 0)
+	_motes.scale_amount_min = 0.6
+	_motes.scale_amount_max = 1.4
+	var mfade := Gradient.new()
+	mfade.offsets = PackedFloat32Array([0.0, 0.15, 0.7, 1.0])
+	mfade.colors = PackedColorArray([Color(1, 1, 1, 0), Color(1, 1, 1, 1), Color(1, 1, 1, 0.8), Color(1, 1, 1, 0)])
+	_motes.color_ramp = mfade
+	_motes.mesh = _speck(0.09)
+	_motes.position = Vector3(0, 0.1, 0)
+	add_child(_shadowless(_motes))
+	# the glide's trail: specks shed in the world as the pod passes, shrinking away
+	_trail = CPUParticles3D.new()
+	_trail.emitting = false
+	_trail.local_coords = false
+	_trail.amount = 90
+	_trail.lifetime = 0.7
+	_trail.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	_trail.emission_sphere_radius = 0.16
+	_trail.direction = Vector3.UP
+	_trail.spread = 180.0
+	_trail.initial_velocity_min = 0.05
+	_trail.initial_velocity_max = 0.35
+	_trail.gravity = Vector3.ZERO
+	var shrink := Curve.new()
+	shrink.add_point(Vector2(0, 1.0))
+	shrink.add_point(Vector2(1, 0.0))
+	_trail.scale_amount_curve = shrink
+	_trail.scale_amount_min = 0.7
+	_trail.scale_amount_max = 1.5
+	_trail.mesh = _speck(0.16)
+	add_child(_shadowless(_trail))
 
 
 func _pod_mat(top: int) -> ShaderMaterial:
@@ -813,6 +1107,7 @@ func enter(g: Game) -> void:
 	_look.save(game)
 	_look.apply(game, LOOK, _sky)
 	yaw = 0.2
+	_feature()
 	_reset()
 	_after_enter.call_deferred()
 
@@ -857,6 +1152,8 @@ func _reset(cut := true) -> void:
 	_shock.visible = false
 	_burst_light.light_energy = 0.0
 	_pod_glow = Vector3.ZERO
+	_motes.emitting = false
+	_trail.emitting = false
 	_alarm_to = 0.0
 	_gold_to = 0.0
 	_gold_until = -1.0
@@ -864,6 +1161,7 @@ func _reset(cut := true) -> void:
 	_laser_to = 0.0
 	_floor_mat.set_shader_parameter("table_col", Vector3(0.9, 0.3, 1.0))
 	if cut:
+		_aura_k = 0.0
 		_alarm = 0.0
 		_gold = 0.0
 		_tint_k = 0.0
@@ -984,6 +1282,13 @@ func show_on_robot(id: String) -> void:
 	var lc := _v(col.srgb_to_linear())
 	_beam_mat.set_shader_parameter("color", lc * 2.2)
 	_beam_t = 0.0
+	# the glory behind it and the sparks round it, grander the rarer
+	var tier := int(s.r) if s != null else 0
+	_aura_col = lc
+	_aura_lvl = [0.4, 0.75, 1.2][tier] if s != null else 0.25
+	_aura_t = 0.0
+	_motes.color = Color(col.r * 1.6, col.g * 1.6, col.b * 1.6) if s != null else Color(0.8, 0.85, 1.0)
+	_motes.emitting = true
 	_floor_mat.set_shader_parameter("table_col", lc * 1.6)
 	_pulse = 0.0
 	_floor_mat.set_shader_parameter("pulse_col", lc)
@@ -1062,7 +1367,7 @@ func step(dt: float, time: float) -> void:
 		_beam_t += dt
 		var k := _beam_t / 1.6
 		_beam.visible = k < 1.0
-		_beam_mat.set_shader_parameter("alpha", sin(PI * minf(1.0, k * 1.4)) * 1.4 if k < 1.0 else 0.0)
+		_beam_mat.set_shader_parameter("alpha", sin(PI * minf(1.0, k * 1.4)) * 1.0 if k < 1.0 else 0.0)
 		_beam.scale = Vector3(1.0 - k * 0.3, 1.0, 1.0 - k * 0.3)
 		if k >= 1.0:
 			_beam_t = -1.0
@@ -1087,7 +1392,51 @@ func step(dt: float, time: float) -> void:
 		"reveal":
 			_reveal_cam()
 	_room_tick(dt)
+	_dress_tick(dt)
 	_write_cam()
+
+
+## The reveal's glory, the shafts of light, the cameras, the featured skin's turn.
+func _dress_tick(dt: float) -> void:
+	_aura_k = move_toward(_aura_k, 1.0 if mode == "reveal" else 0.0, dt * (2.5 if mode == "reveal" else 4.0))
+	_aura_t = minf(1.0, _aura_t + dt / 0.9)
+	_aura.visible = _aura_k > 0.01
+	if _aura.visible:
+		# (behind the robot, from wherever the camera is)
+		var away := Vector3(_cam_pos.x, 0.0, _cam_pos.z).normalized()
+		_aura.position = Vector3(0, 1.35, 0) - away * 1.5
+		_aura_mat.set_shader_parameter("color", _aura_col)
+		_aura_mat.set_shader_parameter("alpha", smoothstep(0.0, 1.0, _aura_k) * _aura_lvl)
+		_aura_mat.set_shader_parameter("burst", _aura_t)
+	if mode != "reveal" and _motes.emitting:
+		_motes.emitting = false
+	var cool := Vector3(0.62, 0.68, 0.95)
+	var gold_k := maxf(_gold, _alarm)
+	var room := cool.lerp(RED.lerp(GOLD, _gold), gold_k * 0.8)
+	_shaft_mat.set_shader_parameter("color", room.lerp(_aura_col * 1.4, _aura_k))
+	_shaft_mat.set_shader_parameter("alpha", 0.16 + _aura_k * _aura_lvl * 0.25 - (0.08 if not _robot_on else 0.0))
+	_shaft_door.set_shader_parameter("color", room)
+	# the cameras: panning slowly; once a pull is on, following the pod (the robot at a reveal)
+	var watch := mode != "idle"
+	var target := Vector3(0, 1.2, 0)
+	if _hero.visible:
+		target = _hero.position
+	elif mode == "ten" or mode == "orbs":
+		target = Vector3(DOOR.x + 1.5, 1.0, -7.5)
+	for c in _cams:
+		var side: float = c.get_meta("side")
+		var to := sin(_time * 0.3 + side * 1.3) * 0.55 - side * 0.3
+		if watch:
+			var d := target - c.position
+			to = atan2(d.x, d.z)
+		c.rotation.y = lerp_angle(c.rotation.y, to, minf(1.0, dt * (5.0 if watch else 2.0)))
+	var blink := 1.0 if fmod(_time * (4.0 if _alarm > 0.3 else 0.8), 1.0) < 0.5 else 0.15
+	_cam_led.set_shader_parameter("energy", 3.5 * blink)
+	# (its words only while the vault's quiet: they'd float over the pulls)
+	_feat_tag.visible = mode == "idle"
+	_feat_name.visible = mode == "idle"
+	_feat.rotation.y += dt * 0.45
+	_feat.position.y = 1.45 + sin(_time * 1.3) * 0.03
 
 
 func _write_cam() -> void:
@@ -1394,6 +1743,8 @@ func _single(dt: float) -> void:
 		return
 	if _once("pod"):
 		_hero.visible = true
+		_trail.position = _glide(0.0)
+		_trail.restart()
 		sound.play("chute", 0.8)
 	var rest := HERO + Vector3(0, HOVER, 0)
 	var lc0 := _v(Skins.RARITY_COL[0].srgb_to_linear())
@@ -1405,6 +1756,11 @@ func _single(dt: float) -> void:
 			if _once("arrive"):
 				_thud(0.25)
 		_hero.position = p
+		# its trail: pale for a Common, violet for anything better (an Epic keeps its secret)
+		var tc: Color = Skins.RARITY_COL[mini(_tier, 1)]
+		_trail.color = Color(tc.r * 1.8, tc.g * 1.8, tc.b * 1.8)
+		_trail.position = p
+		_trail.emitting = k < 0.97
 		# leaning into the glide, turning slowly
 		_hero.basis = Basis(Vector3.RIGHT, (1.0 - k) * k * 1.2) * Basis(Vector3.UP, t * 1.4)
 		_pod_glow = Vector3(p.x, p.z, 0.9 * (1.0 - smoothstep(0.8, 2.0, p.y)))
