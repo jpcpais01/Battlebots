@@ -17,6 +17,17 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-25 06:00",
+	"title": "Not so fast",
+	"notes": [
+	"Takedowns in the clinch that fail now play out: you see the attempt and the counter instead of nothing happening.",
+	"A blocked trip: the leg hooks in behind, but the other robot lifts its foot out of the way, the sweep goes through thin air and the tripper stumbles forward.",
+	"A stuffed lift: the robot heaves its opponent a few centimetres off the canvas, then they drop their hips back, lean their weight on top and it sags under them.",
+	"A blocked hip toss: halfway through the turn, the other robot sinks its hips, pushes on the hip and spins the thrower back round to face it.",
+	"New callouts for TRIP BLOCKED, LIFT STUFFED and TOSS BLOCKED, and the crowd reacts to each."
+]
+},
+	{
 	"hour": "2026-10-25 05:00",
 	"title": "Vault heist",
 	"notes": [
