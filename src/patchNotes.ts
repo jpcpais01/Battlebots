@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-25 03:00",
+    title: "Full K.O.",
+    notes: [
+      "The big K.O., T.K.O. and DISMANTLED words at the end of a fight are no longer cut off at the top, and their glow and shadow show in full.",
+    ],
+  },
+  {
     hour: "2026-10-25 02:00",
     title: "Back on their feet",
     notes: [

@@ -125,7 +125,7 @@ var _span_w: Array[float] = []
 ## the K and the O, the soft shadow's lower edge and much of the glow, as the word has always
 ## looked here. At 0.6 the glow, the shadow and the glyphs' overshoot all fit inside: the word as
 ## the web draws it.
-const SPAN_PAD := 0.0
+const SPAN_PAD := 0.6
 ## CanvasGroup's fit margin round its layers (render target pixels).
 const SPAN_FIT := 10.0
 # faces: the loud one italic and upright (distance field, sharp at any scale), their glow twins,
