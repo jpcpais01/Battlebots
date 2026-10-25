@@ -95,6 +95,18 @@ function strikeEnv(s: StrikeAction) {
   return 1 - minJerk(s.t / s.recovery);
 }
 
+/**
+ * How far a robot's plating stands out round its frame (frame size 1, typical of the armour as
+ * built: the chest plates in front of and behind the chest joint, the flanks at the chest and the
+ * waist, the head round its joint, the plating round an upper arm, thigh and shin), and a
+ * gripping hand's half thickness. Holds are
+ * taken on the plating, not inside it: a hand reaching into the other robot's back plate pulls
+ * its arm through the chest or arm in the way, and the two robots read as passing through each
+ * other. (The drawn robots slide each hand the rest of the way onto the real plating.)
+ */
+const PLATE = { chest: 0.19, side: 0.31, waist: 0.27, head: 0.14, arm: 0.1, thigh: 0.11, shin: 0.1 };
+const PALM = 0.065;
+
 /** Seconds a grip takes to swim from one hold to another. */
 const SWIM = 0.34;
 /** Seconds a pummel for the underhook takes. */
@@ -1212,6 +1224,8 @@ export class Grapple {
     opp.right(_r);
     // between the two chests: where an arm digs in to swim
     _b.lerpVectors(me.body.pos[J.Chest], o[J.Chest], 0.5).addScaledVector(UP, 0.08 * z);
+    // a hand's half thickness, held off their plating
+    const h = PALM * me.size;
     for (let s = 0; s < 2; s++) {
       const sx = s === 0 ? -1 : 1;
       // my left hand meets their right side
@@ -1221,39 +1235,45 @@ export class Grapple {
       const sh = o[os > 0 ? J.ShR : J.ShL], el = o[os > 0 ? J.ElR : J.ElL];
       switch (g) {
         case 'neck':
-          tgt.copy(o[J.Neck]).addScaledVector(_f, -0.08 * z).addScaledVector(_r, os * 0.05 * z).addScaledVector(UP, 0.03 * z);
+          // clasped round the back of the head, low (hands side by side, not one in the other)
+          tgt.copy(o[J.Neck]).addScaledVector(_f, -(PLATE.head * z + h)).addScaledVector(_r, os * 0.09 * z).addScaledVector(UP, 0.07 * z);
           break;
         case 'under':
-          tgt.copy(o[J.Chest]).addScaledVector(UP, 0.12 * z).addScaledVector(_f, -0.2 * z).addScaledVector(_r, os * 0.17 * z);
+          // flat on their flank under the armpit, as far round as an arm reaches past that much
+          // plating (their arm sits on top of it)
+          tgt.copy(o[J.Chest]).addScaledVector(UP, 0.08 * z).addScaledVector(_f, -0.07 * z).addScaledVector(_r, os * (PLATE.side * z + h));
           break;
         case 'over':
-          tgt.lerpVectors(sh, el, 0.55).addScaledVector(_f, -0.07 * z).addScaledVector(UP, 0.05 * z);
+          // clamped down on top of their upper arm
+          tgt.lerpVectors(sh, el, 0.55).addScaledVector(_f, -0.07 * z).addScaledVector(UP, PLATE.arm * z + h);
           break;
         case 'waist':
-          tgt.lerpVectors(o[J.Chest], o[J.Pelvis], 0.55).addScaledVector(_f, -0.19 * z).addScaledVector(_r, os * 0.08 * z);
+          // round the waist: on their flanks, a little behind
+          tgt.lerpVectors(o[J.Chest], o[J.Pelvis], 0.55).addScaledVector(_f, -0.1 * z).addScaledVector(_r, os * (PLATE.waist * z + h));
           break;
         case 'bicep':
-          tgt.copy(el).addScaledVector(_f, 0.05 * z);
+          tgt.copy(el).addScaledVector(_f, PLATE.arm * z + h);
           break;
         case 'frame':
-          tgt.copy(o[J.Chest]).addScaledVector(UP, 0.08 * z).addScaledVector(_f, 0.13 * z).addScaledVector(_r, os * 0.15 * z);
+          tgt.copy(o[J.Chest]).addScaledVector(UP, 0.08 * z).addScaledVector(_f, PLATE.chest * z + h).addScaledVector(_r, os * 0.15 * z);
           break;
         case 'head':
-          tgt.copy(o[J.Neck]).addScaledVector(UP, 0.07 * z).addScaledVector(_f, -0.05 * z).addScaledVector(_r, os * 0.07 * z);
+          // on the back of the head
+          tgt.copy(o[J.Neck]).addScaledVector(UP, 0.12 * z).addScaledVector(_f, -(PLATE.head * z + h)).addScaledVector(_r, os * 0.07 * z);
           break;
         case 'thigh':
-          tgt.lerpVectors(o[os > 0 ? J.HipR : J.HipL], o[os > 0 ? J.KneeR : J.KneeL], 0.3).addScaledVector(_f, -0.1 * z);
+          tgt.lerpVectors(o[os > 0 ? J.HipR : J.HipL], o[os > 0 ? J.KneeR : J.KneeL], 0.3).addScaledVector(_f, -(PLATE.thigh * z + h));
           break;
         case 'back':
-          tgt.copy(o[J.Chest]).addScaledVector(UP, 0.1 * z).addScaledVector(_f, -0.12 * z).addScaledVector(_r, os * 0.12 * z);
+          tgt.copy(o[J.Chest]).addScaledVector(UP, 0.1 * z).addScaledVector(_f, -(PLATE.chest * z + h)).addScaledVector(_r, os * 0.12 * z);
           break;
         case 'leg':
           // the forearm scooped under their calf
-          tgt.lerpVectors(o[this.leg === 0 ? J.KneeL : J.KneeR], o[this.leg === 0 ? J.FootL : J.FootR], 0.55).addScaledVector(UP, -0.06 * z);
+          tgt.lerpVectors(o[this.leg === 0 ? J.KneeL : J.KneeR], o[this.leg === 0 ? J.FootL : J.FootR], 0.55).addScaledVector(UP, -(PLATE.shin * z + h));
           break;
         case 'ankle':
           // the other hand clamped over the ankle
-          tgt.copy(o[this.leg === 0 ? J.FootL : J.FootR]).addScaledVector(UP, 0.05 * z).addScaledVector(_f, 0.03 * z);
+          tgt.copy(o[this.leg === 0 ? J.FootL : J.FootR]).addScaledVector(UP, PLATE.shin * z + h).addScaledVector(_f, 0.03 * z);
           break;
       }
       // pulling their head down onto a knee; an arm digging inside on a pummel

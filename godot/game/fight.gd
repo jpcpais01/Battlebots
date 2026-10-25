@@ -1780,6 +1780,10 @@ func _process(dt: float) -> void:
 	# took twice as long as doing both here: the worker's wake-up, and two threads fighting over
 	# the shared armour fields' and hulls' reference counts, cost more than the pass itself.)
 	var who := [stretcher.puppet if carried == 0 else _mv.fighters[0], stretcher.puppet if carried == 1 else _mv.fighters[1]]
+	# the bodies' own armour first: chests, pauldrons and heads lean clear of each other, so the
+	# limbs then meet the bodies where they are drawn
+	if gone < 0 and carried < 0:
+		BotModel.meet(models[0], who[0], models[1], who[1], _time)
 	if gone < 0:
 		models[0].solve(who[0], _time, models[1])
 		models[1].solve(who[1], _time, models[0])

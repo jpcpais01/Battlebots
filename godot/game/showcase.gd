@@ -116,6 +116,7 @@ func update(dt: float, time: float) -> void:
 	var de = dummy.emote
 	model.begin(fighter, alpha, look if look != null else Vector3(dh.x, dh.y, dh.z))
 	dm.begin(dummy, alpha, Vector3(de.gaze.x, de.gaze.y, de.gaze.z) if de != null and de.gazeOn else Vector3(fh.x, fh.y, fh.z))
+	BotModel.meet(model, fighter, dm, dummy, time)
 	model.end(fighter, time, dm)
 	dm.end(dummy, time, model)
 	# a finisher charging up: the fist crackles and spits sparks
