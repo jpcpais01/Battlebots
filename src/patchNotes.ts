@@ -16,6 +16,16 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-25 04:00",
+    title: "Crack the vault",
+    notes: [
+      "The Skin Vault is now a neon-lit bank vault: walls of safe-deposit boxes, a polished black floor and a giant round vault door behind your robot.",
+      "Every pull opens the vault: the wheel spins, the bolts shoot back, the door unseals in a hiss of steam and swings open onto racks of glowing pods.",
+      "Rare pulls turn the room violet. Epic pulls set off the alarm, with red beacons, a grid of lasers and every light flashing, until it all bursts into gold and coins.",
+      "On a ×10 pull, ten pods fly out of the vault onto glowing pads and pop one by one.",
+    ],
+  },
+  {
     hour: "2026-10-25 03:00",
     title: "Full K.O.",
     notes: [

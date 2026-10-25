@@ -1,7 +1,8 @@
-// What the metal reflects in the Skin Vault (vault_stage.gd): the violet night overhead, a magenta
-// glow round the horizon, the dark platform below, and two soft bright patches standing for the
-// machine's neon and the stage lights. It only lights and reflects (the background is drawn by
-// vault_space.gdshader).
+// What the metal and the polished floor reflect in the Skin Vault (vault_stage.gd): a dark room,
+// its ceiling's cool light panels overhead, the walls' neon strips as two bands round the horizon
+// (magenta low, cyan higher), soft boxes front and behind for the steel to catch, and the key
+// light front right.
+// It only lights and reflects: the room itself is drawn by its walls.
 shader_type sky;
 
 uniform float intensity = 0.8;
@@ -10,12 +11,15 @@ uniform vec3 hemi_tilt = vec3(0.0);
 
 void sky() {
 	vec3 d = EYEDIR;
-	vec3 col = mix(vec3(0.03, 0.012, 0.07), vec3(0.09, 0.04, 0.2), smoothstep(-0.1, 0.8, d.y));
-	col += vec3(0.5, 0.08, 0.42) * exp(-abs(d.y) * 5.0) * 0.25;
-	col = mix(col, vec3(0.02, 0.015, 0.04), smoothstep(0.0, -0.3, d.y));
-	// the machine's neon behind (-z) and the stage's cool light from the front right
-	col += vec3(1.4, 0.3, 1.1) * smoothstep(0.8, 0.97, dot(d, normalize(vec3(-0.1, 0.7, -1.0))));
-	col += vec3(0.6, 1.6, 2.4) * smoothstep(0.8, 0.98, dot(d, normalize(vec3(0.9, 0.5, 0.4))));
-	col += vec3(1.8, 1.7, 2.0) * smoothstep(0.86, 0.99, dot(d, normalize(vec3(-0.3, 0.9, 0.4))));
+	vec3 col = vec3(0.02, 0.018, 0.03);
+	col += vec3(0.45, 0.5, 0.65) * smoothstep(0.5, 0.95, d.y) * 0.5;
+	col += vec3(1.3, 0.15, 0.75) * exp(-abs(d.y - 0.02) * 35.0) * 0.5;
+	col += vec3(0.12, 0.85, 1.3) * exp(-abs(d.y - 0.35) * 25.0) * 0.5;
+	// (a soft lift overhead and two broad soft boxes, front and behind, for the steel to catch)
+	col += vec3(0.18, 0.19, 0.24) * smoothstep(-0.1, 0.7, d.y);
+	col += vec3(0.7, 0.75, 0.9) * smoothstep(0.75, 0.95, dot(d, normalize(vec3(0.2, 0.45, 1.0))));
+	col += vec3(0.5, 0.45, 0.55) * smoothstep(0.8, 0.97, dot(d, normalize(vec3(-0.4, 1.3, -1.0))));
+	col += vec3(1.8, 1.8, 2.0) * smoothstep(0.86, 0.99, dot(d, normalize(vec3(-0.3, 0.9, 0.4))));
+	col = mix(col, vec3(0.012, 0.01, 0.016), smoothstep(-0.02, -0.3, d.y));
 	COLOR = max(col * intensity + hemi_tilt * d.y, vec3(0.0));
 }

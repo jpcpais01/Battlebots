@@ -1,7 +1,9 @@
-## The Skin Vault's own sounds, synthesized once (no clips to ship): the capsule's rising charge,
+## The Skin Vault's own sounds, synthesized once (no clips to ship): the pod's rising charge,
 ## the seam's crack and burst, a chime per rarity (a bell for a Common, a bright run up for a Rare,
-## a full shimmering chord for an Epic), a card flipping and the paint-on hiss, and the gumball
-## machine's own: its crank's ratchet, the chute's clunk and a capsule's pop.
+## a full shimmering chord for an Epic), a card flipping and the paint-on hiss, and the vault's
+## own: its door wheel's ratchet, the bolts shooting back, the steam and rumble of the door
+## unsealing, a pod's whoosh out of the vault and its pop, the alarm's klaxon and a laser snapping
+## on.
 ## Played on the effects bus, so the sound switch mutes them with everything else.
 ##
 ## The synthesis is a per-sample loop in GDScript (the Epic chime alone is ~380k iterations, half
@@ -15,9 +17,10 @@ class_name GachaSound
 extends Node
 
 const RATE := 22050
-## Every sound, in the order the worker makes them: the pull's own first (crank, chute, pop, the
-## capsule's riser, crack and burst, the chimes), then the rest.
-const IDS := ["crank", "chute", "pop", "riser", "crack", "burst", "chime0", "chime1", "chime2", "paint", "flip", "coin"]
+## Every sound, in the order the worker makes them: the pull's own first (the door's wheel, bolts
+## and hiss, the pod's whoosh and pop, its riser, crack and burst, the chimes, the alarm), then the
+## rest.
+const IDS := ["crank", "bolts", "hiss", "chute", "pop", "riser", "crack", "burst", "chime0", "chime1", "chime2", "alarm", "laser", "paint", "flip", "coin"]
 
 ## Made streams, by id (main thread side; built from _pcm on first use).
 static var _bank := {}
@@ -43,8 +46,7 @@ func _ready() -> void:
 		_players.append(p)
 
 
-## Play one ("riser", "crack", "burst", "chime0".."chime2", "flip", "paint", "coin", "crank",
-## "chute", "pop"). Silently skipped if the worker hasn't made it yet.
+## Play one (any of IDS). Silently skipped if the worker hasn't made it yet.
 func play(id: String, gain := 1.0, pitch := 1.0) -> void:
 	var s := stream(id)
 	if s == null:
@@ -133,6 +135,14 @@ static func _synth(id: String) -> PackedFloat32Array:
 			return _chord([1318.5, 1975.5], 0.05, 0.5, 0.35)
 		"crank":
 			return _crank(1.5)
+		"bolts":
+			return _bolts()
+		"hiss":
+			return _hiss()
+		"alarm":
+			return _alarm()
+		"laser":
+			return _laser()
 		"chute":
 			return _chute()
 		"pop":
@@ -200,7 +210,7 @@ static func _crack() -> PackedFloat32Array:
 	return d
 
 
-## The capsule bursting: a deep boom under a bright shower of noise.
+## A pod bursting: a deep boom under a bright shower of noise.
 static func _burst() -> PackedFloat32Array:
 	var d := _buf(1.6)
 	var seed := 424242
@@ -281,7 +291,7 @@ static func _paint() -> PackedFloat32Array:
 	return d
 
 
-## The crank turning: a ratchet's clicks, quickening as it gets going, over a low gear grind.
+## The vault door's wheel turning: a ratchet's clicks, quickening as it gets going, over a low gear grind.
 static func _crank(secs: float) -> PackedFloat32Array:
 	var d := _buf(secs)
 	var seed := 5150
@@ -309,7 +319,7 @@ static func _crank(secs: float) -> PackedFloat32Array:
 	return d
 
 
-## The chute's flap swinging open: a heavy clunk, then the whoosh of the capsule rolling out.
+## A heavy clunk, then a whoosh (a pod setting off out of the vault).
 static func _chute() -> PackedFloat32Array:
 	var d := _buf(0.9)
 	var seed := 8080
@@ -330,7 +340,7 @@ static func _chute() -> PackedFloat32Array:
 	return d
 
 
-## A capsule popping open: a cork's pop, a bright squeak up and a fizz of sparkle.
+## A pod popping open: a cork's pop, a bright squeak up and a fizz of sparkle.
 static func _pop() -> PackedFloat32Array:
 	var d := _buf(0.6)
 	var seed := 6060
@@ -348,6 +358,76 @@ static func _pop() -> PackedFloat32Array:
 		var click := n * exp(-t * 400.0)
 		var fizz := hp * exp(-t * 7.0) * (0.5 + 0.5 * sin(TAU * 47.0 * t)) * smoothstep(0.0, 0.03, t)
 		d[i] = pop * 0.7 + click * 0.6 + fizz * 0.25
+	return d
+
+
+## The door's bolts shooting back: a run of heavy steel clacks, each a knock with a ring, and a
+## last deep clunk as the lot comes home.
+static func _bolts() -> PackedFloat32Array:
+	var d := _buf(0.9)
+	var seed := 2024
+	for j in 7:
+		var t0 := 0.05 + j * 0.065 + (0.12 if j == 6 else 0.0)
+		var big := 1.6 if j == 6 else 1.0
+		var start := int(t0 * RATE)
+		var f := 820.0 + float((j * 37) % 5) * 90.0
+		for i in range(start, mini(start + int(0.3 * RATE), d.size())):
+			var u := float(i - start) / RATE
+			seed = (seed * 1103515245 + 12345) & 0x7fffffff
+			var n := float(seed) / 0x7fffffff * 2.0 - 1.0
+			var knock := sin(TAU * (95.0 / big) * u) * exp(-u * 30.0) * big
+			var ring := (sin(TAU * f * u) + sin(TAU * f * 1.58 * u) * 0.5) * exp(-u * 26.0) * 0.3
+			d[i] += (knock * 0.6 + ring + n * exp(-u * 300.0) * 0.5) * 0.55
+	return d
+
+
+## The door unsealing: a jet of steam (hissing noise) over a low rumble as the great weight moves.
+static func _hiss() -> PackedFloat32Array:
+	var d := _buf(1.8)
+	var seed := 7171
+	var hp := 0.0
+	var last := 0.0
+	var lp := 0.0
+	for i in d.size():
+		var t := float(i) / RATE
+		seed = (seed * 1103515245 + 12345) & 0x7fffffff
+		var n := float(seed) / 0x7fffffff * 2.0 - 1.0
+		hp = 0.7 * (hp + n - last)
+		last = n
+		lp += (n - lp) * 0.015
+		var jet := hp * minf(1.0, t * 40.0) * exp(-t * 1.6)
+		var rumble := (lp * 2.5 + sin(TAU * 42.0 * t) * 0.25) * sin(PI * clampf(t / 1.8, 0.0, 1.0))
+		d[i] = jet * 0.4 + rumble * 0.6
+	return d
+
+
+## The alarm's klaxon: a buzzing two-tone whoop rising and falling, once (it's played again while
+## the alarm lasts).
+static func _alarm() -> PackedFloat32Array:
+	var d := _buf(1.0)
+	var ph := 0.0
+	for i in d.size():
+		var t := float(i) / RATE
+		var k := t / 1.0
+		var f := 440.0 + 380.0 * sin(PI * minf(1.0, k * 1.15))
+		ph += TAU * f / RATE
+		# (a sine driven into a buzz, with a fifth over it)
+		var v := tanh(sin(ph) * 3.0) * 0.6 + sin(ph * 1.5) * 0.2
+		var env := minf(1.0, t * 30.0) * (1.0 - smoothstep(0.85, 1.0, k))
+		d[i] = v * env * 0.55
+	return d
+
+
+## A laser snapping on: a falling zap and a short electric hum.
+static func _laser() -> PackedFloat32Array:
+	var d := _buf(0.35)
+	var ph := 0.0
+	for i in d.size():
+		var t := float(i) / RATE
+		ph += TAU * (300.0 + 2600.0 * exp(-t * 30.0)) / RATE
+		var zap := sin(ph) * exp(-t * 12.0)
+		var hum := (sin(TAU * 120.0 * t) + sin(TAU * 240.0 * t) * 0.5) * exp(-t * 8.0) * smoothstep(0.0, 0.03, t)
+		d[i] = zap * 0.45 + hum * 0.25
 	return d
 
 
