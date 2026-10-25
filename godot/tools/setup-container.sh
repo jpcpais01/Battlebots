@@ -1,5 +1,5 @@
 #!/bin/sh
-# Recreate the Godot Android toolchain in a fresh cloud container (or any Linux box).
+# Recreate the Godot Android (and Windows) toolchain in a fresh cloud container (or any Linux box).
 #
 # Google's download hosts (dl.google.com) are blocked in the container, so there is no real
 # Android SDK: Godot's prebuilt (non-gradle) templates don't need one, apart from apksigner
@@ -21,10 +21,11 @@ if ! command -v godot >/dev/null || ! godot --version | grep -q "^$V"; then
   ln -sf "$TOOLS/godot/Godot_v$V-stable_linux.x86_64" "$BIN/godot"
 fi
 T="$HOME/.local/share/godot/export_templates/$V.stable"
-if [ ! -f "$T/android_release.apk" ]; then
+# (Android's, and the Windows one for tools/build-windows.sh)
+if [ ! -f "$T/android_release.apk" ] || [ ! -f "$T/windows_release_x86_64.exe" ]; then
   mkdir -p "$T" && cd "${TMPDIR:-/tmp}"
   curl -sSLo tpl.tpz "https://github.com/godotengine/godot/releases/download/$V-stable/Godot_v$V-stable_export_templates.tpz"
-  unzip -oq tpl.tpz 'templates/android_*' 'templates/version.txt' -d tpl && mv tpl/templates/* "$T/" && rm -rf tpl tpl.tpz
+  unzip -oq tpl.tpz 'templates/android_*' 'templates/windows_release_x86_64.exe' 'templates/version.txt' -d tpl && mv tpl/templates/* "$T/" && rm -rf tpl tpl.tpz
 fi
 SDK=$TOOLS/android-sdk
 mkdir -p $SDK/platform-tools $SDK/build-tools/35.0.0 $SDK/platforms/android-35
@@ -48,4 +49,4 @@ if [ -n "$ES" ]; then
   sed -i '/^export\/android\/\(android_sdk_path\|java_sdk_path\) = /d' "$ES"
   printf 'export/android/android_sdk_path = "%s"\nexport/android/java_sdk_path = "%s"\n' "$SDK" "$JAVA" >> "$ES"
 fi
-echo "Godot $(godot --version) ready; build with godot/tools/build-apk.sh"
+echo "Godot $(godot --version) ready; build with godot/tools/build-apk.sh or build-windows.sh"

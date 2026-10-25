@@ -72,7 +72,7 @@ five fights; `tests/perf_hitches.gd` plays real-time fights and prints any slow 
 Online play (`net/`, the Online screen in `app/online/`) is the web game's `src/net` spoken from
 Godot: the same PeerJS broker (0.peerjs.com), room ids and messages, over WebRTC data channels
 from the [webrtc-native](https://github.com/godotengine/webrtc-native) extension in
-`addons/webrtc` (Android arm64 and Linux x86_64 libraries). So a phone and a browser can share a
+`addons/webrtc` (Android arm64, Windows x86_64 and Linux x86_64 libraries). So a phone and a browser can share a
 room. Both sides run the whole fight from one seed; only pacing, coach calls and state hashes
 cross the wire.
 

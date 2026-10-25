@@ -1,7 +1,8 @@
-# Builds the Android app (godot/) and publishes it on the repo's Releases page whenever main
-# changes something in godot/. The newest build is always at
+# Builds the Android app (godot/) and the Windows build of it, and publishes both on the repo's
+# Releases page whenever main changes something in godot/. The newest builds are always at
 #   https://github.com/<owner>/<repo>/releases/latest/download/Battlebots.apk
-# with patch-notes.json beside it (the newest groups of src/patchNotes.ts): the app checks the
+#   https://github.com/<owner>/<repo>/releases/latest/download/Battlebots-Windows.zip
+# with patch-notes.json beside them (the newest groups of src/patchNotes.ts): the app checks the
 # latest release at launch and offers it, notes and all (godot/app/update/updater.gd).
 #
 # Signing needs three repository secrets (Settings > Secrets and variables > Actions), all from
@@ -61,7 +62,7 @@ jobs:
           path: |
             ${{ env.BB_TOOLS }}/godot
             ~/.local/share/godot/export_templates
-          key: godot-4.7.2-android
+          key: godot-4.7.2-android-windows
 
       - name: Set up Godot
         if: steps.secrets.outputs.ok == 'true'
@@ -101,15 +102,22 @@ jobs:
           python3 godot/tools/apksigner.py verify "$RUNNER_TEMP/Battlebots.apk"
           rm -f "$GODOT_ANDROID_KEYSTORE_RELEASE_PATH"
 
+      # (the same version, stamped above; Windows builds aren't signed)
+      - name: Build the Windows zip
+        if: steps.secrets.outputs.ok == 'true'
+        run: sh godot/tools/build-windows.sh "$RUNNER_TEMP/Battlebots-Windows.zip"
+
       - name: Publish the release
         if: steps.secrets.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           {
-            echo "Battlebots for Android, build $VERSION_NAME."
+            echo "Battlebots for Android and Windows, build $VERSION_NAME."
             echo
             echo "On your phone: download **Battlebots.apk** below and open it. Android asks once to allow installs from your browser. It installs over the previous build. From this build on, the app offers new builds itself on its home screen."
+            echo
+            echo "On a Windows PC: download **Battlebots-Windows.zip**, unzip it anywhere you can write to (not Program Files) and run Battlebots.exe. Windows may warn about an unknown app the first time: More info, then Run anyway. The game offers new builds itself and updates in place."
             echo
             echo "Latest change: $(git log -1 --format=%s)"
           } > "$RUNNER_TEMP/notes.md"
@@ -120,14 +128,16 @@ jobs:
           TAG="android-v$VERSION_NAME"
           for i in 1 2 3 4 5; do
             if gh release view "$TAG" > /dev/null 2>&1; then
-              gh release upload "$TAG" "$RUNNER_TEMP/Battlebots.apk" "$RUNNER_TEMP/patch-notes.json" --clobber \
+              gh release upload "$TAG" "$RUNNER_TEMP/Battlebots.apk" "$RUNNER_TEMP/Battlebots-Windows.zip" "$RUNNER_TEMP/patch-notes.json" --clobber \
                 && gh release edit "$TAG" --draft=false --latest && break
             else
-              gh release create "$TAG" "$RUNNER_TEMP/Battlebots.apk" "$RUNNER_TEMP/patch-notes.json" \
-                --title "Battlebots Android $VERSION_NAME" \
+              gh release create "$TAG" "$RUNNER_TEMP/Battlebots.apk" "$RUNNER_TEMP/Battlebots-Windows.zip" "$RUNNER_TEMP/patch-notes.json" \
+                --title "Battlebots $VERSION_NAME (Android + Windows)" \
                 --notes-file "$RUNNER_TEMP/notes.md" \
                 --target "$GITHUB_SHA" --latest && break
             fi
             sleep $((i * 15))
           done
-          gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qx Battlebots.apk
+          gh release view "$TAG" --json assets --jq '.assets[].name' > "$RUNNER_TEMP/assets.txt"
+          grep -qx Battlebots.apk "$RUNNER_TEMP/assets.txt"
+          grep -qx Battlebots-Windows.zip "$RUNNER_TEMP/assets.txt"
