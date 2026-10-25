@@ -346,7 +346,7 @@ func open_settings() -> void:
 	var game_col := screen.row("perf").get_parent() if screen.row("perf") != null else null
 	if game_col != null:
 		game_col.add_child(_reset_button())
-	# Updates (app/update/update_row.gd): this build, and Check now
+	# Updates (app/update/update_row.gd): this build, and Check now, where Graphics leaves room
 	var gfx_col := screen.row("rt").get_parent() if screen.row("rt") != null else null
 	if gfx_col != null and app.updater != null:
 		gfx_col.add_child(UpdateRow.new(app.updater, app.ui, app.tap))
