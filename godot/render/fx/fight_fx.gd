@@ -91,6 +91,8 @@ var _stumps := [[], []]
 ## Per fighter: where the chest's and lower torso's wounds open (angles off its front).
 var _wounds := [[0.0, 0.0], [0.0, 0.0]]
 var _ground_prev := [[false, false, false], [false, false, false]]
+## Per fighter: the jet knee's jets last frame (Fighter.jet), for the dust as it takes off and lands.
+var _jet_prev := [0.0, 0.0]
 ## Tag team: per side, the trails, stumps and wounds of the bot out of the ring (see swap_side).
 var _benched := [null, null]
 var _feet: Array = []
@@ -141,6 +143,7 @@ func start(match_, bot_models: Array[BotModel]) -> void:
 	# wounds open somewhere on the front half of the body
 	_wounds = [[(randf() - 0.5) * 2.4, (randf() - 0.5) * 2.4], [(randf() - 0.5) * 2.4, (randf() - 0.5) * 2.4]]
 	_ground_prev = [[false, false, false], [false, false, false]]
+	_jet_prev = [0.0, 0.0]
 	_benched = [null, null]
 	# a tag team's partners: their own trails (in their colours), stumps and wounds for when they come in
 	if m.tag != null:
@@ -441,6 +444,19 @@ func update_trails_and_flames(i: int) -> void:
 			elif s != null and s.move.get("striker") == "elbow":
 				j = J_EL_L if k == 0 else J_EL_R
 			trails[k].push(model.joints[j])
+	# the jet knee: the jets kick up the canvas as it springs off and as it comes down, and burn
+	# (flaring at the take-off) all the way through the flight
+	var jet: float = f.jet
+	var J := model.joints
+	if jet > 0.0 and _jet_prev[i] <= 0.0:
+		fx.dust(J[J_FOOT_L].lerp(J[J_FOOT_R], 0.5), 16, 1.1)
+	elif jet <= 0.0 and _jet_prev[i] > 0.0 and f.state == "fight":
+		fx.dust(J[J_FOOT_L].lerp(J[J_FOOT_R], 0.5), 12, 0.8)
+	_jet_prev[i] = jet
+	if jet > 0.0:
+		var back := Vector3(0, 0.3, 0) - Vector3(sin(f.yaw), 0, cos(f.yaw))
+		fx.flame(J[J_FOOT_L], back, 1.2 * jet)
+		fx.flame(J[J_FOOT_R], back, 1.2 * jet)
 	if s == null:
 		return
 	var v = s.move.get("vfx")
@@ -449,15 +465,10 @@ func update_trails_and_flames(i: int) -> void:
 	if not (s.phase == "active" or (s.phase == "windup" and s.t > s.windup * 0.5)):
 		return
 	var left: bool = s.side == "L"
-	var J := model.joints
 	if v == "rocket":
 		var h := J[J_HAND_L if left else J_HAND_R]
 		var e := J[J_EL_L if left else J_EL_R]
 		fx.flame(e.lerp(h, 0.3), (h - e).normalized(), 0.9)
-	elif v == "jet":
-		var dir := Vector3(0, 0.3, 0) - Vector3(sin(f.yaw), 0, cos(f.yaw))
-		fx.flame(J[J_FOOT_L], dir, 1.2)
-		fx.flame(J[J_FOOT_R], dir, 1.2)
 	elif v == "shock" and randf() < 0.4:
 		fx.arc(J[J_HAND_L if left else J_HAND_R], 0.08)
 	elif v == "fire" and randf() < 0.5:

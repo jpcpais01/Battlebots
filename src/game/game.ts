@@ -1915,7 +1915,12 @@ export class Game {
         trails[k].push(model.joints[j]);
       }
     }
-    // thrusters for rocket and jet moves
+    // the jet knee's jets burn through its flight, flaring as it takes off
+    if (f.jet > 0) {
+      this.fx.flame(model.joints[J.FootL], _v.set(0, 0.3, 0).sub(_u.set(Math.sin(f.yaw), 0, Math.cos(f.yaw))), 1.2 * f.jet);
+      this.fx.flame(model.joints[J.FootR], _v, 1.2 * f.jet);
+    }
+    // thrusters for rocket moves
     if (s && s.move.vfx && (s.phase === 'active' || (s.phase === 'windup' && s.t > s.windup * 0.5))) {
       const v = s.move.vfx;
       if (v === 'rocket') {
@@ -1924,9 +1929,6 @@ export class Game {
         _v.subVectors(model.joints[h], model.joints[e]).normalize();
         _u.copy(model.joints[e]).lerp(model.joints[h], 0.3);
         this.fx.flame(_u, _v, 0.9);
-      } else if (v === 'jet') {
-        this.fx.flame(model.joints[J.FootL], _v.set(0, 0.3, 0).sub(_u.set(Math.sin(f.yaw), 0, Math.cos(f.yaw))), 1.2);
-        this.fx.flame(model.joints[J.FootR], _v, 1.2);
       } else if (v === 'shock' && Math.random() < 0.4) {
         this.fx.arc(model.joints[s.side === 'L' ? J.HandL : J.HandR], 0.08);
       } else if (v === 'fire' && Math.random() < 0.5) {
