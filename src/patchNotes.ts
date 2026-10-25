@@ -16,6 +16,48 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-25 06:00",
+    title: "Titans, rebuilt",
+    notes: [
+      "Titan battles are rebuilt from scratch: the giants now fight on a steel stage in a harbour city in the evening sun, with crowds, buses, fire engines and camera crews at their feet, and a bridge, cranes and ships on the skyline.",
+      "Titan fights are filmed like a real broadcast of 30-metre robots: from the street, the rooftops, a news helicopter, a boat in the harbour and the edge of the stage.",
+      "Time no longer slows down in titan battles: the titans still move with heavy weight, but the round clock and the referee's count run in real seconds, and their heavier blows hit harder.",
+      "Every step and slam is felt: dust rolls off the stage, the deck cracks and glows, the ground shakes the cameras, car alarms go off and people nearby duck for cover.",
+      "New titan sounds: deep booms that echo off the buildings, the city humming around the fight and a ship's horn for the knockout.",
+    ],
+  },
+  {
+    hour: "2026-10-25 05:00",
+    title: "Vault heist",
+    notes: [
+      "Skin reveals now stamp in the rarity's stars, shoot a streak of light behind its name and set god rays wheeling behind your robot in its colour.",
+      "A ×10 pull with an Epic in it puts that Epic in the spotlight on your robot before the cards deal.",
+      "The Epic pity is now the vault's combination dial: a lamp lights for every pull since your last Epic, and it shows your Epic chance.",
+      "The vault has shafts of light with dust drifting in them, stacks of gold bars, security cameras that follow the pods, and today's featured Epic in a glass case.",
+      "Pods leave a trail of light as they glide out of the vault, and the ×10 pull now says how much it saves.",
+    ],
+  },
+  {
+    hour: "2026-10-25 04:00",
+    title: "Crack the vault",
+    notes: [
+      "The Skin Vault is now a neon-lit bank vault: walls of safe-deposit boxes, a polished black floor and a giant round vault door behind your robot.",
+      "Every pull opens the vault: the wheel spins, the bolts shoot back, the door unseals in a hiss of steam and swings open onto racks of glowing pods.",
+      "Rare pulls turn the room violet. Epic pulls set off the alarm, with red beacons, a grid of lasers and every light flashing, until it all bursts into gold and coins.",
+    ],
+  },
+  {
+    hour: "2026-10-25 04:00",
+    title: "Taking angles",
+    notes: [
+      "In the Skin Vault, a ×10 pull sends ten pods flying out of the vault onto glowing pads to pop one by one.",
+      "Robots now pivot: one foot steps out round the opponent, the body swings round on it and the other foot sweeps round behind, so they come out of a combination at a new angle.",
+      "A robot that gets out-angled is caught flat-footed for a moment, turning to find its opponent, and sharp fighters jump on that opening.",
+      "Pinned on the ropes, a robot can spin off along them, and it can step off the line when the other one charges in.",
+      "Robots turn on the ball of the lead foot like a boxer, the rear foot sweeping round after it, instead of twisting on the spot.",
+    ],
+  },
+  {
     hour: "2026-10-25 03:00",
     title: "Full K.O.",
     notes: [

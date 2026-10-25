@@ -1,13 +1,16 @@
-## A pull, played out (the Skin Vault's big moment), over the vault's own place: the machine does
+## A pull, played out (the Skin Vault's big moment), over the vault's own place: the vault does
 ## the work in 3D (VaultStage.play) and this puts the words, the flashes and the buttons over it.
-## Black bars slide in like a film's while the giant gumball machine's crank turns.
-##   one pull: a capsule drops out of the chute, rolls out, rises and charges (a Rare teases
-##   violet through its seam, an Epic holds, shakes and blows through to gold) and bursts; the
-##   camera cuts to the robot as a beam paints the skin onto it, and its rarity, name and NEW (or
-##   the shards a copy gave) come in beside it.
-##   ten: ten capsules shoot out of the chute into an arc and pop one by one into lights of their
-##   rarity's colour, a pip lighting along the bottom for each (an Epic trembles first); then ten
+## Black bars slide in like a film's while the vault door's wheel spins and it swings open.
+##   one pull: a pod glides out of the vault, hovers, rises and charges (a Rare teases violet
+##   through its seam, an Epic trips the alarm, lasers and all, and blows through to gold) and
+##   bursts; the camera cuts to the robot as a beam paints the skin onto it, and its rarity, name
+##   and NEW (or the shards a copy gave) come in beside it.
+##   ten: ten pods fly out of the vault onto pads in an arc and pop one by one into lights of their
+##   rarity's colour, a pip lighting along the bottom for each (an Epic trips the alarm first);
+##   each Epic among them then gets the spotlight on the robot on its own (a tap goes on), and ten
 ##   cards deal out and turn over. A card tapped shows that skin on the robot.
+## A skin's reveal: its stars stamped in one by one, its rarity word with a glint running over it
+## on a streak of the rarity's light, the shade behind the words stained with its colour.
 ## A tap skips ahead (to the burst, to the lights, the cards all turned). `finished` says what the
 ## player picked: "done", "again" (the same pull again) or "wear" (with the id).
 class_name PullShow
@@ -17,6 +20,8 @@ signal finished(action: String, data)
 
 ## The shade behind the words: deep violet, fading out to the right.
 const SHADE := preload("res://app/gacha/pull_shade.gdshader")
+const STREAK := preload("res://app/gacha/pull_streak.gdshader")
+const WORD := preload("res://app/gacha/pull_word.gdshader")
 
 var results: Array = []
 var app: App
@@ -47,6 +52,11 @@ var _detail: Control = null
 var _home: Array[Vector2] = []
 ## Seconds since the last card turned (the floating eases in), -1 before.
 var _float_t := -1.0
+## A ten-pull's Epics, each shown on the robot on its own before the cards deal (Gacha games'
+## spotlight): the ones still to come, the one up now and how long it's been up.
+var _spots: Array[int] = []
+var _spot_root: Control = null
+var _spot_t := 0.0
 
 
 func _init(app_: App, results_: Array, sound_: GachaSound) -> void:
@@ -130,7 +140,7 @@ func _bars_to(on: bool) -> void:
 		b.create_tween().tween_property(b, "position:y", to, 0.45).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT if on else Tween.EASE_IN)
 
 
-## Ten pips along the bottom bar, one lighting for each capsule as it pops.
+## Ten pips along the bottom bar, one lighting for each pod as it pops.
 func _build_pips(vs: Vector2) -> void:
 	var d := maxf(12.0, vs.y * 0.022)
 	var gap := d * 0.9
@@ -154,6 +164,7 @@ func _build_pips(vs: Vector2) -> void:
 # ------------------------------------------------------------------------------ the stage's beats
 
 func _process(dt: float) -> void:
+	_spot_t += dt
 	if _flash_a > 0.0:
 		_flash_a = maxf(0.0, _flash_a - dt * 2.4)
 		_flash.color.a = _flash_a * _flash_a
@@ -175,7 +186,7 @@ func _on_beat(what: String, data) -> void:
 		"reveal":
 			_phase = "reveal"
 			_hint.visible = false
-			_reveal(data, false)
+			_reveal(data, "single")
 		"pop":
 			var i: int = data[0]
 			var tier: int = data[1]
@@ -187,7 +198,12 @@ func _on_beat(what: String, data) -> void:
 			_phase = "cards"
 			for i in results.size():
 				_pip(i, int(results[i].skin.r), true)
-			_deal()
+				if int(results[i].skin.r) == Skins.EPIC:
+					_spots.append(i)
+			if _spots.is_empty():
+				_deal()
+			else:
+				_next_spot()
 
 
 func _pip(i: int, tier: int, quiet := false) -> void:
@@ -205,30 +221,67 @@ func _pip(i: int, tier: int, quiet := false) -> void:
 
 # ------------------------------------------------------------------------------ one skin
 
-## The skin on the robot: its rarity, its name, what it gave and the buttons, in beside it. On its
-## own (`detail` false: the single pull's result) or opened from a 10-pull card.
-func _reveal(r: Dictionary, detail: bool) -> void:
+## The skin on the robot: its stars, its rarity, its name, what it gave and the buttons, in beside
+## it. `how`: "single" (one pull's result), "detail" (opened from a 10-pull card) or "spot" (an Epic
+## from a 10-pull, shown on its own before the cards deal: no buttons, a tap goes on).
+func _reveal(r: Dictionary, how: String) -> void:
 	var s = r.skin
+	var tier := int(s.r)
+	var detail := how == "detail"
 	var vs := size
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if detail:
 		_detail = root
+	elif how == "spot":
+		_spot_root = root
 	_ui.add_child(root)
+	var col: Color = Skins.RARITY_COL[tier]
+	# the shade stained with the rarity's colour
+	var sm := _shade.material as ShaderMaterial
+	sm.set_shader_parameter("tint", col)
+	sm.set_shader_parameter("stain", 0.35 + 0.3 * tier)
 	_shade.create_tween().tween_property(_shade, "modulate:a", 1.0, 0.4)
 	_bars_to(false)
-	var col: Color = Skins.RARITY_COL[int(s.r)]
 	var x0 := maxf(28.0, vs.x * 0.07)
 	var tw_w := vs.x * 0.46
 	var u := minf(vs.y, vs.x * 0.6)
 	var y := vs.y * 0.25
-	# the rarity, big, in the broadcast face
-	var word := MenuKit.grad_label(String(Skins.RARITY_NAME[int(s.r)]).to_upper(), u * 0.12, MenuKit.broadcast(400), col.lerp(Color.WHITE, 0.6), col)
+	# a streak of the rarity's light shooting out behind the word
+	var streak := ColorRect.new()
+	var stm := ShaderMaterial.new()
+	stm.shader = STREAK
+	stm.set_shader_parameter("color", col)
+	stm.set_shader_parameter("strength", 0.45 + 0.35 * tier)
+	streak.material = stm
+	streak.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	streak.size = Vector2(vs.x * 0.6, u * 0.24)
+	streak.position = Vector2(0, y + u * 0.075 - streak.size.y * 0.5)
+	root.add_child(streak)
+	root.create_tween().tween_method(func(v: float) -> void: stm.set_shader_parameter("grow", v), 0.0, 1.0, 0.5).set_delay(0.3).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	# the rarity, big, in the broadcast face, a glint of light running over it
+	var word := MenuKit.grad_label(String(Skins.RARITY_NAME[tier]).to_upper(), u * 0.12, MenuKit.broadcast(400), col.lerp(Color.WHITE, 0.6), col)
+	var wm := word.material as ShaderMaterial
+	wm.shader = WORD
 	word.size = Vector2(tw_w, u * 0.15)
 	word.position = Vector2(x0, y)
 	word.pivot_offset = Vector2(0, word.size.y * 0.5)
 	root.add_child(word)
+	var shine := root.create_tween()
+	shine.tween_interval(0.8)
+	shine.tween_method(func(v: float) -> void: wm.set_shader_parameter("sweep", v), -80.0, u * 0.12 * 3.6 + 80.0, 0.6 + 0.1 * tier).set_trans(Tween.TRANS_SINE)
+	shine.tween_interval(2.2 - 0.6 * tier)
+	shine.set_loops()
+	# its stars, stamped in one by one over the word
+	var stars := RarityStars.new(tier + 1, col.lerp(Color.WHITE, 0.15), u * 0.06)
+	stars.position = Vector2(x0 - u * 0.005, y - stars.size.y - u * 0.012)
+	root.add_child(stars)
+	stars.pop(0.45, 0.17 + 0.05 * tier, func(i: int) -> void:
+		sound.play("pop", 0.5 + 0.1 * i, 1.2 + 0.2 * i)
+		if i == tier and tier == Skins.EPIC:
+			_flash.color = Color(col.lerp(Color.WHITE, 0.5), 0.0)
+			_flash_a = 0.35)
 	y += u * 0.16
 	var name_l := MenuKit.label(String(s.name), u * 0.075, 800)
 	name_l.add_theme_font_override(&"font", MenuKit.broadcast(400))
@@ -252,9 +305,20 @@ func _reveal(r: Dictionary, detail: bool) -> void:
 	root.add_child(tag)
 	var ts := tag.get_combined_minimum_size()
 	tag.size = ts
-	tag.position = Vector2(x0, vs.y * 0.25 - ts.y - u * 0.02)
+	tag.position = Vector2(x0 + stars.size.x + u * 0.03, stars.position.y + (stars.size.y - ts.y) * 0.5)
 	tag.pivot_offset = Vector2(0, ts.y * 0.5)
 	tag.rotation = -0.06
+	if how == "spot":
+		var go := MenuKit.label("Tap to continue", maxf(13.0, u * 0.026), 650, Color(1, 1, 1, 0.6))
+		go.position = Vector2(x0, y + u * 0.03)
+		go.size = Vector2(tw_w, u * 0.05)
+		root.add_child(go)
+		var gt := go.create_tween()
+		go.modulate.a = 0.0
+		gt.tween_interval(1.3)
+		gt.tween_property(go, "modulate:a", 1.0, 0.4)
+		_reveal_in(root, [word, name_l, blurb], tag, false, 0.6 + (tier + 1) * (0.17 + 0.05 * tier))
+		return
 	# the buttons
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override(&"separation", 12)
@@ -278,11 +342,15 @@ func _reveal(r: Dictionary, detail: bool) -> void:
 	var rs := row.get_combined_minimum_size()
 	row.size = rs
 	row.position = Vector2(x0, minf(vs.y - rs.y - 22.0, y + u * 0.02))
-	# in they come: the word slams in, the rest slides after it, the tag stamps down
-	var tw := create_tween().set_parallel()
-	var items: Array[Control] = [word, name_l, blurb, row]
+	_reveal_in(root, [word, name_l, blurb, row], tag, r.new and not detail, 0.6 + (tier + 1) * (0.17 + 0.05 * tier))
+
+
+## In they come: the word slams in, the rest slides after it, the tag stamps down.
+func _reveal_in(root: Control, items: Array, tag: Control, coin: bool, tag_at := 0.85) -> void:
+	var word: Control = items[0]
+	var tw := root.create_tween().set_parallel()
 	for i in items.size():
-		var c := items[i]
+		var c: Control = items[i]
 		c.modulate.a = 0.0
 		var px := c.position.x
 		c.position.x = px - 40.0
@@ -292,10 +360,10 @@ func _reveal(r: Dictionary, detail: bool) -> void:
 	tw.tween_property(word, "scale", Vector2.ONE, 0.5).set_delay(0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tag.modulate.a = 0.0
 	tag.scale = Vector2(2.2, 2.2)
-	tw.tween_property(tag, "modulate:a", 1.0, 0.12).set_delay(0.85)
-	tw.tween_property(tag, "scale", Vector2.ONE, 0.28).set_delay(0.85).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	if r.new and not detail:
-		tw.tween_callback(func() -> void: sound.play("coin", 0.6)).set_delay(0.95)
+	tw.tween_property(tag, "modulate:a", 1.0, 0.12).set_delay(tag_at)
+	tw.tween_property(tag, "scale", Vector2.ONE, 0.28).set_delay(tag_at).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	if coin:
+		tw.tween_callback(func() -> void: sound.play("coin", 0.6)).set_delay(tag_at + 0.1)
 
 
 func _button(text: String, icon_name: String, variant: StringName) -> Button:
@@ -321,6 +389,39 @@ func _close_detail() -> void:
 
 
 # ------------------------------------------------------------------------------ ten
+
+## The next of a ten-pull's Epics, on the robot in the spotlight before the cards deal.
+func _next_spot() -> void:
+	var i: int = _spots.pop_front()
+	_phase = "spot"
+	_spot_t = 0.0
+	_hint.visible = false
+	_pip_row.create_tween().tween_property(_pip_row, "modulate:a", 0.0, 0.3)
+	if stage != null:
+		stage.show_on_robot(String(results[i].skin.id))
+	_reveal(results[i], "spot")
+
+
+## A tap on an Epic in the spotlight: on to the next, or back to the lights as the cards deal.
+func _end_spot() -> void:
+	if _spot_t < 0.8:
+		return
+	var d := _spot_root
+	_spot_root = null
+	if d != null:
+		var tw := d.create_tween()
+		tw.tween_property(d, "modulate:a", 0.0, 0.2)
+		tw.tween_callback(d.queue_free)
+	if not _spots.is_empty():
+		_next_spot()
+		return
+	_phase = "cards"
+	_shade.create_tween().tween_property(_shade, "modulate:a", 0.0, 0.25)
+	_bars_to(true)
+	if stage != null:
+		stage.back_to_orbs()
+	_deal()
+
 
 ## Ten cards fly up out of the pips into two rows, face down, their edges glowing what's under,
 ## and turn over one by one (an Epic holds its breath first).
@@ -492,7 +593,7 @@ func _open_card(i: int) -> void:
 	_cards_shown(false)
 	if stage != null:
 		stage.show_on_robot(String(results[i].skin.id))
-	_reveal(results[i], true)
+	_reveal(results[i], "detail")
 
 
 ## The cards (and their veil and buttons) out of the way while a skin is shown on the robot, or back.
@@ -521,6 +622,8 @@ func _skip() -> void:
 		# straight to the burst (one) or the lights (ten)
 		if stage != null:
 			stage.skip()
+	elif _phase == "spot":
+		_end_spot()
 	elif _phase == "cards":
 		# turn the rest over at once
 		if _flip_tw != null and _flip_tw.is_valid():
@@ -533,6 +636,8 @@ func _unhandled_input(e: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		if _detail != null:
 			_close_detail()
+		elif _phase == "spot":
+			_end_spot()
 		elif _phase == "dealt" or _phase == "reveal":
 			finished.emit("done", null)
 		else:

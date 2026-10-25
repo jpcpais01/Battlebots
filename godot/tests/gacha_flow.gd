@@ -3,7 +3,8 @@ extends SceneTree
 ## Epic pity, a Rare in every 10-pull, duplicates turning into shards and shards into a skin, the
 ## state's save and load, a worn skin surviving the bot's save, and the vault screen: the welcome
 ## 10-pull, paid pulls taking credits (and refused without them), the pulls playing out on the
-## vault's own place (render/vault/vault_stage.gd), wearing a skin, the garage's Skins page and an
+## vault's own place (render/vault/vault_stage.gd), an Epic in a 10-pull getting the spotlight
+## before the cards, wearing a skin, the garage's Skins page and an
 ## opponent's skin.
 ##   godot --headless --path godot -s res://tests/gacha_flow.gd
 var app: App
@@ -116,18 +117,24 @@ func _screen() -> void:
 	var v: VaultScreen = app.screens.vault
 	check(app.current == "vault" and v.visible, "the vault opens")
 	var stage := app.game.get_place("vault") as VaultStage
-	check(app.game.place == "vault" and stage != null and stage.visible, "the vault is its own place, out in space")
+	check(app.game.place == "vault" and stage != null and stage.visible, "the vault is its own place")
 	check(app.game.director.mode == "scene" and stage.mode == "idle", "the vault flies its own camera")
 	var credits: float = app.record.career.credits
 	v._free_pull()
 	await _wait(3)
 	check(v.show != null, "the welcome pull plays")
-	check(stage.mode == "ten" and not app.game.showcase.model.visible, "the ten play on the machine, the robot out of the way")
+	check(stage.mode == "ten" and not app.game.showcase.model.visible, "the ten play in the vault, the robot out of the way")
 	check(int(app.skins.pulls) == 10 and app.skins.welcome, "the welcome pull is ten, once")
 	check(float(app.record.career.credits) == credits, "the welcome pull is free")
 	v.show._skip()
 	await _wait(3)
+	# (an Epic among them is shown on the robot first: tap on past it)
+	while v.show._phase == "spot":
+		v.show._spot_t = 1.0
+		v.show._skip()
+		await _wait(3)
 	check(stage.mode == "orbs" and v.show._cards.size() == 10, "a tap pops them all and deals the cards")
+	check(stage._swing == 1.0 and stage._bolt == 1.0, "and throws the vault door wide open")
 	v.show._skip()
 	await _wait(3)
 	v.show._open_card(0)
@@ -140,7 +147,11 @@ func _screen() -> void:
 	v._on_show("done", null, 10)
 	await _wait(3)
 	check(v.show == null, "the show closes")
-	check(stage.mode == "idle" and app.game.showcase.model.visible and app.game.showcase.model.skin == null, "the machine rests, the player's own bot back on the turntable")
+	# (the door swings shut on its own: run the vault on until it has)
+	for i in 400:
+		stage.step(1.0 / 60.0, stage._time + 1.0 / 60.0)
+	check(stage._swing == 0.0 and stage._pull == 0.0 and stage._bolt == 0.0, "the vault door swings shut and bolts itself")
+	check(stage.mode == "idle" and app.game.showcase.model.visible and app.game.showcase.model.skin == null, "the vault rests, the player's own bot back on the turntable")
 	# the free single pull is waiting too (the clock starts at 0)
 	v._free_pull()
 	await _wait(3)
@@ -155,7 +166,7 @@ func _screen() -> void:
 	v.pull(1)
 	await _wait(3)
 	check(float(app.record.career.credits) == 50.0 and int(app.skins.pulls) == 12, "a pull costs %d credits" % Gacha.PULL_COST)
-	check(stage.mode == "single", "one capsule plays on the machine")
+	check(stage.mode == "single", "one pod plays in the vault")
 	v.show._skip()
 	await _wait(3)
 	check(stage.mode == "reveal" and v.show._phase == "reveal", "a tap bursts it and shows the skin on the robot")
@@ -166,6 +177,31 @@ func _screen() -> void:
 	check(app.player.get("skin") == got, "Wear it puts the skin on the bot")
 	check(Store.load_player().get("skin") == got, "and it's saved")
 	check(app.game.showcase != null and app.game.showcase.model.skin != null and app.game.showcase.model.skin.id == got, "the bot on the lift wears it")
+	# a 10-pull with an Epic in it: the Epic in the spotlight on the robot before the cards deal
+	app.record.career.credits = float(Gacha.TEN_COST)
+	app.skins.since_epic = Gacha.HARD_PITY - 1
+	v.pull(10)
+	await _wait(3)
+	v.show._skip()
+	await _wait(3)
+	var epic_i := -1
+	for i in v.show.results.size():
+		if int(v.show.results[i].skin.r) == Skins.EPIC:
+			epic_i = i
+	check(epic_i >= 0 and v.show._phase == "spot" and v.show._cards.is_empty(), "an Epic in a 10-pull gets the spotlight before the cards")
+	check(stage.mode == "reveal" and app.game.showcase.model.visible and app.game.showcase.model.skin != null and app.game.showcase.model.skin.id == v.show.results[epic_i].skin.id, "the Epic shown on the robot")
+	v.show._skip()
+	await _wait(3)
+	check(v.show._phase == "spot", "a tap too soon doesn't skip past it")
+	v.show._spot_t = 1.0
+	while v.show._phase == "spot":
+		v.show._spot_t = 1.0
+		v.show._skip()
+		await _wait(3)
+	check(stage.mode == "orbs" and v.show._phase == "cards" and v.show._cards.size() == 10, "then a tap deals the cards")
+	v._on_show("done", null, 10)
+	await _wait(3)
+	app.game.show_bot(app.player)
 	# the collection: try one on, then back
 	v.set_tab("collection")
 	await _wait(3)

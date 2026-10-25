@@ -755,7 +755,7 @@ export class Match {
     if (def.state !== 'fight' && def.state !== 'stun') return;
     const dd = def.dodge;
     // slipped or stepped off it: it runs on, and likely misses
-    if (dd && dd.type !== 'sprawl' && (!shot || dd.type === 'backstep' || dd.type === 'sidestep')) return;
+    if (dd && dd.type !== 'sprawl' && (!shot || dd.type === 'backstep' || dd.type === 'sidestep' || dd.type === 'pivot')) return;
     if (old) {
       old.finish();
       this.grapple = null;

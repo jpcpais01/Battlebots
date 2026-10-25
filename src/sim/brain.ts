@@ -1,7 +1,7 @@
 import { Vector3 } from 'three';
 import { Fighter, makeObservation, rangeScale, type DodgeType, type GuardMode, type Observation, type StrikeAction } from './fighter';
 import { BASIC_PUNCHES, MOVES, type MoveDef, type MoveId, type Zone } from './moves';
-import { clamp, clamp01, lerp, Rng, smoothstep, sigmoid, softmaxPick } from './math';
+import { clamp, clamp01, lerp, Rng, smoothstep, sigmoid, softmaxPick, wrapAngle } from './math';
 import { J, ropeGap } from './body';
 import { armPart, LOOSE, P } from './damage';
 import { DM } from './dmath';
@@ -155,6 +155,13 @@ export class Brain {
   /** After a combo, step back out of range (hit and move). */
   private exitUntil = 0;
   private exitLat = 0;
+  // a pivot asked for (which way, how far round them): it goes once my hands and feet are
+  // free, if that's before pivotBy; the next one I take myself waits for pivotNext
+  private pivotDir = 0;
+  private pivotReach = 0.5;
+  private pivotBy = 0;
+  private pivotNext = 0;
+  private pivoting = false;
   private baseRangeBias = 0;
 
   // flow: fights breathe. Pressure builds while I wait at range, an opening (or
@@ -537,6 +544,7 @@ export class Brain {
 
     this.updateFlow(dt);
     this.updateGuard();
+    this.updatePivots(dt);
     this.steer(dt);
 
     this.thinkTimer -= dt;
@@ -938,7 +946,11 @@ export class Brain {
       this.reactUntil = this.time + 0.5;
     } else {
       this.reactUntil = this.time + this.rng.range(0.4, 0.6);
-      if (this.react === 'pivot') this.circleDir = this.chooseCircleDir();
+      if (this.react === 'pivot') {
+        // step off the line as they come, and let them run on past where I was
+        this.circleDir = this.chooseCircleDir();
+        this.askPivot(this.circleDir, this.rng.range(0.5, 0.65), this.reactUntil - this.time);
+      }
       if (this.react === 'hold') this.coverUntil = this.reactUntil;
     }
   }
@@ -1040,6 +1052,8 @@ export class Brain {
       this.circleDir = this.chooseCircleDir();
       this.exitUntil = now + this.rng.range(0.35, 0.6);
       this.exitLat = this.circleDir * 1.1;
+      // turn off the end of it: an angle step out, not just a drift sideways
+      if (this.rng.chance(0.45 + t.footwork * 0.45)) this.askPivot(this.circleDir, this.rng.range(0.42, 0.6), 0.5);
     } else this.coverUntil = now + this.rng.range(0.35, 0.7);
     if (this.burstHits >= 2 && t.showboat > 0.6 && this.confidence > 0.6 && this.rng.chance(0.3)) this.tauntAt = now + 0.7;
     this.burstHits = 0;
@@ -1236,6 +1250,61 @@ export class Brain {
     else me.intentVel.set(0, 0, 0);
     // hopping on one leg, there's no bounce to the footwork
     me.bounce = lerp(me.bounce, bounce * (1 - this.tired * 0.6) * (me.legLost >= 0 ? 0.3 : 1), 0.05);
+  }
+
+  private askPivot(dir: number, reach: number, within: number) {
+    this.pivotDir = dir;
+    this.pivotReach = reach;
+    this.pivotBy = this.time + within;
+  }
+
+  /**
+   * Angles. A pivot asked for goes once my hands and feet are free. Pinned on the ropes with
+   * them on top of me I spin off along them, and circling I now and then take an angle instead
+   * of gliding round. Out of one with them still turning to find me, I go to work.
+   */
+  private updatePivots(dt: number) {
+    const me = this.me;
+    const t = this.traits;
+    const now = this.time;
+    const d = me.dodge;
+    if (d && d.type === 'pivot') {
+      this.pivoting = true;
+      return;
+    }
+    const ps = this.perceived.state;
+    if (this.pivoting) {
+      this.pivoting = false;
+      const o = this.opp;
+      const off = Math.abs(wrapAngle(DM.atan2(me.root.x - o.root.x, me.root.z - o.root.z) - o.faceYaw));
+      if (off > 0.25 && ps === 'fight' && this.rng.chance(0.35 + this.effAggression() * 0.4 + t.skill * 0.2)) {
+        this.tempo = 1;
+        this.trigger = 0;
+        this.calmUntil = 0;
+        this.exitUntil = 0;
+        this.returnFireUntil = now + 0.6;
+        this.punishUntil = now + 0.5;
+      }
+    }
+    if (ps === 'down' || ps === 'getup' || ps === 'ko' || this.corner) {
+      this.pivotDir = 0;
+      return;
+    }
+    if (this.pivotDir === 0 && now > this.pivotNext && !me.action) {
+      const dd = this.perceivedDist();
+      const pair = (me.size + this.opp.size) * 0.5;
+      if (ropeGap(me.root.x, me.root.z) < 0.55 && dd < 1.5 * pair && ps === 'fight') {
+        if (this.rng.chance(dt * (0.5 + t.footwork * 1.5))) this.askPivot(this.chooseCircleDir(), this.rng.range(0.6, 0.75), 0.3);
+      } else if ((this.plan === 'circle' || this.plan === 'outbox' || this.plan === 'counter') && dd < this.myPunchRange() * 1.5 && this.rng.chance(dt * t.footwork * 0.35))
+        this.askPivot(this.circleDir, this.rng.range(0.4, 0.55), 0.3);
+    }
+    if (this.pivotDir !== 0) {
+      if (now > this.pivotBy) this.pivotDir = 0;
+      else if (!me.action && me.tryDodge('pivot', this.pivotDir, this.pivotReach)) {
+        this.pivotDir = 0;
+        this.pivotNext = now + this.rng.range(1.2, 2.6);
+      }
+    }
   }
 
   /** Lateral move that mirrors the opponent to trap them against the ropes. */

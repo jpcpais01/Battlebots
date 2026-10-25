@@ -629,7 +629,7 @@ class Match extends RefCounted:
 		if ((def.state != "fight") and (def.state != "stun")):
 			return
 		var dd = def.dodge
-		if (((dd != null) and (dd.type != "sprawl")) and (((not shot) or (dd.type == "backstep")) or (dd.type == "sidestep"))):
+		if (((dd != null) and (dd.type != "sprawl")) and ((((not shot) or (dd.type == "backstep")) or (dd.type == "sidestep")) or (dd.type == "pivot"))):
 			return
 		if (old != null):
 			old.finish()

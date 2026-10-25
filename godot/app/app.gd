@@ -499,7 +499,7 @@ func _camera(id: String) -> void:
 			d.shift_x = 0.0
 			game.crowd_audio.ambience(0.4)
 		"vault":
-			# the vault flies its own camera (render/vault/vault_stage.gd), out in space
+			# the vault flies its own camera (render/vault/vault_stage.gd)
 			d.mode = "scene"
 			game.crowd_audio.ambience(0.0)
 		_:
