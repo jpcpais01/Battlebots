@@ -15,9 +15,9 @@
  *                                    direction of its own (x right, z forward: 0 -1 = over backwards)
  *   catch <move> <dump|free> [punch] [dist 1.0]  A kicks B's body, B blocks it and traps the leg:
  *                                    then sweeps A (dump) or A rips it free, with a punch first
- *   takedown <trip|throw|toss|double|elbow> [under 1] [tie lock]  A ties B up, and after a moment in
- *                                    the clinch takes B down that way (double: a shot straight in;
- *                                    elbow: a clinch elbow instead)
+ *   takedown <trip|throw|toss|double|elbow> [under 1] [tie lock] [block]  A ties B up, and after a
+ *                                    moment in the clinch takes B down that way (double: a shot
+ *                                    straight in; elbow: a clinch elbow instead; block: B stops it)
  * Env: FPS (60), SIZE_A / SIZE_B (frame sizes), STANCE_A (-1 orthodox, 1 southpaw), SHIFT (both
  * start that far along +x: 3.9 puts B by the ropes). fall: GETUP (force a GetupKind), KNEE (rest
  * that long on one knee first, s).
@@ -206,7 +206,7 @@ if (scenario === 'strike') {
   const mm = m as unknown as { grapple: Grapple | null; grappleHost: GrappleHost; frame: number };
   const tie = (args[2] ?? 'lock') as 'lock' | 'plum';
   m.on((t, d) => {
-    if (t === 'takedown') events.push({ f: m.frame, t, kind: d.kind });
+    if (t === 'takedown' || t === 'takedownStuffed') events.push({ f: m.frame, t, kind: d.kind });
   });
   if (kind === 'double') mm.grapple = Grapple.shot(mm.grappleHost, A, B, [tie, tie], mm.frame);
   else if (kind === 'elbow') {
@@ -216,8 +216,9 @@ if (scenario === 'strike') {
   } else {
     mm.grapple = Grapple.clinch(mm.grappleHost, A, B, kind === 'throw' ? 0.55 : 0.1, [tie, tie], Number(args[1] ?? 1), mm.frame);
     rec(96);
-    const sure = { chance: () => true } as unknown as Rng;
-    if (!mm.grapple.tryTakedown(A, kind as 'trip' | 'throw' | 'toss', sure)) throw new Error('no takedown');
+    const block = args[3] === 'block';
+    const sure = { chance: () => !block } as unknown as Rng;
+    if (mm.grapple.tryTakedown(A, kind as 'trip' | 'throw' | 'toss', sure) === block) throw new Error('no takedown');
   }
   rec(Math.round(Number(process.env.SECS ?? 3) * 120));
 } else rec(Math.round(Number(args[0] ?? 3) * 120));

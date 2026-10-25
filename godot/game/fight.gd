@@ -1465,6 +1465,12 @@ func _sound_event(type: String, data) -> void:
 		"kickCatch":
 			# the shin slapped into the ribs and clamped there
 			sfx.thud(0.4, Sfx.pan_of(cam, _v(data.f.body.pos[1])))
+		"takedownStuffed":
+			# the weight dropped back down onto the canvas (or the reap sweeping through nothing)
+			if str(data.kind) == "trip":
+				sfx.whoosh(false, true, 0.5)
+			else:
+				sfx.thud(0.35, Sfx.pan_of(cam, _v(data.opp.body.pos[0])))
 		"takedown":
 			sfx.whoosh(true, false, 0.7)
 		"step":
@@ -1581,6 +1587,8 @@ func _arena_event(type: String, data) -> void:
 			arena.excite(0.35)
 		"kickCatch":
 			arena.excite(0.45)
+		"takedownStuffed":
+			arena.excite(0.35)
 		"takedown":
 			arena.excite(0.8)
 		"ropes":

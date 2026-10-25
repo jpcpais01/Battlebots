@@ -1439,6 +1439,12 @@ export class Game {
         sfx?.thud(0.4, this.pan(data.f.body.pos[J.Chest]));
         this.arena.excite(0.45);
         break;
+      case 'takedownStuffed':
+        // the weight dropped back down onto the canvas (or the reap sweeping through nothing)
+        if (data.kind === 'trip') sfx?.whoosh(false, true, 0.5);
+        else sfx?.thud(0.35, this.pan(data.opp.body.pos[J.Pelvis]));
+        this.arena.excite(0.35);
+        break;
       case 'takedown':
         sfx?.whoosh(true, false, 0.7);
         this.arena.excite(0.8);

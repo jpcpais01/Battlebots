@@ -1,6 +1,6 @@
 /**
  * Prints a state hash after every sim step of one fight, for comparing the Godot sim with the web one.
- *   [TAG=1] node --experimental-transform-types --import <register> godot/tests/parity.ts <seed> <steps> [every]
+ *   [TAG=1] [TITAN=1] node --experimental-transform-types --import <register> godot/tests/parity.ts <seed> <steps> [every]
  * The Godot side is godot/tests/parity.gd; both must print identical lines.
  */
 import { Match } from '../../src/sim/match';
@@ -19,6 +19,8 @@ const partners = process.env.TAG === '1' ? { a: randomBot(rng), b: randomBot(rng
 // STYLES=Brawler,Out-fighter: the two corners pick these fighting styles
 if (process.env.STYLES) [a.style, b.style] = process.env.STYLES.split(',');
 const m = new Match(a, b, rng.int(0, 1e9), partners);
+// TITAN=1: a titan battle (the app's titan city: Match.titan's pace)
+if (process.env.TITAN === '1') m.titan = true;
 m.skipIntro();
 const out: string[] = [`${a.name} vs ${b.name}`];
 const dumpAt = Number(process.argv[5] ?? -1);

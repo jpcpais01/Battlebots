@@ -1,5 +1,5 @@
 ## Godot side of godot/tests/parity.ts: same fight, same hash after every step.
-##   [TAG=1] godot --headless --path godot -s res://tests/parity.gd -- <seed> <steps> [every]
+##   [TAG=1] [TITAN=1] godot --headless --path godot -s res://tests/parity.gd -- <seed> <steps> [every]
 extends SceneTree
 
 
@@ -25,6 +25,9 @@ func _init() -> void:
 		a.style = st[0]
 		b.style = st[1]
 	var m := TMatch.Match.new(a, b, rng.int_(0.0, 1e9), partners)
+	# TITAN=1: a titan battle (the app's titan city: Match.titan's pace)
+	if OS.get_environment("TITAN") == "1":
+		m.titan = true
 	m.skipIntro()
 	var out := PackedStringArray([a.name_ + " vs " + b.name_])
 	var dump_at := int(args[3]) if args.size() > 3 else -1

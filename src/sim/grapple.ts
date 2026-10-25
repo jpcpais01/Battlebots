@@ -31,8 +31,9 @@ import { DM } from './dmath';
 /**
  * part: one of them pushes off (or the referee parts them). after: the takedown's done, step back.
  * caught: a kick trapped under the arm, the kicker hopping on the other leg.
+ * blocked: a takedown from the clinch that they see coming and stop, then back to the clinch.
  */
-export type GrapplePhase = 'clinch' | 'trip' | 'throw' | 'toss' | 'drive' | 'stuffed' | 'part' | 'after' | 'caught';
+export type GrapplePhase = 'clinch' | 'trip' | 'throw' | 'toss' | 'drive' | 'stuffed' | 'part' | 'after' | 'caught' | 'blocked';
 export type Tie = 'plum' | 'lock';
 export type TakedownKind = 'trip' | 'throw' | 'toss' | 'double' | 'catch';
 type Grip = 'neck' | 'under' | 'over' | 'waist' | 'bicep' | 'frame' | 'head' | 'thigh' | 'back' | 'leg' | 'ankle';
@@ -136,6 +137,21 @@ const TOSS_TURN = 1.95;
  * the leg they're standing on, or they rip the leg free. Seconds into the phase.
  */
 const CATCH = { trap: 0.2, punch: 0.3, dump: 0.62, dumpPunch: 0.98, sweep: 0.3, free: 0.66, yank: 0.3, end: 0.62 };
+/**
+ * A takedown from the clinch that doesn't come off, every one of them a real try stopped by a
+ * real counter. Seconds into the phase (deny: the moment it's plainly stopped).
+ *  - The trip: the leg steps in behind theirs, but they pick the foot up out of the hook (lift →
+ *    up), the reap sweeps through the air where it was (reap → whiff) and the tripper lurches
+ *    after it, turned by the whizzer, while the foot comes back down (down) and the leg goes home.
+ *  - The lift: sunk under them and heaving, it gets them a few centimetres up (heave), then they
+ *    drop the hips back and whizzer down on it, and it sags under their weight (sag).
+ *  - The toss: half turned in (turn, part of the full turn), it tries to load them onto the hip,
+ *    but their hips have dropped and a hand pushes its hip away (load); it's turned back out to
+ *    face them (back).
+ */
+const BLOCK_TRIP = { lift: 0.24, up: 0.42, reap: 0.43, whiff: 0.64, down: 0.62, plant: 0.8, home: 0.96, end: 1.04, deny: 0.5 };
+const BLOCK_THROW = { sink: 0.32, heave: 0.62, sag: 0.95, end: 1.08, deny: 0.56 };
+const BLOCK_TOSS = { turn: 0.32, part: 0.5, load: 0.56, back: 0.94, end: 1.02, deny: 0.42 };
 /** A push off, and the step back after a takedown. */
 const PART = 0.36;
 const AFTER = 0.72;
@@ -305,6 +321,12 @@ export class Grapple {
   private yanked = false;
   private readonly holdS = [new Spring1(), new Spring1(), new Spring1()];
   private readonly yankFrom = new Vector3();
+  /**
+   * A blocked takedown: the defender's foot the trip went for (0 left, 1 right), and whether
+   * it's been called yet.
+   */
+  private dl = 0;
+  private denied = false;
 
   /** `holds`: where each of the two (att, def) has its hands as it starts, so they swim from there. */
   private constructor(host: GrappleHost, phase: GrapplePhase, att: Fighter, def: Fighter, tie: [Tie, Tie], frame: number, holds: [Grip, Grip]) {
@@ -487,19 +509,23 @@ export class Grapple {
     // backed up on the ropes, they've got something to lean on
     if (this.pinned(opp)) p -= 0.12;
     p = clamp(p, 0.04, 0.85);
-    if (!rng.chance(p)) {
-      // stuffed: they counter-balance, and now they have the better of it
-      this.nudge(f, -0.32);
-      this.host.emit('takedownStuffed', { f, opp, kind });
-      return false;
-    }
+    const got = rng.chance(p);
     this.att = f;
     this.def = opp;
     this.kind = kind;
-    this.setPhase(kind);
-    this.hold(opp);
     this.n0.set(opp.root.x - f.root.x, 0, opp.root.z - f.root.z).normalize();
     this.dist0 = f.distTo(opp);
+    if (!got) {
+      // stopped: it goes for it all the same, they counter it, and now they have the better of it
+      this.nudge(f, -0.32);
+      this.setPhase('blocked');
+      this.denied = false;
+      if (kind === 'trip') this.planTrip(f, opp);
+      if (kind === 'toss') this.planToss(f, opp, BLOCK_TOSS.part);
+      return false;
+    }
+    this.setPhase(kind);
+    this.hold(opp);
     this.cornerAway(f);
     if (kind === 'trip') this.planTrip(f, opp);
     if (kind === 'toss') this.planToss(f, opp);
@@ -534,6 +560,7 @@ export class Grapple {
         best = j;
       }
     }
+    this.dl = best === J.FootL ? 0 : 1;
     // just behind it (further from me) and a touch outside
     att.right(_r);
     this.tripW
@@ -552,18 +579,20 @@ export class Grapple {
    * in front of theirs, the body pivots on it and the other foot swings back round, so the back
    * turns in under their chest with the underhook hip out past their middle.
    */
-  private planToss(att: Fighter, def: Fighter) {
+  private planToss(att: Fighter, def: Fighter, frac = 1) {
     this.rs = this.under;
     const usx = this.rs === 0 ? -1 : 1;
     this.yaw0 = att.yaw;
-    // the underhook hip goes in, so the body turns away from that side
-    this.yaw1 = this.yaw0 + usx * TOSS_TURN;
+    // the underhook hip goes in, so the body turns away from that side (a blocked toss only
+    // gets `frac` of the way round)
+    this.yaw1 = this.yaw0 + usx * TOSS_TURN * frac;
     const pair = (att.size + def.size) * 0.5;
     const f1 = _f.set(DM.sin(this.yaw1), 0, DM.cos(this.yaw1));
     const r1 = _r.set(-DM.cos(this.yaw1), 0, DM.sin(this.yaw1));
     // where it stands once turned in: their chest on its back, its hip out past their middle
     // (the roots no closer than the match keeps two bodies in a grapple)
     _a.copy(def.root).addScaledVector(f1, 0.44 * pair).addScaledVector(r1, -usx * 0.26 * pair);
+    if (frac < 1) _a.lerpVectors(att.root, _a, frac);
     for (let s = 0; s < 2; s++) {
       const sx = s === 0 ? -1 : 1;
       this.tossFrom[s].copy(att.body.pos[s === 0 ? J.FootL : J.FootR]).setY(0);
@@ -653,10 +682,13 @@ export class Grapple {
       case 'caught':
         this.caughtStep(dt);
         break;
+      case 'blocked':
+        this.blockedStep(dt);
+        break;
     }
     if (!this.live) return;
     // nobody stays up in the air outside a lift (or the hops on a caught leg): set down, not dropped
-    if (this.phase !== 'throw' && this.phase !== 'toss' && this.phase !== 'drive' && this.phase !== 'caught') {
+    if (this.phase !== 'throw' && this.phase !== 'toss' && this.phase !== 'drive' && this.phase !== 'caught' && this.phase !== 'blocked') {
       for (const f of this.f) if (f.lift > 0) f.lift = f.lift < 0.004 ? 0 : f.lift * DM.exp(-10 * dt);
     }
     this.writePoses(dt);
@@ -929,6 +961,69 @@ export class Grapple {
         att.stunTime = 0.5;
       }
     }
+  }
+
+  /**
+   * A takedown they stop (see BLOCK_TRIP, BLOCK_THROW, BLOCK_TOSS): played out as far as it gets,
+   * then the two of them are back in the clinch, the one who stopped it with the better of it.
+   */
+  private blockedStep(dt: number) {
+    const att = this.att, def = this.def;
+    const t = this.t;
+    const free = (f: Fighter) => f.state === 'fight' || f.state === 'stun';
+    if (!free(att) || !free(def)) {
+      this.release();
+      return;
+    }
+    const kind = this.kind;
+    const B = kind === 'trip' ? BLOCK_TRIP : kind === 'throw' ? BLOCK_THROW : BLOCK_TOSS;
+    if (!this.denied && t >= B.deny) {
+      this.denied = true;
+      this.host.emit('takedownStuffed', { f: att, opp: def, kind });
+    }
+    const pair = (att.size + def.size) * 0.5;
+    if (kind === 'toss') {
+      // the step in and back out again: carried along the toss's path as it turns (the feet
+      // are authored onto it), while they stand their ground
+      att.root.lerpVectors(this.tossRoot, this.off0, this.tossBlockK());
+      att.rootVel.set(0, 0, 0);
+      att.intentVel.set(0, 0, 0);
+      def.intentVel.set(0, 0, 0);
+      def.rootVel.multiplyScalar(DM.exp(-10 * dt));
+    } else {
+      // chest to chest as in the clinch; the trip's whiff walks the two of them a short step on
+      _n.set(def.root.x - att.root.x, 0, def.root.z - att.root.z);
+      const d = _n.length();
+      if (d > 1e-4) _n.multiplyScalar(1 / d);
+      else _n.copy(this.n0);
+      const gap = Math.min(d - 0.6 * pair, this.flatGap(J.Chest) - 0.43 * pair, this.flatGap(J.Head) - 0.27 * pair);
+      const spring = clamp(gap * 3.5, -1.2, 1.2);
+      const v = kind === 'trip' ? 0.5 * DM.sin(Math.PI * clamp01((t - BLOCK_TRIP.reap - 0.05) / 0.36)) * smoothstep(0.2 * def.size, 0.7 * def.size, ropeGap(def.root.x, def.root.z)) : 0;
+      att.intentVel.copy(_n).multiplyScalar(v + spring);
+      def.intentVel.copy(_n).multiplyScalar(v - spring);
+      if (kind === 'throw') {
+        // a few centimetres up off the canvas, and dropped straight back down
+        const k = clamp01((t - BLOCK_THROW.sink - 0.04) / (BLOCK_THROW.heave - BLOCK_THROW.sink + 0.02));
+        const up = DM.sin(Math.PI * k);
+        def.lift = 0.08 * def.size * up * up;
+        def.liftReach = -0.25;
+      }
+    }
+    if (t >= B.end) {
+      // it cost the one who tried it: the legs and the lungs
+      att.stamina = Math.max(0, att.stamina - 4);
+      att.poise -= att.maxPoise * (kind === 'trip' ? 0.14 : 0.08);
+      def.lift = 0;
+      def.liftReach = -0.4;
+      this.setPhase('clinch');
+      this.quiet = 0;
+    }
+  }
+
+  /** How far into the blocked toss's turn the thrower is: in, held while it tries to load them, and back out. */
+  private tossBlockK() {
+    const t = this.t;
+    return minJerk(t / BLOCK_TOSS.turn) * (1 - minJerk((t - BLOCK_TOSS.load) / (BLOCK_TOSS.back - BLOCK_TOSS.load)));
   }
 
   /** The push off: palms on the chest, arms driving out, and the two of them apart. */
@@ -1210,6 +1305,11 @@ export class Grapple {
         P0.faceOn = true;
         P0.face = lerp(this.yaw0, this.yaw1, minJerk(this.t / (TOSS.turn + 0.06)));
         P0.turn = 40;
+      } else if (this.phase === 'blocked' && this.kind === 'toss' && me === this.att) {
+        // half turned in and spun back out
+        P0.faceOn = true;
+        P0.face = lerp(this.yaw0, this.yaw1, this.tossBlockK());
+        P0.turn = 40;
       }
       this.grips(i, me, opp, B, dt);
     }
@@ -1319,7 +1419,10 @@ export class Grapple {
     if (this.phase === 'clinch') this.clinchShape(i, me, opp, B);
     else if (this.phase === 'part') this.partShape(me, B);
     else if (this.phase === 'caught') this.caughtShape(me, B);
-    else if (me === this.att) this.attShape(me, B);
+    else if (this.phase === 'blocked') {
+      if (me === this.att) this.blockAttShape(me, B);
+      else this.blockDefShape(me, B);
+    } else if (me === this.att) this.attShape(me, B);
     else this.defShape(B);
     if (punching >= 0) {
       B.gw[punching] = 0;
@@ -1838,6 +1941,225 @@ export class Grapple {
         }
         break;
       }
+    }
+  }
+
+  /**
+   * A takedown that doesn't come off, the one trying it. The trip: in behind the leg and driving
+   * as a trip does, the reap goes through nothing and the chest falls on after it, turned off
+   * line by their whizzer. The lift: sunk, then the heave, hips through and back arching, that
+   * stalls a few centimetres up, straining, and sags under their weight. The toss: half turned
+   * in, legs and back working to load them that won't come, and spun back out to face them.
+   */
+  private blockAttShape(me: Fighter, B: Body) {
+    const t = this.t;
+    B.heel = 0.3;
+    B.pole[0].set(0.7, -0.6, -0.4);
+    B.pole[1].set(0.7, -0.6, -0.4);
+    if (this.kind === 'trip') {
+      const T = BLOCK_TRIP;
+      const rsx = this.rs === 0 ? -1 : 1;
+      const k = minJerk(t / TRIP.step);
+      const drive = smoothstep(TRIP.step - 0.1, T.reap + 0.04, t);
+      const lurch = DM.sin(Math.PI * clamp01((t - T.reap) / (T.end - T.reap)));
+      const out = 1 - minJerk((t - T.whiff) / (T.end - T.whiff));
+      B.crouch = 0.12 + (0.1 * k + 0.06 * drive) * out + 0.05 * lurch;
+      B.pitch = 0.3 + 0.18 * drive * out + 0.24 * lurch;
+      B.pz = 0.06 * k * out + 0.05 * lurch;
+      B.twist = -rsx * 0.22 * k * out + rsx * 0.26 * lurch;
+      B.roll = rsx * 0.04 * k * out - rsx * 0.06 * lurch;
+      B.hx = -rsx * 0.05 * k * out;
+      B.hy = -0.03 * lurch;
+      B.heel = 0.3 + 0.15 * lurch;
+      B.grip[this.rs] = 'frame';
+      B.grip[1 - this.rs] = 'waist';
+      this.blockTripFoot(me, B);
+    } else if (this.kind === 'throw') {
+      const T = BLOCK_THROW;
+      const sink = minJerk(t / T.sink);
+      const heave = minJerk((t - T.sink) / (T.heave - T.sink)) * (1 - minJerk((t - T.heave) / (T.sag - T.heave)));
+      const sag = smoothstep(T.heave - 0.08, T.sag, t);
+      const out = 1 - minJerk((t - T.sag) / (T.end - T.sag));
+      // (the strain: a shudder through the trunk while it's stuck at the top)
+      const strain = DM.sin(this.total * 41) * 0.025 * heave;
+      B.crouch = 0.12 + (0.22 * sink - 0.12 * heave + 0.06 * sag) * out;
+      B.pitch = 0.3 + (0.16 * sink - 0.3 * heave + 0.24 * sag + strain) * out;
+      B.hy = (-0.03 * sink - 0.03 * sag) * out;
+      B.hz = 0.03 * sag * out;
+      B.heel = 0.25 + 0.35 * heave;
+      B.grip = ['waist', 'waist'];
+    } else {
+      const T = BLOCK_TOSS;
+      const usx = this.rs === 0 ? -1 : 1;
+      const turn = this.tossBlockK();
+      const load = smoothstep(T.turn - 0.06, T.load, t) * (1 - minJerk((t - T.load) / (T.back - T.load)));
+      const spun = DM.sin(Math.PI * clamp01((t - T.load + 0.04) / (T.back - T.load + 0.04)));
+      B.crouch = 0.12 + 0.14 * turn - 0.06 * load;
+      B.pitch = 0.3 - 0.08 * turn + 0.3 * load;
+      B.twist = -usx * (0.25 * turn + 0.18 * load) + usx * 0.22 * spun;
+      B.hip = -usx * 0.08 * load;
+      B.roll = -usx * 0.06 * load;
+      B.hy = -0.03 * load;
+      B.heel = 0.25 + 0.2 * load;
+      B.grip[this.rs] = 'waist';
+      B.grip[1 - this.rs] = 'over';
+      B.pole[this.rs].set(0.8, -0.5, -0.6);
+      B.pole[1 - this.rs].set(0.6, -1, 0.1);
+      B.roll2[this.rs] = 0.6;
+      B.roll2[1 - this.rs] = -0.4;
+      this.blockTossFeet(me, B);
+    }
+  }
+
+  /**
+   * A takedown that doesn't come off, the one stopping it. The trip: it sees the leg come in
+   * and picks the foot up out of the hook, stood on the other leg, over the top of it, and
+   * plants it again once the reap's gone by, the whizzer turning them off. The lift: hauled a
+   * few centimetres up, then the hips drop back, the feet go back and wide and the arms whizzer
+   * down on top of them. The toss: hips dropped under theirs and driven in, a wide base, hands
+   * on the hips pushing them back round.
+   */
+  private blockDefShape(me: Fighter, B: Body) {
+    const t = this.t;
+    B.pole[0].set(0.9, 0.3, -0.3);
+    B.pole[1].set(0.9, 0.3, -0.3);
+    const lead = me.leadSide === 'L' ? 0 : 1;
+    if (this.kind === 'trip') {
+      const T = BLOCK_TRIP;
+      const dsx = this.dl === 0 ? -1 : 1;
+      const see = smoothstep(0.08, T.lift + 0.06, t) * (1 - minJerk((t - T.plant) / (T.end - T.plant)));
+      const one = smoothstep(T.lift, T.up, t) * (1 - smoothstep(T.down, T.plant, t));
+      const turn = DM.sin(Math.PI * clamp01((t - T.reap) / (T.end - T.reap)));
+      B.crouch = 0.12 + 0.05 * see;
+      B.pitch = 0.3 + 0.1 * see + 0.06 * turn;
+      B.roll = dsx * 0.08 * one;
+      B.px = -dsx * 0.05 * one;
+      B.twist = dsx * 0.2 * turn;
+      B.hip = B.twist * 0.45;
+      B.heel = 0.12;
+      B.grip = ['over', 'over'];
+      this.blockTripDefFoot(me, B);
+    } else if (this.kind === 'throw') {
+      const T = BLOCK_THROW;
+      const k = clamp01((t - T.sink - 0.04) / (T.heave - T.sink + 0.02));
+      const lifted = DM.sin(Math.PI * k);
+      const sprawl = smoothstep(T.heave - 0.12, T.heave + 0.1, t) * (1 - minJerk((t - T.sag) / (T.end - T.sag)));
+      B.crouch = 0.1 + 0.18 * sprawl;
+      B.pitch = 0.3 + 0.12 * lifted + 0.3 * sprawl;
+      B.pz = -0.04 * lifted - 0.1 * sprawl;
+      B.hy = -0.03 - 0.03 * sprawl;
+      B.heel = 0.2 + 0.3 * lifted + 0.2 * sprawl;
+      B.grip = sprawl > 0.3 ? ['over', 'over'] : ['back', 'back'];
+      B.gw = [0.85, 0.85];
+      if (t > T.heave + 0.02 && t < T.sag) {
+        B.spots = true;
+        for (let s = 0; s < 2; s++) {
+          B.spot[s * 2] = 0.24;
+          B.spot[s * 2 + 1] = s === lead ? -0.06 : -0.4;
+        }
+      }
+    } else {
+      const T = BLOCK_TOSS;
+      const usx = this.rs === 0 ? -1 : 1;
+      const block = smoothstep(T.turn - 0.14, T.load, t) * (1 - minJerk((t - T.back + 0.08) / (T.end - T.back + 0.08)));
+      const shove = DM.sin(Math.PI * clamp01((t - T.load + 0.04) / (T.back - T.load + 0.04)));
+      B.crouch = 0.12 + 0.16 * block;
+      B.pitch = 0.3 - 0.14 * block + 0.06 * shove;
+      B.pz = 0.08 * block;
+      B.twist = usx * 0.2 * shove;
+      B.hip = B.twist * 0.6;
+      B.heel = 0.12;
+      B.grip = ['waist', 'waist'];
+      B.gw = [0.9, 0.9];
+      if (t > T.turn - 0.1 && t < T.back - 0.04) {
+        B.spots = true;
+        for (let s = 0; s < 2; s++) {
+          B.spot[s * 2] = 0.25;
+          B.spot[s * 2 + 1] = s === lead ? 0.12 : -0.3;
+        }
+      }
+    }
+  }
+
+  /**
+   * The blocked trip's leg: in behind their heel as a trip's is, then the reap, through the
+   * air where their foot was and on past (nothing to stop it), and home.
+   */
+  private blockTripFoot(me: Fighter, B: Body) {
+    const t = this.t;
+    const T = BLOCK_TRIP;
+    const rs = this.rs, sx = rs === 0 ? -1 : 1;
+    me.stanceSpot(rs, _c);
+    me.toLocal(this.tripW, _b).sub(_c);
+    _b.y = 0;
+    const l = DM.hypot(_b.x, _b.z);
+    if (l > 0.46) _b.multiplyScalar(0.46 / l);
+    if (sx * (_c.x + _b.x) < 0.1) _b.x = sx * 0.1 - _c.x;
+    const off = B.foot[rs];
+    if (t < TRIP.step) {
+      const k = minJerk(t / TRIP.step);
+      const arc = DM.sin(Math.PI * k);
+      off.lerpVectors(this.off0, _b, k);
+      off.x += sx * 0.08 * arc;
+      off.y = 0.11 * arc;
+    } else if (t < T.reap) off.copy(_b);
+    else if (t < T.whiff) {
+      const k = minJerk((t - T.reap) / (T.whiff - T.reap));
+      off.copy(_b);
+      off.z -= 0.4 * k;
+      off.x -= sx * 0.05 * k;
+      off.y = 0.1 * DM.sin(Math.PI * k);
+    } else {
+      const k = minJerk((t - T.whiff) / (T.home - T.whiff));
+      off.copy(_b);
+      off.z -= 0.4;
+      off.x -= sx * 0.05;
+      off.multiplyScalar(1 - k);
+      off.y = 0.07 * DM.sin(Math.PI * k);
+    }
+    off.x *= sx;
+    B.fw[rs] = t < T.home ? 1 : 0;
+    B.knee[rs] = 0.25;
+  }
+
+  /** The foot the trip went for: picked up out of the hook, knee high, and set down on its spot again. */
+  private blockTripDefFoot(me: Fighter, B: Body) {
+    const t = this.t;
+    const T = BLOCK_TRIP;
+    const s = this.dl;
+    if (s === me.legLost) return;
+    const up = minJerk((t - T.lift) / (T.up - T.lift)) * (1 - minJerk((t - T.down) / (T.plant - T.down)));
+    // (x outward: it comes in under the body as it rises)
+    B.foot[s].set(-0.04 * up, 0.2 * up, 0.08 * up);
+    B.fw[s] = t > T.lift && t < T.plant ? 1 : 0;
+    B.knee[s] = lerp(0.1, 0.6, up);
+  }
+
+  /**
+   * The blocked toss's feet: the underhook-side foot steps across as a toss's does and the
+   * other swings round behind it, part of the way; then the other way, the swinging foot first,
+   * back onto their stance spots as the body's turned back out.
+   */
+  private blockTossFeet(me: Fighter, B: Body) {
+    const t = this.t;
+    const T = BLOCK_TOSS;
+    for (let s = 0; s < 2; s++) {
+      const sx = s === 0 ? -1 : 1;
+      const first = s === this.rs;
+      const a = first ? 0 : 0.08, b = first ? 0.22 : T.turn;
+      const c = first ? T.load + 0.12 : T.load, d = first ? T.back : T.back - 0.12;
+      const kin = minJerk((t - a) / (b - a));
+      const kout = minJerk((t - c) / (d - c));
+      _a.lerpVectors(this.tossFrom[s], this.tossTo[s], kin);
+      me.stanceSpot(s, _c);
+      const off = B.foot[s];
+      me.toLocal(_a, off).sub(_c);
+      off.x *= 1 - kout;
+      off.z *= 1 - kout;
+      off.y = (first ? 0.06 : 0.09) * DM.sin(Math.PI * clamp01((t - a) / (b - a))) + 0.06 * DM.sin(Math.PI * clamp01((t - c) / (d - c)));
+      off.x *= sx;
+      B.fw[s] = t < d ? 1 : 0;
+      B.knee[s] = 0.15;
     }
   }
 
