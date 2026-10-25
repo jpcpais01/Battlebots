@@ -78,6 +78,10 @@ export interface StrikeAction {
   hipEnd: number;
   /** The dodge it was thrown straight out of, a counter ('' when none: see Fighter.counterOut). */
   outOf: string;
+  /** Seconds since it was launched, whatever phase it's in (the jet knee's flight runs on it). */
+  age: number;
+  /** A jet knee: when it's back down (s from launch; cut short if it's stopped before take-off). */
+  land: number;
 }
 
 export interface DodgeAction {
@@ -264,6 +268,16 @@ const flowIn = (x: number) => {
 };
 /** Fraction of a kick's recovery by which the foot is back on the canvas (the rest is the body settling). */
 const KICK_DOWN = 0.62;
+/**
+ * The jet knee is a run, a jump and a landing, timed from its launch (StrikeAction.age): the
+ * take-off foot steps in (down by plant, a fraction of the wind-up) while the other leg drives;
+ * the body rocks over the planted foot, sinking into it, and springs off it (off, of the
+ * wind-up), the jets lighting as the rear knee swings through; it flies (fly: its speed against
+ * the run-up's), and comes down on the take-off foot (land: a fraction of the recovery after
+ * the strike), the kneeing leg following it down (down, s after). Its travel builds up over
+ * ramp s and is soaked up over settle s once it's down.
+ */
+const JET = { plant: 0.4, off: 0.64, land: 0.12, down: 0.26, fly: 1.8, ramp: 0.08, settle: 0.18 };
 /**
  * Armoured trunk in the shoulder frame: height above the chest joint, half width,
  * front and back depth of each section (rounded-box sections, interpolated).
@@ -629,6 +643,12 @@ export class Fighter {
   /** Where updateRoot last left the root, to tell how far it has moved since. */
   private rootEnd = new Vector3();
   lift = 0;
+  /**
+   * A jet knee in the air (render-facing: the jets burn while it's above 0, flaring as it takes
+   * off), and where the kneeing leg's foot stood when it set off (world: it drives off there).
+   */
+  jet = 0;
+  private jetSpot = new Vector3();
   /** Where lifted feet go per unit of lift (local z): trailing behind, or scooped up in front by a double leg. */
   liftReach = -0.4;
   /** -1 orthodox (left lead), +1 southpaw. */
@@ -749,6 +769,8 @@ export class Fighter {
   private _c = new Vector3();
   private _c1 = new Vector3();
   private _c2 = new Vector3();
+  private _j1 = new Vector3();
+  private _j2 = new Vector3();
   private _g2 = new Vector3();
   private _e2 = new Vector3();
   private _cvT = new Vector3();
@@ -1133,6 +1155,7 @@ export class Fighter {
     if (!a) return true;
     if (!chain || a.kind !== 'strike') return false;
     if (a.phase !== 'recovery' || a.move.multi) return false;
+    if (a.move.jump && a.age < this.jetLand(a) + JET.down) return false;
     const whip = this.passive('whiplash');
     return a.t >= a.recovery * (0.35 - whip);
   }
@@ -1233,7 +1256,10 @@ export class Fighter {
       shEnd: 1,
       hipEnd: 1,
       outOf: '',
+      age: 0,
+      land: 0,
     };
+    if (move.jump) s.land = s.windup + s.active + s.recovery * JET.land;
     if (prev && prev.move.kind === 'punch' && move.kind === 'punch' && prev.side !== side && !move.multi && !scripted) {
       // a combination: the hand that just threw is still on its way back, and its return is this
       // one's wind-up (the pull home turns the shoulders through the next punch)
@@ -1244,6 +1270,11 @@ export class Fighter {
     if (prev) this.finishStrike(prev, true);
     this.action = s;
     if (!scripted && (move.kind === 'punch' || move.path === 'tie')) this.stepWith(s);
+    // the jet knee's run-up: the take-off foot steps in under where the body will be
+    if (move.jump) {
+      this.jetSpot.copy(this.feet[side === 'L' ? 0 : 1].pos);
+      this.askStep(side === 'L' ? 1 : 0, s.windup * 0.04, s.windup * (JET.plant - 0.04), 0.06, 0);
+    }
     this.lastActTime = this.hooksTime;
     if (!feint && !scripted) {
       s.poised = this.hooksTime - this.lastStrikeAt >= 2;
@@ -1428,6 +1459,11 @@ export class Fighter {
 
   /** Moves a strike into recovery; called on hit, block, whiff or interruption. */
   finishStrike(s: StrikeAction, replaced = false, result?: StrikeResult) {
+    // a jet knee stopped before it took off never leaves the canvas
+    if (s.move.jump && s.age < this.jetOff(s)) {
+      s.land = Math.min(s.land, s.age);
+      s.lungeLeft = 0;
+    }
     if (result) s.result = result;
     else if (s.result === 'pending') s.result = s.hasHit ? 'hit' : 'whiff';
     if (!replaced && s.phase !== 'recovery') {
@@ -2142,6 +2178,11 @@ export class Fighter {
   // ---------------------------------------------------------------- actions
   private updateAction(dt: number) {
     const a = this.action;
+    // (a jet knee cut off in the air, by a knockdown or a grab: no more flight)
+    if (this.jet > 0 && !(a && a.kind === 'strike' && a.move.jump)) {
+      this.jet = 0;
+      this.lift = 0;
+    }
     if (!a) return;
     if (a.kind === 'dodge') {
       a.t += dt;
@@ -2150,6 +2191,9 @@ export class Fighter {
     }
     const s = a;
     s.t += dt;
+    s.age += dt;
+    // down from a jet knee's flight on the take-off foot
+    if (s.move.jump && s.land > this.jetOff(s) && s.age >= s.land && s.age - dt < s.land) this.hooks?.emit('step', { f: this, foot: s.side === 'L' ? 1 : 0 });
     const oo = this.outOf;
     if (oo) {
       oo.t += dt;
@@ -2198,7 +2242,8 @@ export class Fighter {
         }
       }
     } else {
-      if (s.t >= s.recovery) {
+      // (nobody walks away from a jet knee still in the air, or before the knee is back down)
+      if (s.t >= s.recovery && !(s.move.jump && s.age < this.jetLand(s) + JET.down + 0.1)) {
         this.releaseLimb(s);
         this.action = null;
       }
@@ -2233,7 +2278,7 @@ export class Fighter {
     const s = this.strike;
     if (s) {
       maxSpd *= s.phase === 'recovery' ? 0.5 : 0.3;
-      if (s.move.jump && s.phase !== 'recovery') accel = 2;
+      if (s.move.jump && (s.phase !== 'recovery' || s.age < this.jetLand(s))) accel = 2;
       // on one leg there's no footwork: a kick plants the body and bleeds off its speed
       else if (s.move.kind === 'kick') {
         maxSpd *= 0.25;
@@ -2299,7 +2344,16 @@ export class Fighter {
     // strike lunges
     // (a shot drops its level first, then drives: all of its travel is in the active phase)
     const shot = !!s && s.move.path === 'shoot';
-    if (s && s.lungeLeft > 0 && s.phase !== 'recovery' && (!shot || s.phase === 'active')) {
+    if (s && s.move.jump) {
+      // the jet knee runs in, and flies the rest (see jetTravel)
+      if (s.lungeLeft > 0) {
+        const all = s.move.lunge * (1 + this.passive('pistonDrive')) * this.size;
+        const step = Math.min(s.lungeLeft, (this.jetTravel(s, s.age) - this.jetTravel(s, s.age - dt)) * all);
+        s.lungeLeft -= step;
+        const gap = this.distTo(this.opp) - 0.8 * (this.size + this.opp.size) * 0.5;
+        this.root.addScaledVector(this.forward(_u, this.yaw), Math.min(step, Math.max(0, gap)));
+      }
+    } else if (s && s.lungeLeft > 0 && s.phase !== 'recovery' && (!shot || s.phase === 'active')) {
       const total = shot ? s.active * 0.8 : s.windup + s.active;
       const rate = (s.move.lunge * (1 + this.passive('pistonDrive')) * this.size) / Math.max(0.05, total);
       const step = Math.min(s.lungeLeft, rate * dt);
@@ -2316,7 +2370,8 @@ export class Fighter {
 
     // whatever still moves the body during a kick (lunge, leftover speed, a shove) carries the
     // support foot with it, a skip on its ball, so the body can't drift off over it
-    const sup = s && s.move.kind === 'kick' ? this.feet[s.side === 'L' ? 1 : 0] : chk ? this.feet[1 - chk.side] : null;
+    // (the jet knee's take-off foot stays where it planted: the body rocks over it and springs off)
+    const sup = s && s.move.kind === 'kick' && !s.move.jump ? this.feet[s.side === 'L' ? 1 : 0] : chk ? this.feet[1 - chk.side] : null;
     const mx = this.root.x - this.rootEnd.x, mz = this.root.z - this.rootEnd.z;
     if (sup && !sup.locked && !sup.stepping && mx * mx + mz * mz < 0.09) {
       sup.pos.x += mx;
@@ -2659,7 +2714,12 @@ export class Fighter {
     out.copy(this.rootVel).add(this.velIn(t, this._pv)).multiplyScalar(t * 0.5);
     const s = this.strike;
     const shot = !!s && s.move.path === 'shoot';
-    if (s && s.lungeLeft > 0 && s.phase !== 'recovery' && (!shot || s.phase === 'active')) {
+    if (s && s.move.jump) {
+      const all = s.move.lunge * (1 + this.passive('pistonDrive')) * this.size;
+      const gap = this.distTo(this.opp) - 0.8 * (this.size + this.opp.size) * 0.5;
+      const go = (this.jetTravel(s, s.age + t) - this.jetTravel(s, s.age)) * all;
+      out.addScaledVector(this.forward(this._rs, this.yaw), Math.max(0, Math.min(s.lungeLeft, go, gap)));
+    } else if (s && s.lungeLeft > 0 && s.phase !== 'recovery' && (!shot || s.phase === 'active')) {
       const total = shot ? s.active * 0.8 : s.windup + s.active;
       const rate = (s.move.lunge * (1 + this.passive('pistonDrive')) * this.size) / Math.max(0.05, total);
       const gap = this.distTo(this.opp) - (s.move.striker === 'knee' ? 0.8 : shot ? 0.6 : 0.66) * (this.size + this.opp.size) * 0.5;
@@ -2844,7 +2904,7 @@ export class Fighter {
     // on one leg the support foot pivots (see updateRoot) instead of stepping; only at the
     // very start of a kick may it make a quick set step back under the body
     const kick = !!s && s.move.kind === 'kick';
-    if (s && kick && !(s.phase === 'windup' && s.t < s.windup * (s.move.spin ? 0.15 : 0.35))) return;
+    if (s && kick && (s.move.jump || !(s.phase === 'windup' && s.t < s.windup * (s.move.spin ? 0.15 : 0.35)))) return;
     // up on one leg checking a kick: the other foot stays put under it
     if (this.cover && this.cover.kind === 'check') return;
     // decide steps
@@ -3840,6 +3900,8 @@ export class Fighter {
         // (once it's back down it stands like any planted foot while the body settles)
         const flex = this.kickFoot(s, prog, foot, pole, L[hipIdx]);
         f.locked = true;
+        // (the jet knee's leg drives off from where it stood: no step left over to finish)
+        if (s.move.jump) f.stepping = false;
         this.toWorld(foot, f.pos);
         this.footAirT[side] = smoothstep(0, 0.06, foot.y - FOOT_Y);
         this.footFlexT[side] = flex;
@@ -3894,6 +3956,22 @@ export class Fighter {
         this.toWorld(foot, f.pos);
         this.footAirT[side] = gu.w;
         this.footFlexT[side] = isLead ? 0 : 0.9 * gu.w;
+      } else if (s && s.move.jump && lost < 0 && side === (s.side === 'L' ? 1 : 0) && s.age > this.jetOff(s) && s.age < s.land) {
+        // the jet knee's take-off leg: it springs off the canvas, trails behind and below the
+        // body in the air (toes pointed), then reaches down for the canvas under it to land on
+        const hip = L[hipIdx];
+        const reach = minJerk(clamp01((s.age - (s.land - 0.2)) / 0.2));
+        this.stanceFoot(side, _w);
+        _w.z += 0.03;
+        this._j1.set(hip.x * 0.9, hip.y - 0.84, hip.z - 0.3).lerp(_w, reach);
+        this.toLocal(f.pos, foot);
+        if (dt > 0) foot.lerp(this._j1, 1 - DM.exp(-12 * dt));
+        foot.lerp(this._j1, reach);
+        f.locked = true;
+        f.stepping = false;
+        this.toWorld(foot, f.pos);
+        this.footAirT[side] = 1;
+        this.footFlexT[side] = lerp(0.8, 0.1, reach);
       } else if (this.lift > 0.01) {
         this.stanceFoot(side, foot);
         foot.y += this.lift * 0.75;
@@ -4731,6 +4809,42 @@ export class Fighter {
     return lerp(shoot ? 0.6 : -0.5, 0.12, k);
   }
 
+  /** The jet knee's beats, in seconds from its launch (see JET). */
+  private jetPlant(s: StrikeAction) {
+    return s.windup * JET.plant;
+  }
+  private jetOff(s: StrikeAction) {
+    return s.windup * JET.off;
+  }
+  private jetLand(s: StrikeAction) {
+    return s.land;
+  }
+
+  /**
+   * How much of its travel a jet knee has covered `t` s from its launch (0..1): a run-up that
+   * gets going over JET.ramp, flight JET.fly times quicker from the take-off, slowing from the
+   * knee's impact to a stop JET.settle s after the landing. (Its speed is the rate of this: it
+   * never jumps but at the take-off.)
+   */
+  private jetTravel(s: StrikeAction, t: number) {
+    // (it's on them as the knee lands: what's left of the flight after that is its momentum
+    // dying away, held up against them or carrying on past a miss, and soaked up landing)
+    const r = JET.ramp, off = this.jetOff(s), hit = s.windup + s.active * 0.62, st = this.jetLand(s) + JET.settle - hit, v = JET.fly;
+    const u0 = off - r * 0.5;
+    const u1 = u0 + v * (hit - off);
+    const total = u1 + v * st * 0.5;
+    let u: number;
+    if (t <= 0) u = 0;
+    else if (t < r) u = (t * t) / (2 * r);
+    else if (t < off) u = t - r * 0.5;
+    else if (t < hit) u = u0 + v * (t - off);
+    else if (t < hit + st) {
+      const x = t - hit;
+      u = u1 + v * (x - (x * x) / (2 * st));
+    } else u = total;
+    return u / total;
+  }
+
   /** When in its windup a kick's foot leaves the canvas: the weight goes over the other leg first. */
   private kickOff(s: StrikeAction) {
     const p = s.move.path;
@@ -4739,6 +4853,12 @@ export class Fighter {
 
   /** How far a kicking leg is up off the canvas: 0 planted, 1 from its chamber through the strike. */
   private kickUp(s: StrikeAction) {
+    if (s.move.jump) {
+      // the knee swings through as it takes off, and stays up till it's down on the other foot
+      const a = s.age, land = this.jetLand(s);
+      if (a < land) return flowIn((a - this.jetPlant(s) - s.windup * 0.06) / (this.jetOff(s) + 0.08 - this.jetPlant(s) - s.windup * 0.06));
+      return 1 - minJerk((a - land) / JET.down);
+    }
     if (s.phase === 'active') return 1;
     if (s.phase === 'windup') {
       const off = this.kickOff(s);
@@ -4749,6 +4869,7 @@ export class Fighter {
 
   /** The kicking foot is back on the canvas: the rest of the recovery is the body settling over it. */
   private kickDown(s: StrikeAction) {
+    if (s.move.jump) return s.age >= this.jetLand(s) + JET.down;
     return s.phase === 'recovery' && s.t >= s.recovery * KICK_DOWN;
   }
 
@@ -4795,13 +4916,7 @@ export class Fighter {
       this.spinYaw = spin * dir;
       if (s.phase === 'recovery' && s.t >= s.recovery * 0.98) this.spinYaw = 0;
     }
-    if (m.jump) {
-      // take off late in the windup, peak as the knee lands, touch down early in recovery
-      const up = s.windup * 0.4;
-      const air = up + s.active + s.recovery * 0.35;
-      const e = s.phase === 'windup' ? s.t - (s.windup - up) : s.phase === 'active' ? up + s.t : up + s.active + s.t;
-      this.lift = e > 0 && e < air ? DM.sin(Math.PI * (e / air)) * m.jump : 0;
-    }
+    if (m.jump) return this.jetBody(s, prog, heel);
     switch (m.path) {
       case 'frontKick':
         // rock back onto the rear leg as the knee comes up, then drive the hips through the
@@ -4847,6 +4962,38 @@ export class Fighter {
     return res;
   }
 
+  /**
+   * The jet knee's body (see JET): leaning into the run-up, it sinks into the planted foot and
+   * springs off it onto its toes; in the air (a ballistic arc) the hips drive in under the knee
+   * and the trunk leans back off it, then the head and chest come down over it as the hands pull
+   * their head onto it; landing, it sinks into the take-off leg and soaks the flight up.
+   */
+  private jetBody(s: StrikeAction, prog: StrikeProg, heel: number[]) {
+    const res = this._kb;
+    const a = s.age, P = this.jetPlant(s), O = this.jetOff(s), Ld = this.jetLand(s);
+    const sx = s.side === 'L' ? -1 : 1;
+    const sup = s.side === 'L' ? 1 : 0;
+    // (stopped before it took off: it stays down)
+    const k = Ld > O ? (a - O) / (Ld - O) : -1;
+    this.lift = k > 0 && k < 1 ? 4 * k * (1 - k) * (s.move.jump ?? 0) : 0;
+    // the jets light as it springs, and burn till it's down (flaring off the canvas)
+    this.jet = k > -0.1 && k < 1 ? 1 + 0.8 * (1 - smoothstep(0, 0.25, k)) : 0;
+    const run = smoothstep(0, P, a);
+    const g = clamp01((a - P) / (O - P));
+    const sink = a > P && a < O ? (g < 0.62 ? minJerk(g / 0.62) : 1 - minJerk((g - 0.62) / 0.38)) : 0;
+    const air = k > 0 && k < 1 ? DM.sin(Math.PI * k) : 0;
+    const pull = s.phase === 'windup' ? 0 : prog.ext * (1 - prog.ret) * (1 - smoothstep(0.85, 1, k));
+    const land = a >= Ld ? DM.sin(Math.PI * clamp01((a - Ld) / 0.36)) : 0;
+    res.crouch = 0.03 * run * (1 - smoothstep(P, O, a)) + 0.12 * sink + 0.14 * land;
+    res.pitch = 0.1 * run * (1 - smoothstep(P, O + 0.1, a)) + 0.04 * sink - 0.2 * air * (1 - pull) + 0.16 * pull + 0.1 * land;
+    res.shiftZ = 0.06 * air - 0.03 * land;
+    res.shiftX = -sx * 0.07 * Math.max(sink, air * 0.6, land);
+    res.roll = 0;
+    res.twist = 0;
+    heel[sup] = a < P ? 0.25 * run : a < O ? 0.7 * smoothstep(0.55, 1, g) : 0;
+    return res;
+  }
+
   /** Kicking foot target (local) and knee pole. Returns the ankle flex (positive points the toes). */
   private kickFoot(s: StrikeAction, prog: StrikeProg, out: Vector3, pole: Vector3, hip: Vector3) {
     const m = s.move;
@@ -4874,6 +5021,37 @@ export class Fighter {
     }
     // (a foot kick leaves from wherever the foot stood; a knee's foot from its stance spot)
     const from = m.striker === 'foot' ? s.chamber : home;
+    if (m.jump && s.phase !== 'active') {
+      const a = s.age;
+      if (s.phase === 'windup') {
+        // it drives off where it stood, up on its toes as the body goes on away from it; then it
+        // swings through low under the hip and up into the chamber as the body takes off
+        const k = this.kickUp(s);
+        const toe = smoothstep(0, this.jetPlant(s), a);
+        const at = this.toLocal(this.jetSpot, this._j1);
+        at.y = FOOT_Y + 0.05 * toe;
+        const c = this._j2.set(hip.x * 0.6, 0.2, hip.z - 0.04);
+        const b = 1 - k;
+        out.set(
+          b * b * at.x + 2 * b * k * c.x + k * k * C.x,
+          b * b * at.y + 2 * b * k * c.y + k * k * C.y,
+          b * b * at.z + 2 * b * k * c.z + k * k * C.z,
+        );
+        return lerp(0.55 * toe, flex, k);
+      }
+      // in the air the knee stays up, folding away off the target; once the take-off foot is
+      // down it comes down after it, back to its stance spot
+      const hold = this.kneeFoot(hip, 0.95, 0.5, this._j1).lerp(s.recoverFrom, 1 - minJerk(clamp01(s.t / 0.25)));
+      const land = this.jetLand(s);
+      if (a < land) {
+        out.copy(hold);
+        return flex;
+      }
+      const kd = minJerk((a - land) / JET.down);
+      out.lerpVectors(hold, home, kd);
+      out.y += DM.sin(Math.PI * kd) * 0.04;
+      return flex * (1 - kd);
+    }
     if (m.path === 'knee' && s.phase !== 'recovery') {
       if (s.phase === 'windup') {
         // load on the support leg, then the knee comes up, still rising as it drives
@@ -5125,6 +5303,43 @@ export class Fighter {
     return out;
   }
 
+  /**
+   * The jet knee's arms: guard up through the run-up; both swing down and back as it sinks into
+   * the take-off, and drive up with the spring. In the air the far hand reaches on for their
+   * head and pulls it down onto the knee as it lands, while the arm on the knee's side whips down
+   * and back past the hip; coming down, both come home to the guard.
+   */
+  private jetArm(s: StrikeAction, prog: StrikeProg, sx: number, kickSide: boolean, hand: Vector3, pole: Vector3, head: Vector3) {
+    const a = s.age, P = this.jetPlant(s), O = this.jetOff(s), Ld = s.land;
+    const flies = Ld > O;
+    const g = clamp01((a - P) / (O - P));
+    const back = a > P ? DM.sin(Math.PI * 0.5 * Math.min(1, g * 1.25)) * (1 - smoothstep(O - 0.04, O + 0.08, a)) : 0;
+    const up = flies ? minJerk((a - (O - 0.05)) / 0.2) : 0;
+    const home = flies ? minJerk((a - (Ld - 0.08)) / 0.3) : minJerk((a - P) / 0.3);
+    const pull = s.phase === 'windup' ? 0 : prog.ext * (1 - prog.ret);
+    // swung back to load the jump
+    this.trunkPoint(sx * 0.27, -0.32, -0.14, _w);
+    hand.lerp(_w, back * 0.8 * (1 - home));
+    pole.lerp(_p.set(sx * 0.7, -0.2, -0.7), back * 0.8 * (1 - home));
+    const fly = up * (1 - home);
+    if (fly > 0.001) {
+      if (kickSide) {
+        // the counterweight: down past the hip and behind it as the knee drives up
+        this.trunkPoint(sx * 0.32, -0.42, -0.26, _w);
+        _w.y -= 0.06 * pull;
+        hand.lerp(_w, fly);
+        pole.lerp(_p.set(sx * 0.6, -0.4, -1), fly);
+      } else {
+        // the plum: over their head, fingers round the back of it, hauling it down
+        _w.set(sx * 0.1, head.y + 0.08 - pull * 0.3, head.z + 0.44 - pull * 0.14);
+        hand.lerp(_w, fly);
+        pole.lerp(_p.set(sx * 1, -0.2, -0.3), fly);
+        return lerp(0.12, 0.9, fly);
+      }
+    }
+    return 0.12;
+  }
+
   /** Arms during kicks: guard the face, counterbalance, post or clinch. Returns the fist roll. */
   private kickArm(s: StrikeAction, prog: StrikeProg, side: number, hand: Vector3, pole: Vector3, head: Vector3) {
     const m = s.move;
@@ -5163,6 +5378,7 @@ export class Fighter {
         }
         break;
       case 'knee': {
+        if (m.jump) return this.jetArm(s, prog, sx, kickSide, hand, pole, head);
         // reach for the opponent's head and pull it down onto the knee
         const pull = prog.ext * (1 - prog.ret);
         _p.set(sx * 0.13, head.y + 0.02 - pull * 0.3, head.z + 0.42 - pull * 0.12);

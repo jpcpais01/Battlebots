@@ -16,6 +16,15 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-25 10:00",
+    title: "The Jet Knee takes off",
+    notes: [
+      "The Jet Knee is a real flying knee now: the robot steps in, sinks onto its lead leg and springs off it, the knee swinging through as the jets light, instead of gliding in on planted feet.",
+      "In the air the take-off leg trails behind, one hand reaches over for the opponent's head and hauls it down onto the knee while the other arm whips back for power, then it lands on the take-off foot and soaks it up.",
+      "The jets burn the whole way through the flight now, flaring as it leaves the canvas, and kick up a puff of dust on take-off and landing.",
+    ],
+  },
+  {
     hour: "2026-10-25 08:00",
     title: "Counterpunching",
     notes: [

@@ -180,10 +180,11 @@ export const MOVES: Record<MoveId, MoveDef> = {
     range: [0.8, 1.45], zones: ['body', 'head'], twist: 0, lean: -0.2, crouch: 0, lunge: 0, power: true,
     ability: 'kick', cooldown: 9, spin: true, vfx: 'spin',
   }),
+  // a run, a jump and a landing (see the fighter's JET): its lunge is mostly flown
   flyingKnee: M({
     id: 'flyingKnee', name: 'Jet Knee', kind: 'kick', limb: 'rear', path: 'knee', striker: 'knee',
-    windup: 0.3, active: 0.2, recovery: 0.4, damage: 100, poise: 55, knockback: 2.0, stamina: 20, hitstun: 0.42,
-    range: [1.1, 2.5], zones: ['head', 'body'], twist: 0.4, lean: 0.1, crouch: 0.1, lunge: 1.25, power: true,
+    windup: 0.33, active: 0.2, recovery: 0.4, damage: 100, poise: 55, knockback: 2.0, stamina: 20, hitstun: 0.42,
+    range: [1.1, 2.5], zones: ['head', 'body'], twist: 0.4, lean: 0.1, crouch: 0.1, lunge: 1.5, power: true,
     ability: 'kick', cooldown: 9, jump: 0.38, vfx: 'jet',
   }),
 

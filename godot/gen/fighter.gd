@@ -79,6 +79,7 @@ static func flowIn(x: float) -> float:
 	var k: float = (((0.0 if (x < 0.0) else (1.0 if (x > 1.0) else x))))
 	return ((k * k) * ((2.0 - k)))
 const KICK_DOWN: float = 0.62
+static var JET
 const POLE_RATE: float = 30.0
 const BEND_RATE: float = 24.0
 static var KNEEL
@@ -264,6 +265,8 @@ class Fighter extends RefCounted:
 	var angledAt: float
 	var rootEnd: V3
 	var lift: float
+	var jet: float
+	var jetSpot: V3
 	var liftReach: float
 	var stance: float
 	var state: String
@@ -344,6 +347,8 @@ class Fighter extends RefCounted:
 	var _c: V3
 	var _c1: V3
 	var _c2: V3
+	var _j1: V3
+	var _j2: V3
 	var _g2: V3
 	var _e2: V3
 	var _cvT: V3
@@ -510,6 +515,8 @@ class Fighter extends RefCounted:
 		self.angledAt = -9.0
 		self.rootEnd = V3.new()
 		self.lift = 0.0
+		self.jet = 0.0
+		self.jetSpot = V3.new()
 		self.liftReach = -0.4
 		self.stance = -1.0
 		self.state = "ready"
@@ -599,6 +606,8 @@ class Fighter extends RefCounted:
 		self._c = V3.new()
 		self._c1 = V3.new()
 		self._c2 = V3.new()
+		self._j1 = V3.new()
+		self._j2 = V3.new()
 		self._g2 = V3.new()
 		self._e2 = V3.new()
 		self._cvT = V3.new()
@@ -883,6 +892,8 @@ class Fighter extends RefCounted:
 			return false
 		if ((a.phase != "recovery") or JS.truthy(a.move.get("multi"))):
 			return false
+		if (JS.truthy(a.move.get("jump")) and (a.age < (jetLand(a) + TFighter.JET.down))):
+			return false
 		var whip: float = passive("whiplash")
 		return (a.t >= (a.recovery * ((0.35 - whip))))
 	
@@ -982,8 +993,13 @@ class Fighter extends RefCounted:
 	"pullFrom": V3.new(),
 	"shEnd": 1.0,
 	"hipEnd": 1.0,
-	"outOf": ""
+	"outOf": "",
+	"age": 0.0,
+	"land": 0.0
 }
+		var _hJET = TFighter.JET
+		if JS.truthy(move.get("jump")):
+			s.land = ((s.windup + s.active) + (s.recovery * _hJET.land))
 		if ((((((prev != null) and (prev.move.kind == "punch")) and (move.kind == "punch")) and (prev.side != side)) and (not JS.truthy(move.get("multi")))) and (not scripted)):
 			s.pull = 1.0
 			var __v2: V3 = s.pullFrom
@@ -997,6 +1013,12 @@ class Fighter extends RefCounted:
 		self.action = s
 		if ((not scripted) and ((move.kind == "punch") or (move.path == "tie"))):
 			stepWith(s)
+		if JS.truthy(move.get("jump")):
+			var __v4: V3 = feet[(0.0 if (side == "L") else 1.0)].pos
+			jetSpot.x = __v4.x
+			jetSpot.y = __v4.y
+			jetSpot.z = __v4.z
+			askStep((1.0 if (side == "L") else 0.0), (s.windup * 0.04), (s.windup * ((_hJET.plant - 0.04))), 0.06, 0.0)
 		self.lastActTime = hooksTime
 		if ((not feint) and (not scripted)):
 			s.poised = ((hooksTime - lastStrikeAt) >= 2.0)
@@ -1213,6 +1235,9 @@ class Fighter extends RefCounted:
 		return (12.0 if L else 15.0)
 	
 	func finishStrike(s, replaced: bool = false, result = null) -> void:
+		if (JS.truthy(s.move.get("jump")) and (s.age < jetOff(s))):
+			s.land = minf(s.land, s.age)
+			s.lungeLeft = 0.0
 		if JS.truthy(result):
 			s.result = result
 		elif (s.result == "pending"):
@@ -2134,6 +2159,9 @@ class Fighter extends RefCounted:
 	
 	func updateAction(dt: float) -> void:
 		var a = action
+		if ((jet > 0.0) and (not (((a != null) and (a.kind == "strike")) and JS.truthy(a.move.get("jump"))))):
+			self.jet = 0.0
+			self.lift = 0.0
 		if (not (a != null)):
 			return
 		if (a.kind == "dodge"):
@@ -2143,6 +2171,10 @@ class Fighter extends RefCounted:
 			return
 		var s = a
 		s.t += dt
+		s.age += dt
+		if (((JS.truthy(s.move.get("jump")) and (s.land > jetOff(s))) and (s.age >= s.land)) and ((s.age - dt) < s.land)):
+			if hooks != null:
+				hooks.emit.call("step", {"f": self, "foot": (1.0 if (s.side == "L") else 0.0)})
 		var oo = outOf
 		if (oo != null):
 			oo.t += dt
@@ -2186,7 +2218,7 @@ class Fighter extends RefCounted:
 					rootVel.y += __v1.y * 0.9
 					rootVel.z += __v1.z * 0.9
 		else:
-			if (s.t >= s.recovery):
+			if ((s.t >= s.recovery) and (not (JS.truthy(s.move.get("jump")) and (s.age < ((jetLand(s) + TFighter.JET.down) + 0.1))))):
 				releaseLimb(s)
 				self.action = null
 	
@@ -2231,7 +2263,7 @@ class Fighter extends RefCounted:
 		var s = strike
 		if (s != null):
 			maxSpd *= (0.5 if (s.phase == "recovery") else 0.3)
-			if (JS.truthy(s.move.get("jump")) and (s.phase != "recovery")):
+			if (JS.truthy(s.move.get("jump")) and ((s.phase != "recovery") or (s.age < jetLand(s)))):
 				accel = 2.0
 			elif (s.move.kind == "kick"):
 				maxSpd *= 0.25
@@ -2295,24 +2327,36 @@ class Fighter extends RefCounted:
 		rootVel.y += _h_w.y
 		rootVel.z += _h_w.z
 		var shot: bool = ((not (not (s != null))) and (s.move.path == "shoot"))
-		if ((((s != null) and (s.lungeLeft > 0.0)) and (s.phase != "recovery")) and ((not shot) or (s.phase == "active"))):
+		var _h_u: V3 = TFighter._u
+		if ((s != null) and JS.truthy(s.move.get("jump"))):
+			if (s.lungeLeft > 0.0):
+				var all: float = ((s.move.lunge * ((1.0 + passive("pistonDrive")))) * size_)
+				var step: float = minf(s.lungeLeft, (((jetTravel(s, s.age) - jetTravel(s, (s.age - dt)))) * all))
+				s.lungeLeft -= step
+				var gap: float = (distTo(opp) - ((0.8 * ((size_ + opp.size_))) * 0.5))
+				var __v3: V3 = forward(_h_u, yaw)
+				var __v4: float = minf(step, maxf(0.0, gap))
+				root.x += __v3.x * __v4
+				root.y += __v3.y * __v4
+				root.z += __v3.z * __v4
+		elif ((((s != null) and (s.lungeLeft > 0.0)) and (s.phase != "recovery")) and ((not shot) or (s.phase == "active"))):
 			var total: float = ((s.active * 0.8) if shot else (s.windup + s.active))
 			var rate: float = ((((s.move.lunge * ((1.0 + passive("pistonDrive")))) * size_)) / maxf(0.05, total))
-			var step: float = minf(s.lungeLeft, (rate * dt))
-			s.lungeLeft -= step
-			var fwd: V3 = forward(TFighter._u, yaw)
-			var gap: float = (distTo(opp) - ((((0.8 if (s.move.striker == "knee") else (0.6 if shot else 0.66))) * ((size_ + opp.size_))) * 0.5))
-			var __v3: float = minf(step, maxf(0.0, gap))
-			root.x += fwd.x * __v3
-			root.y += fwd.y * __v3
-			root.z += fwd.z * __v3
+			var step_2: float = minf(s.lungeLeft, (rate * dt))
+			s.lungeLeft -= step_2
+			var fwd: V3 = forward(_h_u, yaw)
+			var gap_2: float = (distTo(opp) - ((((0.8 if (s.move.striker == "knee") else (0.6 if shot else 0.66))) * ((size_ + opp.size_))) * 0.5))
+			var __v5: float = minf(step_2, maxf(0.0, gap_2))
+			root.x += fwd.x * __v5
+			root.y += fwd.y * __v5
+			root.z += fwd.z * __v5
 		root.x += rootVel.x * dt
 		root.y += rootVel.y * dt
 		root.z += rootVel.z * dt
 		root.y = 0.0
 		if (pv != null):
 			updatePivot(pv)
-		var sup: TFighter.Foot = (feet[(1.0 if (s.side == "L") else 0.0)] if ((s != null) and (s.move.kind == "kick")) else (feet[(1.0 - chk.side)] if (chk != null) else null))
+		var sup: TFighter.Foot = (feet[(1.0 if (s.side == "L") else 0.0)] if (((s != null) and (s.move.kind == "kick")) and (not JS.truthy(s.move.get("jump")))) else (feet[(1.0 - chk.side)] if (chk != null) else null))
 		var mx: float = (root.x - rootEnd.x)
 		var mz: float = (root.z - rootEnd.z)
 		if ((((sup != null) and (not sup.locked)) and (not sup.stepping)) and (((mx * mx) + (mz * mz)) < 0.09)):
@@ -2680,15 +2724,24 @@ class Fighter extends RefCounted:
 		out.z *= __v2
 		var s = strike
 		var shot: bool = ((not (not (s != null))) and (s.move.path == "shoot"))
-		if ((((s != null) and (s.lungeLeft > 0.0)) and (s.phase != "recovery")) and ((not shot) or (s.phase == "active"))):
-			var total: float = ((s.active * 0.8) if shot else (s.windup + s.active))
-			var rate: float = ((((s.move.lunge * ((1.0 + passive("pistonDrive")))) * size_)) / maxf(0.05, total))
-			var gap: float = (distTo(opp) - ((((0.8 if (s.move.striker == "knee") else (0.6 if shot else 0.66))) * ((size_ + opp.size_))) * 0.5))
+		if ((s != null) and JS.truthy(s.move.get("jump"))):
+			var all: float = ((s.move.lunge * ((1.0 + passive("pistonDrive")))) * size_)
+			var gap: float = (distTo(opp) - ((0.8 * ((size_ + opp.size_))) * 0.5))
+			var go: float = (((jetTravel(s, (s.age + t)) - jetTravel(s, s.age))) * all)
 			var __v3: V3 = forward(_rs, yaw)
-			var __v4: float = maxf(0.0, minf(minf(s.lungeLeft, (rate * t)), gap))
+			var __v4: float = maxf(0.0, minf(minf(s.lungeLeft, go), gap))
 			out.x += __v3.x * __v4
 			out.y += __v3.y * __v4
 			out.z += __v3.z * __v4
+		elif ((((s != null) and (s.lungeLeft > 0.0)) and (s.phase != "recovery")) and ((not shot) or (s.phase == "active"))):
+			var total: float = ((s.active * 0.8) if shot else (s.windup + s.active))
+			var rate: float = ((((s.move.lunge * ((1.0 + passive("pistonDrive")))) * size_)) / maxf(0.05, total))
+			var gap_2: float = (distTo(opp) - ((((0.8 if (s.move.striker == "knee") else (0.6 if shot else 0.66))) * ((size_ + opp.size_))) * 0.5))
+			var __v5: V3 = forward(_rs, yaw)
+			var __v6: float = maxf(0.0, minf(minf(s.lungeLeft, (rate * t)), gap_2))
+			out.x += __v5.x * __v6
+			out.y += __v5.y * __v6
+			out.z += __v5.z * __v6
 		return out
 	
 	func spotIn(i: float, t: float, out: V3) -> V3:
@@ -2877,7 +2930,7 @@ class Fighter extends RefCounted:
 		if ((d != null) and (d.type == "pivot")):
 			return
 		var kick: bool = ((not (not (s != null))) and (s.move.kind == "kick"))
-		if (((s != null) and kick) and (not ((s.phase == "windup") and (s.t < (s.windup * ((0.15 if (s.move.get("spin") == true) else 0.35))))))):
+		if (((s != null) and kick) and (JS.truthy(s.move.get("jump")) or (not ((s.phase == "windup") and (s.t < (s.windup * ((0.15 if (s.move.get("spin") == true) else 0.35)))))))):
 			return
 		if ((cover != null) and (cover.kind == "check")):
 			return
@@ -3918,6 +3971,8 @@ class Fighter extends RefCounted:
 			elif (((((s != null) and (prog != null)) and (s.move.kind == "kick")) and (s.side == (("L" if (float(side_2) == 0.0) else "R")))) and (not kickDown(s))):
 				var flex: float = kickFoot(s, prog, foot, pole_2, L[hipIdx])
 				f_5.locked = true
+				if JS.truthy(s.move.get("jump")):
+					f_5.stepping = false
 				toWorld(foot, f_5.pos)
 				footAirT[side_2] = TMath.smoothstep_(0.0, 0.06, (foot.y - TFighter.FOOT_Y))
 				footFlexT[side_2] = flex
@@ -3996,6 +4051,21 @@ class Fighter extends RefCounted:
 				toWorld(foot, f_5.pos)
 				footAirT[side_2] = gu.w
 				footFlexT[side_2] = (0.0 if isLead_2 else (0.9 * gu.w))
+			elif ((((((s != null) and JS.truthy(s.move.get("jump"))) and (lost < 0.0)) and (float(side_2) == ((1.0 if (s.side == "L") else 0.0)))) and (s.age > jetOff(s))) and (s.age < s.land)):
+				var hip: V3 = L[hipIdx]
+				var reach_3: float = TMath.minJerk(TMath.clamp01((((s.age - ((s.land - 0.2)))) / 0.2)))
+				stanceFoot(float(side_2), _h_w)
+				_h_w.z += 0.03
+				_j1.set3((hip.x * 0.9), (hip.y - 0.84), (hip.z - 0.3)).lerp(_h_w, reach_3)
+				toLocal(f_5.pos, foot)
+				if (dt > 0.0):
+					foot.lerp(_j1, (1.0 - DM.exp((-12.0 * dt))))
+				foot.lerp(_j1, reach_3)
+				f_5.locked = true
+				f_5.stepping = false
+				toWorld(foot, f_5.pos)
+				footAirT[side_2] = 1.0
+				footFlexT[side_2] = ((0.8 + (((0.1 - 0.8)) * reach_3)))
 			elif (lift > 0.01):
 				stanceFoot(float(side_2), foot)
 				foot.y += (lift * 0.75)
@@ -5343,11 +5413,52 @@ class Fighter extends RefCounted:
 			out.y -= (DM.sin((PI * k)) * 0.12)
 		return TMath.lerp_((0.6 if shoot else -0.5), 0.12, k)
 	
+	func jetPlant(s) -> float:
+		return (s.windup * TFighter.JET.plant)
+	
+	func jetOff(s) -> float:
+		return (s.windup * TFighter.JET.off)
+	
+	func jetLand(s) -> float:
+		return s.land
+	
+	func jetTravel(s, t: float) -> float:
+		var _hJET = TFighter.JET
+		var r: float = _hJET.ramp
+		var off: float = jetOff(s)
+		var hit: float = (s.windup + (s.active * 0.62))
+		var st: float = ((jetLand(s) + _hJET.settle) - hit)
+		var v: float = _hJET.fly
+		var u0: float = (off - (r * 0.5))
+		var u1: float = (u0 + (v * ((hit - off))))
+		var total: float = (u1 + ((v * st) * 0.5))
+		var u: float
+		if (t <= 0.0):
+			u = 0.0
+		elif (t < r):
+			u = (((t * t)) / ((2.0 * r)))
+		elif (t < off):
+			u = (t - (r * 0.5))
+		elif (t < hit):
+			u = (u0 + (v * ((t - off))))
+		elif (t < (hit + st)):
+			var x: float = (t - hit)
+			u = (u1 + (v * ((x - (((x * x)) / ((2.0 * st)))))))
+		else:
+			u = total
+		return (u / total)
+	
 	func kickOff(s) -> float:
 		var p: String = s.move.path
 		return (0.3 if ((p == "roundKick") or (p == "knee")) else (0.25 if (p == "backKick") else (0.2 if (p == "frontKick") else 0.0)))
 	
 	func kickUp(s) -> float:
+		if JS.truthy(s.move.get("jump")):
+			var a: float = s.age
+			var land: float = jetLand(s)
+			if (a < land):
+				return TFighter.flowIn(((((a - jetPlant(s)) - (s.windup * 0.06))) / ((((jetOff(s) + 0.08) - jetPlant(s)) - (s.windup * 0.06)))))
+			return (1.0 - TMath.minJerk((((a - land)) / TFighter.JET.down)))
 		if (s.phase == "active"):
 			return 1.0
 		if (s.phase == "windup"):
@@ -5356,6 +5467,8 @@ class Fighter extends RefCounted:
 		return (1.0 - TMath.minJerk((s.t / ((s.recovery * TFighter.KICK_DOWN)))))
 	
 	func kickDown(s) -> bool:
+		if JS.truthy(s.move.get("jump")):
+			return (s.age >= (jetLand(s) + TFighter.JET.down))
 		return ((s.phase == "recovery") and (s.t >= (s.recovery * TFighter.KICK_DOWN)))
 	
 	func kickBody(s, prog, pivot: Array, heel: Array):
@@ -5391,10 +5504,7 @@ class Fighter extends RefCounted:
 			if ((s.phase == "recovery") and (s.t >= (s.recovery * 0.98))):
 				self.spinYaw = 0.0
 		if JS.truthy(m.get("jump")):
-			var up_2: float = (s.windup * 0.4)
-			var air: float = ((up_2 + s.active) + (s.recovery * 0.35))
-			var e: float = ((s.t - ((s.windup - up_2))) if (s.phase == "windup") else ((up_2 + s.t) if (s.phase == "active") else ((up_2 + s.active) + s.t)))
-			self.lift = ((DM.sin((PI * ((e / air)))) * m.get("jump")) if ((e > 0.0) and (e < air)) else 0.0)
+			return jetBody(s, prog, heel)
 		if m.path == "frontKick":
 			res.pitch = ((-0.08 * up) - ((0.32 * prog.ext) * ((1.0 - prog.ret))))
 			res.shiftZ = (((0.1 * prog.ext) * ((1.0 - prog.ret))) - ((0.04 * over) * ((1.0 - prog.ext))))
@@ -5423,6 +5533,32 @@ class Fighter extends RefCounted:
 			heel[support] = (0.3 * w)
 		else:
 			pass
+		return res
+	
+	func jetBody(s, prog, heel: Array):
+		var res = _kb
+		var a: float = s.age
+		var P: float = jetPlant(s)
+		var O: float = jetOff(s)
+		var Ld: float = jetLand(s)
+		var sx: float = (-1.0 if (s.side == "L") else 1.0)
+		var sup: float = (1.0 if (s.side == "L") else 0.0)
+		var k: float = ((((a - O)) / ((Ld - O))) if (Ld > O) else -1.0)
+		self.lift = ((((4.0 * k) * ((1.0 - k))) * ((s.move.get("jump") if s.move.get("jump") != null else 0.0))) if ((k > 0.0) and (k < 1.0)) else 0.0)
+		self.jet = ((1.0 + (0.8 * ((1.0 - TMath.smoothstep_(0.0, 0.25, k))))) if ((k > -0.1) and (k < 1.0)) else 0.0)
+		var run: float = TMath.smoothstep_(0.0, P, a)
+		var g: float = TMath.clamp01((((a - P)) / ((O - P))))
+		var sink: float = (((TMath.minJerk((g / 0.62)) if (g < 0.62) else (1.0 - TMath.minJerk((((g - 0.62)) / 0.38))))) if ((a > P) and (a < O)) else 0.0)
+		var air: float = (DM.sin((PI * k)) if ((k > 0.0) and (k < 1.0)) else 0.0)
+		var pull: float = (0.0 if (s.phase == "windup") else ((prog.ext * ((1.0 - prog.ret))) * ((1.0 - TMath.smoothstep_(0.85, 1.0, k)))))
+		var land: float = (DM.sin((PI * TMath.clamp01((((a - Ld)) / 0.36)))) if (a >= Ld) else 0.0)
+		res.crouch = ((((0.03 * run) * ((1.0 - TMath.smoothstep_(P, O, a)))) + (0.12 * sink)) + (0.14 * land))
+		res.pitch = ((((((0.1 * run) * ((1.0 - TMath.smoothstep_(P, (O + 0.1), a)))) + (0.04 * sink)) - ((0.2 * air) * ((1.0 - pull)))) + (0.16 * pull)) + (0.1 * land))
+		res.shiftZ = ((0.06 * air) - (0.03 * land))
+		res.shiftX = (((-sx) * 0.07) * maxf(maxf(sink, (air * 0.6)), land))
+		res.roll = 0.0
+		res.twist = 0.0
+		heel[sup] = ((0.25 * run) if (a < P) else ((0.7 * TMath.smoothstep_(0.55, 1.0, g)) if (a < O) else 0.0))
 		return res
 	
 	func kickFoot(s, prog, out: V3, pole: V3, hip: V3) -> float:
@@ -5455,13 +5591,42 @@ class Fighter extends RefCounted:
 			C.y = 0.5
 			C.z = 0.1
 		var from: V3 = (s.chamber if (m.striker == "foot") else home)
-		if ((m.path == "knee") and (s.phase != "recovery")):
+		if (JS.truthy(m.get("jump")) and (s.phase != "active")):
+			var a: float = s.age
 			if (s.phase == "windup"):
 				var k: float = kickUp(s)
-				out.x = home.x + (C.x - home.x) * k
-				out.y = home.y + (C.y - home.y) * k
-				out.z = home.z + (C.z - home.z) * k
-				return (flex * k)
+				var toe: float = TMath.smoothstep_(0.0, jetPlant(s), a)
+				var at: V3 = toLocal(jetSpot, _j1)
+				at.y = (TFighter.FOOT_Y + (0.05 * toe))
+				var c: V3 = _j2.set3((hip.x * 0.6), 0.2, (hip.z - 0.04))
+				var b: float = (1.0 - k)
+				var __v3: float = ((((b * b) * at.x) + (((2.0 * b) * k) * c.x)) + ((k * k) * C.x))
+				var __v4: float = ((((b * b) * at.y) + (((2.0 * b) * k) * c.y)) + ((k * k) * C.y))
+				var __v5: float = ((((b * b) * at.z) + (((2.0 * b) * k) * c.z)) + ((k * k) * C.z))
+				out.x = __v3
+				out.y = __v4
+				out.z = __v5
+				return ((((0.55 * toe)) + (((flex - ((0.55 * toe)))) * k)))
+			var hold: V3 = kneeFoot(hip, 0.95, 0.5, _j1).lerp(s.recoverFrom, (1.0 - TMath.minJerk((((0.0 if (((s.t / 0.25)) < 0.0) else (1.0 if (((s.t / 0.25)) > 1.0) else ((s.t / 0.25)))))))))
+			var land: float = jetLand(s)
+			if (a < land):
+				out.x = hold.x
+				out.y = hold.y
+				out.z = hold.z
+				return flex
+			var kd: float = TMath.minJerk((((a - land)) / TFighter.JET.down))
+			out.x = hold.x + (home.x - hold.x) * kd
+			out.y = hold.y + (home.y - hold.y) * kd
+			out.z = hold.z + (home.z - hold.z) * kd
+			out.y += (DM.sin((PI * kd)) * 0.04)
+			return (flex * ((1.0 - kd)))
+		if ((m.path == "knee") and (s.phase != "recovery")):
+			if (s.phase == "windup"):
+				var k_2: float = kickUp(s)
+				out.x = home.x + (C.x - home.x) * k_2
+				out.y = home.y + (C.y - home.y) * k_2
+				out.z = home.z + (C.z - home.z) * k_2
+				return (flex * k_2)
 			var dz: float = (end.z - hip.z)
 			var dy: float = (end.y - hip.y)
 			var aim: float = TMath.clamp_(DM.atan2(dz, (-dy)), 1.45, 2.25)
@@ -5469,14 +5634,14 @@ class Fighter extends RefCounted:
 			kneeFoot(hip, ((1.25 + (((aim - 1.25)) * drive))), ((0.55 + (((0.3 - 0.55)) * drive))), out)
 			return flex
 		if (s.phase == "windup"):
-			var k_2: float = TMath.easeInOut(TMath.clamp01((s.t / s.windup)))
-			out.x = from.x + (C.x - from.x) * k_2
-			out.y = from.y + (C.y - from.y) * k_2
-			out.z = from.z + (C.z - from.z) * k_2
-			out.y += (DM.sin((PI * k_2)) * 0.06)
+			var k_3: float = TMath.easeInOut(TMath.clamp01((s.t / s.windup)))
+			out.x = from.x + (C.x - from.x) * k_3
+			out.y = from.y + (C.y - from.y) * k_3
+			out.z = from.z + (C.z - from.z) * k_3
+			out.y += (DM.sin((PI * k_3)) * 0.06)
 			return flex
 		if (s.phase == "active"):
-			var k_3: float = prog.ext
+			var k_4: float = prog.ext
 			var tx: float = end.x
 			var ty: float = end.y
 			var tz: float = end.z
@@ -5490,30 +5655,30 @@ class Fighter extends RefCounted:
 				ctrl.z = (tz * 0.7)
 			else:
 				pass
-			var a: float = (1.0 - k_3)
-			var __v3: float = ((((a * a) * C.x) + (((2.0 * a) * k_3) * ctrl.x)) + ((k_3 * k_3) * tx))
-			var __v4: float = ((((a * a) * C.y) + (((2.0 * a) * k_3) * ctrl.y)) + ((k_3 * k_3) * ty))
-			var __v5: float = ((((a * a) * C.z) + (((2.0 * a) * k_3) * ctrl.z)) + ((k_3 * k_3) * tz))
-			out.x = __v3
-			out.y = __v4
-			out.z = __v5
+			var a_2: float = (1.0 - k_4)
+			var __v6: float = ((((a_2 * a_2) * C.x) + (((2.0 * a_2) * k_4) * ctrl.x)) + ((k_4 * k_4) * tx))
+			var __v7: float = ((((a_2 * a_2) * C.y) + (((2.0 * a_2) * k_4) * ctrl.y)) + ((k_4 * k_4) * ty))
+			var __v8: float = ((((a_2 * a_2) * C.z) + (((2.0 * a_2) * k_4) * ctrl.z)) + ((k_4 * k_4) * tz))
+			out.x = __v6
+			out.y = __v7
+			out.z = __v8
 			return flex
-		var k_4: float = TMath.minJerk((s.t / ((s.recovery * TFighter.KICK_DOWN))))
+		var k_5: float = TMath.minJerk((s.t / ((s.recovery * TFighter.KICK_DOWN))))
 		var rf: V3 = s.recoverFrom
 		if (m.path == "sweepKick"):
-			out.x = rf.x + (home.x - rf.x) * k_4
-			out.y = rf.y + (home.y - rf.y) * k_4
-			out.z = rf.z + (home.z - rf.z) * k_4
-			out.y += (DM.sin((PI * k_4)) * 0.08)
-			return (flex * ((1.0 - k_4)))
-		var a_2: float = (1.0 - k_4)
-		var __v6: float = ((((a_2 * a_2) * rf.x) + (((2.0 * a_2) * k_4) * C.x)) + ((k_4 * k_4) * home.x))
-		var __v7: float = ((((a_2 * a_2) * rf.y) + (((2.0 * a_2) * k_4) * C.y)) + ((k_4 * k_4) * home.y))
-		var __v8: float = ((((a_2 * a_2) * rf.z) + (((2.0 * a_2) * k_4) * C.z)) + ((k_4 * k_4) * home.z))
-		out.x = __v6
-		out.y = __v7
-		out.z = __v8
-		return (flex * ((1.0 - k_4)))
+			out.x = rf.x + (home.x - rf.x) * k_5
+			out.y = rf.y + (home.y - rf.y) * k_5
+			out.z = rf.z + (home.z - rf.z) * k_5
+			out.y += (DM.sin((PI * k_5)) * 0.08)
+			return (flex * ((1.0 - k_5)))
+		var a_3: float = (1.0 - k_5)
+		var __v9: float = ((((a_3 * a_3) * rf.x) + (((2.0 * a_3) * k_5) * C.x)) + ((k_5 * k_5) * home.x))
+		var __v10: float = ((((a_3 * a_3) * rf.y) + (((2.0 * a_3) * k_5) * C.y)) + ((k_5 * k_5) * home.y))
+		var __v11: float = ((((a_3 * a_3) * rf.z) + (((2.0 * a_3) * k_5) * C.z)) + ((k_5 * k_5) * home.z))
+		out.x = __v9
+		out.y = __v10
+		out.z = __v11
+		return (flex * ((1.0 - k_5)))
 	
 	func lineKick(s, prog, hip: V3, home: V3, end: V3, out: V3, pole: V3) -> float:
 		var path: String = s.move.path
@@ -5761,6 +5926,41 @@ class Fighter extends RefCounted:
 		out.z = __v3
 		return out
 	
+	func jetArm(s, prog, sx: float, kickSide: bool, hand: V3, pole: V3, head: V3) -> float:
+		var a: float = s.age
+		var P: float = jetPlant(s)
+		var O: float = jetOff(s)
+		var Ld: float = s.land
+		var flies: bool = (Ld > O)
+		var g: float = TMath.clamp01((((a - P)) / ((O - P))))
+		var back: float = ((DM.sin(((PI * 0.5) * minf(1.0, (g * 1.25)))) * ((1.0 - TMath.smoothstep_((O - 0.04), (O + 0.08), a)))) if (a > P) else 0.0)
+		var up: float = (TMath.minJerk((((a - ((O - 0.05)))) / 0.2)) if flies else 0.0)
+		var home: float = (TMath.minJerk((((a - ((Ld - 0.08)))) / 0.3)) if flies else TMath.minJerk((((a - P)) / 0.3)))
+		var pull: float = (0.0 if (s.phase == "windup") else (prog.ext * ((1.0 - prog.ret))))
+		var _h_w: V3 = TFighter._w
+		trunkPoint((sx * 0.27), -0.32, -0.14, _h_w)
+		hand.lerp(_h_w, ((back * 0.8) * ((1.0 - home))))
+		var _h_p: V3 = TFighter._p
+		pole.lerp(_h_p.set3((sx * 0.7), -0.2, -0.7), ((back * 0.8) * ((1.0 - home))))
+		var fly: float = (up * ((1.0 - home)))
+		if (fly > 0.001):
+			if kickSide:
+				trunkPoint((sx * 0.32), -0.42, -0.26, _h_w)
+				_h_w.y -= (0.06 * pull)
+				hand.lerp(_h_w, fly)
+				pole.lerp(_h_p.set3((sx * 0.6), -0.4, -1.0), fly)
+			else:
+				var __v1: float = (sx * 0.1)
+				var __v2: float = ((head.y + 0.08) - (pull * 0.3))
+				var __v3: float = ((head.z + 0.44) - (pull * 0.14))
+				_h_w.x = __v1
+				_h_w.y = __v2
+				_h_w.z = __v3
+				hand.lerp(_h_w, fly)
+				pole.lerp(_h_p.set3((sx * 1.0), -0.2, -0.3), fly)
+				return ((0.12 + (((0.9 - 0.12)) * fly)))
+		return 0.12
+	
 	func kickArm(s, prog, side: float, hand: V3, pole: V3, head: V3) -> float:
 		var m = s.move
 		var sx: float = (-1.0 if (side == 0.0) else 1.0)
@@ -5812,6 +6012,8 @@ class Fighter extends RefCounted:
 			else:
 				faceGuard(sx, hand, pole, w)
 		elif m.path == "knee":
+			if JS.truthy(m.get("jump")):
+				return jetArm(s, prog, sx, kickSide, hand, pole, head)
 			var pull: float = (prog.ext * ((1.0 - prog.ret)))
 			var __v7: float = (sx * 0.13)
 			var __v8: float = ((head.y + 0.02) - (pull * 0.3))
@@ -5952,6 +6154,7 @@ static func __init_module() -> void:
 	TFighter._kc = V3.new()
 	TFighter._kh = V3.new()
 	TFighter._kr = V3.new()
+	TFighter.JET = {"plant": 0.4, "off": 0.64, "land": 0.12, "down": 0.26, "fly": 1.8, "ramp": 0.08, "settle": 0.18}
 	TFighter.KNEEL = {
 	"py": 0.52,
 	"pz": -0.02,

@@ -169,6 +169,8 @@ class FighterView extends RefCounted:
 	var rearSide := ""
 	var hpRatio := 1.0
 	var staminaRatio := 1.0
+	## A jet knee in the air (Fighter.jet): its jets burn while above 0.
+	var jet := 0.0
 	var trailActive := [false, false, false, false]
 	var handRoll := [0.0, 0.0]
 	var footYaw := [0.0, 0.0]
@@ -197,6 +199,7 @@ class FighterView extends RefCounted:
 		rearSide = f.rearSide
 		hpRatio = f.hpRatio
 		staminaRatio = f.staminaRatio
+		jet = f.jet
 		for k in 4:
 			trailActive[k] = f.trailActive[k]
 		for k in 2:

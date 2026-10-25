@@ -17,6 +17,24 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
+	"hour": "2026-10-25 10:00",
+	"title": "The Jet Knee takes off",
+	"notes": [
+	"The Jet Knee is a real flying knee now: the robot steps in, sinks onto its lead leg and springs off it, the knee swinging through as the jets light, instead of gliding in on planted feet.",
+	"In the air the take-off leg trails behind, one hand reaches over for the opponent's head and hauls it down onto the knee while the other arm whips back for power, then it lands on the take-off foot and soaks it up.",
+	"The jets burn the whole way through the flight now, flaring as it leaves the canvas, and kick up a puff of dust on take-off and landing."
+]
+},
+	{
+	"hour": "2026-10-25 08:00",
+	"title": "Counterpunching",
+	"notes": [
+	"Robots now fire back straight out of their defence: slip a punch and the right hand is already coming, weave under a hook and come up throwing a hook of your own, pull back from a cross and land the straight right over the top as they come on.",
+	"New defence, the shoulder roll: crafty robots turn the lead shoulder up across the chin so a punch skids off it, then roll the shoulders back into a counter. Look for ROLLED over the fight.",
+	"A counter thrown out of a dodge goes out quicker and hits a little harder, and the bot's whole body unwinds out of the slip or the roll into it. Look for SLIP & COUNTER, WEAVE & COUNTER, PULL COUNTER and ROLL & COUNTER."
+]
+},
+	{
 	"hour": "2026-10-25 06:00",
 	"title": "Titans, rebuilt",
 	"notes": [
