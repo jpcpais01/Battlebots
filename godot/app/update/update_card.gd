@@ -176,7 +176,7 @@ func _install() -> void:
 		return
 	if not _u.install():
 		if OS.get_name() == "Windows":
-			_status.text = "Battlebots couldn't update its folder (it may need to be somewhere you can write, not Program Files). Download %s from the Releases page instead and unzip it over the old one: github.com/%s/releases/latest" % [Updater.WIN_NAME, Updater.REPO]
+			_status.text = "Battlebots couldn't update its folder (it may need to be somewhere you can write, not Program Files). Download %s from the Releases page instead and put it in place of the old one: github.com/%s/releases/latest" % [Updater.WIN_NAME, Updater.REPO]
 		else:
 			_status.text = "Android wouldn't open the installer. Download it from the Releases page instead: github.com/%s/releases/latest" % Updater.REPO
 		_status.visible = true

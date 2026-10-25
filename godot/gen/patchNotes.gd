@@ -20,6 +20,7 @@ static func __init_module() -> void:
 	"hour": "2026-10-25 00:00",
 	"title": "Volume bars",
 	"notes": [
+	"The Windows game is now a single Battlebots.exe: download it and run it, nothing to unzip. Online rooms work from it too.",
 	"Settings has a new Sound column with volume bars for Master, Effects, Music, Crowd and Commentary, kept between launches. Drag them with a finger or the mouse."
 ]
 },
