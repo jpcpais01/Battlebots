@@ -220,6 +220,17 @@ func _reach_box() -> void:
 	radius = (hi - lo).length() * 0.5
 
 
+## A bound under the field wherever the spline reads it in the cell round local point p (the
+## least of the values it blends there; FAR_IN off the grid): a quick miss for a ball of points.
+func lower_bound(p: Vector3) -> float:
+	var u := (p.x - ox) * INV_GH
+	var v := (p.y - oy) * inv_dy
+	var w := (p.z - oz) * INV_GH
+	if u < 1.0 or v < 1.0 or w < 1.0 or u >= nx - 2 or v >= ny - 2 or w >= nz - 2:
+		return FAR_IN
+	return low[int(v) * stride * nx + int(w) * nx + int(u)]
+
+
 ## If local point p is closer than `margin` to the armour: the push (local) that takes it out to
 ## `margin` in xyz and how deep it is in w; else zero. Continuous, with a continuous direction.
 func penetration(p: Vector3, margin: float) -> Vector4:

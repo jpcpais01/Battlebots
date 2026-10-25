@@ -146,6 +146,15 @@ var hull_head: BotContact.Placed
 var hull_pelvis: BotContact.Placed
 ## The deepest limb contact last frame (metres), for checks.
 var contact_worst := 0.0
+## This robot's limbs as tapered capsules fitted to their plating, placed in the world from the
+## joints (place_shapes, in begin), for the other robot's contact pass: per side (left, then
+## right) the pauldron, upper arm, forearm, fist, thigh and shin.
+var shapes: Array[BotContact.Capsule] = []
+## The plating clouds the bodies meet with (BotMeet): chest (with the core), pelvis, the two
+## pauldrons, head; and this frame's body slide and head turn from meet().
+var meet_clouds: Array = []
+var meet_body := Vector3.ZERO
+var meet_head := Vector3.ZERO
 
 var _pos: Array[Vector3] = []
 var _rot: Array[Basis] = []
@@ -182,6 +191,16 @@ var _settle: Array[BotContact.LimbSettle] = []
 var _contact_time := -INF
 var _arm_hulls: Array = []
 var _leg_hulls: Array = []
+var _opp_shapes: Array = []
+## The shapes' fits in their bones' rest frames, [bone, a, b, ra, rb] ([] where a bone has no
+## plating), and the points each limb meets the other robot with (arms, then legs).
+var _shape_fit := []
+var _limb_fit: Array[BotContact.LimbFit] = []
+# meet's settling: the robots' chests against each other last frame, and when
+var _meet_rel := Vector3.ZERO
+var _meet_time := -INF
+var _look_at = null
+static var _meet := BotMeet.new()
 # the parts as built: [key, bone, slot, body part], their families, and where their corners start
 var _list := []
 var _parts: Array[BotParts.Part] = []
@@ -336,6 +355,7 @@ func _build() -> void:
 			_bone_corners[db].append([f.pos, f.nor, _core_shift[bone - CORE_F] if bone >= CORE_F else Vector3.ZERO])
 
 	_bound_bones()
+	_fit_shapes()
 	_opaque_mat = ShaderMaterial.new()
 	_opaque_mat.shader = opaque_shader(0)
 	_glow_mat = ShaderMaterial.new()
@@ -576,14 +596,175 @@ func _anchored(j: int) -> bool:
 func _begin_core(f, look_at) -> void:
 	for i in BONE_COUNT:
 		_scl[i] = Vector3.ONE * size
+	_look_at = look_at
+	meet_body = Vector3.ZERO
+	meet_head = Vector3.ZERO
 	_pose_core(f, look_at)
-	# the hulls the contact passes read, placed by their bones (a torn-off head has none)
+	_place(f)
+
+
+## Place the hulls and limb shapes the contact passes read by the joints (a torn-off head has no hull).
+func _place(f) -> void:
 	var ready := hulls_ready()
 	for h in [[hull_torso, TORSO], [hull_head, HEAD], [hull_pelvis, PELVIS]]:
 		var p: BotContact.Placed = h[0]
 		p.pos = _pos[h[1]]
 		p.rot = _rot[h[1]]
 		p.s = 0.0 if _hidden.has(h[1]) or not ready else size
+	place_shapes(f)
+
+
+## Keep two robots' bodies out of each other (BotMeet), between both begin()s and the limb
+## passes: each robot's upper body leans clear over its hips and a head turns aside, as far as
+## the armour overlaps. fa, fb: their fighters (or puppets); time: the clock end() gets.
+static func meet(a: BotModel, fa, b: BotModel, fb, time: float) -> void:
+	var dt := time - a._meet_time
+	a._meet_time = time
+	var rel := a.joints[J_CHEST] - b.joints[J_CHEST]
+	var moved := rel.distance_to(a._meet_rel)
+	a._meet_rel = rel
+	var settle := dt >= 0.0 and dt < 0.1
+	var reach := (a.size + b.size) * 1.15
+	var want := [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]
+	if rel.length_squared() < reach * reach and a.hulls_ready() and b.hulls_ready() and not a.meet_clouds.is_empty() and not b.meet_clouds.is_empty():
+		# who gives way: a robot on the floor hardly does
+		var ma := 0.2 if fa.isDown else 1.0
+		var mb := 0.2 if fb.isDown else 1.0
+		var wa := ma / (ma + mb)
+		var keep_a := a.joints.duplicate()
+		var keep_b := b.joints.duplicate()
+		# twice: the bodies, slid by the first pass, are pressed again for what is left (and
+		# then the heads, from where the bodies are)
+		var first: Array = _meet.solve(a, b, wa, 1.0 - wa)
+		a._slide(fa, first[0], first[2])
+		b._slide(fb, first[2], first[0])
+		var again: Array = _meet.solve(a, b, wa, 1.0 - wa)
+		want = [first[0] + again[0], again[1], first[2] + again[2], again[3]]
+		a.joints.assign(keep_a)
+		b.joints.assign(keep_b)
+	# ease from last frame's to this one's at what the robots' motion explains
+	var mx := GAIN_MEET * moved + SLIDE_MEET * maxf(0.0, dt) if settle else INF
+	var gone := [a, b]
+	for k in 2:
+		var m: BotModel = gone[k]
+		var body: Vector3 = want[k * 2].limit_length(BotMeet.MAX_BODY * m.size)
+		var head: Vector3 = want[k * 2 + 1].limit_length(BotMeet.MAX_HEAD * m.size)
+		m.meet_body = m._meet_last_body + (body - m._meet_last_body).limit_length(mx)
+		m.meet_head = m._meet_last_head + (head - m._meet_last_head).limit_length(mx)
+		m._meet_last_body = m.meet_body
+		m._meet_last_head = m.meet_head
+	a._slide(fa, a.meet_body, b.meet_body)
+	b._slide(fb, b.meet_body, a.meet_body)
+	a._turn_head(fa, a.meet_head)
+	b._turn_head(fb, b.meet_head)
+
+
+const GAIN_MEET := 2.0
+const SLIDE_MEET := 0.7
+var _meet_last_body := Vector3.ZERO
+var _meet_last_head := Vector3.ZERO
+
+
+## The frames meet's clouds sit in this frame: chest, pelvis, pauldrons, head.
+func meet_frames() -> Array:
+	var P := joints
+	var out := []
+	for b in [TORSO, PELVIS]:
+		out.append(Transform3D(_rot[b] * size, _pos[b]))
+	for side in 2:
+		var L := side == 0
+		out.append(_limb_xf(P[J_SH_L if L else J_SH_R], P[J_EL_L if L else J_EL_R], _rot[UP_L if L else UP_R].z))
+	out.append(Transform3D(_rot[HEAD] * size, _pos[HEAD]))
+	return out
+
+
+## A limb bone's frame from its joints (Y from a to b; Z the roll given, kept square to Y).
+func _limb_xf(a: Vector3, b: Vector3, zh: Vector3) -> Transform3D:
+	var y := b - a
+	var l := y.length()
+	y = y / l if l > 1e-5 else Vector3.UP
+	var z := zh - y * zh.dot(y)
+	if z.length_squared() < 1e-6:
+		z = _torso_z - y * _torso_z.dot(y)
+	z = z.normalized()
+	return Transform3D(Basis(y.cross(z), y, z) * size, a)
+
+
+## Slide the upper body by d (world) over the hips, which take HIPS of it: the shoulders, neck and
+## head go with the chest, the knees re-bend to the planted feet, and the hands go with it too,
+## but for those holding onto the other robot, which follow its slide `d_opp`. Then the core and
+## everything the contact passes read is placed again.
+func _slide(f, d: Vector3, d_opp: Vector3) -> void:
+	if d.length_squared() < 1e-10 and d_opp.length_squared() < 1e-10:
+		return
+	var P := joints
+	d.y *= 0.3
+	var hips := d * BotMeet.HIPS
+	var em = f.emote if "emote" in f else null
+	var arms_l := [P[J_SH_L].distance_to(P[J_EL_L]), P[J_EL_L].distance_to(P[J_HAND_L]), P[J_SH_R].distance_to(P[J_EL_R]), P[J_EL_R].distance_to(P[J_HAND_R])]
+	var legs_l := [P[J_HIP_L].distance_to(P[J_KNEE_L]), P[J_KNEE_L].distance_to(P[J_FOOT_L]), P[J_HIP_R].distance_to(P[J_KNEE_R]), P[J_KNEE_R].distance_to(P[J_FOOT_R])]
+	# the hips go only as far as the planted legs reach
+	for side in 2:
+		var L := side == 0
+		if f.parts.legOut(side) or f.footAir[side] > 0.3:
+			continue
+		var reach: float = (legs_l[side * 2] + legs_l[side * 2 + 1]) * 0.995
+		var foot := P[J_FOOT_L if L else J_FOOT_R]
+		var hip := P[J_HIP_L if L else J_HIP_R]
+		for k in 3:
+			if (hip + hips).distance_to(foot) <= reach or (hip + hips).distance_to(foot) <= hip.distance_to(foot):
+				break
+			hips *= 0.5 if k < 2 else 0.0
+	for j in [J_CHEST, J_NECK, J_HEAD, J_SH_L, J_SH_R]:
+		P[j] += d
+	for j in [J_PELVIS, J_HIP_L, J_HIP_R]:
+		P[j] += hips
+	for side in 2:
+		var L := side == 0
+		var je := J_EL_L if L else J_EL_R
+		var jh := J_HAND_L if L else J_HAND_R
+		if f.parts.armOut(side):
+			P[je] += d
+			P[jh] += d
+		else:
+			var g := 0.0
+			if em != null and em.gripW.size() > side:
+				g = clampf(float(em.w) * float(em.gripW[side]), 0.0, 1.0)
+			var sh := P[J_SH_L if L else J_SH_R]
+			var la: float = arms_l[side * 2]
+			var lb: float = arms_l[side * 2 + 1]
+			var hand := P[jh] + d.lerp(d_opp, g)
+			var far := sh.distance_to(hand)
+			if far > (la + lb) * 0.999:
+				hand = sh + (hand - sh) * ((la + lb) * 0.999 / far)
+			P[je] = BotContact.two_bone(sh, hand, la, lb, P[je] + d)
+			P[jh] = hand
+		var jk := J_KNEE_L if L else J_KNEE_R
+		var jf := J_FOOT_L if L else J_FOOT_R
+		var air: float = clampf(f.footAir[side], 0.0, 1.0)
+		if f.parts.legOut(side):
+			P[jk] += hips
+			P[jf] += hips
+		else:
+			P[jf] += hips * air
+			P[jk] = BotContact.two_bone(P[J_HIP_L if L else J_HIP_R], P[jf], legs_l[side * 2], legs_l[side * 2 + 1], P[jk] + hips)
+	_pose_core(f, _look_at)
+	_place(f)
+
+
+## Turn the head aside on its neck by about h (world).
+func _turn_head(f, h: Vector3) -> void:
+	if h.length_squared() < 1e-10:
+		return
+	var P := joints
+	var n := P[J_NECK]
+	var l := P[J_HEAD].distance_to(n)
+	var to := P[J_HEAD] + h - n
+	if to.length_squared() < 1e-8:
+		return
+	P[J_HEAD] = n + to.normalized() * l
+	_pose_core(f, _look_at)
+	_place(f)
 
 
 ## Resolve limb contacts (own armour and, if given, the opponent's), then place the limbs and
@@ -679,6 +860,179 @@ func _bound_bones() -> void:
 		else:
 			var c := (lo[b] + hi[b]) * 0.5
 			_bone_bound[b] = Vector4(c.x, c.y, c.z, (hi[b] - lo[b]).length() * 0.5)
+
+
+## Fit the limb shapes (and the points the limbs meet the other robot with) to the plating as
+## built: a tapered capsule round each limb bone's corners, the shoulder's pauldron split off its
+## upper arm. Fits are shared by every robot wearing the same parts.
+func _fit_shapes() -> void:
+	var per := {}
+	var keys := {}
+	for e in _list:
+		var b: int = e[1]
+		if not (b in SHAPE_BONES or b in MEET_BONES):
+			continue
+		var part: BotParts.Part = BotParts.get_part(e[0])
+		if not per.has(b):
+			per[b] = []
+			keys[b] = ""
+		per[b].append(part)
+		keys[b] += String(e[0]) + ";"
+	_shape_fit.clear()
+	shapes.clear()
+	for side in 2:
+		var L := side == 0
+		var up := UP_L if L else UP_R
+		var arm: Array = _fits(up, keys.get(up, ""), per.get(up, []))
+		for k in 6:
+			var b: int = [up, up, FORE_L if L else FORE_R, FIST_L if L else FIST_R, THIGH_L if L else THIGH_R, SHIN_L if L else SHIN_R][k]
+			var f: Array = arm[k] if k < 2 else _fits(b, keys.get(b, ""), per.get(b, []))[0]
+			_shape_fit.append([b] + f if not f.is_empty() else [])
+			shapes.append(BotContact.Capsule.new())
+	meet_clouds = _clouds(keys, per)
+	_limb_fit.clear()
+	for limb in 4:
+		var side := limb % 2
+		var o := side * 6
+		var lf := BotContact.LimbFit.new()
+		# along the upper bone (its outer half), the lower one, and the fist
+		var segs := [[o + 1, 0, [0.5, 1.0]], [o + 2, 1, [0.0, 0.5, 1.0]], [o + 3, 2, [0.5]]] if limb < 2 else [[o + 4, 0, [0.5, 1.0]], [o + 5, 1, [0.25, 0.6, 1.0]]]
+		for sg in segs:
+			var f: Array = _shape_fit[sg[0]]
+			if f.is_empty():
+				continue
+			for u: float in sg[2]:
+				lf.add(sg[1], (f[1] as Vector3).lerp(f[2], u), lerpf(f[3], f[4], u))
+		_limb_fit.append(lf)
+
+
+## The bones whose plating meets the other robot's body (BotMeet clouds; the upper arms give their pauldrons).
+const MEET_BONES := [TORSO, CORE_F, CORE_B, PELVIS, HEAD]
+static var _cloud_cache := {}
+
+
+## meet's clouds for these parts (cached): chest with the core's halves (moved into the chest's
+## frame), pelvis, pauldrons, head.
+func _clouds(keys: Dictionary, per: Dictionary) -> Array:
+	var key := ""
+	for b in [TORSO, CORE_F, CORE_B, PELVIS, UP_L, UP_R, HEAD]:
+		key += String(keys.get(b, "")) + "|"
+	_fit_lock.lock()
+	var got = _cloud_cache.get(key)
+	_fit_lock.unlock()
+	if got != null:
+		return got
+	var chest := PackedVector3Array()
+	for b in [TORSO, CORE_F, CORE_B]:
+		var shift: Vector3 = Vector3.ZERO if b == TORSO else _core_shift[b - CORE_F]
+		for part: BotParts.Part in per.get(b, []):
+			for fam in [part.opaque, part.glow]:
+				for v in fam.pos:
+					chest.append(v + shift)
+	var out := [BotMeet.Cloud.make(TORSO, chest), BotMeet.Cloud.make(PELVIS, _corners(per.get(PELVIS, [])))]
+	for up in [UP_L, UP_R]:
+		var cap := PackedVector3Array()
+		for v in _corners(per.get(up, [])):
+			if v.y < PAULDRON_Y or Vector2(v.x, v.z).length() > PAULDRON_R:
+				cap.append(v)
+		out.append(BotMeet.Cloud.make(up, cap))
+	out.append(BotMeet.Cloud.make(HEAD, _corners(per.get(HEAD, []))))
+	_fit_lock.lock()
+	_cloud_cache[key] = out
+	_fit_lock.unlock()
+	return out
+
+
+static func _corners(parts: Array) -> PackedVector3Array:
+	var pts := PackedVector3Array()
+	for part: BotParts.Part in parts:
+		pts.append_array(part.opaque.pos)
+		pts.append_array(part.glow.pos)
+	return pts
+
+
+## The bones whose plating gets a shape.
+const SHAPE_BONES := [UP_L, UP_R, FORE_L, FORE_R, FIST_L, FIST_R, THIGH_L, THIGH_R, SHIN_L, SHIN_R]
+## Upper arm corners further than this from the bone (or above the shoulder joint) are the pauldron's.
+const PAULDRON_R := 0.125
+const PAULDRON_Y := 0.06
+static var _fit_cache := {}
+static var _fit_lock := Mutex.new()
+
+
+## A bone's fitted capsule(s) (cached by its parts): the upper arm's pauldron and arm, else one.
+static func _fits(bone: int, key: String, parts: Array) -> Array:
+	_fit_lock.lock()
+	var got = _fit_cache.get(key)
+	_fit_lock.unlock()
+	if got != null:
+		return got
+	var pts := PackedVector3Array()
+	for part: BotParts.Part in parts:
+		pts.append_array(part.opaque.pos)
+		pts.append_array(part.glow.pos)
+	var out := []
+	if bone == UP_L or bone == UP_R:
+		var cap := PackedVector3Array()
+		var arm := PackedVector3Array()
+		for v in pts:
+			if v.y < PAULDRON_Y or Vector2(v.x, v.z).length() > PAULDRON_R:
+				cap.append(v)
+			elif v.y > 0.0:
+				arm.append(v)
+		out = [BotContact.fit_capsule(cap, 0.95), BotContact.fit_capsule(arm, 0.92)]
+	else:
+		out = [BotContact.fit_capsule(pts, 0.9 if bone == FIST_L or bone == FIST_R else 0.92)]
+	_fit_lock.lock()
+	_fit_cache[key] = out
+	_fit_lock.unlock()
+	return out
+
+
+## Place the limb shapes from the joints as they stand (each bone's roll from last frame's pose),
+## for the other robot's contact pass. A torn-off limb's are off.
+func place_shapes(f) -> void:
+	var P := joints
+	for side in 2:
+		var L := side == 0
+		var o := side * 6
+		var arm_on: bool = not f.parts.armOut(side)
+		var leg_on: bool = not f.parts.legOut(side)
+		var ends := [
+			[P[J_SH_L if L else J_SH_R], P[J_EL_L if L else J_EL_R]],
+			[P[J_SH_L if L else J_SH_R], P[J_EL_L if L else J_EL_R]],
+			[P[J_EL_L if L else J_EL_R], P[J_HAND_L if L else J_HAND_R]],
+			[P[J_EL_L if L else J_EL_R], P[J_HAND_L if L else J_HAND_R]],
+			[P[J_HIP_L if L else J_HIP_R], P[J_KNEE_L if L else J_KNEE_R]],
+			[P[J_KNEE_L if L else J_KNEE_R], P[J_FOOT_L if L else J_FOOT_R]],
+		]
+		for k in 6:
+			var c := shapes[o + k]
+			var fit: Array = _shape_fit[o + k]
+			c.on = not fit.is_empty() and (arm_on if k < 4 else leg_on) and not _hidden.has(fit[0] if not fit.is_empty() else -1)
+			if not c.on:
+				continue
+			var a: Vector3 = ends[k][0]
+			var y: Vector3 = ends[k][1] - a
+			var l := y.length()
+			if l < 1e-5:
+				c.on = false
+				continue
+			y /= l
+			# (the fist rides the forearm's frame, from the hand)
+			var origin: Vector3 = ends[k][1] if k == 3 else a
+			var zh: Vector3 = _rot[FORE_L if L else FORE_R].z if k == 3 else _rot[fit[0]].z
+			var z := zh - y * zh.dot(y)
+			if z.length_squared() < 1e-6:
+				z = _torso_z - y * _torso_z.dot(y)
+			z = z.normalized()
+			var m := Basis(y.cross(z), y, z) * size
+			c.a = origin + m * (fit[1] as Vector3)
+			c.b = origin + m * (fit[2] as Vector3)
+			c.ra = fit[3] * size
+			c.rb = fit[4] * size
+			# the other robot's pass slides its limbs half way out: this one gives the other half
+			c.share = 0.5
 
 
 ## Which robots' contact-occlusion spheres (ContactAO, this frame's) can reach each bone's
@@ -804,9 +1158,12 @@ func _solve_contacts(f, opp: BotModel, time: float) -> void:
 	_arm_hulls.append_array([hull_torso, hull_pelvis, hull_head])
 	_leg_hulls.clear()
 	_leg_hulls.append(hull_torso)
+	# the other robot: its armour and its limbs, met with this one's plating as it is (its fitted
+	# shapes), not the slimmer radii that let a robot's limbs hug its own body
+	_opp_shapes.clear()
 	if opp != null:
-		_arm_hulls.append_array([opp.hull_torso, opp.hull_head, opp.hull_pelvis])
-		_leg_hulls.append_array([opp.hull_torso, opp.hull_pelvis, opp.hull_head])
+		_opp_shapes.append_array([opp.hull_torso, opp.hull_head, opp.hull_pelvis])
+		_opp_shapes.append_array(opp.shapes)
 	var dt := time - _contact_time
 	_contact_time = time
 	var frame := _rot[TORSO]
@@ -823,7 +1180,7 @@ func _solve_contacts(f, opp: BotModel, time: float) -> void:
 			var jh := J_HAND_L if L else J_HAND_R
 			var mid0 := P[je]
 			var end0 := P[jh]
-			worst = maxf(worst, c.solve_limb(P[js], mid0, end0, _arm_hulls, radii.upper, radii.fore, radii.fist, 0.02))
+			worst = maxf(worst, c.solve_limb(P[js], mid0, end0, _arm_hulls, radii.upper, radii.fore, radii.fist, 0.02, -1.0, _opp_shapes, _limb_fit[side], _rot[UP_L if L else UP_R].z, _rot[FORE_L if L else FORE_R].z, size))
 			arm.apply(frame, P[js], c.mid, c.end, mid0, end0, dt)
 			P[je] = arm.mid
 			P[jh] = arm.end
@@ -840,14 +1197,29 @@ func _solve_contacts(f, opp: BotModel, time: float) -> void:
 			var end0 := P[jf]
 			var mid := mid0
 			var tip := end0
-			if f.footAir[side] > 0.3:
-				worst = maxf(worst, c.solve_limb(P[jhip], mid0, end0, _leg_hulls, radii.thigh, radii.shin, radii.shin, 0.0))
+			var zu := _rot[THIGH_L if L else THIGH_R].z
+			var zl := _rot[SHIN_L if L else SHIN_R].z
+			var planted: bool = f.footAir[side] <= 0.3
+			if not planted:
+				worst = maxf(worst, c.solve_limb(P[jhip], mid0, end0, _leg_hulls, radii.thigh, radii.shin, radii.shin, 0.0, -1.0, _opp_shapes, _limb_fit[2 + side], zu, zl, size))
 				mid = c.mid
 				tip = c.end
-			leg.apply(frame, P[jhip], mid, tip, mid0, end0, dt)
+			elif opp != null:
+				# a planted leg against the other robot's: the foot stays, the knee swings clear
+				worst = maxf(worst, c.solve_limb(P[jhip], mid0, end0, [], radii.thigh, radii.shin, radii.shin, 0.0, -1.0, _opp_shapes, _limb_fit[2 + side], zu, zl, size, true))
+				mid = c.mid
+				tip = c.end
+			# (a foot coming down from a kick is let back at the settling speed first)
+			leg.apply(frame, P[jhip], mid, tip, mid0, end0, dt, planted and leg.c_e.length_squared() < 4e-6)
 			P[jk] = leg.mid
 			P[jf] = leg.end
 	contact_worst = worst
+	if opp != null:
+		# the other robot's pass, after this one, meets these limbs where they ended up: it clears
+		# them all the way (this one only took half of each overlap with its limbs)
+		place_shapes(f)
+		for sh in shapes:
+			sh.share = 1.0
 
 
 func _pose_limbs(f) -> void:

@@ -17,6 +17,15 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-25 01:00",
+    title: "Armour meets armour",
+    notes: [
+      "Robots no longer ghost through each other up close: fists, forearms, shoulders, chests and heads now press against the other robot's armour instead of sinking in.",
+      "In a clinch the bodies lean and the heads turn aside to make room, while the feet stay planted and gripping hands hold on.",
+      "Clinch grips now land on the outside of the armour, on the flanks, neck and arms, so hugs and tie-ups look like real holds.",
+    ],
+  },
+  {
+    hour: "2026-10-25 01:00",
     title: "Updates you can watch",
     notes: [
       "When a new version is out, the update card shows its number, its size, when it came out and everything new in it since your version.",

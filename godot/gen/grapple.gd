@@ -34,6 +34,8 @@ static func strikeEnv(s) -> float:
 	if (s.phase == "active"):
 		return 1.0
 	return (1.0 - TMath.minJerk((s.t / s.recovery)))
+static var PLATE
+const PALM: float = 0.065
 const SWIM: float = 0.34
 const PUMMEL: float = 0.46
 const FADE: float = 0.36
@@ -1527,7 +1529,9 @@ class Grapple extends RefCounted:
 		_h_b.x += _hUP.x * __v3
 		_h_b.y += _hUP.y * __v3
 		_h_b.z += _hUP.z * __v3
+		var h: float = (TGrapple.PALM * me.size_)
 		var _h_a: V3 = TGrapple._a
+		var _hPLATE = TGrapple.PLATE
 		var s: int = 0
 		while (s < 2.0):
 			var sx: float = (-1.0 if (float(s) == 0.0) else 1.0)
@@ -1541,15 +1545,15 @@ class Grapple extends RefCounted:
 				tgt.x = __v4.x
 				tgt.y = __v4.y
 				tgt.z = __v4.z
-				var __v5: float = (-0.08 * z)
+				var __v5: float = (-(((_hPLATE.head * z) + h)))
 				tgt.x += _h_f.x * __v5
 				tgt.y += _h_f.y * __v5
 				tgt.z += _h_f.z * __v5
-				var __v6: float = ((os * 0.05) * z)
+				var __v6: float = ((os * 0.09) * z)
 				tgt.x += _h_r.x * __v6
 				tgt.y += _h_r.y * __v6
 				tgt.z += _h_r.z * __v6
-				var __v7: float = (0.03 * z)
+				var __v7: float = (0.07 * z)
 				tgt.x += _hUP.x * __v7
 				tgt.y += _hUP.y * __v7
 				tgt.z += _hUP.z * __v7
@@ -1558,15 +1562,15 @@ class Grapple extends RefCounted:
 				tgt.x = __v8.x
 				tgt.y = __v8.y
 				tgt.z = __v8.z
-				var __v9: float = (0.12 * z)
+				var __v9: float = (0.08 * z)
 				tgt.x += _hUP.x * __v9
 				tgt.y += _hUP.y * __v9
 				tgt.z += _hUP.z * __v9
-				var __v10: float = (-0.2 * z)
+				var __v10: float = (-0.07 * z)
 				tgt.x += _h_f.x * __v10
 				tgt.y += _h_f.y * __v10
 				tgt.z += _h_f.z * __v10
-				var __v11: float = ((os * 0.17) * z)
+				var __v11: float = (os * (((_hPLATE.side * z) + h)))
 				tgt.x += _h_r.x * __v11
 				tgt.y += _h_r.y * __v11
 				tgt.z += _h_r.z * __v11
@@ -1578,7 +1582,7 @@ class Grapple extends RefCounted:
 				tgt.x += _h_f.x * __v12
 				tgt.y += _h_f.y * __v12
 				tgt.z += _h_f.z * __v12
-				var __v13: float = (0.05 * z)
+				var __v13: float = ((_hPLATE.arm * z) + h)
 				tgt.x += _hUP.x * __v13
 				tgt.y += _hUP.y * __v13
 				tgt.z += _hUP.z * __v13
@@ -1588,11 +1592,11 @@ class Grapple extends RefCounted:
 				tgt.x = __v14.x + (__v15.x - __v14.x) * 0.55
 				tgt.y = __v14.y + (__v15.y - __v14.y) * 0.55
 				tgt.z = __v14.z + (__v15.z - __v14.z) * 0.55
-				var __v16: float = (-0.19 * z)
+				var __v16: float = (-0.1 * z)
 				tgt.x += _h_f.x * __v16
 				tgt.y += _h_f.y * __v16
 				tgt.z += _h_f.z * __v16
-				var __v17: float = ((os * 0.08) * z)
+				var __v17: float = (os * (((_hPLATE.waist * z) + h)))
 				tgt.x += _h_r.x * __v17
 				tgt.y += _h_r.y * __v17
 				tgt.z += _h_r.z * __v17
@@ -1600,7 +1604,7 @@ class Grapple extends RefCounted:
 				tgt.x = el.x
 				tgt.y = el.y
 				tgt.z = el.z
-				var __v18: float = (0.05 * z)
+				var __v18: float = ((_hPLATE.arm * z) + h)
 				tgt.x += _h_f.x * __v18
 				tgt.y += _h_f.y * __v18
 				tgt.z += _h_f.z * __v18
@@ -1613,7 +1617,7 @@ class Grapple extends RefCounted:
 				tgt.x += _hUP.x * __v20
 				tgt.y += _hUP.y * __v20
 				tgt.z += _hUP.z * __v20
-				var __v21: float = (0.13 * z)
+				var __v21: float = ((_hPLATE.chest * z) + h)
 				tgt.x += _h_f.x * __v21
 				tgt.y += _h_f.y * __v21
 				tgt.z += _h_f.z * __v21
@@ -1626,11 +1630,11 @@ class Grapple extends RefCounted:
 				tgt.x = __v23.x
 				tgt.y = __v23.y
 				tgt.z = __v23.z
-				var __v24: float = (0.07 * z)
+				var __v24: float = (0.12 * z)
 				tgt.x += _hUP.x * __v24
 				tgt.y += _hUP.y * __v24
 				tgt.z += _hUP.z * __v24
-				var __v25: float = (-0.05 * z)
+				var __v25: float = (-(((_hPLATE.head * z) + h)))
 				tgt.x += _h_f.x * __v25
 				tgt.y += _h_f.y * __v25
 				tgt.z += _h_f.z * __v25
@@ -1644,7 +1648,7 @@ class Grapple extends RefCounted:
 				tgt.x = __v27.x + (__v28.x - __v27.x) * 0.3
 				tgt.y = __v27.y + (__v28.y - __v27.y) * 0.3
 				tgt.z = __v27.z + (__v28.z - __v27.z) * 0.3
-				var __v29: float = (-0.1 * z)
+				var __v29: float = (-(((_hPLATE.thigh * z) + h)))
 				tgt.x += _h_f.x * __v29
 				tgt.y += _h_f.y * __v29
 				tgt.z += _h_f.z * __v29
@@ -1657,7 +1661,7 @@ class Grapple extends RefCounted:
 				tgt.x += _hUP.x * __v31
 				tgt.y += _hUP.y * __v31
 				tgt.z += _hUP.z * __v31
-				var __v32: float = (-0.12 * z)
+				var __v32: float = (-(((_hPLATE.chest * z) + h)))
 				tgt.x += _h_f.x * __v32
 				tgt.y += _h_f.y * __v32
 				tgt.z += _h_f.z * __v32
@@ -1671,7 +1675,7 @@ class Grapple extends RefCounted:
 				tgt.x = __v34.x + (__v35.x - __v34.x) * 0.55
 				tgt.y = __v34.y + (__v35.y - __v34.y) * 0.55
 				tgt.z = __v34.z + (__v35.z - __v34.z) * 0.55
-				var __v36: float = (-0.06 * z)
+				var __v36: float = (-(((_hPLATE.shin * z) + h)))
 				tgt.x += _hUP.x * __v36
 				tgt.y += _hUP.y * __v36
 				tgt.z += _hUP.z * __v36
@@ -1680,7 +1684,7 @@ class Grapple extends RefCounted:
 				tgt.x = __v37.x
 				tgt.y = __v37.y
 				tgt.z = __v37.z
-				var __v38: float = (0.05 * z)
+				var __v38: float = ((_hPLATE.shin * z) + h)
 				tgt.x += _hUP.x * __v38
 				tgt.y += _hUP.y * __v38
 				tgt.z += _hUP.z * __v38
@@ -2330,6 +2334,7 @@ class Grapple extends RefCounted:
 			i += 1
 
 static func __init_module() -> void:
+	TGrapple.PLATE = {"chest": 0.19, "side": 0.31, "waist": 0.27, "head": 0.14, "arm": 0.1, "thigh": 0.11, "shin": 0.1}
 	TGrapple.TRIP = {"step": 0.3, "fall": 0.48, "reap": 0.66, "end": 0.95}
 	TGrapple.THROW = {"sink": 0.32, "lift": 0.78, "slam": 1.12, "end": 1.45}
 	TGrapple.DOUBLE = {"dump": 0.62, "end": 0.98}

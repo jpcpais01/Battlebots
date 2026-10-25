@@ -222,6 +222,9 @@ class FighterView extends RefCounted:
 			_emote.gazeOn = e.gazeOn
 			var g = e.gaze
 			_emote.gaze = Vector3(g.x, g.y, g.z) if g != null else Vector3.ZERO
+			_emote.w = e.w
+			_emote.gripW[0] = e.gripW[0]
+			_emote.gripW[1] = e.gripW[1]
 			emote = _emote
 		body.capture(f.body)
 		parts.capture(f.parts)
@@ -230,6 +233,9 @@ class FighterView extends RefCounted:
 class EmoteView extends RefCounted:
 	var gazeOn := false
 	var gaze := Vector3.ZERO
+	## the emote's weight and each hand's grip (BotModel.meet: a gripping hand rides along)
+	var w := 0.0
+	var gripW := [0.0, 0.0]
 
 
 ## Body: the joints now, a step ago (velocity) and where the last step started (drawing
