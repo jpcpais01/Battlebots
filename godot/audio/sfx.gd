@@ -63,17 +63,26 @@ var _walk_on_streams := {}
 var _pan_scale := 1.0
 
 
-## Titan battles (render/titan): every impact, step and thud plays deeper (a thing fifteen times
-## the size rings lower), and from far away it arrives late (titan_delay, set each frame from the
-## lens's distance to the fight: sound crosses the stadium at 343 m/s).
+## Titan battles (render/titan): 30 m robots heard in the open air of a city square. Nothing
+## plays slowed (the world keeps real time): every blow lands on a sub-bass boom and comes back
+## off the buildings round the square a moment later (the TitanEcho bus), each footfall thumps,
+## a body coming down rumbles on and sets the car alarms off, the harbour's ships sound their
+## horns for a knockout, and under it all the city's evening (assets/audio/titan, made by
+## tools/audio/titan_audio.py).
 var titan := false
-var titan_delay := 0.0
 ## The instant replay's slow motion: the blows and the whooshes play this much lower and longer
 ## (1: as they are).
 var slow_rate := 1.0
-const TITAN_RATE := 0.62
-# (set while the queue replays a layer that already had the titans' pitch and delay applied)
-var _titan_done := false
+const TITAN_DIR := "res://assets/audio/titan/"
+## The titans' clips: variations of each, and the [count, gain, length] the pool needs (as
+## SfxBank.CLIPS has them).
+const TITAN_CLIPS := {"titan_boom": 3, "titan_step": 3, "titan_rumble": 2, "titan_horn": 0, "titan_alarm": 0}
+const ECHO := &"TitanEcho"
+## A titan's blows and steps play this much lower: heavier, not slower (whooshes a little less).
+const TITAN_PITCH := 0.86
+var _titan_info := {}
+var _city: AudioStreamPlayer = null
+var _last_alarm := -99.0
 
 
 func _ready() -> void:
@@ -98,6 +107,36 @@ func _ready() -> void:
 	for c in SfxBank.CLIPS:
 		if not c.begins_with("walkon_"):
 			_streams[c] = load(CLIP_DIR + c + ".ogg")
+	for base in TITAN_CLIPS:
+		var n: int = TITAN_CLIPS[base]
+		for v in maxi(1, n):
+			var clip: String = base + ("_%d" % v if n > 0 else "")
+			var st: AudioStream = load(TITAN_DIR + clip + ".ogg")
+			if st != null:
+				_streams[clip] = st
+				_titan_info[clip] = [1, 1.0, st.get_length()]
+	_echo_bus()
+
+
+## The square's buildings answering a titan's blow: a darker, wetter copy of it on its own bus.
+static func _echo_bus() -> void:
+	if AudioServer.get_bus_index(ECHO) >= 0:
+		return
+	var i := AudioServer.bus_count
+	AudioServer.add_bus(i)
+	AudioServer.set_bus_name(i, ECHO)
+	AudioServer.set_bus_send(i, &"Mix")
+	var lp := AudioEffectLowPassFilter.new()
+	lp.cutoff_hz = 1500.0
+	AudioServer.add_bus_effect(i, lp)
+	var rv := AudioEffectReverb.new()
+	rv.predelay_msec = 60.0
+	rv.room_size = 0.9
+	rv.damping = 0.6
+	rv.spread = 1.0
+	rv.dry = 0.3
+	rv.wet = 0.6
+	AudioServer.add_bus_effect(i, rv)
 
 
 func _process(dt: float) -> void:
@@ -173,14 +212,9 @@ func _play(clip: String, bus: StringName, gain: float, rate := 1.0, pan := 0.0, 
 	var stream: AudioStream = _streams.get(clip)
 	if stream == null:
 		return null
-	if titan and player == null and (bus == FX or bus == HITS) and not _titan_done:
-		rate *= TITAN_RATE
-		if titan_delay > 0.03:
-			_queue.append([_now + titan_delay, clip, bus, gain, rate, pan, true])
-			return null
 	if slow_rate != 1.0 and (bus == FX or bus == HITS):
 		rate *= slow_rate
-	var info: Array = SfxBank.CLIPS[clip]
+	var info: Array = SfxBank.CLIPS[clip] if SfxBank.CLIPS.has(clip) else _titan_info[clip]
 	var ears := _ears(pan)
 	var sum := ears.x + ears.y
 	var i := -1
@@ -235,6 +269,10 @@ func _level(base: String, ks: Array, k: float, at_k: Callable) -> void:
 func _impact(kind: String, gain: float, rate: float, pan := 0.0, when := 0.0) -> void:
 	var v := _pick("imp_" + kind, SfxBank.BANK[kind]).substr(4)
 	rate *= 0.94 + randf() * 0.12
+	if titan:
+		rate *= TITAN_PITCH
+		# the buildings round the square answer it
+		_queue.append([_now + when + 0.2 + randf() * 0.16, "imp_" + v, ECHO, gain * 0.45, rate * 0.92, -pan * 0.6])
 	if when > 0.0:
 		_queue.append([_now + when, "imp_" + v, FX, gain, rate, pan])
 		_queue.append([_now + when, "impw_" + v, HITS, gain, rate, pan])
@@ -255,9 +293,7 @@ func _run_queue() -> void:
 		var lead := SfxBank.LEAD if str(q[1]).begins_with("imp") else 0.0
 		if wait * rate <= lead:
 			_queue.remove_at(i)
-			_titan_done = q.size() > 6
 			_play(q[1], q[2], q[3], rate, q[5], lead - maxf(0.0, wait) * rate)
-			_titan_done = false
 		else:
 			i += 1
 
@@ -285,6 +321,8 @@ func hit(damage: float, zone: String, crit: bool, kind := "punch", pan := 0.0, w
 		_impact("block", 0.12 + k * 0.12, 1.15 + randf() * 0.25, pan, _flam())
 	if wear > 0.3:
 		_impact("crunch", minf(0.75, (wear - 0.2) * (0.5 + k * 0.7)), 1.1 - wear * 0.25, pan, _flam())
+	if titan:
+		_titan("titan_boom", 0.3 + k * 0.55 + (0.15 if crit else 0.0), pan * 0.5, 0.97 + randf() * 0.06)
 
 
 static func _flam() -> float:
@@ -300,6 +338,8 @@ func block(damage: float, pan := 0.0, guard_break := false) -> void:
 		_impact("clang", 0.25, 1.05, pan, 0.006)
 	elif k > 0.35:
 		_impact("punch", 0.2 + k * 0.2, 1.2, pan)
+	if titan:
+		_titan("titan_boom", 0.18 + k * 0.3, pan * 0.5, 1.08)
 
 
 ## A chunk of metal torn off a bot landing on the canvas (k: 0..1 how hard; sfx.ts tink).
@@ -313,6 +353,9 @@ func tink(k: float, pan := 0.0) -> void:
 
 ## A limb swinging through the air, with its servo whine (sfx.ts whoosh).
 func whoosh(power: bool, kick: bool, vol := 1.0) -> void:
+	if titan:
+		_play(_pick("whoosh_p%dk%d" % [int(power), int(kick)], 4), FX, vol, 0.9)
+		return
 	_synth("whoosh_p%dk%d" % [int(power), int(kick)], 4, vol)
 
 
@@ -327,12 +370,19 @@ func step(index: int) -> void:
 		return
 	_last_step[index] = _now
 	_impact("step", 0.1 + randf() * 0.05, 0.9 + randf() * 0.25, -0.15 if index == 0 else 0.15)
+	if titan:
+		_titan("titan_step", 0.32 + randf() * 0.1, -0.15 if index == 0 else 0.15, 0.95 + randf() * 0.1)
 
 
 ## A body slamming into the canvas (k: 0..1 impact strength; sfx.ts thud).
 func thud(k: float, pan := 0.0) -> void:
 	_impact("thud", 0.35 + 0.55 * k, 1.05 - k * 0.15, pan)
 	_level("thud_tone", SfxBank.THUD_KS, k, func(x: float) -> float: return 0.2 + 0.3 * x)
+	if titan:
+		_titan("titan_boom", 0.45 + 0.5 * k, pan * 0.5, 0.9)
+		if k > 0.35:
+			_titan("titan_rumble", 0.3 + 0.5 * k, pan * 0.3)
+			alarms(k)
 
 
 ## A hinge seal blowing: a crack as it gives, then a hard, bright hiss of vapour that sputters
@@ -400,6 +450,11 @@ func ko() -> void:
 	_impact("clang", 0.45, 0.78, 0.0, 0.018)
 	_impact("thud", 0.5, 0.85, 0.0, 0.12)
 	_synth("ko_tail", 4)
+	if titan:
+		_titan("titan_boom", 1.0, 0.0, 0.85)
+		_titan("titan_rumble", 0.8, 0.0, 1.0, 0.15)
+		# the harbour's ships sound their horns
+		_titan("titan_horn", 0.55, -0.3, 1.0, 1.4)
 
 
 ## Interface blips: "tap", "select", "back" or "start" (sfx.ts ui).
@@ -438,6 +493,52 @@ func lift(cue: String, pan := 0.0) -> void:
 func fist_bump() -> void:
 	_impact("block", 0.4, 1.35)
 	_synth("fist_bump", 0)
+
+
+# ----------------------------------------------------------------------------- titans
+
+
+## One of the titans' own clips (a variation of `base` if it has them), `when` seconds late.
+func _titan(base: String, gain: float, pan := 0.0, rate := 1.0, when := 0.0) -> void:
+	var n: int = TITAN_CLIPS.get(base, 0)
+	var clip := _pick(base, n) if n > 0 else base
+	if not _streams.has(clip):
+		return
+	if when > 0.0:
+		_queue.append([_now + when, clip, FX, gain, rate, pan])
+		return
+	_play(clip, FX, gain, rate, pan)
+
+
+## Car alarms going off round the square after a titan comes down (k: how hard), not on top of
+## ones still going.
+func alarms(k: float) -> void:
+	if _now - _last_alarm < 6.0:
+		return
+	_last_alarm = _now
+	_titan("titan_alarm", 0.12 + 0.12 * minf(1.0, k), (randf() - 0.5) * 0.8, 0.95 + randf() * 0.1, 0.35)
+
+
+## The city's evening under a titan fight (Game: while the fight is in the titan city): traffic
+## far off, the harbour, a breeze, a siren across town.
+func city_bed(on: bool) -> void:
+	if on and _city == null:
+		var st = load(TITAN_DIR + "titan_city.ogg")
+		if st == null:
+			return
+		if "loop" in st:
+			st.loop = true
+		_city = AudioStreamPlayer.new()
+		_city.stream = st
+		_city.bus = &"Mix"
+		_city.volume_db = -17.0
+		add_child(_city)
+	if _city == null:
+		return
+	if on and not _city.playing:
+		_city.play()
+	elif not on:
+		_city.stop()
 
 
 # ----------------------------------------------------------------------------- walk-ons

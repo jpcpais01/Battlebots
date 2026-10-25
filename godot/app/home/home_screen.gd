@@ -720,7 +720,7 @@ func _build_actions() -> void:
 	sub.add_child(duo)
 	_tag.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	duo.add_child(_tag)
-	# titan battles: 30 m robots in the Titan Colosseum (render/titan)
+	# titan battles: 30 m robots in the titan city (render/titan)
 	_titans = UiTheme.button("Titans", "", &"Btn")
 	_titans.name = "Titans"
 	var tti := _titans.find_child("Icon", true, false) as TextureRect

@@ -10,7 +10,8 @@ const ROBOT_BUDGET := 30000
 const PLACE_BUDGET := 50000
 ## Places let over it for now (João, 2026-10-19: "good enough for now"): the grove's forest and
 ## Skydeck 88's world map don't simplify further without a re-bake. Lower these as they slim.
-const PLACE_OVER := {"grove": 58000, "rooftop": 76000}
+## The titan city has its own (João, 2026-10-18: titan battles' venue under 100k).
+const PLACE_OVER := {"grove": 58000, "rooftop": 76000, "titan": 100000}
 ## One camera drone, the referee drone.
 const DRONE_BUDGET := 3000
 const REFEREE_BUDGET := 8000

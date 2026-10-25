@@ -1,8 +1,9 @@
 extends SceneTree
-## Titan battles end to end, headless: the home screen's Titans button starts a fight in the Titan
-## Colosseum (titans on, slow time, the venue's sun), the stadium and its crowd stay inside
-## João's budget (100k triangles), the fight runs to its results, Next fight stays titan, and the
-## home Fight button goes back to the indoor arena.
+## Titan battles end to end, headless: the home screen's Titans button starts a fight in the titan
+## city (titans on: the sim's titan pace, the venue's sun), the venue stays inside João's budget
+## (100k triangles), the titans move a beat heavier while the round's clock keeps real seconds,
+## the fight runs to its results, Next fight stays titan, and the home Fight button goes back to
+## the indoor arena.
 ##   godot --headless --path godot -s res://tests/titan_check.gd
 
 const BUDGET := 100000
@@ -11,6 +12,9 @@ var app: App
 var _t := 0
 var _stage := 0
 var _fails := 0
+var _clock0 := 0.0
+var _real := 0.0
+var _slow := false
 
 
 func _init() -> void:
@@ -64,20 +68,38 @@ func _frame() -> void:
 			_check(g.titan, "it is a titan battle")
 			_check(app.titan_run, "the app knows it")
 			var v = g.venues.current
-			_check(v is TitanVenue, "in the Titan Colosseum")
+			_check(v is TitanVenue, "in the titan city")
 			if v is TitanVenue:
-				print("stadium + crowd: %d triangles, field: %d" % [v.stadium_tris, v.field_tris])
-				_check(v.stadium_tris <= BUDGET, "the stadium and crowd stay under %d triangles" % BUDGET)
+				print("titan city: %d triangles" % v.tris)
+				_check(v.tris <= BUDGET, "the venue stays under %d triangles" % BUDGET)
 				_check(v.sun.visible and not g._key.visible, "the sun lights it, not the key spot")
+				_check(v.props != null and v.props.tris > 0, "the city is full of people-sized things")
 			_check(g.director.titan and g.sfx.titan, "filmed and heard as titans")
+			_check(g.m.titan, "the sim runs it as a titan battle (its pace, its clock)")
 			g.m.skipIntro()
 			_stage = 2
 			_t = 0
 		2:
-			if _t == 30:
-				_check(app.game.time_k < 0.9, "titan time runs slow (%.2f)" % app.game.time_k)
-			if _t < 40:
+			# a second and a half of the round in real time (the frames' own deltas)
+			var m = app.game.m
+			if m.phase != "fight" and _clock0 == 0.0:
+				if _t < 3000:
+					return
+			elif _clock0 == 0.0:
+				_clock0 = m.clock
+				_real = 0.0
+				_t = 0
 				return
+			elif _real < 1.5 and _t < 20000 and m.phase == "fight":
+				_real += app.get_process_delta_time()
+				_slow = _slow or app.game.time_k < 0.95
+				return
+			var ran: float = _clock0 - m.clock
+			print("round clock ran %.2f s in %.2f s (titans at %.2f)" % [ran, _real, app.game.time_k])
+			_check(_real > 0.5 and ran > _real * 0.7 and ran < _real * 1.15, "the round's clock keeps real seconds")
+			_check(_slow, "the titans move a beat heavier than the clock")
+			_stage = 7
+		7:
 			if _run_to_end():
 				_stage = 3
 				_t = 0

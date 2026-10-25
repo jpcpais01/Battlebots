@@ -10,7 +10,7 @@ uniform vec4 emit[8];
 uniform float glow = 2.2;
 // bowl.ts FLOOR (uFloor: "floor" is a built-in function here)
 uniform float floor_y = -0.62;
-// the smoke's colour (dark under the indoor rig; the Titan Colosseum's sunlight greys it)
+// the smoke's colour (dark under the indoor rig; the titan city's evening sun greys it)
 uniform vec3 smoke = vec3(0.05, 0.05, 0.055);
 
 varying float v_heat;

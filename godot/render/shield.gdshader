@@ -1,6 +1,8 @@
 // Aegis bubble: a fresnel shell, added on top (botModel.ts shield material).
 shader_type spatial;
-render_mode unshaded, blend_add, depth_draw_never, cull_back, shadows_disabled;
+// (fog_disabled: Godot mixes the fog colour into an added layer, which would draw the whole
+// bubble in the haze's colour out of doors)
+render_mode unshaded, blend_add, depth_draw_never, cull_back, shadows_disabled, fog_disabled;
 
 uniform vec3 color = vec3(0.045, 1.0, 0.69);
 uniform float alpha = 0.0;

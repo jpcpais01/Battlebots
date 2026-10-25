@@ -71,8 +71,8 @@ var league_last := -1
 var opponent = null
 ## The fight on screen is a round of a map event: {id, round, defence} (app.ts eventRun).
 var event_run = null
-## The fights are titan battles (the home screen's Titans): the bots 30 m tall in the Titan
-## Colosseum. The results' Next fight and Rematch stay titan.
+## The fights are titan battles (the home screen's Titans): the bots 30 m tall in the titan
+## city. The results' Next fight and Rematch stay titan.
 var titan_run := false
 ## The last fight, to watch it again (app.ts lastFight): {tape, timeline}, its tape (ReplayTape)
 ## and the checkpoints and wear it left (ReplayTimeline: seeks in its replay are quick at once;
@@ -653,8 +653,8 @@ func start_fight(same_opponent: bool) -> void:
 		# (a Gauntlet or League rival's boosts were for that fight: a rematch outside it is a plain one)
 		opponent.erase("boost")
 	var seed := float(randi())
-	# an event's rounds are fought in its own venue, titans in the Titan Colosseum, everything
-	# else indoors
+	# an event's rounds are fought in its own venue, titans in the titan city, everything else
+	# indoors
 	var arena := "titan" if titan_run else "grand"
 	if event_run != null:
 		titan_run = false

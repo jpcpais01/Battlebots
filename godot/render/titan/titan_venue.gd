@@ -1,72 +1,80 @@
-## The Titan Colosseum: where titan battles are fought (events.ts has no such venue: this one is
-## the Android app's own, built in code by TitanBuild, not baked from the web game). A flat grass
-## plain inside a stone-and-steel bowl a kilometre and a half across, packed to the rim, under a
-## low golden sun. The robots are the usual robots and the fight is the usual sim: what makes them
-## 30 m titans is everything round them being built to that scale (TitanBuild), the fight running
-## slower (Game.time_k), the camera filming them like giants (Director.titan) and the effects and
-## sound weighing more (TitanFx, Sfx.titan).
+## The titan city: where titan battles are fought (the Android app's own venue, built in code,
+## not baked from the web game). The robots are the usual robots and the fight is the usual sim;
+## what makes them 30 m titans is that the whole world round them is built to that scale: the
+## Titan Ring is a steel stage in the middle of a harbour city's great square, packed with tens
+## of thousands of people behind the barriers, the old buildings round the square standing no
+## higher than the titans' shoulders, downtown's towers behind, the harbour and the sea to the
+## north under a low evening sun. One unit is a robot metre, 15 m here: a person is 0.11 tall.
 ##
 ## It plugs into the event venues' machinery (EventVenues, Arena.set_venue, VenueLook) as an
-## OutdoorVenue: the arena drives its crowd, its screens and its gates, VenueLook its light. What
-## the indoor ring would show (the stage, posts, ropes, truss) gives way to the deck, the pylons
-## and the energy ropes here (set_ring_hidden).
+## OutdoorVenue: the arena drives its crowd and its screens, VenueLook its light. The indoor
+## ring's own scenery gives way to the Titan Ring's (set_ring_hidden); the corner lifts stay
+## (their hatches open in the deck).
 ##
-## Triangle budget (João, 2026-10-18): the stadium and the crowd together stay under 100k
-## triangles. The crowd is drawn on a few thousand (titan_crowd.gdshader); tests/titan_check.gd
-## counts the lot.
+## Triangle budget (João, 2026-10-18: titan battles' venue under 100k): the crowd is a few hundred
+## (titan_crowd.gdshader), the facades are boxes (titan_facade.gdshader), the streets one shader;
+## tests/titan_check.gd counts the lot (`tris`).
 class_name TitanVenue
 extends OutdoorVenue
 
-const STONE := preload("res://render/titan/titan_stone.gdshader")
-const CROWD := preload("res://render/titan/titan_crowd.gdshader")
+const FACADE := preload("res://render/titan/titan_facade.gdshader")
+const GROUND := preload("res://render/titan/titan_ground.gdshader")
+const WATER := preload("res://render/titan/titan_water.gdshader")
 const STEEL := preload("res://render/titan/titan_steel.gdshader")
-const MEMBRANE := preload("res://render/titan/titan_membrane.gdshader")
-const BANNER := preload("res://render/titan/titan_banner.gdshader")
-const GRASS := preload("res://render/titan/titan_grass.gdshader")
-const PYLON := preload("res://render/titan/titan_pylon.gdshader")
-const ENERGY := preload("res://render/titan/titan_energy.gdshader")
+const CABLE := preload("res://render/titan/titan_cable.gdshader")
+const CROWD := preload("res://render/titan/titan_crowd.gdshader")
 const SKY := preload("res://render/titan/titan_sky.gdshader")
 const SCREEN := preload("res://render/venue/scoreboard.gdshader")
-const GATE := preload("res://render/venue/gate.gdshader")
 
-## The sun (titan_common's T_SUN_DIR, T_SUN_COL): towards it, its colour (linear) and strength.
-const SUN_DIR := Vector3(-0.5496, 0.4997, -0.6695)
-const SUN_COLOR := Color(1.0, 0.70, 0.44)
-const SUN_ENERGY := 2.35
-## The haze over the plain (Godot's fog, exponential per world unit).
-const HAZE := 0.0009
-const HAZE_COLOR := Color(0.46, 0.47, 0.52)
+## The sun (titan_common's T_SUN_DIR, T_SUN_COL): towards it, its colour and strength.
+const SUN_DIR := Vector3(-0.4202, 0.2201, -0.8804)
+const SUN_COLOR := Color(1.0, 0.6, 0.34)
+const SUN_ENERGY := 2.6
+## Godot's own fog (the titans' haze: the city's shaders write their own, titan_common t_haze).
+## Half the city's: a few percent of it already lifts the titans' dark steel to grey (the tone
+## curve's 1.8x lift and the sRGB curve both act on the darks), so they'd look washed out next
+## to the same air over the paving.
+const HAZE := 0.0015
+const HAZE_COLOR := Color(0.4, 0.39, 0.45)
+## The crowd round the ring: from the barriers out to the square's edge, in rows 0.67 m deep.
+const CROWD_R0 := 9.8
+const CROWD_ROW := 0.045
+const CROWD_ROWS := 80
+const CROWD_TOP := 0.14
 
 ## Always true: a titan venue (Game.set_titan follows it).
 var titan := true
-## The sun: lights the robots, the deck and the plain, and casts their shadows.
+## The sun: lights the titans, the ring and the city, and casts their shadows.
 var sun: DirectionalLight3D
 ## Materials whose colours follow the two fighters' (set_teams).
 var team_mats: Array[ShaderMaterial] = []
-## The energy ropes and the pylons' emitters (they flare with the arena's rope flash).
+## The ring's cables (arena.gd uploads the rope physics to it) and the steel's material.
 var rope_mat: ShaderMaterial
-## The crowd's material (Game sets its "seat": the fans round the crowd shot's lens).
+var steel_mat: ShaderMaterial
+var ground_mat: ShaderMaterial
 var crowd_mat: ShaderMaterial
-var pylon_mat: ShaderMaterial
-var grass_deck: ShaderMaterial
-var grass_plain: ShaderMaterial
-## The giant screens' quads (Scoreboard attaches to them in _ready).
-var screen_quads: Array[MeshInstance3D] = []
-## Triangles in the stadium and crowd (the budget), and in the field (deck, pylons, ropes, plain).
-var stadium_tris := 0
-var field_tris := 0
-var _arena: Node = null
+var water_mat: ShaderMaterial
+## The city's layout (roofs a camera can stand on, the buildings).
+var city: TitanCity
+## Everything people-sized round the ring: the vehicles, the crews, the barriers, the camera
+## towers, the lamps and trees, the big screens.
+var props: TitanProps
+## Triangles drawn by the whole venue (the budget), and the old name for them.
+var tris := 0
+var stadium_tris: int:
+	get:
+		return tris
 
 
 func _init(venue_id := "titan", crowd_template: ShaderMaterial = null) -> void:
 	id = venue_id
 	name = "venue_titan"
 	var t0 := Time.get_ticks_msec()
-	far = 480.0
-	outer = TitanBuild.GROUND_Y
+	far = 1600.0
+	outer = TitanCity.PLAZA_Y
 	look = _look()
 	_build(crowd_template)
-	print("venue titan built in ", Time.get_ticks_msec() - t0, " ms (stadium ", stadium_tris, " tris, field ", field_tris, ")")
+	print("venue titan built in ", Time.get_ticks_msec() - t0, " ms (", tris, " tris, ", city.buildings.size(), " buildings)")
 
 
 func _ready() -> void:
@@ -74,15 +82,12 @@ func _ready() -> void:
 		return
 	board = Scoreboard.new()
 	add_child(board)
-	for q in screen_quads:
-		board.attach(q)
-		# (outdoors, in daylight: brighter than the indoor screens)
-		(q.mesh.surface_get_material(0) as ShaderMaterial).set_shader_parameter("color", Vector3(2.2, 2.2, 2.2))
+	props.prop_mat.set_shader_parameter("screen_tex", board.get_texture())
 
 
-## How it's lit, as a LightLook for VenueLook.apply (hex colours, three's intensities): a warm
-## haze, the sky's ambient and the rims. The key spot isn't used here: the sun is a directional
-## light of the venue's own (Game.set_titan turns the spot off).
+## How it's lit, as a LightLook for VenueLook.apply (hex colours, three's intensities): the
+## evening's haze and sky for the ambient, the rims. The key spot isn't used here: the sun is a
+## directional light of the venue's own (Game.set_titan turns the spot off).
 static func _look() -> Dictionary:
 	var fog_hex := HAZE_COLOR.linear_to_srgb().to_rgba32() >> 8
 	var to := SUN_DIR * 30.0
@@ -91,42 +96,41 @@ static func _look() -> Dictionary:
 		"fog": fog_hex,
 		# (VenueLook: Godot's exp fog = 0.006 * fogDensity / 0.016)
 		"fogDensity": HAZE * 0.016 / 0.006,
-		"envIntensity": 0.22,
-		"hemi": {"sky": 0x748499, "ground": 0x5a5445, "intensity": PI},
+		"envIntensity": 0.25,
+		"hemi": {"sky": 0x6d7f9e, "ground": 0x5a4a3c, "intensity": PI},
 		"key": {"color": 0xffd9a8, "intensity": 0.0, "pos": [to.x, to.y, to.z], "target": [0, 0, 0], "angle": 0.5, "penumbra": 0.6},
 		"rims": [
-			{"color": 0xff9a5a, "intensity": 7.0, "distance": 14.0, "pos": [-5.5, 3.5, -2.0]},
-			{"color": 0x7fc4ff, "intensity": 6.0, "distance": 14.0, "pos": [5.5, 3.5, 2.0]},
+			{"color": 0xff9a5a, "intensity": 5.0, "distance": 14.0, "pos": [-5.5, 3.5, -2.0]},
+			{"color": 0x8fc4ff, "intensity": 5.0, "distance": 14.0, "pos": [5.5, 3.5, 2.0]},
 		],
 	}
 
 
-func _mat(shader: Shader) -> ShaderMaterial:
+static func _mat(shader: Shader) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = shader
 	return m
 
 
-func _add(b: TitanBuild, m: Material, node_name: String, shadow := false, stadium := true) -> MeshInstance3D:
+func _add(b: TitanBuild, m: Material, node_name: String, shadow := false) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.name = node_name
 	mi.mesh = b.make(m)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadow else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
-	if stadium:
-		stadium_tris += b.tris()
-	else:
-		field_tris += b.tris()
+	tris += b.tris()
 	return mi
 
 
 func _build(tmpl: ShaderMaterial) -> void:
 	# the sky round it all (and its colours for the ambient light: VenueLook reads sky_mat)
 	sky_mat = _mat(SKY)
+	for k in ["uZenith", "uHorizon", "uGlowCol", "uHaze", "uGnd", "uSunDir", "uSunCol", "uCloud"]:
+		sky_mat.set_shader_parameter(k, _sky_default(k))
 	var dome := MeshInstance3D.new()
 	var sphere := SphereMesh.new()
-	sphere.radius = 420.0
-	sphere.height = 840.0
+	sphere.radius = 1400.0
+	sphere.height = 2800.0
 	sphere.radial_segments = 32
 	sphere.rings = 16
 	dome.mesh = sphere
@@ -135,90 +139,42 @@ func _build(tmpl: ShaderMaterial) -> void:
 	dome.name = "skyDome"
 	add_child(dome)
 
-	var stone := _mat(STONE)
-	team_mats.append(stone)
-	_add(TitanBuild.bowl(), stone, "bowl", true)
+	city = TitanCity.new()
+	ground_mat = _mat(GROUND)
+	_add(TitanCity.ground_mesh(), ground_mat, "ground")
+	water_mat = _mat(WATER)
+	_add(TitanCity.water_mesh(), water_mat, "water")
+	_add(city.building_mesh(), _mat(FACADE), "buildings", true)
 
+	# the Titan Ring
+	steel_mat = _mat(STEEL)
+	for i in 2:
+		var h: Array = TEntrance.hatchXZ(float(i))
+		steel_mat.set_shader_parameter("hatch%d" % i, Vector2(h[0], h[1]))
+	steel_mat.set_shader_parameter("hatch_r", TEntrance.HATCH_R)
+	team_mats.append(steel_mat)
+	_add(TitanRing.stage(), steel_mat, "stage", true)
+	_add(TitanRing.pylons(), steel_mat, "pylons", true)
+	rope_mat = _mat(CABLE)
+	rope_mat.set_shader_parameter("radius", TitanRing.CABLE_R)
+	var cm := _add(TitanRing.cables(), rope_mat, "cables", true)
+	cm.custom_aabb = AABB(Vector3(-7, -1, -7), Vector3(14, 4, 14))
+
+	# the crowd in the square
 	crowd_mat = _mat(CROWD)
 	if tmpl:
 		for k in ["atlas", "bounds", "skin", "pants"]:
 			crowd_mat.set_shader_parameter(k, tmpl.get_shader_parameter(k))
 	team_mats.append(crowd_mat)
-	var cm := _add(TitanBuild.crowd(), crowd_mat, "crowd")
-	# (the cards stand a little in front of the envelope: never cull it at the frustum's edge)
-	cm.extra_cull_margin = 1.0
+	var env := _add(_crowd_envelope(), crowd_mat, "crowd")
+	env.extra_cull_margin = 0.5
 	crowd = ArenaCrowd.new(crowd_mat)
 
-	var steel := _mat(STEEL)
-	_add(TitanBuild.roof(), steel, "roof", true)
-	var mem := _add(TitanBuild.membrane(), _mat(MEMBRANE), "membrane", true)
-	mem.sorting_offset = -10.0
-	var banners := _mat(BANNER)
-	team_mats.append(banners)
-	_add(TitanBuild.banners(), banners, "banners")
-
-	var sc := ShaderMaterial.new()
-	sc.shader = SCREEN
-	var made: Array = TitanBuild.screens(sc)
-	_add(made[0], steel, "screenFrames", true)
-	for q in made[1]:
-		var mi := MeshInstance3D.new()
-		mi.name = "screen%d" % screen_quads.size()
-		# (each its own material: Scoreboard.attach replaces the surface's)
-		q.surface_set_material(0, sc.duplicate())
-		mi.mesh = q
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		add_child(mi)
-		screen_quads.append(mi)
-		stadium_tris += 2
-
-	# the gates' energy curtains (arena.gate_hit ripples them as the stretcher goes through), west
-	# then east
-	for g in 2:
-		var gm := _mat(GATE)
-		gm.set_shader_parameter("size", Vector2(TitanBuild.PORTAL_HW * 2.0, TitanBuild.PORTAL_SPRING + TitanBuild.PORTAL_HW))
-		gm.set_shader_parameter("color", Vector3(0.1, 0.6, 1.0))
-		var gb := TitanBuild.new()
-		var x := (-1.0 if g == 0 else 1.0) * (TitanBuild.R_IN - 0.35)
-		var hw := TitanBuild.PORTAL_HW
-		var y0 := TitanBuild.GROUND_Y
-		var sp := y0 + TitanBuild.PORTAL_SPRING
-		var nn := Vector3(-signf(x), 0, 0)
-		var size := Vector2(hw * 2.0, TitanBuild.PORTAL_SPRING + hw)
-		# a rectangle up to the arch's spring, then a fan for the arch (UV over the whole opening)
-		var pts := [Vector3(x, y0, -hw), Vector3(x, y0, hw), Vector3(x, sp, hw), Vector3(x, sp, -hw)]
-		var ids := []
-		for p in pts:
-			ids.append(gb.vert(p, nn, Vector2((p.z + hw) / size.x, (p.y - y0) / size.y)))
-		gb.quad(ids[0], ids[1], ids[2], ids[3])
-		var centre := gb.vert(Vector3(x, sp, 0), nn, Vector2(0.5, (sp - y0) / size.y))
-		var prev := -1
-		for i in 17:
-			var u := PI * float(i) / 16.0
-			var p := Vector3(x, sp + sin(u) * hw, cos(u) * hw)
-			var k := gb.vert(p, nn, Vector2((p.z + hw) / size.x, (p.y - y0) / size.y))
-			if prev >= 0:
-				gb.tri(centre, prev, k)
-			prev = k
-		_add(gb, gm, "gate%d" % g)
-		gates.append(gm)
-
-	# the field: the plain, the deck, the pylons and the energy ropes (lit, shadowed)
-	grass_plain = _mat(GRASS)
-	_add(TitanBuild.plain(), grass_plain, "plain", false, false)
-	grass_deck = _mat(GRASS)
-	grass_deck.set_shader_parameter("deck", true)
-	for i in 2:
-		var h: Array = TEntrance.hatchXZ(float(i))
-		grass_deck.set_shader_parameter("hatch%d" % i, Vector2(h[0], h[1]))
-	grass_deck.set_shader_parameter("hatch_r", TEntrance.HATCH_R)
-	_add(TitanBuild.deck(), grass_deck, "deck", true, false)
-	pylon_mat = _mat(PYLON)
-	_add(TitanBuild.pylons(), pylon_mat, "pylons", true, false)
-	rope_mat = _mat(ENERGY)
-	team_mats.append_array([pylon_mat, rope_mat])
-	var rm := _add(TitanBuild.ropes(), rope_mat, "energyRopes", false, false)
-	rm.custom_aabb = AABB(Vector3(-7, -1, -7), Vector3(14, 4, 14))
+	# everything people-sized: the yardstick the titans are measured by
+	props = TitanProps.new()
+	props.build(self, city, tmpl)
+	tris += props.tris
+	team_mats.append(props.people_mat)
 
 	sun = DirectionalLight3D.new()
 	sun.name = "sun"
@@ -226,8 +182,10 @@ func _build(tmpl: ShaderMaterial) -> void:
 	sun.light_energy = SUN_ENERGY
 	sun.shadow_enabled = true
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-	sun.directional_shadow_split_1 = 0.18
-	sun.directional_shadow_max_distance = 70.0
+	# (the far split kept short: the low sun stretches the cables' and pylons' shadows across
+	# the deck, and a coarse map draws their edges as staircases from the helicopter and roofs)
+	sun.directional_shadow_split_1 = 0.25
+	sun.directional_shadow_max_distance = 46.0
 	sun.directional_shadow_blend_splits = true
 	sun.shadow_bias = 0.04
 	sun.shadow_normal_bias = 1.2
@@ -236,20 +194,70 @@ func _build(tmpl: ShaderMaterial) -> void:
 	sun.look_at_from_position(SUN_DIR * 50.0, Vector3.ZERO)
 
 
-## The two fighters' colours (their paint accents, linear): the fans' shirts and flags, the
-## banners, the gates and the LED ribbons all take sides.
+static func _sky_default(k: String):
+	match k:
+		"uZenith":
+			return Vector3(0.12, 0.155, 0.29)
+		"uHorizon":
+			return Vector3(0.86, 0.56, 0.38)
+		"uGlowCol":
+			return Vector3(1.0, 0.5, 0.18)
+		"uHaze":
+			return Vector3(0.4, 0.39, 0.45)
+		"uGnd":
+			return Vector3(0.16, 0.12, 0.08)
+		"uSunDir":
+			return SUN_DIR
+		"uSunCol":
+			return Vector3(1.0, 0.6, 0.34)
+		_:
+			return Vector4(0.5, 0.5, 0.0, 1.0)
+
+
+## The crowd's envelope: a ring at head height over the people from the barriers out, with walls
+## down to the paving at its inner and outer edges (a ray from the ring's side comes in through
+## the inner wall). CUSTOM0 = (front radius, row depth, ground, 0), CUSTOM1.x = rows.
+static func _crowd_envelope() -> TitanBuild:
+	var b := TitanBuild.new()
+	b.custom = true
+	var segs := 96
+	var y0 := TitanCity.PLAZA_Y
+	var y1 := y0 + CROWD_TOP
+	var r0 := CROWD_R0 - 0.02
+	var r1 := CROWD_R0 + CROWD_ROWS * CROWD_ROW
+	var tier := Vector4(CROWD_R0, CROWD_ROW, y0, 0)
+	var rows := Vector4(CROWD_ROWS, 0, 0, 0)
+	for ring in 3:
+		var base := b.v.size()
+		for i in segs + 1:
+			var a := TAU * float(i) / segs
+			var d := Vector3(cos(a), 0, sin(a))
+			match ring:
+				0:
+					b.vert(d * r0 + Vector3(0, y0, 0), -d, Vector2.ZERO, Vector2.ZERO, Color.WHITE, tier, rows)
+					b.vert(d * r0 + Vector3(0, y1, 0), -d, Vector2.ZERO, Vector2.ZERO, Color.WHITE, tier, rows)
+				1:
+					b.vert(d * r0 + Vector3(0, y1, 0), Vector3.UP, Vector2.ZERO, Vector2.ZERO, Color.WHITE, tier, rows)
+					b.vert(d * r1 + Vector3(0, y1, 0), Vector3.UP, Vector2.ZERO, Vector2.ZERO, Color.WHITE, tier, rows)
+				_:
+					b.vert(d * r1 + Vector3(0, y1, 0), d, Vector2.ZERO, Vector2.ZERO, Color.WHITE, tier, rows)
+					b.vert(d * r1 + Vector3(0, y0, 0), d, Vector2.ZERO, Vector2.ZERO, Color.WHITE, tier, rows)
+		for i in segs:
+			var k := base + i * 2
+			b.quad(k, k + 2, k + 3, k + 1)
+	return b
+
+
+## The two fighters' colours (their paint accents, linear): the crowd's shirts and flags, the
+## deck's corners, the pylons' and the stage's lights take sides.
 func set_teams(a: Color, b: Color) -> void:
 	for m in team_mats:
 		m.set_shader_parameter("team0", Vector3(a.r, a.g, a.b))
 		m.set_shader_parameter("team1", Vector3(b.r, b.g, b.b))
-	for i in gates.size():
-		var c := b if i == 0 else a
-		gates[i].set_shader_parameter("color", Vector3(c.r, c.g, c.b) * 0.8)
 
 
 ## The indoor ring's own scenery (the stage, its posts, ropes and truss) shown or hidden: the
-## deck, pylons and energy ropes stand in for it here. The corner lifts stay (their hatches open
-## in the deck's turf).
+## Titan Ring stands in for it here. The corner lifts stay (their hatches open in the deck).
 static func set_ring_hidden(arena: Arena, hidden: bool) -> void:
 	var ring := arena.node("arena")
 	if ring == null:
@@ -268,4 +276,7 @@ func _tick(_dt: float, _t: float) -> void:
 	if a != null and "_rope_flash" in a:
 		var f: float = a._rope_flash
 		Mats.put(rope_mat, "flare", f)
-		Mats.put(pylon_mat, "flare", f)
+		Mats.put(steel_mat, "flare", f)
+	var e = crowd_mat.get_shader_parameter("excite")
+	if e != null:
+		Mats.put(props.people_mat, "excite", e)

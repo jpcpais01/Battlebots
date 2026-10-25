@@ -35,6 +35,23 @@ export const GETUP_PER_SECOND = 0.36;
 /** Seconds between failed tries to rise during a count (one collapses and settles first). */
 const TRY_GAP = 2;
 export const ROUND_TIME = 99;
+/**
+ * Titan battles (the Android app's titan city, the robots 30 m tall): a titan heaves itself
+ * round, so the app runs the fight slower than the wall clock, by Match.titanPace: slowest as one
+ * winds up a blow, nearly full speed as the blow comes through, a beat heavy otherwise, heavy as
+ * a body comes down. The referee counts and the round's clock runs on real seconds all the same
+ * (the clock counts faster by the pace), and with fewer blows going in a round, each lands harder.
+ */
+const TITAN_PACE = { windup: 0.66, active: 0.94, recovery: 0.78 } as const;
+const TITAN_IDLE = 0.84;
+const TITAN_INTRO = 0.92;
+const TITAN_FALL = 0.72;
+/** How long a body takes coming down (s of match time after it goes down: a fall lands at 0.84). */
+const TITAN_FALL_S = 1.1;
+const TITAN_GETUP = 0.86;
+/** How far the pace eases towards what the titans are doing each step (over ~0.07 s). */
+const TITAN_EASE = 0.11;
+export const TITAN_HIT = 1.25;
 
 export type MatchPhase = 'intro' | 'countdown' | 'greet' | 'fight' | 'ko' | 'end';
 export { PRESENT } from './entrance';
@@ -149,6 +166,10 @@ export class Match {
   slowmo = 1;
   /** Tools only (the motion lab): the brains and showmen sit still while a script drives the fighters. */
   puppets = false;
+  /** A titan battle (see TITAN_PACE): set before the first step. */
+  titan = false;
+  /** How fast the fight runs against the wall clock: 1, but for titans (see TITAN_PACE). */
+  titanPace = 1;
   winner: Fighter | null = null;
   result: FinishKind | 'Decision' | 'Draw' | null = null;
   /** For a 'Dismantled' finish: what was lost. */
@@ -324,6 +345,35 @@ export class Match {
     }
   }
 
+  /** The pace a titan fight wants this step (TITAN_PACE): the slowest of what's going on. */
+  private titanWant() {
+    if (this.phase === 'intro') return TITAN_INTRO;
+    if (this.phase === 'countdown' || this.phase === 'end') return 1;
+    let want = this.phase === 'ko' ? TITAN_GETUP : TITAN_IDLE;
+    let fall = false;
+    let count = false;
+    let rise = false;
+    for (const f of this.fighters) {
+      if (f.state === 'down' || f.state === 'ko' || f.state === 'getup') {
+        if (f.downAge < TITAN_FALL_S) fall = true;
+        else if (f.state === 'getup') rise = true;
+        else count = true;
+      }
+    }
+    if (fall) return TITAN_FALL;
+    if (rise) return TITAN_GETUP;
+    // (the referee's count is in real seconds)
+    if (count) return 1;
+    for (const f of this.fighters) {
+      const s = f.strike;
+      if (!s) continue;
+      const p = TITAN_PACE[s.phase];
+      if (s.phase === 'active') return p;
+      want = Math.min(want, p);
+    }
+    return want;
+  }
+
   /** A hit lands: the clock dips for `s` seconds of match time (the longest impact wins). */
   private impact(s: number) {
     if (s <= this.hitstop) return;
@@ -351,6 +401,7 @@ export class Match {
     this.ropeCooldown[0] -= dt;
     this.ropeCooldown[1] -= dt;
     if (tag) tag.begin(dt);
+    if (this.titan) this.titanPace += (this.titanWant() - this.titanPace) * TITAN_EASE;
 
     switch (this.phase) {
       case 'intro':
@@ -387,7 +438,7 @@ export class Match {
       case 'fight': {
         // a finisher stops the clock until it has played out (and a tag team's elimination)
         if (this.fin || (tag && tag.paused)) break;
-        this.clock = Math.max(0, this.clock - dt);
+        this.clock = Math.max(0, this.clock - (this.titan ? dt / this.titanPace : dt));
         // counted out: the referee reaches ten (the HUD count shows 10 at 9.35 s)
         for (const f of this.fighters) this.checkRingOut(f);
         const co = this.countOut;
@@ -752,7 +803,7 @@ export class Match {
   private grappleBlow(att: Fighter, def: Fighter, b: GrappleBlow) {
     if (this.phase !== 'fight' || def.state === 'ko') return;
     const dst = def.build.stats;
-    let dmg = b.damage * this.rng.range(0.92, 1.08) * (1 + att.overdrive);
+    let dmg = b.damage * this.rng.range(0.92, 1.08) * (1 + att.overdrive) * (this.titan ? TITAN_HIT : 1);
     dmg *= 1 - dst.armor;
     if (b.zone === 'body') dmg *= 1 - def.passive('bulwark');
     if (b.zone === 'head') dmg *= (1 - dst.headGuard) * (1 - def.passive('ironChin'));
@@ -865,7 +916,7 @@ export class Match {
     // a cracked fist or foot hits softer
     const power = m.kind === 'punch' ? ast.punchPower * att.parts.fistPower(side) : ast.kickPower * att.parts.footPower(side);
     const timing = 0.55 + 0.45 * smoothstep(0.08, 0.6, s.activeProgress);
-    let dmg = m.damage * power * timing;
+    let dmg = m.damage * power * timing * (this.titan ? TITAN_HIT : 1);
     if (zone === 'head') dmg *= 1.15;
     if (zone === 'legs') dmg *= 0.85;
     const crit = !blocked && rng.chance(ast.crit + (zone === 'head' ? 0.03 : 0));

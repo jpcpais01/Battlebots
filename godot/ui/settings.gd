@@ -462,6 +462,9 @@ func _apply_quality() -> void:
 		# one shadowed light (the key spot): give it a whole quadrant, not a quarter of one
 		vp.set_positional_shadow_atlas_quadrant_subdiv(0, Viewport.SHADOW_ATLAS_QUADRANT_SUBDIV_1)
 	RenderingServer.positional_soft_shadow_filter_set_quality(t.soft)
+	# the titan city's sun (the only directional shadow): at least a little filtering, or its
+	# long low shadows' edges step
+	RenderingServer.directional_soft_shadow_filter_set_quality(maxi(t.soft, RenderingServer.SHADOW_QUALITY_SOFT_VERY_LOW))
 	# the robots' fine metal finish (surfaceDetail.ts: the web's high quality only)
 	RenderingServer.global_shader_parameter_set("bb_surface_detail", t.detail)
 	if key != null:
