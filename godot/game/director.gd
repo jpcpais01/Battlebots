@@ -259,6 +259,8 @@ var scene_look := Vector3(0, 1, 0)
 var scene_fov := 1.0
 var scene_roll := 0.0
 var scene_lambda := 3.0
+## Where a scene's lens may go (HomeStage.SceneCam.box), or an empty box for anywhere.
+var scene_box := AABB()
 ## Near and far clip planes for a scene far bigger than the arena, or empty.
 var clip := PackedFloat32Array()
 ## The far clip plane in the arena.
@@ -610,6 +612,8 @@ func update(dt: float, m, alpha: float = 1.0) -> void:
 			var dx := scene_pos.x - lk.x
 			var dz := scene_pos.z - lk.z
 			want_pos = Vector3(lk.x + dx * c + dz * sn, scene_pos.y, lk.z - dx * sn + dz * c)
+			if scene_box.size != Vector3.ZERO:
+				want_pos = _keep_in(want_pos, lk, scene_box)
 			want_look = lk
 			pos_lambda = maxf(14.0, scene_lambda) if menu_live else scene_lambda
 		else:
@@ -681,6 +685,24 @@ func update(dt: float, m, alpha: float = 1.0) -> void:
 		camera.frustum_offset = Vector2(_shift * h * aspect, 0.0)
 	elif camera.projection != Camera3D.PROJECTION_PERSPECTIVE:
 		camera.projection = Camera3D.PROJECTION_PERSPECTIVE
+
+
+## A lens that would leave the room slides in along its line of sight to where it enters the
+## box, so swinging it round towards a wall dollies it in instead of putting the wall in shot.
+static func _keep_in(p: Vector3, look: Vector3, box: AABB) -> Vector3:
+	var lo := box.position
+	var hi := box.end
+	if box.has_point(p):
+		return p
+	var s := 0.0
+	for i in 3:
+		var d := look[i] - p[i]
+		if p[i] < lo[i] and d > 1e-6:
+			s = maxf(s, (lo[i] - p[i]) / d)
+		elif p[i] > hi[i] and d < -1e-6:
+			s = maxf(s, (hi[i] - p[i]) / d)
+	var q := p.lerp(look, minf(s, 1.0))
+	return q.clamp(lo, hi)
 
 
 # ------------------------------------------------------------------ fight

@@ -438,6 +438,8 @@ func update_trails_and_flames(i: int) -> void:
 			var j: int = TRAIL_JOINTS[k]
 			if s != null and s.move.get("striker") == "knee":
 				j = J_KNEE_L if k == 2 else J_KNEE_R
+			elif s != null and s.move.get("striker") == "elbow":
+				j = J_EL_L if k == 0 else J_EL_R
 			trails[k].push(model.joints[j])
 	if s == null:
 		return

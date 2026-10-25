@@ -442,6 +442,8 @@ export class Match {
     // the partners and anyone on their way in or out (a tag swaps the fighters here)
     if (tag) tag.update(dt);
     this.separate();
+    // a body thrown over the hip rolls over the thrower's back, not through it
+    this.grapple?.settle();
     // nothing of the finisher's passes through the one it is finishing
     if (fin) fin.settle();
     if (fin && fin.over) {
@@ -1271,6 +1273,7 @@ export class Match {
     const side = s.side === 'L' ? 0 : 1;
     if (s.move.striker === 'hand') return armPart(side, 2);
     if (s.move.striker === 'knee') return legPart(side, 0);
+    if (s.move.striker === 'elbow') return armPart(side, 1);
     return legPart(side, 2);
   }
 

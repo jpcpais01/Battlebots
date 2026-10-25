@@ -13,6 +13,9 @@
  *                                    direction of its own (x right, z forward: 0 -1 = over backwards)
  *   catch <move> <dump|free> [punch] [dist 1.0]  A kicks B's body, B blocks it and traps the leg:
  *                                    then sweeps A (dump) or A rips it free, with a punch first
+ *   takedown <trip|throw|toss|double|elbow> [under 1] [tie lock]  A ties B up, and after a moment in
+ *                                    the clinch takes B down that way (double: a shot straight in;
+ *                                    elbow: a clinch elbow instead)
  * Env: FPS (60), SIZE_A / SIZE_B (frame sizes), STANCE_A (-1 orthodox, 1 southpaw).
  */
 import { Vector3 } from 'three';
@@ -39,7 +42,7 @@ m.puppets = true;
 const [A, B] = m.fighters;
 if (process.env.STANCE_A) A.stance = Number(process.env.STANCE_A);
 B.stance = -1;
-const dist = Number(scenario === 'strike' ? args[1] ?? 1.0 : scenario === 'catch' ? args[3] ?? 1.0 : 1.4) * (A.size + B.size) * 0.5;
+const dist = Number(scenario === 'strike' ? args[1] ?? 1.0 : scenario === 'catch' ? args[3] ?? 1.0 : scenario === 'takedown' ? 0.62 : 1.4) * (A.size + B.size) * 0.5;
 A.place(new Vector3(-dist / 2, 0, 0), Math.PI / 2);
 B.place(new Vector3(dist / 2, 0, 0), -Math.PI / 2);
 for (const f of m.fighters) {
@@ -170,6 +173,25 @@ if (scenario === 'strike') {
   // B sees it coming and gets the arm there
   while (s.phase === 'windup' && s.t < s.windup * 0.4) rec(1);
   B.coverUp(MOVES[id], 'body', s.side, s.uid * 16, false);
+  rec(Math.round(Number(process.env.SECS ?? 3) * 120));
+} else if (scenario === 'takedown') {
+  const kind = args[0] ?? 'trip';
+  const mm = m as unknown as { grapple: Grapple | null; grappleHost: GrappleHost; frame: number };
+  const tie = (args[2] ?? 'lock') as 'lock' | 'plum';
+  m.on((t, d) => {
+    if (t === 'takedown') events.push({ f: m.frame, t, kind: d.kind });
+  });
+  if (kind === 'double') mm.grapple = Grapple.shot(mm.grappleHost, A, B, [tie, tie], mm.frame);
+  else if (kind === 'elbow') {
+    mm.grapple = Grapple.clinch(mm.grappleHost, A, B, 0.1, [tie, tie], Number(args[1] ?? 1), mm.frame);
+    rec(96);
+    if (!A.tryStrike('clinchElbow', 'head', B.body.pos[J.Head].clone())) throw new Error('no elbow');
+  } else {
+    mm.grapple = Grapple.clinch(mm.grappleHost, A, B, kind === 'throw' ? 0.55 : 0.1, [tie, tie], Number(args[1] ?? 1), mm.frame);
+    rec(96);
+    const sure = { chance: () => true } as unknown as Rng;
+    if (!mm.grapple.tryTakedown(A, kind as 'trip' | 'throw' | 'toss', sure)) throw new Error('no takedown');
+  }
   rec(Math.round(Number(process.env.SECS ?? 3) * 120));
 } else rec(Math.round(Number(args[0] ?? 3) * 120));
 

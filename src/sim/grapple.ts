@@ -3,7 +3,7 @@ import { J, ropeGap, ropeSide, SIDE_NX, SIDE_NZ } from './body';
 import type { Fighter, StrikeAction } from './fighter';
 import { EC, EmotePose, footI } from './emote';
 import { MOVES, type MoveId, type Zone } from './moves';
-import { clamp, clamp01, lerp, minJerk, Rng, smoothstep, Spring1 } from './math';
+import { clamp, clamp01, closestOnSegment, lerp, minJerk, Rng, smoothstep, Spring1 } from './math';
 import { P } from './damage';
 import { DM } from './dmath';
 
@@ -32,9 +32,9 @@ import { DM } from './dmath';
  * part: one of them pushes off (or the referee parts them). after: the takedown's done, step back.
  * caught: a kick trapped under the arm, the kicker hopping on the other leg.
  */
-export type GrapplePhase = 'clinch' | 'trip' | 'throw' | 'drive' | 'stuffed' | 'part' | 'after' | 'caught';
+export type GrapplePhase = 'clinch' | 'trip' | 'throw' | 'toss' | 'drive' | 'stuffed' | 'part' | 'after' | 'caught';
 export type Tie = 'plum' | 'lock';
-export type TakedownKind = 'trip' | 'throw' | 'double' | 'catch';
+export type TakedownKind = 'trip' | 'throw' | 'toss' | 'double' | 'catch';
 type Grip = 'neck' | 'under' | 'over' | 'waist' | 'bicep' | 'frame' | 'head' | 'thigh' | 'back' | 'leg' | 'ankle';
 
 /** A grappling blow: a body slammed into the canvas. */
@@ -109,6 +109,15 @@ const TRIP = { step: 0.3, fall: 0.48, reap: 0.66, end: 0.95 };
 const THROW = { sink: 0.32, lift: 0.78, slam: 1.12, end: 1.45 };
 const DOUBLE = { dump: 0.62, end: 0.98 };
 const STUFF = { push: 0.62, end: 0.88 };
+/**
+ * The hip toss off the underhook: step across and turn the back in under them (turn), lift
+ * them onto the hip as the legs straighten and the back bows (load), and over they go,
+ * pulled round by the overhook arm (over), the thrower following them down to finish bent
+ * over them (end).
+ */
+const TOSS = { turn: 0.34, load: 0.62, over: 0.66, end: 1.25 };
+/** How far the thrower turns its back in (radians). */
+const TOSS_TURN = 1.95;
 /**
  * A caught kick: the leg trapped under the arm and pulled to the hip, the kicker hopping
  * back as the catcher walks them; then a punch while they're stood on one leg, a sweep of
@@ -254,6 +263,17 @@ export class Grapple {
   private rs = 0;
   private readonly off0 = new Vector3();
   private readonly tripW = new Vector3();
+  /**
+   * The hip toss: the yaw the thrower turns from and to, where its feet set off from and
+   * plant (world), and the way the one going over is thrown.
+   */
+  private yaw0 = 0;
+  private yaw1 = 0;
+  private readonly tossFrom = [new Vector3(), new Vector3()];
+  private readonly tossTo = [new Vector3(), new Vector3()];
+  private readonly tossDir = new Vector3();
+  private readonly tossRoot = new Vector3();
+  private readonly tossVic = new Vector3();
   /** The push off: how hard they're sent, and whether it's the referee doing it. */
   private partV = 0;
   private refBreak = false;
@@ -430,25 +450,28 @@ export class Grapple {
   }
 
   /**
-   * Try to take them down from the clinch: an outside trip (needs a little control), or a
-   * body-lock lift and slam (needs a lot, and the legs and back to lift them).
+   * Try to take them down from the clinch: an outside trip (needs a little control), a
+   * body-lock lift and slam (needs a lot, and the legs and back to lift them), or a hip toss
+   * off the underhook (a gamble from anywhere in the over-under: it needs the hips and the
+   * timing more than the upper hand, and a bot that's rooted to the spot won't go over).
    */
-  tryTakedown(f: Fighter, kind: 'trip' | 'throw', rng: Rng) {
+  tryTakedown(f: Fighter, kind: 'trip' | 'throw' | 'toss', rng: Rng) {
     if (this.phase !== 'clinch' || f.legLost >= 0) return false;
     const opp = f === this.f[0] ? this.f[1] : this.f[0];
     const mine = this.control(f);
     const sMe = grappleStrength(f), sOpp = grappleStrength(opp);
     const edge = (sMe - sOpp) / (sMe + sOpp);
-    f.stamina = Math.max(0, f.stamina - (kind === 'throw' ? 14 : 8));
+    f.stamina = Math.max(0, f.stamina - (kind === 'trip' ? 8 : kind === 'toss' ? 12 : 14));
     this.quiet = 0;
+    const trip = kind === 'trip', toss = kind === 'toss';
     let p =
-      (kind === 'trip' ? 0.22 : 0.08) +
-      mine * (kind === 'trip' ? 0.55 : 0.75) +
-      edge * (kind === 'trip' ? 0.6 : 0.9) +
-      (1 - clamp01(opp.poise / opp.maxPoise)) * 0.3 +
+      (trip ? 0.22 : toss ? 0.45 : 0.08) +
+      mine * (trip ? 0.55 : toss ? 0.45 : 0.75) +
+      edge * (trip ? 0.6 : toss ? 0.7 : 0.9) +
+      (1 - clamp01(opp.poise / opp.maxPoise)) * (toss ? 0.4 : 0.3) +
       (1 - opp.parts.mobility()) * 0.4 +
       (opp.state === 'stun' ? 0.25 : 0) -
-      opp.passive('rooted') * 0.6;
+      opp.passive('rooted') * (toss ? 0.8 : 0.6);
     // backed up on the ropes, they've got something to lean on
     if (this.pinned(opp)) p -= 0.12;
     p = clamp(p, 0.04, 0.85);
@@ -467,6 +490,7 @@ export class Grapple {
     this.dist0 = f.distTo(opp);
     this.cornerAway(f);
     if (kind === 'trip') this.planTrip(f, opp);
+    if (kind === 'toss') this.planToss(f, opp);
     return true;
   }
 
@@ -509,6 +533,37 @@ export class Grapple {
     att.stanceSpot(this.rs, _a);
     att.toLocal(att.body.pos[this.rs === 0 ? J.FootL : J.FootR], this.off0).sub(_a);
     this.off0.y = 0;
+  }
+
+  /**
+   * The hip toss off the underhook (the arm on side `rs`): the foot on that side steps across
+   * in front of theirs, the body pivots on it and the other foot swings back round, so the back
+   * turns in under their chest with the underhook hip out past their middle.
+   */
+  private planToss(att: Fighter, def: Fighter) {
+    this.rs = this.under;
+    const usx = this.rs === 0 ? -1 : 1;
+    this.yaw0 = att.yaw;
+    // the underhook hip goes in, so the body turns away from that side
+    this.yaw1 = this.yaw0 + usx * TOSS_TURN;
+    const pair = (att.size + def.size) * 0.5;
+    const f1 = _f.set(DM.sin(this.yaw1), 0, DM.cos(this.yaw1));
+    const r1 = _r.set(-DM.cos(this.yaw1), 0, DM.sin(this.yaw1));
+    // where it stands once turned in: their chest on its back, its hip out past their middle
+    // (the roots no closer than the match keeps two bodies in a grapple)
+    _a.copy(def.root).addScaledVector(f1, 0.44 * pair).addScaledVector(r1, -usx * 0.26 * pair);
+    for (let s = 0; s < 2; s++) {
+      const sx = s === 0 ? -1 : 1;
+      this.tossFrom[s].copy(att.body.pos[s === 0 ? J.FootL : J.FootR]).setY(0);
+      // square under the hips, a touch wide, the far foot a little back
+      const x = sx * 0.15 * att.size, z = (s === this.rs ? 0.03 : -0.04) * att.size;
+      this.tossTo[s].copy(_a).addScaledVector(r1, x).addScaledVector(f1, z).setY(0);
+    }
+    // over the hip and round to its front, on the underhook side
+    this.tossDir.copy(f1).addScaledVector(r1, usx * 0.8).normalize();
+    this.tossRoot.copy(att.root);
+    this.tossVic.copy(def.root);
+    this.off0.copy(_a);
   }
 
   /** The defender stops fighting back: it's being lifted, driven or tripped. */
@@ -568,6 +623,9 @@ export class Grapple {
       case 'throw':
         this.throwStep();
         break;
+      case 'toss':
+        this.tossStep(dt);
+        break;
       case 'drive':
         this.driveStep(dt);
         break;
@@ -586,7 +644,7 @@ export class Grapple {
     }
     if (!this.live) return;
     // nobody stays up in the air outside a lift (or the hops on a caught leg): set down, not dropped
-    if (this.phase !== 'throw' && this.phase !== 'drive' && this.phase !== 'caught') {
+    if (this.phase !== 'throw' && this.phase !== 'toss' && this.phase !== 'drive' && this.phase !== 'caught') {
       for (const f of this.f) if (f.lift > 0) f.lift = f.lift < 0.004 ? 0 : f.lift * DM.exp(-10 * dt);
     }
     this.writePoses(dt);
@@ -740,6 +798,56 @@ export class Grapple {
     }
     this.slamCheck(52, 'body');
     if (t >= THROW.end) this.beginAfter();
+  }
+
+  /**
+   * The hip toss. Turned in under them, the thrower's hips load them up off the canvas onto
+   * its back; the legs drive up, the back bows, the overhook arm pulls them round and they go
+   * over the hip, legs high, onto their back in front of it.
+   */
+  private tossStep(dt: number) {
+    const att = this.att, def = this.def;
+    const t = this.t;
+    const pair = (att.size + def.size) * 0.5;
+    const usx = this.rs === 0 ? -1 : 1;
+    if (!this.fell) {
+      // the step in: the body travels to its spot as it turns (its feet are authored onto
+      // theirs, so it's carried there exactly), then stays planted
+      att.root.lerpVectors(this.tossRoot, this.off0, minJerk(t / TOSS.turn));
+      att.rootVel.set(0, 0, 0);
+      att.intentVel.set(0, 0, 0);
+      // them: held where they stand while it turns in, then drawn tight onto the hip and up
+      // onto it as the legs straighten
+      _f.set(DM.sin(this.yaw1), 0, DM.cos(this.yaw1));
+      _r.set(-DM.cos(this.yaw1), 0, DM.sin(this.yaw1));
+      const load = minJerk((t - TOSS.turn + 0.08) / (TOSS.load - TOSS.turn + 0.08));
+      _c.copy(this.off0).addScaledVector(_f, -lerp(0.44, 0.3, load) * pair).addScaledVector(_r, usx * lerp(0.26, 0.42, load) * pair);
+      _c.lerpVectors(this.tossVic, _c, minJerk(t / TOSS.turn));
+      def.root.x += (_c.x - def.root.x) * (1 - DM.exp(-16 * dt));
+      def.root.z += (_c.z - def.root.z) * (1 - DM.exp(-16 * dt));
+      def.rootVel.set(0, 0, 0);
+      def.intentVel.set(0, 0, 0);
+      def.liftReach = -0.35;
+      def.lift = 0.26 * def.size * load;
+      if (t >= TOSS.over) {
+        // over the top: the head and shoulders pulled down round the front, the legs flung up
+        // and over the hip after them
+        _a.copy(this.tossDir);
+        fallAway(def.root.x, def.root.z, _a, def.size);
+        this.fall(def, _a, 1.2);
+        for (let j = 0; j < 16; j++) {
+          const upper = j <= J.HandR;
+          _b.copy(_a).multiplyScalar(upper ? 2.6 : -0.6);
+          _b.y = upper ? -2.6 : 5.4;
+          def.body.addVelocity(j, _b, 1 / 120);
+        }
+      }
+    } else {
+      att.intentVel.set(0, 0, 0);
+      att.rootVel.set(0, 0, 0);
+    }
+    this.slamCheck(44, 'body');
+    if (t >= TOSS.end) this.beginAfter();
   }
 
   /** Double leg: drive through them, scoop the legs and turn the corner; or pin them on the ropes. */
@@ -929,7 +1037,6 @@ export class Grapple {
       _a.addScaledVector(_r, (this.arm === 0 ? 1 : -1) * 0.35).normalize();
       fallAway(def.root.x, def.root.z, _a, def.size);
       this.fall(def, _a, 1.3);
-      def.breakFall(_a);
       def.poise = def.maxPoise * 0.6;
     }
   }
@@ -984,6 +1091,9 @@ export class Grapple {
     def.knockDown(dir, power, false, false);
     // a moment on the canvas, then back up: the fight carries on standing
     def.downTime = 1.1 + 0.35 * (1 - def.hpRatio);
+    // tripped or driven over, it falls like a fighter: sits, rolls back and slaps the canvas
+    // (a slam or a toss throws it there, no time to do anything about it)
+    if (this.kind === 'trip' || this.kind === 'double' || this.kind === 'catch') def.breakFall(dir);
     this.host.emit('takedown', { f: this.att, opp: def, kind: this.kind });
   }
 
@@ -999,6 +1109,31 @@ export class Grapple {
     _b.copy(def.body.pos[J.Chest]).lerp(def.body.pos[J.Pelvis], 0.3);
     _c.set(0, -1, 0);
     this.host.blow(att, def, { kind: 'slam', zone, part: this.kind === 'throw' ? P.Chest : P.Torso, damage: dmg, point: _b.clone(), dir: _c.clone(), jolt: 3 });
+  }
+
+  /**
+   * Runs after the fighters have moved. A body going over the hip rolls over the thrower's
+   * back and hip instead of passing through it: every particle of it is kept out of the
+   * thrower's trunk and head (mostly as position, partly as speed, like a real roll).
+   */
+  settle() {
+    if (this.done || this.phase !== 'toss') return;
+    const att = this.att, b = this.def.body;
+    const A = att.body.pos;
+    for (let i = 0; i < b.pos.length; i++) {
+      const p = b.pos[i];
+      for (let k = 0; k < 2; k++) {
+        const r = (k === 0 ? 0.22 : 0.17) * att.size + b.radii[i];
+        if (k === 0) closestOnSegment(p, A[J.Pelvis], A[J.Chest], _c);
+        else _c.copy(A[J.Head]);
+        _a.subVectors(p, _c);
+        const d = _a.length();
+        if (d >= r || d < 1e-5) continue;
+        _a.multiplyScalar((r - d) / d);
+        p.add(_a);
+        b.prev[i].addScaledVector(_a, 0.6);
+      }
+    }
   }
 
   // ------------------------------------------------------------------ poses
@@ -1058,6 +1193,12 @@ export class Grapple {
       P0.gazeOn = true;
       P0.gaze.lerp(opp.body.pos[J.Head], 1 - DM.exp(-8 * dt));
       P0.faceOn = false;
+      if (this.phase === 'toss' && me === this.att) {
+        // turning the back in under them (the feet are authored to suit), then held there
+        P0.faceOn = true;
+        P0.face = lerp(this.yaw0, this.yaw1, minJerk(this.t / (TOSS.turn + 0.06)));
+        P0.turn = 40;
+      }
       this.grips(i, me, opp, B, dt);
     }
   }
@@ -1446,6 +1587,36 @@ export class Grapple {
         B.aw = [let_, let_];
         break;
       }
+      case 'toss': {
+        // turned in under them with the hips dropped below theirs, the shoulders leading the
+        // turn; then the legs straighten and the back bows, popping the hip out and lifting
+        // them onto it; the overhook arm wrenches them round and over, and it follows them down
+        const usx = this.rs === 0 ? -1 : 1;
+        const turn = minJerk(t / TOSS.turn);
+        const lead = DM.sin(Math.PI * clamp01(t / (TOSS.turn + 0.1)));
+        const load = minJerk((t - TOSS.turn + 0.06) / (TOSS.load - TOSS.turn + 0.06));
+        const over = minJerk((t - TOSS.over + 0.06) / 0.24);
+        const up = minJerk((t - TOSS.over - 0.24) / (TOSS.end - TOSS.over - 0.24));
+        B.crouch = 0.12 + 0.2 * turn - 0.2 * load + 0.16 * over - 0.1 * up;
+        B.pitch = 0.3 - 0.12 * turn + 0.55 * load + 0.25 * over - 0.45 * up;
+        B.twist = -usx * (0.3 * lead + 0.3 * load + 0.25 * over) * (1 - up);
+        B.hip = -usx * 0.12 * load * (1 - up);
+        B.roll = -usx * (0.1 * load + 0.08 * over) * (1 - up);
+        B.px = usx * 0.07 * load * (1 - over);
+        B.hy = -0.03 * load;
+        B.heel = 0.25 + 0.3 * load - 0.2 * over;
+        B.grip[this.rs] = 'waist';
+        B.grip[1 - this.rs] = 'over';
+        B.pole[this.rs].set(0.8, -0.5, -0.6);
+        B.pole[1 - this.rs].set(0.6, -1, 0.1);
+        B.roll2[this.rs] = 0.6;
+        B.roll2[1 - this.rs] = -0.4;
+        const let_ = 1 - minJerk((t - TOSS.over - 0.08) / 0.24);
+        B.gw = [let_, let_];
+        B.aw = [let_, let_];
+        this.tossFeet(me, B);
+        break;
+      }
       case 'drive': {
         // low through the hips, head tight on their side, hands behind the thighs; the
         // corner turned as they go, then up off the shot
@@ -1531,6 +1702,35 @@ export class Grapple {
     B.knee[rs] = 0.25;
   }
 
+  /**
+   * The hip toss's footwork: the foot on the underhook side steps in across the front of
+   * theirs, the other swings round behind it as the body pivots, both planted square under the
+   * hips (world spots, so they stay put as the body turns over them); and back to the stance
+   * once they've gone over.
+   */
+  private tossFeet(me: Fighter, B: Body) {
+    const t = this.t;
+    for (let s = 0; s < 2; s++) {
+      const sx = s === 0 ? -1 : 1;
+      const first = s === this.rs;
+      const a = first ? 0 : 0.1, b = first ? 0.22 : TOSS.turn;
+      const k = minJerk((t - a) / (b - a));
+      _a.lerpVectors(this.tossFrom[s], this.tossTo[s], k);
+      me.stanceSpot(s, _c);
+      const off = B.foot[s];
+      me.toLocal(_a, off).sub(_c);
+      off.y = (first ? 0.06 : 0.09) * DM.sin(Math.PI * clamp01((t - a) / (b - a)));
+      // home again once they're over: a step back onto the stance spot
+      const home = minJerk((t - TOSS.over - 0.3) / 0.25);
+      off.x *= 1 - home;
+      off.z *= 1 - home;
+      off.y += 0.05 * DM.sin(Math.PI * home);
+      off.x *= sx;
+      B.fw[s] = home < 1 ? 1 : 0;
+      B.knee[s] = 0.15;
+    }
+  }
+
   /** The one being taken down (or doing the sprawling). */
   private defShape(B: Body) {
     const t = this.t;
@@ -1563,6 +1763,25 @@ export class Grapple {
         B.heel = 0.2 + 0.4 * lift;
         B.grip = ['back', 'back'];
         B.gw = [0.75 - 0.25 * lift, 0.75 - 0.25 * lift];
+        break;
+      }
+      case 'toss': {
+        // pulled in onto their back, then up off the canvas and folded over the hip, arms
+        // grabbing at them and then thrown out as it goes over
+        const draw = minJerk(t / TOSS.turn);
+        const load = minJerk((t - TOSS.turn + 0.06) / (TOSS.load - TOSS.turn + 0.06));
+        B.crouch = 0.1 - 0.04 * load;
+        B.pitch = 0.25 + 0.2 * draw + 0.45 * load;
+        B.roll = (this.rs === 0 ? 0.1 : -0.1) * load;
+        B.hy = -0.03 - 0.03 * load;
+        B.hz = 0.03 * draw;
+        B.pz = 0.05 * load;
+        B.heel = 0.1 + 0.4 * load;
+        B.grip = ['back', 'back'];
+        const g = 0.7 * (1 - smoothstep(0.1, 0.5, t));
+        B.gw = [g, g];
+        const fling = smoothstep(0.3, TOSS.over, t);
+        for (let s = 0; s < 2; s++) B.fist[s].set(lerp(0.2, 0.42, fling), lerp(0.12, 0.3, fling), lerp(0.36, 0.14, fling));
         break;
       }
       case 'drive': {

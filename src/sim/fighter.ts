@@ -1216,6 +1216,7 @@ export class Fighter {
     const L = s.side === 'L';
     if (s.move.striker === 'hand') return L ? J.HandL : J.HandR;
     if (s.move.striker === 'knee') return L ? J.KneeL : J.KneeR;
+    if (s.move.striker === 'elbow') return L ? J.ElL : J.ElR;
     return L ? J.FootL : J.FootR;
   }
 
@@ -2679,7 +2680,7 @@ export class Fighter {
         // (stepping in does most of it: see launchStrike)
         if (s.phase === 'active') {
           const shIdx = s.side === 'L' ? J.ShL : J.ShR;
-          const deficit = this.body.pos[shIdx].distanceTo(s.endWorld) / this.size - (UPPER + FORE + this.extend[s.side === 'L' ? 0 : 1]);
+          const deficit = this.body.pos[shIdx].distanceTo(s.endWorld) / this.size - (m.striker === 'elbow' ? UPPER : UPPER + FORE + this.extend[s.side === 'L' ? 0 : 1]);
           // swung shots already travel through a wide arc, so they lean in less
           const reach = m.path === 'overhand' || m.path === 'hammer' ? 0.2 : 0.4;
           pitch += clamp(deficit, 0, 0.3) * reach * prog.ext;
@@ -3944,6 +3945,7 @@ export class Fighter {
   /** Hand target, elbow pole and fist roll for a punch. Returns the roll. */
   private punchHand(s: StrikeAction, prog: StrikeProg, out: Vector3, pole: Vector3, sx: number) {
     const m = s.move;
+    if (m.striker === 'elbow') return this.elbowHand(s, prog, out, pole, sx);
     // `out` arrives holding this hand's guard position (recovery returns there)
     const guard = this._g.copy(out);
     const C = this._c.copy(s.chamber);
@@ -4099,6 +4101,48 @@ export class Fighter {
     else if (m.path === 'hook' && !bodyHook) out.add(_p.set(-sx * 0.16, 0.02, -0.06).multiplyScalar(thru));
     const from = m.path === 'upper' ? -0.85 : m.path === 'straight' ? 1 : m.path === 'hammer' ? -0.2 : bodyHook ? -0.35 : 0.8;
     return lerp(from, 0.12, smoothstep(0, 0.7, k));
+  }
+
+  /**
+   * A short elbow from the clinch. The forearm folds in across the face as the elbow lifts out
+   * level with the shoulder; then the point of it whips round in front onto their jaw, the
+   * shoulders turning in behind it and the fist tucked by the other cheek; and the arm drops
+   * back into the guard. The elbow is placed (it's what lands), the hand follows it round.
+   * Returns the fist roll.
+   */
+  private elbowHand(s: StrikeAction, prog: StrikeProg, out: Vector3, pole: Vector3, sx: number) {
+    const guard = this._g.copy(out);
+    const sh = this.L[s.side === 'L' ? J.ShL : J.ShR];
+    // cocked: out to the side, a touch up and back
+    const d0 = this._c1.set(sx, 0.28, -0.12).normalize();
+    // the forearm folded flat across the front of the face
+    const fold = this._c2.set(-sx * 0.75, 0.12, 0.6).normalize();
+    const E = this._c;
+    if (s.phase === 'windup') {
+      E.copy(sh).addScaledVector(d0, UPPER);
+      out.copy(E).addScaledVector(fold, FORE * 0.92);
+      out.lerpVectors(guard, out, prog.load);
+      pole.set(sx, 0.5 * prog.load - 0.6 * (1 - prog.load), -0.1);
+      return 0.6 * prog.load;
+    }
+    if (s.phase === 'active') {
+      // round the front: from out at the side to the target, bowed forward as it travels
+      const T = this.toLocal(s.endWorld, _w).sub(sh).normalize();
+      const k = prog.ext;
+      _v.lerpVectors(d0, T, k);
+      _v.z += 0.35 * DM.sin(Math.PI * k);
+      _v.normalize();
+      E.copy(sh).addScaledVector(_v, UPPER);
+      // the fist tucks in by the other cheek as the elbow comes across
+      fold.set(-sx, 0.1, lerp(0.6, -0.15, k)).normalize();
+      out.copy(E).addScaledVector(fold, FORE * 0.92);
+      pole.copy(E).sub(sh);
+      return 0.6;
+    }
+    const k = clamp01(s.t / s.recovery);
+    out.copy(s.recoverFrom).lerp(guard, 0.8 * minJerk(k) + 0.2 * easeOutQuad(k));
+    pole.set(sx, lerp(0.3, -1, smoothstep(0, 0.6, k)), lerp(0.2, -0.35, k));
+    return lerp(0.6, 0.12, smoothstep(0, 0.7, k));
   }
 
   /**
@@ -4625,7 +4669,7 @@ export class Fighter {
     this.trailActive.fill(false);
     if (s && (s.phase === 'active' || (s.phase === 'recovery' && s.t < 0.05))) {
       const j = this.strikerJoint(s);
-      const idx = j === J.HandL ? 0 : j === J.HandR ? 1 : j === J.FootL || j === J.KneeL ? 2 : 3;
+      const idx = j === J.HandL || j === J.ElL ? 0 : j === J.HandR || j === J.ElR ? 1 : j === J.FootL || j === J.KneeL ? 2 : 3;
       if (s.move.power || s.move.ability) this.trailActive[idx] = true;
     }
   }

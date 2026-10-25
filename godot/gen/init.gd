@@ -71,4 +71,4 @@ static func to_json(v: Variant) -> Variant:
 
 ## A fingerprint of the translated fight sim and parts as generated: saved replays keep it, and
 ## one saved on another may not play out the same.
-const SIM_HASH := 2805897498
+const SIM_HASH := 3552878009
