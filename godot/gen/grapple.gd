@@ -48,6 +48,9 @@ static var STUFF
 static var TOSS
 const TOSS_TURN: float = 1.95
 static var CATCH
+static var BLOCK_TRIP
+static var BLOCK_THROW
+static var BLOCK_TOSS
 const PART: float = 0.36
 const AFTER: float = 0.72
 static var _a: V3
@@ -209,6 +212,8 @@ class Grapple extends RefCounted:
 	var yanked: bool
 	var holdS: Array
 	var yankFrom: V3
+	var dl: float
+	var denied: bool
 	
 	func _init(host = null, phase: String = "", att: TFighter.Fighter = null, def: TFighter.Fighter = null, tie: Array = [], frame: float = 0.0, holds: Array = []) -> void:
 		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
@@ -271,6 +276,8 @@ class Grapple extends RefCounted:
 		self.yanked = false
 		self.holdS = [TMath.Spring1.new(), TMath.Spring1.new(), TMath.Spring1.new()]
 		self.yankFrom = V3.new()
+		self.dl = 0.0
+		self.denied = false
 		self.host = host
 		self.gripNow = ([[holds[0], holds[0]], [holds[1], holds[1]]] if (att.index == 0.0) else [[holds[1], holds[1]], [holds[0], holds[0]]])
 		self.phase = phase
@@ -469,15 +476,10 @@ class Grapple extends RefCounted:
 		if pinned(opp):
 			p -= 0.12
 		p = (((0.04 if (p < 0.04) else (0.85 if (p > 0.85) else p))))
-		if (not rng.chance(p)):
-			nudge(f, -0.32)
-			host.emit.call("takedownStuffed", {"f": f, "opp": opp, "kind": kind})
-			return false
+		var got: bool = rng.chance(p)
 		self.att = f
 		self.def = opp
 		self.kind = kind
-		setPhase(kind)
-		hold(opp)
 		var __v1: float = (opp.root.x - f.root.x)
 		var __v2: float = (opp.root.z - f.root.z)
 		n0.x = __v1
@@ -489,6 +491,17 @@ class Grapple extends RefCounted:
 		n0.y *= __v4
 		n0.z *= __v4
 		self.dist0 = f.distTo(opp)
+		if (not got):
+			nudge(f, -0.32)
+			setPhase("blocked")
+			self.denied = false
+			if (kind == "trip"):
+				planTrip(f, opp)
+			if (kind == "toss"):
+				planToss(f, opp, TGrapple.BLOCK_TOSS.part)
+			return false
+		setPhase(kind)
+		hold(opp)
 		cornerAway(f)
 		if (kind == "trip"):
 			planTrip(f, opp)
@@ -521,6 +534,7 @@ class Grapple extends RefCounted:
 			if (x > bx):
 				bx = x
 				best = j
+		self.dl = (0.0 if (best == 12.0) else 1.0)
 		var _h_r: V3 = TGrapple._r
 		att.right(_h_r)
 		var __v1: V3 = def.body.pos[best]
@@ -541,11 +555,11 @@ class Grapple extends RefCounted:
 		att.toLocal(att.body.pos[(12.0 if (rs == 0.0) else 15.0)], off0).sub(_h_a)
 		off0.y = 0.0
 	
-	func planToss(att: TFighter.Fighter, def: TFighter.Fighter) -> void:
+	func planToss(att: TFighter.Fighter, def: TFighter.Fighter, frac: float = 1.0) -> void:
 		self.rs = under
 		var usx: float = (-1.0 if (rs == 0.0) else 1.0)
 		self.yaw0 = att.yaw
-		self.yaw1 = (yaw0 + (usx * TGrapple.TOSS_TURN))
+		self.yaw1 = (yaw0 + ((usx * TGrapple.TOSS_TURN) * frac))
 		var pair: float = (((att.size_ + def.size_)) * 0.5)
 		var f1: V3 = TGrapple._f.set3(DM.sin(yaw1), 0.0, DM.cos(yaw1))
 		var r1: V3 = TGrapple._r.set3((-DM.cos(yaw1)), 0.0, DM.sin(yaw1))
@@ -562,49 +576,54 @@ class Grapple extends RefCounted:
 		_h_a.x += r1.x * __v3
 		_h_a.y += r1.y * __v3
 		_h_a.z += r1.z * __v3
+		if (frac < 1.0):
+			var __v4: V3 = att.root
+			_h_a.x = __v4.x + (_h_a.x - __v4.x) * frac
+			_h_a.y = __v4.y + (_h_a.y - __v4.y) * frac
+			_h_a.z = __v4.z + (_h_a.z - __v4.z) * frac
 		var s: int = 0
 		while (s < 2.0):
 			var sx: float = (-1.0 if (float(s) == 0.0) else 1.0)
-			var __v4: V3 = tossFrom[s]
-			var __v5: V3 = att.body.pos[(12.0 if (float(s) == 0.0) else 15.0)]
-			__v4.x = __v5.x
-			__v4.y = __v5.y
-			__v4.z = __v5.z
-			__v4.y = 0.0
+			var __v5: V3 = tossFrom[s]
+			var __v6: V3 = att.body.pos[(12.0 if (float(s) == 0.0) else 15.0)]
+			__v5.x = __v6.x
+			__v5.y = __v6.y
+			__v5.z = __v6.z
+			__v5.y = 0.0
 			var x: float = ((sx * 0.15) * att.size_)
 			var z: float = (((0.03 if (float(s) == rs) else -0.04)) * att.size_)
-			var __v6: V3 = tossTo[s]
-			__v6.x = _h_a.x
-			__v6.y = _h_a.y
-			__v6.z = _h_a.z
-			__v6.x += r1.x * x
-			__v6.y += r1.y * x
-			__v6.z += r1.z * x
-			__v6.x += f1.x * z
-			__v6.y += f1.y * z
-			__v6.z += f1.z * z
-			__v6.y = 0.0
+			var __v7: V3 = tossTo[s]
+			__v7.x = _h_a.x
+			__v7.y = _h_a.y
+			__v7.z = _h_a.z
+			__v7.x += r1.x * x
+			__v7.y += r1.y * x
+			__v7.z += r1.z * x
+			__v7.x += f1.x * z
+			__v7.y += f1.y * z
+			__v7.z += f1.z * z
+			__v7.y = 0.0
 			s += 1
 		tossDir.x = f1.x
 		tossDir.y = f1.y
 		tossDir.z = f1.z
-		var __v7: float = (usx * 0.8)
-		tossDir.x += r1.x * __v7
-		tossDir.y += r1.y * __v7
-		tossDir.z += r1.z * __v7
-		var __v8: float = sqrt(tossDir.x * tossDir.x + tossDir.y * tossDir.y + tossDir.z * tossDir.z)
-		var __v9: float = 1.0 / (__v8 if __v8 != 0.0 else 1.0)
-		tossDir.x *= __v9
-		tossDir.y *= __v9
-		tossDir.z *= __v9
-		var __v10: V3 = att.root
-		tossRoot.x = __v10.x
-		tossRoot.y = __v10.y
-		tossRoot.z = __v10.z
-		var __v11: V3 = def.root
-		tossVic.x = __v11.x
-		tossVic.y = __v11.y
-		tossVic.z = __v11.z
+		var __v8: float = (usx * 0.8)
+		tossDir.x += r1.x * __v8
+		tossDir.y += r1.y * __v8
+		tossDir.z += r1.z * __v8
+		var __v9: float = sqrt(tossDir.x * tossDir.x + tossDir.y * tossDir.y + tossDir.z * tossDir.z)
+		var __v10: float = 1.0 / (__v9 if __v9 != 0.0 else 1.0)
+		tossDir.x *= __v10
+		tossDir.y *= __v10
+		tossDir.z *= __v10
+		var __v11: V3 = att.root
+		tossRoot.x = __v11.x
+		tossRoot.y = __v11.y
+		tossRoot.z = __v11.z
+		var __v12: V3 = def.root
+		tossVic.x = __v12.x
+		tossVic.y = __v12.y
+		tossVic.z = __v12.z
 		off0.x = _h_a.x
 		off0.y = _h_a.y
 		off0.z = _h_a.z
@@ -685,9 +704,11 @@ class Grapple extends RefCounted:
 			afterStep()
 		elif phase == "caught":
 			caughtStep(dt)
+		elif phase == "blocked":
+			blockedStep(dt)
 		if (not live):
 			return
-		if ((((phase != "throw") and (phase != "toss")) and (phase != "drive")) and (phase != "caught")):
+		if (((((phase != "throw") and (phase != "toss")) and (phase != "drive")) and (phase != "caught")) and (phase != "blocked")):
 			for f: TFighter.Fighter in self.f:
 				if (f.lift > 0.0):
 					f.lift = (0.0 if (f.lift < 0.004) else (f.lift * DM.exp((-10.0 * dt))))
@@ -1106,6 +1127,99 @@ class Grapple extends RefCounted:
 				att.stateTime = 0.0
 				att.stunTime = 0.5
 	
+	func blockedStep(dt: float) -> void:
+		var att: TFighter.Fighter = self.att
+		var def: TFighter.Fighter = self.def
+		var t: float = self.t
+		var free = func(f: TFighter.Fighter): return ((f.state == "fight") or (f.state == "stun"))
+		if ((not free.call(att)) or (not free.call(def))):
+			release()
+			return
+		var kind: String = self.kind
+		var _hBLOCK_TRIP = TGrapple.BLOCK_TRIP
+		var _hBLOCK_THROW = TGrapple.BLOCK_THROW
+		var B = (_hBLOCK_TRIP if (kind == "trip") else (_hBLOCK_THROW if (kind == "throw") else TGrapple.BLOCK_TOSS))
+		if ((not denied) and (t >= B.deny)):
+			self.denied = true
+			host.emit.call("takedownStuffed", {"f": att, "opp": def, "kind": kind})
+		var pair: float = (((att.size_ + def.size_)) * 0.5)
+		var _h_n: V3 = TGrapple._n
+		if (kind == "toss"):
+			var __v1: V3 = att.root
+			var __v2: float = tossBlockK()
+			__v1.x = tossRoot.x + (off0.x - tossRoot.x) * __v2
+			__v1.y = tossRoot.y + (off0.y - tossRoot.y) * __v2
+			__v1.z = tossRoot.z + (off0.z - tossRoot.z) * __v2
+			var __v3: V3 = att.rootVel
+			__v3.x = 0.0
+			__v3.y = 0.0
+			__v3.z = 0.0
+			var __v4: V3 = att.intentVel
+			__v4.x = 0.0
+			__v4.y = 0.0
+			__v4.z = 0.0
+			var __v5: V3 = def.intentVel
+			__v5.x = 0.0
+			__v5.y = 0.0
+			__v5.z = 0.0
+			var __v6: V3 = def.rootVel
+			var __v7: float = DM.exp((-10.0 * dt))
+			__v6.x *= __v7
+			__v6.y *= __v7
+			__v6.z *= __v7
+		else:
+			var __v8: float = (def.root.x - att.root.x)
+			var __v9: float = (def.root.z - att.root.z)
+			_h_n.x = __v8
+			_h_n.y = 0.0
+			_h_n.z = __v9
+			var d: float = sqrt(_h_n.x * _h_n.x + _h_n.y * _h_n.y + _h_n.z * _h_n.z)
+			if (d > 0.0001):
+				var __v10: float = (1.0 / d)
+				_h_n.x *= __v10
+				_h_n.y *= __v10
+				_h_n.z *= __v10
+			else:
+				_h_n.x = n0.x
+				_h_n.y = n0.y
+				_h_n.z = n0.z
+			var gap: float = minf(minf((d - (0.6 * pair)), (flatGap(1.0) - (0.43 * pair))), (flatGap(3.0) - (0.27 * pair)))
+			var spring: float = (((-1.2 if (((gap * 3.5)) < -1.2) else (1.2 if (((gap * 3.5)) > 1.2) else ((gap * 3.5))))))
+			var v: float = (((0.5 * DM.sin((PI * TMath.clamp01(((((t - _hBLOCK_TRIP.reap) - 0.05)) / 0.36))))) * TMath.smoothstep_((0.2 * def.size_), (0.7 * def.size_), TBody.ropeGap(def.root.x, def.root.z))) if (kind == "trip") else 0.0)
+			var __v11: V3 = att.intentVel
+			__v11.x = _h_n.x
+			__v11.y = _h_n.y
+			__v11.z = _h_n.z
+			var __v12: float = (v + spring)
+			__v11.x *= __v12
+			__v11.y *= __v12
+			__v11.z *= __v12
+			var __v13: V3 = def.intentVel
+			__v13.x = _h_n.x
+			__v13.y = _h_n.y
+			__v13.z = _h_n.z
+			var __v14: float = (v - spring)
+			__v13.x *= __v14
+			__v13.y *= __v14
+			__v13.z *= __v14
+			if (kind == "throw"):
+				var k: float = TMath.clamp01(((((t - _hBLOCK_THROW.sink) - 0.04)) / (((_hBLOCK_THROW.heave - _hBLOCK_THROW.sink) + 0.02))))
+				var up: float = DM.sin((PI * k))
+				def.lift = (((0.08 * def.size_) * up) * up)
+				def.liftReach = -0.25
+		if (t >= B.end):
+			att.stamina = maxf(0.0, (att.stamina - 4.0))
+			att.poise -= (att.maxPoise * ((0.14 if (kind == "trip") else 0.08)))
+			def.lift = 0.0
+			def.liftReach = -0.4
+			setPhase("clinch")
+			self.quiet = 0.0
+	
+	func tossBlockK() -> float:
+		var t: float = self.t
+		var _hBLOCK_TOSS = TGrapple.BLOCK_TOSS
+		return (TMath.minJerk((t / _hBLOCK_TOSS.turn)) * ((1.0 - TMath.minJerk((((t - _hBLOCK_TOSS.load_)) / ((_hBLOCK_TOSS.back - _hBLOCK_TOSS.load_)))))))
+	
 	func partStep(dt: float) -> void:
 		var att: TFighter.Fighter = self.att
 		var def: TFighter.Fighter = self.def
@@ -1507,6 +1621,10 @@ class Grapple extends RefCounted:
 				P0.faceOn = true
 				P0.face = TMath.lerp_(yaw0, yaw1, TMath.minJerk((t / ((_hTOSS.turn + 0.06)))))
 				P0.turn = 40.0
+			elif (((phase == "blocked") and (kind == "toss")) and (me == att)):
+				P0.faceOn = true
+				P0.face = TMath.lerp_(yaw0, yaw1, tossBlockK())
+				P0.turn = 40.0
 			grips(float(i), me, opp, B, dt)
 			i += 1
 	
@@ -1750,6 +1868,11 @@ class Grapple extends RefCounted:
 			partShape(me, B)
 		elif (phase == "caught"):
 			caughtShape(me, B)
+		elif (phase == "blocked"):
+			if (me == att):
+				blockAttShape(me, B)
+			else:
+				blockDefShape(me, B)
 		elif (me == att):
 			attShape(me, B)
 		else:
@@ -2302,6 +2425,246 @@ class Grapple extends RefCounted:
 					B.spot[((float(s_4) * 2.0) + 1.0)] = (-0.26 if (float(s_4) == lead) else -0.52)
 					s_4 += 1
 	
+	func blockAttShape(me: TFighter.Fighter, B: TGrapple.Body) -> void:
+		var t: float = self.t
+		B.heel = 0.3
+		var __v1: V3 = B.pole[0]
+		__v1.x = 0.7
+		__v1.y = -0.6
+		__v1.z = -0.4
+		var __v2: V3 = B.pole[1]
+		__v2.x = 0.7
+		__v2.y = -0.6
+		__v2.z = -0.4
+		var _hTRIP = TGrapple.TRIP
+		if (kind == "trip"):
+			var T = TGrapple.BLOCK_TRIP
+			var rsx: float = (-1.0 if (rs == 0.0) else 1.0)
+			var k: float = TMath.minJerk((t / _hTRIP.step))
+			var drive: float = TMath.smoothstep_((_hTRIP.step - 0.1), (T.reap + 0.04), t)
+			var lurch: float = DM.sin((PI * TMath.clamp01((((t - T.reap)) / ((T.end - T.reap))))))
+			var out: float = (1.0 - TMath.minJerk((((t - T.whiff)) / ((T.end - T.whiff)))))
+			B.crouch = ((0.12 + ((((0.1 * k) + (0.06 * drive))) * out)) + (0.05 * lurch))
+			B.pitch = ((0.3 + ((0.18 * drive) * out)) + (0.24 * lurch))
+			B.pz = (((0.06 * k) * out) + (0.05 * lurch))
+			B.twist = (((((-rsx) * 0.22) * k) * out) + ((rsx * 0.26) * lurch))
+			B.roll = ((((rsx * 0.04) * k) * out) - ((rsx * 0.06) * lurch))
+			B.hx = ((((-rsx) * 0.05) * k) * out)
+			B.hy = (-0.03 * lurch)
+			B.heel = (0.3 + (0.15 * lurch))
+			B.grip[rs] = "frame"
+			B.grip[(1.0 - rs)] = "waist"
+			blockTripFoot(me, B)
+		elif (kind == "throw"):
+			var T_2 = TGrapple.BLOCK_THROW
+			var sink: float = TMath.minJerk((t / T_2.sink))
+			var heave: float = (TMath.minJerk((((t - T_2.sink)) / ((T_2.heave - T_2.sink)))) * ((1.0 - TMath.minJerk((((t - T_2.heave)) / ((T_2.sag - T_2.heave)))))))
+			var sag: float = TMath.smoothstep_((T_2.heave - 0.08), T_2.sag, t)
+			var out_2: float = (1.0 - TMath.minJerk((((t - T_2.sag)) / ((T_2.end - T_2.sag)))))
+			var strain: float = ((DM.sin((total * 41.0)) * 0.025) * heave)
+			B.crouch = (0.12 + (((((0.22 * sink) - (0.12 * heave)) + (0.06 * sag))) * out_2))
+			B.pitch = (0.3 + ((((((0.16 * sink) - (0.3 * heave)) + (0.24 * sag)) + strain)) * out_2))
+			B.hy = ((((-0.03 * sink) - (0.03 * sag))) * out_2)
+			B.hz = ((0.03 * sag) * out_2)
+			B.heel = (0.25 + (0.35 * heave))
+			B.grip = ["waist", "waist"]
+		else:
+			var T_3 = TGrapple.BLOCK_TOSS
+			var usx: float = (-1.0 if (rs == 0.0) else 1.0)
+			var turn: float = tossBlockK()
+			var load_: float = (TMath.smoothstep_((T_3.turn - 0.06), T_3.load_, t) * ((1.0 - TMath.minJerk((((t - T_3.load_)) / ((T_3.back - T_3.load_)))))))
+			var spun: float = DM.sin((PI * TMath.clamp01(((((t - T_3.load_) + 0.04)) / (((T_3.back - T_3.load_) + 0.04))))))
+			B.crouch = ((0.12 + (0.14 * turn)) - (0.06 * load_))
+			B.pitch = ((0.3 - (0.08 * turn)) + (0.3 * load_))
+			B.twist = (((-usx) * (((0.25 * turn) + (0.18 * load_)))) + ((usx * 0.22) * spun))
+			B.hip = (((-usx) * 0.08) * load_)
+			B.roll = (((-usx) * 0.06) * load_)
+			B.hy = (-0.03 * load_)
+			B.heel = (0.25 + (0.2 * load_))
+			B.grip[rs] = "waist"
+			B.grip[(1.0 - rs)] = "over"
+			var __v3: V3 = B.pole[rs]
+			__v3.x = 0.8
+			__v3.y = -0.5
+			__v3.z = -0.6
+			var __v4: V3 = B.pole[(1.0 - rs)]
+			__v4.x = 0.6
+			__v4.y = -1.0
+			__v4.z = 0.1
+			B.roll2[rs] = 0.6
+			B.roll2[(1.0 - rs)] = -0.4
+			blockTossFeet(me, B)
+	
+	func blockDefShape(me: TFighter.Fighter, B: TGrapple.Body) -> void:
+		var t: float = self.t
+		var __v1: V3 = B.pole[0]
+		__v1.x = 0.9
+		__v1.y = 0.3
+		__v1.z = -0.3
+		var __v2: V3 = B.pole[1]
+		__v2.x = 0.9
+		__v2.y = 0.3
+		__v2.z = -0.3
+		var lead: float = (0.0 if (me.leadSide == "L") else 1.0)
+		if (kind == "trip"):
+			var T = TGrapple.BLOCK_TRIP
+			var dsx: float = (-1.0 if (dl == 0.0) else 1.0)
+			var see: float = (TMath.smoothstep_(0.08, (T.lift + 0.06), t) * ((1.0 - TMath.minJerk((((t - T.plant)) / ((T.end - T.plant)))))))
+			var one: float = (TMath.smoothstep_(T.lift, T.up, t) * ((1.0 - TMath.smoothstep_(T.down, T.plant, t))))
+			var turn: float = DM.sin((PI * TMath.clamp01((((t - T.reap)) / ((T.end - T.reap))))))
+			B.crouch = (0.12 + (0.05 * see))
+			B.pitch = ((0.3 + (0.1 * see)) + (0.06 * turn))
+			B.roll = ((dsx * 0.08) * one)
+			B.px = (((-dsx) * 0.05) * one)
+			B.twist = ((dsx * 0.2) * turn)
+			B.hip = (B.twist * 0.45)
+			B.heel = 0.12
+			B.grip = ["over", "over"]
+			blockTripDefFoot(me, B)
+		elif (kind == "throw"):
+			var T_2 = TGrapple.BLOCK_THROW
+			var k: float = TMath.clamp01(((((t - T_2.sink) - 0.04)) / (((T_2.heave - T_2.sink) + 0.02))))
+			var lifted: float = DM.sin((PI * k))
+			var sprawl: float = (TMath.smoothstep_((T_2.heave - 0.12), (T_2.heave + 0.1), t) * ((1.0 - TMath.minJerk((((t - T_2.sag)) / ((T_2.end - T_2.sag)))))))
+			B.crouch = (0.1 + (0.18 * sprawl))
+			B.pitch = ((0.3 + (0.12 * lifted)) + (0.3 * sprawl))
+			B.pz = ((-0.04 * lifted) - (0.1 * sprawl))
+			B.hy = (-0.03 - (0.03 * sprawl))
+			B.heel = ((0.2 + (0.3 * lifted)) + (0.2 * sprawl))
+			B.grip = (["over", "over"] if (sprawl > 0.3) else ["back", "back"])
+			B.gw = [0.85, 0.85]
+			if ((t > (T_2.heave + 0.02)) and (t < T_2.sag)):
+				B.spots = true
+				var s: int = 0
+				while (s < 2.0):
+					B.spot[(float(s) * 2.0)] = 0.24
+					B.spot[((float(s) * 2.0) + 1.0)] = (-0.06 if (float(s) == lead) else -0.4)
+					s += 1
+		else:
+			var T_3 = TGrapple.BLOCK_TOSS
+			var usx: float = (-1.0 if (rs == 0.0) else 1.0)
+			var block: float = (TMath.smoothstep_((T_3.turn - 0.14), T_3.load_, t) * ((1.0 - TMath.minJerk(((((t - T_3.back) + 0.08)) / (((T_3.end - T_3.back) + 0.08)))))))
+			var shove: float = DM.sin((PI * TMath.clamp01(((((t - T_3.load_) + 0.04)) / (((T_3.back - T_3.load_) + 0.04))))))
+			B.crouch = (0.12 + (0.16 * block))
+			B.pitch = ((0.3 - (0.14 * block)) + (0.06 * shove))
+			B.pz = (0.08 * block)
+			B.twist = ((usx * 0.2) * shove)
+			B.hip = (B.twist * 0.6)
+			B.heel = 0.12
+			B.grip = ["waist", "waist"]
+			B.gw = [0.9, 0.9]
+			if ((t > (T_3.turn - 0.1)) and (t < (T_3.back - 0.04))):
+				B.spots = true
+				var s_2: int = 0
+				while (s_2 < 2.0):
+					B.spot[(float(s_2) * 2.0)] = 0.25
+					B.spot[((float(s_2) * 2.0) + 1.0)] = (0.12 if (float(s_2) == lead) else -0.3)
+					s_2 += 1
+	
+	func blockTripFoot(me: TFighter.Fighter, B: TGrapple.Body) -> void:
+		var t: float = self.t
+		var T = TGrapple.BLOCK_TRIP
+		var rs: float = self.rs
+		var sx: float = (-1.0 if (rs == 0.0) else 1.0)
+		var _h_c: V3 = TGrapple._c
+		me.stanceSpot(rs, _h_c)
+		var _h_b: V3 = TGrapple._b
+		me.toLocal(tripW, _h_b).sub(_h_c)
+		_h_b.y = 0.0
+		var l: float = DM.hypot(_h_b.x, _h_b.z)
+		if (l > 0.46):
+			var __v1: float = (0.46 / l)
+			_h_b.x *= __v1
+			_h_b.y *= __v1
+			_h_b.z *= __v1
+		if ((sx * ((_h_c.x + _h_b.x))) < 0.1):
+			_h_b.x = ((sx * 0.1) - _h_c.x)
+		var off: V3 = B.foot[rs]
+		var _hTRIP = TGrapple.TRIP
+		if (t < _hTRIP.step):
+			var k: float = TMath.minJerk((t / _hTRIP.step))
+			var arc: float = DM.sin((PI * k))
+			off.x = off0.x + (_h_b.x - off0.x) * k
+			off.y = off0.y + (_h_b.y - off0.y) * k
+			off.z = off0.z + (_h_b.z - off0.z) * k
+			off.x += ((sx * 0.08) * arc)
+			off.y = (0.11 * arc)
+		elif (t < T.reap):
+			off.x = _h_b.x
+			off.y = _h_b.y
+			off.z = _h_b.z
+		elif (t < T.whiff):
+			var k_2: float = TMath.minJerk((((t - T.reap)) / ((T.whiff - T.reap))))
+			off.x = _h_b.x
+			off.y = _h_b.y
+			off.z = _h_b.z
+			off.z -= (0.4 * k_2)
+			off.x -= ((sx * 0.05) * k_2)
+			off.y = (0.1 * DM.sin((PI * k_2)))
+		else:
+			var k_3: float = TMath.minJerk((((t - T.whiff)) / ((T.home - T.whiff))))
+			off.x = _h_b.x
+			off.y = _h_b.y
+			off.z = _h_b.z
+			off.z -= 0.4
+			off.x -= (sx * 0.05)
+			var __v2: float = (1.0 - k_3)
+			off.x *= __v2
+			off.y *= __v2
+			off.z *= __v2
+			off.y = (0.07 * DM.sin((PI * k_3)))
+		off.x *= sx
+		B.fw[rs] = (1.0 if (t < T.home) else 0.0)
+		B.knee[rs] = 0.25
+	
+	func blockTripDefFoot(me: TFighter.Fighter, B: TGrapple.Body) -> void:
+		var t: float = self.t
+		var T = TGrapple.BLOCK_TRIP
+		var s: float = dl
+		if (s == me.legLost):
+			return
+		var up: float = (TMath.minJerk((((t - T.lift)) / ((T.up - T.lift)))) * ((1.0 - TMath.minJerk((((t - T.down)) / ((T.plant - T.down)))))))
+		var __v1: V3 = B.foot[s]
+		var __v2: float = (-0.04 * up)
+		var __v3: float = (0.2 * up)
+		var __v4: float = (0.08 * up)
+		__v1.x = __v2
+		__v1.y = __v3
+		__v1.z = __v4
+		B.fw[s] = (1.0 if ((t > T.lift) and (t < T.plant)) else 0.0)
+		B.knee[s] = ((0.1 + (((0.6 - 0.1)) * up)))
+	
+	func blockTossFeet(me: TFighter.Fighter, B: TGrapple.Body) -> void:
+		var t: float = self.t
+		var T = TGrapple.BLOCK_TOSS
+		var _h_a: V3 = TGrapple._a
+		var _h_c: V3 = TGrapple._c
+		var s: int = 0
+		while (s < 2.0):
+			var sx: float = (-1.0 if (float(s) == 0.0) else 1.0)
+			var first: bool = (float(s) == rs)
+			var a: float = (0.0 if first else 0.08)
+			var b: float = (0.22 if first else T.turn)
+			var c: float = ((T.load_ + 0.12) if first else T.load_)
+			var d: float = (T.back if first else (T.back - 0.12))
+			var kin: float = TMath.minJerk((((t - a)) / ((b - a))))
+			var kout: float = TMath.minJerk((((t - c)) / ((d - c))))
+			var __v1: V3 = tossFrom[s]
+			var __v2: V3 = tossTo[s]
+			_h_a.x = __v1.x + (__v2.x - __v1.x) * kin
+			_h_a.y = __v1.y + (__v2.y - __v1.y) * kin
+			_h_a.z = __v1.z + (__v2.z - __v1.z) * kin
+			me.stanceSpot(float(s), _h_c)
+			var off: V3 = B.foot[s]
+			me.toLocal(_h_a, off).sub(_h_c)
+			off.x *= (1.0 - kout)
+			off.z *= (1.0 - kout)
+			off.y = ((((0.06 if first else 0.09)) * DM.sin((PI * TMath.clamp01((((t - a)) / ((b - a))))))) + (0.06 * DM.sin((PI * TMath.clamp01((((t - c)) / ((d - c))))))))
+			off.x *= sx
+			B.fw[s] = (1.0 if (t < d) else 0.0)
+			B.knee[s] = 0.15
+			s += 1
+	
 	func release(fade: float = TGrapple.FADE) -> void:
 		if (not live):
 			return
@@ -2341,6 +2704,9 @@ static func __init_module() -> void:
 	TGrapple.STUFF = {"push": 0.62, "end": 0.88}
 	TGrapple.TOSS = {"turn": 0.34, "load_": 0.62, "over": 0.66, "end": 1.25}
 	TGrapple.CATCH = {"trap": 0.2, "punch": 0.3, "dump": 0.62, "dumpPunch": 0.98, "sweep": 0.3, "free": 0.66, "yank": 0.3, "end": 0.62}
+	TGrapple.BLOCK_TRIP = {"lift": 0.24, "up": 0.42, "reap": 0.43, "whiff": 0.64, "down": 0.62, "plant": 0.8, "home": 0.96, "end": 1.04, "deny": 0.5}
+	TGrapple.BLOCK_THROW = {"sink": 0.32, "heave": 0.62, "sag": 0.95, "end": 1.08, "deny": 0.56}
+	TGrapple.BLOCK_TOSS = {"turn": 0.32, "part": 0.5, "load_": 0.56, "back": 0.94, "end": 1.02, "deny": 0.42}
 	TGrapple._a = V3.new()
 	TGrapple._b = V3.new()
 	TGrapple._c = V3.new()

@@ -921,6 +921,9 @@ export class Hud {
       case 'kickCatch':
         this.callout('KICK CAUGHT!', 'small cyan', 900);
         break;
+      case 'takedownStuffed':
+        this.callout(data.kind === 'trip' ? 'TRIP BLOCKED!' : data.kind === 'throw' ? 'LIFT STUFFED!' : 'TOSS BLOCKED!', 'small cyan', 900);
+        break;
       case 'strikeStart': {
         const d = data as { f: Fighter; s: { feint: boolean; move: { ability?: string; name: string } } };
         if (d.s.move.ability && !d.s.feint && m.phase === 'fight' && !m.fin) this.abilityTag(d.f, d.s.move.name);
