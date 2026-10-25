@@ -6,6 +6,7 @@ extends RefCounted
 static func strikeId(s) -> float:
 	return ((s.uid * 16.0) + s.sub)
 const COVER_IN: float = 0.09
+static var PIVOT
 const CHECK_IN: float = 0.13
 const COVER_OUT: float = 0.24
 
@@ -204,6 +205,9 @@ class Foot extends RefCounted:
 	var reqDrag: float
 	var asked: bool
 	var drag: float
+	var sweep: bool
+	var cx: float
+	var cz: float
 	
 	func _init() -> void:
 		if JS.BLANK and OS.get_thread_caller_id() == JS.BLANK_THREAD:
@@ -226,6 +230,9 @@ class Foot extends RefCounted:
 		self.reqDrag = 0.0
 		self.asked = false
 		self.drag = 0.0
+		self.sweep = false
+		self.cx = 0.0
+		self.cz = 0.0
 
 class Fighter extends RefCounted:
 	var index: float
@@ -240,6 +247,17 @@ class Fighter extends RefCounted:
 	var yaw: float
 	var spinYaw: float
 	var faceDone: float
+	var pvLead: float
+	var pvYaw0: float
+	var pvTurn: float
+	var pvDone: float
+	var pvSwept: bool
+	var pvR0: V3
+	var pvM: V3
+	var pvL: V3
+	var pvB: V3
+	var pvAt: V3
+	var angledAt: float
 	var rootEnd: V3
 	var lift: float
 	var liftReach: float
@@ -474,6 +492,17 @@ class Fighter extends RefCounted:
 		self.yaw = 0.0
 		self.spinYaw = 0.0
 		self.faceDone = 0.0
+		self.pvLead = 0.0
+		self.pvYaw0 = 0.0
+		self.pvTurn = 0.0
+		self.pvDone = 0.0
+		self.pvSwept = false
+		self.pvR0 = V3.new()
+		self.pvM = V3.new()
+		self.pvL = V3.new()
+		self.pvB = V3.new()
+		self.pvAt = V3.new()
+		self.angledAt = -9.0
 		self.rootEnd = V3.new()
 		self.lift = 0.0
 		self.liftReach = -0.4
@@ -1081,10 +1110,10 @@ class Fighter extends RefCounted:
 			f.pos.x = c.plant.x
 			f.pos.z = c.plant.z
 	
-	func tryDodge(type: String, dir: float) -> bool:
+	func tryDodge(type: String, dir: float, reach: float = 0.5) -> bool:
 		if ((state != "fight") or clinched):
 			return false
-		if ((type == "sprawl") and (legLost >= 0.0)):
+		if (((type == "sprawl") or (type == "pivot")) and (legLost >= 0.0)):
 			return false
 		var s = strike
 		if (s != null):
@@ -1098,10 +1127,12 @@ class Fighter extends RefCounted:
 		if (stamina < cost):
 			return false
 		self.stamina -= cost
-		var baseDur: float = (0.38 if ((type == "backstep") or (type == "sidestep")) else (0.48 if (type == "duck") else (0.62 if (type == "sprawl") else 0.44)))
+		var baseDur: float = (0.38 if ((type == "backstep") or (type == "sidestep")) else (0.48 if (type == "duck") else (0.62 if (type == "sprawl") else (0.5 if (type == "pivot") else 0.44))))
 		var __t1 = TFighter.UID
 		TFighter.UID += 1.0
 		var d = {"kind": "dodge", "type": type, "dir": dir, "t": 0.0, "dur": (baseDur / agility), "uid": __t1}
+		if (type == "pivot"):
+			d.dur = (((baseDur * ((0.85 + (reach * 0.3))))) / sqrt(agility))
 		self.action = d
 		self.lastActTime = hooksTime
 		var fwd: V3 = forward(TFighter._v)
@@ -1128,6 +1159,8 @@ class Fighter extends RefCounted:
 			var pace: float = (self.pace() / sqrt(agility))
 			askStep(first, 0.0, (0.21 * pace), 0.035, 0.0)
 			askStep((1.0 - first), (0.08 * pace), (0.21 * pace), 0.03, 0.0)
+		if (type == "pivot"):
+			planPivot(dir, reach, d.dur)
 		if hooks != null:
 			hooks.emit.call("dodgeStart", {"f": self, "d": d})
 		return true
@@ -2189,6 +2222,10 @@ class Fighter extends RefCounted:
 			accel = (((6.0 * st.agility) * ((1.0 + passive("lightFeet")))) * legs)
 		elif ((((roomy and (not (s != null))) and (state != "held")) and (sqrt(rootVel.x * rootVel.x + rootVel.y * rootVel.y + rootVel.z * rootVel.z) < (maxSpd * 1.05))) and ((hooksTime - thrownAt) > 0.6)):
 			accel = minf(accel, (3.6 * legs))
+		var pv = (dodge if ((dodge != null) and (dodge.type == "pivot")) else null)
+		if (pv != null):
+			maxSpd = 0.0
+			accel = 12.0
 		self.rootMax = maxSpd
 		self.rootAcc = accel
 		var _h_v: V3 = TFighter._v
@@ -2231,6 +2268,8 @@ class Fighter extends RefCounted:
 		root.y += rootVel.y * dt
 		root.z += rootVel.z * dt
 		root.y = 0.0
+		if (pv != null):
+			updatePivot(pv)
 		var sup: TFighter.Foot = (feet[(1.0 if (s.side == "L") else 0.0)] if ((s != null) and (s.move.kind == "kick")) else (feet[(1.0 - chk.side)] if (chk != null) else null))
 		var mx: float = (root.x - rootEnd.x)
 		var mz: float = (root.z - rootEnd.z)
@@ -2257,20 +2296,28 @@ class Fighter extends RefCounted:
 				turn = (0.0 if (getupProgress < 0.6) else 3.0)
 			if (stand != null):
 				turn *= 0.6
+			if (((hooksTime - angledAt) < 0.42) and (state == "fight")):
+				turn = minf(turn, 2.4)
 			var em: TEmote.EmotePose = emote
 			if (((em != null) and em.faceOn) and (em.w > 0.2)):
 				target = em.face
 				turn = em.turn
-			if (not ((s != null) and (s.move.get("spin") == true))):
+			if ((not ((s != null) and (s.move.get("spin") == true))) and (not (pv != null))):
 				self.yaw = TMath.dampAngle(yaw, target, turn, dt)
 		var face: float = (yaw + spinYaw)
 		var dTurn: float = TMath.wrapAngle((face - faceDone))
 		self.faceDone = face
 		var piv: TFighter.Foot = (sup if sup != null else stand)
-		if (((((piv != null) and (not piv.locked)) and (not piv.stepping)) and (dTurn != 0.0)) and (absf(dTurn) < 1.0)):
+		var over: float = 0.5
+		if (((((((((not (piv != null)) and (not (pv != null))) and (lost < 0.0)) and ((not (s != null)) or (s.phase == "recovery"))) and (not (dodge != null))) and (not clinched)) and ((state == "fight") or (state == "stun"))) and (walkK < 0.3)) and ((rootVel.x * rootVel.x + rootVel.y * rootVel.y + rootVel.z * rootVel.z) < 0.36)):
+			var lf: TFighter.Foot = feet[(0.0 if (stance < 0.0) else 1.0)]
+			if (not feet[(1.0 if (stance < 0.0) else 0.0)].locked):
+				piv = lf
+				over = 1.0
+		if ((((((piv != null) and (not piv.locked)) and (not piv.stepping)) and (dTurn != 0.0)) and (absf(dTurn) < 1.0)) and (not (pv != null))):
 			var f: TFighter.Foot = piv
-			var cx: float = (((root.x + f.pos.x)) * 0.5)
-			var cz: float = (((root.z + f.pos.z)) * 0.5)
+			var cx: float = (root.x + (((f.pos.x - root.x)) * over))
+			var cz: float = (root.z + (((f.pos.z - root.z)) * over))
 			var c: float = DM.cos(dTurn)
 			var sn: float = DM.sin(dTurn)
 			for p: V3 in [root, f.pos]:
@@ -2285,6 +2332,136 @@ class Fighter extends RefCounted:
 	
 	func distTo(o: TFighter.Fighter) -> float:
 		return DM.hypot((o.root.x - root.x), (o.root.z - root.z))
+	
+	func planPivot(dir: float, reach: float, dur: float) -> void:
+		var o: TFighter.Fighter = opp
+		var sz: float = size_
+		var rx: float = (root.x - o.root.x)
+		var rz: float = (root.z - o.root.z)
+		var dd: float = maxf((0.4 * sz), DM.hypot(rx, rz))
+		var b: float = (TMath.clamp_((((reach * sz)) / dd), 0.2, 1.2) * ((-1.0 if (dir < 0.0) else 1.0)))
+		var c: float = DM.cos(b)
+		var sn: float = DM.sin(b)
+		var out: float = (1.0 + (((0.06 * sz)) / dd))
+		var r1x: float = (o.root.x + ((((rx * c) + (rz * sn))) * out))
+		var r1z: float = (o.root.z + (((((-rx) * sn) + (rz * c))) * out))
+		var yaw0: float = yaw
+		var li: float = (0.0 if (dir < 0.0) else 1.0)
+		self.pvLead = li
+		self.pvYaw0 = yaw0
+		self.pvTurn = TMath.wrapAngle((DM.atan2((o.root.x - r1x), (o.root.z - r1z)) - yaw0))
+		self.pvDone = 0.0
+		self.pvSwept = false
+		pvR0.x = root.x
+		pvR0.y = root.y
+		pvR0.z = root.z
+		pvAt.x = root.x
+		pvAt.y = root.y
+		pvAt.z = root.z
+		var yaw1: float = (yaw0 + pvTurn)
+		var _h_p: V3 = TFighter._p
+		stanceFoot(li, _h_p)
+		toWorld(_h_p, pvL, yaw1)
+		pvL.x += (r1x - root.x)
+		pvL.z += (r1z - root.z)
+		pvL.y = (TFighter.FOOT_Y * sz)
+		var _h_q: V3 = TFighter._q
+		toWorld(_h_p, _h_q, yaw0)
+		var __v1: float = (pvL.x - ((_h_q.x - root.x)))
+		var __v2: float = (pvL.z - ((_h_q.z - root.z)))
+		pvM.x = __v1
+		pvM.y = 0.0
+		pvM.z = __v2
+		stanceFoot((1.0 - li), _h_p)
+		toWorld(_h_p, pvB, yaw1)
+		pvB.x += (r1x - root.x)
+		pvB.z += (r1z - root.z)
+		pvB.y = (TFighter.FOOT_Y * sz)
+		rootVel.x = 0.0
+		rootVel.y = 0.0
+		rootVel.z = 0.0
+		var f: TFighter.Foot = feet[li]
+		var __v3: V3 = f.from
+		var __v4: V3 = f.pos
+		__v3.x = __v4.x
+		__v3.y = __v4.y
+		__v3.z = __v4.z
+		var __v5: V3 = f.to
+		__v5.x = pvL.x
+		__v5.y = pvL.y
+		__v5.z = pvL.z
+		f.t = 0.0
+		f.dur = (TFighter.PIVOT.lead * dur)
+		f.arc = (0.04 * sz)
+		f.fromYaw = f.yaw
+		f.toYaw = (yaw0 + stanceFootYaw(li))
+		f.walk = false
+		f.asked = false
+		f.sweep = false
+		f.drag = 0.0
+		f.reqAt = -1.0
+		f.stepping = true
+		feet[(1.0 - li)].reqAt = -1.0
+		o.angledAt = hooksTime
+	
+	func updatePivot(d) -> void:
+		var k: float = TMath.clamp01((d.t / d.dur))
+		var _hPIVOT = TFighter.PIVOT
+		var ea: float = TMath.minJerk((k / _hPIVOT.slide))
+		var turn: float = (pvTurn * TMath.minJerk((((k - _hPIVOT.sweep)) / ((1.0 - _hPIVOT.sweep)))))
+		var c: float = DM.cos(turn)
+		var sn: float = DM.sin(turn)
+		var L: V3 = pvL
+		var M: V3 = pvM
+		var R0: V3 = pvR0
+		var mx: float = (M.x - L.x)
+		var mz: float = (M.z - L.z)
+		var px: float = (((L.x + (mx * c)) + (mz * sn)) + (((R0.x - M.x)) * ((1.0 - ea))))
+		var pz: float = (((L.z - (mx * sn)) + (mz * c)) + (((R0.z - M.z)) * ((1.0 - ea))))
+		root.x += (px - pvAt.x)
+		root.z += (pz - pvAt.z)
+		pvAt.x = px
+		pvAt.y = 0.0
+		pvAt.z = pz
+		var dy: float = (turn - pvDone)
+		self.pvDone = turn
+		self.yaw = TMath.wrapAngle((yaw + dy))
+		var lf: TFighter.Foot = feet[pvLead]
+		if lf.stepping:
+			lf.toYaw += dy
+		else:
+			lf.yaw = TMath.wrapAngle((lf.yaw + dy))
+		if ((not pvSwept) and (k >= _hPIVOT.sweep)):
+			self.pvSwept = true
+			var f: TFighter.Foot = feet[(1.0 - pvLead)]
+			var __v1: V3 = f.from
+			var __v2: V3 = f.pos
+			__v1.x = __v2.x
+			__v1.y = __v2.y
+			__v1.z = __v2.z
+			var __v3: V3 = f.to
+			__v3.x = pvB.x
+			__v3.y = pvB.y
+			__v3.z = pvB.z
+			f.t = 0.0
+			f.dur = maxf(0.1, ((((1.0 - k)) * d.dur) * 0.92))
+			f.arc = (0.022 * size_)
+			f.fromYaw = f.yaw
+			f.toYaw = ((pvYaw0 + pvTurn) + stanceFootYaw((1.0 - pvLead)))
+			f.walk = false
+			f.asked = false
+			f.drag = 0.0
+			f.sweep = true
+			f.cx = L.x
+			f.cz = L.z
+			f.stepping = true
+	
+	func pivotK() -> float:
+		var d = dodge
+		if ((not (d != null)) or (d.type != "pivot")):
+			return 0.0
+		var _hPIVOT = TFighter.PIVOT
+		return TMath.clamp01(((((d.t / d.dur) - _hPIVOT.sweep)) / ((1.0 - _hPIVOT.sweep))))
 	
 	func stanceFoot(i: float, out: V3) -> V3:
 		var isLead: bool = (((i == 0.0)) == ((stance < 0.0)))
@@ -2481,6 +2658,30 @@ class Fighter extends RefCounted:
 		out.z += __v1.z
 		return uncross(i, out)
 	
+	func sweepAt(f: TFighter.Foot, k: float) -> void:
+		var ax: float = (f.from.x - f.cx)
+		var az: float = (f.from.z - f.cz)
+		var bx: float = (f.to.x - f.cx)
+		var bz: float = (f.to.z - f.cz)
+		var a0: float = DM.atan2(ax, az)
+		var a: float = (a0 + (TMath.wrapAngle((DM.atan2(bx, bz) - a0)) * k))
+		var r: float = TMath.lerp_(DM.hypot(ax, az), DM.hypot(bx, bz), k)
+		f.pos.x = (f.cx + (DM.sin(a) * r))
+		f.pos.z = (f.cz + (DM.cos(a) * r))
+	
+	func sweepRound(i: float) -> void:
+		var f: TFighter.Foot = feet[i]
+		var o: TFighter.Foot = feet[(1.0 - i)]
+		if (o.stepping or o.locked):
+			return
+		var a0: float = DM.atan2((f.from.x - o.pos.x), (f.from.z - o.pos.z))
+		var a1: float = DM.atan2((f.to.x - o.pos.x), (f.to.z - o.pos.z))
+		if (absf(TMath.wrapAngle((a1 - a0))) < 0.22):
+			return
+		f.sweep = true
+		f.cx = o.pos.x
+		f.cz = o.pos.z
+	
 	func reachOf(i: float) -> float:
 		var _h_w: V3 = TFighter._w
 		toLocal(feet[i].pos, _h_w, yaw)
@@ -2512,17 +2713,21 @@ class Fighter extends RefCounted:
 					f.from.z = (((f.pos.z - (f.to.z * k0))) / ((1.0 - k0)))
 				f.t += (dt / f.dur)
 				var k: float = TMath.minJerk(f.t)
-				var __v1: V3 = f.pos
-				var __v2: V3 = f.from
-				var __v3: V3 = f.to
-				__v1.x = __v2.x + (__v3.x - __v2.x) * k
-				__v1.y = __v2.y + (__v3.y - __v2.y) * k
-				__v1.z = __v2.z + (__v3.z - __v2.z) * k
+				if f.sweep:
+					sweepAt(f, k)
+				else:
+					var __v1: V3 = f.pos
+					var __v2: V3 = f.from
+					var __v3: V3 = f.to
+					__v1.x = __v2.x + (__v3.x - __v2.x) * k
+					__v1.y = __v2.y + (__v3.y - __v2.y) * k
+					__v1.z = __v2.z + (__v3.z - __v2.z) * k
 				var ft: float = (((0.0 if ((f.t) < 0.0) else (1.0 if ((f.t) > 1.0) else (f.t)))))
 				f.pos.y = ((((f.from.y) + ((((f.to.y) - (f.from.y))) * k))) + (DM.sin(((PI * ft) * ((1.25 - (0.25 * ft))))) * f.arc))
 				f.yaw = (f.fromYaw + (TMath.wrapAngle((f.toYaw - f.fromYaw)) * TMath.smoothstep_(0.0, 0.8, f.t)))
 				if (f.t >= 1.0):
 					f.stepping = false
+					f.sweep = false
 					var __v4: V3 = f.pos
 					var __v5: V3 = f.to
 					__v4.x = __v5.x
@@ -2597,6 +2802,7 @@ class Fighter extends RefCounted:
 				if f_2.stepping:
 					f_2.asked = true
 					f_2.walk = false
+					f_2.sweep = false
 					f_2.drag = maxf(f_2.drag, f_2.reqDrag)
 					if ((((1.0 - f_2.t)) * f_2.dur) > f_2.reqDur):
 						f_2.dur = (f_2.reqDur / ((1.0 - f_2.t)))
@@ -2626,6 +2832,8 @@ class Fighter extends RefCounted:
 				f_2.asked = true
 				f_2.stepping = true
 				i_2 += 1
+		if ((d != null) and (d.type == "pivot")):
+			return
 		var kick: bool = ((not (not (s != null))) and (s.move.kind == "kick"))
 		if (((s != null) and kick) and (not ((s.phase == "windup") and (s.t < (s.windup * ((0.15 if (s.move.get("spin") == true) else 0.35))))))):
 			return
@@ -2768,6 +2976,9 @@ class Fighter extends RefCounted:
 		f_4.fromYaw = f_4.yaw
 		f_4.toYaw = (yaw + stanceFootYaw(best))
 		f_4.stepping = true
+		f_4.sweep = false
+		if ((not travel) and (lost < 0.0)):
+			sweepRound(best)
 	
 	func computeLocalPose(dt: float) -> void:
 		var L: Array = self.L
@@ -2999,6 +3210,15 @@ class Fighter extends RefCounted:
 			elif d.type == "sidestep":
 				roll -= ((d.dir * 0.12) * env)
 				crouch += (0.05 * env)
+			elif d.type == "pivot":
+				var sw: float = DM.sin((PI * pivotK()))
+				var dirT: float = (-1.0 if (pvTurn < 0.0) else 1.0)
+				var amt: float = minf(1.0, (absf(pvTurn) / 0.5))
+				shTw -= (((dirT * 0.34) * sw) * amt)
+				hipTw -= (((dirT * 0.14) * sw) * amt)
+				crouch += (0.03 * env)
+				pitch += (0.04 * env)
+				heel[pvLead] = maxf(heel[pvLead], (0.5 * sw))
 			elif d.type == "sprawl":
 				var sk: float = sprawlK()
 				crouch += (0.34 * sk)
@@ -3007,6 +3227,12 @@ class Fighter extends RefCounted:
 				hd.y -= (0.03 * sk)
 				heel[1.0] = (0.5 * sk)
 				heel[0.0] = heel[1.0]
+		var i_3: int = 0
+		while (i_3 < 2.0):
+			var o: TFighter.Foot = feet[(1.0 - float(i_3))]
+			if (o.sweep and o.stepping):
+				heel[i_3] = maxf(heel[i_3], (0.3 * DM.sin((PI * (((0.0 if ((o.t) < 0.0) else (1.0 if ((o.t) > 1.0) else (o.t)))))))))
+			i_3 += 1
 		var cov = (cover if (((cover != null) and (cover.w > 0.001)) and ((state == "fight") or (state == "stun"))) else null)
 		var cw: float = (cov.w if (cov != null) else 0.0)
 		if (cov != null):
@@ -3117,38 +3343,38 @@ class Fighter extends RefCounted:
 			shTw += ((TMath.clamp_(leanV.x, -1.0, 1.0) * 0.06) * (-st))
 		var rise: float = 0.0
 		var swing: float = 0.0
-		var i_3: int = 0
-		while (i_3 < 2.0):
-			var f_3: TFighter.Foot = feet[i_3]
-			if ((not f_3.stepping) or feet[(1.0 - float(i_3))].stepping):
-				i_3 += 1
+		var i_4: int = 0
+		while (i_4 < 2.0):
+			var f_3: TFighter.Foot = feet[i_4]
+			if ((not f_3.stepping) or feet[(1.0 - float(i_4))].stepping):
+				i_4 += 1
 				continue
-			var sw: float = DM.sin((PI * (((0.0 if ((f_3.t) < 0.0) else (1.0 if ((f_3.t) > 1.0) else (f_3.t)))))))
+			var sw_2: float = DM.sin((PI * (((0.0 if ((f_3.t) < 0.0) else (1.0 if ((f_3.t) > 1.0) else (f_3.t)))))))
 			var dx: float = (((f_3.to.x - f_3.from.x)) / self.size_)
 			var dz: float = (((f_3.to.z - f_3.from.z)) / self.size_)
 			var fwd: float = TMath.clamp_(((sy * dx) + (cy * dz)), -0.4, 0.4)
 			var size_: float = minf(1.0, (DM.hypot(dx, dz) / 0.3))
-			var sxF: float = (-1.0 if (float(i_3) == 0.0) else 1.0)
+			var sxF: float = (-1.0 if (float(i_4) == 0.0) else 1.0)
 			if (lost >= 0.0):
-				rise += (((0.025 + (0.02 * size_))) * sw)
-				i_3 += 1
+				rise += (((0.025 + (0.02 * size_))) * sw_2)
+				i_4 += 1
 				continue
-			pd.x -= (((sxF * 0.045) * sw) * ((0.4 + (0.6 * size_))))
-			roll -= (((sxF * 0.03) * sw) * size_)
-			rise += ((0.009 * sw) * size_)
-			hipTw -= ((((sxF * fwd) * 0.55) * sw) * ((1.0 - wk)))
-			shTw += ((((sxF * fwd) * 0.25) * sw) * ((1.0 - wk)))
-			swing += ((sxF * fwd) * sw)
-			i_3 += 1
+			pd.x -= (((sxF * 0.045) * sw_2) * ((0.4 + (0.6 * size_))))
+			roll -= (((sxF * 0.03) * sw_2) * size_)
+			rise += ((0.009 * sw_2) * size_)
+			hipTw -= ((((sxF * fwd) * 0.55) * sw_2) * ((1.0 - wk)))
+			shTw += ((((sxF * fwd) * 0.25) * sw_2) * ((1.0 - wk)))
+			swing += ((sxF * fwd) * sw_2)
+			i_4 += 1
 		var stride: float = 0.0
 		var _h_w: V3 = TFighter._w
 		if (wk > 0.01):
-			var i_4: int = 0
-			while (i_4 < 2.0):
-				toLocal(feet[i_4].pos, _h_w, yaw)
-				stanceFoot(float(i_4), _h_u)
-				stride += (((-1.0 if (float(i_4) == 0.0) else 1.0)) * ((_h_w.z - _h_u.z)))
-				i_4 += 1
+			var i_5: int = 0
+			while (i_5 < 2.0):
+				toLocal(feet[i_5].pos, _h_w, yaw)
+				stanceFoot(float(i_5), _h_u)
+				stride += (((-1.0 if (float(i_5) == 0.0) else 1.0)) * ((_h_w.z - _h_u.z)))
+				i_5 += 1
 			stride = ((((-1.0 if (((stride / 0.75)) < -1.0) else (1.0 if (((stride / 0.75)) > 1.0) else ((stride / 0.75)))))) * wk)
 		self.strideSwing = (TMath.damp(strideSwing, stride, 10.0, dt) if (dt > 0.0) else stride)
 		hipTw -= (strideSwing * 0.2)
@@ -3214,37 +3440,37 @@ class Fighter extends RefCounted:
 		pelvisOff.x = spr[8].to(pd.x, pw, 0.8, dt)
 		pelvisOff.z = spr[9].to(pd.z, pw, 0.8, dt)
 		if (dt > 0.0):
-			var i_5: int = 0
-			while (i_5 < 2.0):
-				self.pivot[i_5] = TMath.damp(self.pivot[i_5], pivot[i_5], 24.0, dt)
-				self.heel[i_5] = TMath.damp(self.heel[i_5], heel[i_5], 24.0, dt)
-				i_5 += 1
-		else:
 			var i_6: int = 0
 			while (i_6 < 2.0):
-				self.pivot[i_6] = pivot[i_6]
-				self.heel[i_6] = heel[i_6]
+				self.pivot[i_6] = TMath.damp(self.pivot[i_6], pivot[i_6], 24.0, dt)
+				self.heel[i_6] = TMath.damp(self.heel[i_6], heel[i_6], 24.0, dt)
 				i_6 += 1
+		else:
+			var i_7: int = 0
+			while (i_7 < 2.0):
+				self.pivot[i_7] = pivot[i_7]
+				self.heel[i_7] = heel[i_7]
+				i_7 += 1
 		if (dt > 0.0):
 			self.bobPhase += (dt * ((((4.4 + (bounce * 1.4)) + (tired * 1.2)) + (sqrt(rootVel.x * rootVel.x + rootVel.y * rootVel.y + rootVel.z * rootVel.z) * 1.2))))
 		var bobAmp: float = ((((((0.01 + (0.012 * bounce)) if fighting else 0.007)) + (tired * 0.008))) / ((1.0 + (sqrt(rootVel.x * rootVel.x + rootVel.y * rootVel.y + rootVel.z * rootVel.z) * 1.5))))
 		var bob: float = ((-DM.cos(bobPhase)) * bobAmp)
 		var standH: float = (((TFighter.PELVIS_H - self.crouch) + bob) + lift)
 		var pelvisH: float = standH
-		var i_7: int = 0
-		while (i_7 < 2.0):
-			var f_4: TFighter.Foot = feet[i_7]
+		var i_8: int = 0
+		while (i_8 < 2.0):
+			var f_4: TFighter.Foot = feet[i_8]
 			if f_4.locked:
-				i_7 += 1
+				i_8 += 1
 				continue
 			toLocal(f_4.pos, _h_p)
-			var hx: float = (((-0.15 if (float(i_7) == 0.0) else 0.15)) + pelvisOff.x)
+			var hx: float = (((-0.15 if (float(i_8) == 0.0) else 0.15)) + pelvisOff.x)
 			var horiz: float = DM.hypot((_h_p.x - hx), (_h_p.z - pelvisOff.z))
 			var reach_2: float = (((TFighter.THIGH + TFighter.SHIN)) * 0.985)
-			var maxH: float = (((_h_p.y + heelLift(float(i_7))) + sqrt(maxf(0.0, ((reach_2 * reach_2) - (horiz * horiz))))) + 0.07)
+			var maxH: float = (((_h_p.y + heelLift(float(i_8))) + sqrt(maxf(0.0, ((reach_2 * reach_2) - (horiz * horiz))))) + 0.07)
 			if (pelvisH > maxH):
 				pelvisH = maxH
-			i_7 += 1
+			i_8 += 1
 		var drop_2: float = (standH - pelvisH)
 		self.reachDrop = (maxf(drop_2, TMath.damp(reachDrop, drop_2, 9.0, dt)) if (dt > 0.0) else drop_2)
 		pelvisH = (standH - reachDrop)
@@ -3439,8 +3665,8 @@ class Fighter extends RefCounted:
 				hand.z -= (0.06 * chin)
 			var pole: V3 = _h_q.set3((sx * 0.55), -1.0, -0.35)
 			if (gu != null):
-				var o: float = (0.0 if isLead else 3.0)
-				hand.lerp(_h_p.set3((sx * gu.hands[o]), gu.hands[(o + 1.0)], gu.hands[(o + 2.0)]), gu.w)
+				var o_2: float = (0.0 if isLead else 3.0)
+				hand.lerp(_h_p.set3((sx * gu.hands[o_2]), gu.hands[(o_2 + 1.0)], gu.hands[(o_2 + 2.0)]), gu.w)
 				pole.lerp(_h_p.set3((sx * 0.6), gu.elbow[0], gu.elbow[1]), gu.w)
 				if ((float(side) == ropeHand) and (gu.rope > 0.0)):
 					hand.lerp(gu.ropeL, (gu.rope * gu.w))
@@ -3498,28 +3724,28 @@ class Fighter extends RefCounted:
 				roll_2 = ((roll_2 + (((0.0 - roll_2)) * cl)))
 			if (em != null):
 				var e_2: PackedFloat32Array = em.ch
-				var o_2: float = (_hEC.ARM + (float(side) * 8.0))
-				var aw: float = (em.w * e_2[(o_2 + 7.0)])
+				var o_3: float = (_hEC.ARM + (float(side) * 8.0))
+				var aw: float = (em.w * e_2[(o_3 + 7.0)])
 				if (aw > 0.001):
-					trunkPoint((sx * e_2[o_2]), e_2[(o_2 + 1.0)], e_2[(o_2 + 2.0)], _h_p)
+					trunkPoint((sx * e_2[o_3]), e_2[(o_3 + 1.0)], e_2[(o_3 + 2.0)], _h_p)
 					hand.lerp(_h_p, aw)
 					_h_w.x = _h_tX.x
 					_h_w.y = _h_tX.y
 					_h_w.z = _h_tX.z
-					var __v47: float = (sx * e_2[(o_2 + 3.0)])
+					var __v47: float = (sx * e_2[(o_3 + 3.0)])
 					_h_w.x *= __v47
 					_h_w.y *= __v47
 					_h_w.z *= __v47
-					var __v48: float = e_2[(o_2 + 4.0)]
+					var __v48: float = e_2[(o_3 + 4.0)]
 					_h_w.x += _h_tU.x * __v48
 					_h_w.y += _h_tU.y * __v48
 					_h_w.z += _h_tU.z * __v48
-					var __v49: float = e_2[(o_2 + 5.0)]
+					var __v49: float = e_2[(o_3 + 5.0)]
 					_h_w.x += _h_tZ.x * __v49
 					_h_w.y += _h_tZ.y * __v49
 					_h_w.z += _h_tZ.z * __v49
 					pole.lerp(_h_w, aw)
-					roll_2 = ((roll_2 + ((((e_2[(o_2 + 6.0)]) - roll_2)) * aw)))
+					roll_2 = ((roll_2 + ((((e_2[(o_3 + 6.0)]) - roll_2)) * aw)))
 				var rw: float = (em.w * em.reachW)
 				if ((rw > 0.001) and ((float(side) == em.reachSide) or (em.reachSide == 2.0))):
 					toLocal(em.reach, _h_p)
@@ -3651,29 +3877,29 @@ class Fighter extends RefCounted:
 				footFlexT[side_2] = 0.8
 			elif (((lost < 0.0) and (em != null)) and ((em.w * em.ch[((_hEC.FOOT + (float(side_2) * 7.0)) + 6.0)]) > 0.001)):
 				var e_3: PackedFloat32Array = em.ch
-				var o_3: float = (_hEC.FOOT + (float(side_2) * 7.0))
-				var fw: float = (em.w * e_3[(o_3 + 6.0)])
+				var o_4: float = (_hEC.FOOT + (float(side_2) * 7.0))
+				var fw: float = (em.w * e_3[(o_4 + 6.0)])
 				stanceFoot(float(side_2), foot)
-				foot.x += ((sx_2 * e_3[(o_3 + 2.0)]) * fw)
-				foot.y += (e_3[(o_3 + 3.0)] * fw)
-				foot.z += (e_3[(o_3 + 4.0)] * fw)
+				foot.x += ((sx_2 * e_3[(o_4 + 2.0)]) * fw)
+				foot.y += (e_3[(o_4 + 3.0)] * fw)
+				foot.z += (e_3[(o_4 + 4.0)] * fw)
 				var __v67: float = (sx_2 * 0.25)
-				var __v68: float = ((0.1 + ((((e_3[(o_3 + 5.0)]) - 0.1)) * fw)))
+				var __v68: float = ((0.1 + ((((e_3[(o_4 + 5.0)]) - 0.1)) * fw)))
 				pole_2.x = __v67
 				pole_2.y = __v68
 				pole_2.z = 1.0
 				f_5.locked = true
 				f_5.stepping = false
 				toWorld(foot, f_5.pos)
-				footAirT[side_2] = TMath.clamp01(((e_3[(o_3 + 3.0)] * fw) * 12.0))
+				footAirT[side_2] = TMath.clamp01(((e_3[(o_4 + 3.0)] * fw) * 12.0))
 				footFlexT[side_2] = (0.3 * footAirT[side_2])
 			elif (gu != null):
 				var isLead_2: bool = (((float(side_2) == 0.0)) == ((st < 0.0)))
-				var o_4: float = (0.0 if isLead_2 else 3.0)
+				var o_5: float = (0.0 if isLead_2 else 3.0)
 				stanceFoot(float(side_2), _h_p)
-				var __v69: float = (sx_2 * gu.feet[o_4])
-				var __v70: float = gu.feet[(o_4 + 1.0)]
-				var __v71: float = gu.feet[(o_4 + 2.0)]
+				var __v69: float = (sx_2 * gu.feet[o_5])
+				var __v70: float = gu.feet[(o_5 + 1.0)]
+				var __v71: float = gu.feet[(o_5 + 2.0)]
 				foot.x = __v69
 				foot.y = __v70
 				foot.z = __v71
@@ -5623,6 +5849,7 @@ class Fighter extends RefCounted:
 		self.yaw = TMath.wrapAngle(yaw)
 
 static func __init_module() -> void:
+	TFighter.PIVOT = {"lead": 0.38, "sweep": 0.2, "slide": 0.6}
 	TFighter.UID = 1.0
 	TFighter._v = V3.new()
 	TFighter._w = V3.new()

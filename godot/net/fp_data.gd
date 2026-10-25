@@ -4,5 +4,5 @@
 class_name FpData
 extends RefCounted
 
-const DATA := 3104462325
-const WEB := 2298676131
+const DATA := 4177979678
+const WEB := 2605005412

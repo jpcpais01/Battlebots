@@ -44,6 +44,11 @@ class Brain extends RefCounted:
 	var punishUntil: float
 	var exitUntil: float
 	var exitLat: float
+	var pivotDir: float
+	var pivotReach: float
+	var pivotBy: float
+	var pivotNext: float
+	var pivoting: bool
 	var baseRangeBias: float
 	var tempo: float
 	var trigger: float
@@ -140,6 +145,11 @@ class Brain extends RefCounted:
 		self.punishUntil = 0.0
 		self.exitUntil = 0.0
 		self.exitLat = 0.0
+		self.pivotDir = 0.0
+		self.pivotReach = 0.5
+		self.pivotBy = 0.0
+		self.pivotNext = 0.0
+		self.pivoting = false
 		self.baseRangeBias = 0.0
 		self.tempo = 0.0
 		self.trigger = 0.6
@@ -466,6 +476,7 @@ class Brain extends RefCounted:
 			return
 		updateFlow(dt)
 		updateGuard()
+		updatePivots(dt)
 		steer(dt)
 		self.thinkTimer -= dt
 		var chainReady: bool = (not (not ((s != null) and me.canStrike(true))))
@@ -798,6 +809,7 @@ class Brain extends RefCounted:
 			self.reactUntil = (time + rng.range_(0.4, 0.6))
 			if (react == "pivot"):
 				self.circleDir = chooseCircleDir()
+				askPivot(circleDir, rng.range_(0.5, 0.65), (reactUntil - time))
 			if (react == "hold"):
 				self.coverUntil = reactUntil
 	
@@ -881,6 +893,8 @@ class Brain extends RefCounted:
 			self.circleDir = chooseCircleDir()
 			self.exitUntil = (now + rng.range_(0.35, 0.6))
 			self.exitLat = (circleDir * 1.1)
+			if rng.chance((0.45 + (t.footwork * 0.45))):
+				askPivot(circleDir, rng.range_(0.42, 0.6), 0.5)
 		else:
 			self.coverUntil = (now + rng.range_(0.35, 0.7))
 		if ((((burstHits >= 2.0) and (t.showboat > 0.6)) and (confidence > 0.6)) and rng.chance(0.3)):
@@ -1055,6 +1069,49 @@ class Brain extends RefCounted:
 			__v6.y = 0.0
 			__v6.z = 0.0
 		me.bounce = TMath.lerp_(me.bounce, ((bounce * ((1.0 - (tired * 0.6)))) * ((0.3 if (me.legLost >= 0.0) else 1.0))), 0.05)
+	
+	func askPivot(dir: float, reach: float, within: float) -> void:
+		self.pivotDir = dir
+		self.pivotReach = reach
+		self.pivotBy = (time + within)
+	
+	func updatePivots(dt: float) -> void:
+		var me: TFighter.Fighter = self.me
+		var t = traits
+		var now: float = time
+		var d = me.dodge
+		if ((d != null) and (d.type == "pivot")):
+			self.pivoting = true
+			return
+		var ps: String = perceived.state
+		if pivoting:
+			self.pivoting = false
+			var o: TFighter.Fighter = opp
+			var off: float = absf(TMath.wrapAngle((DM.atan2((me.root.x - o.root.x), (me.root.z - o.root.z)) - o.faceYaw)))
+			if (((off > 0.25) and (ps == "fight")) and rng.chance(((0.35 + (effAggression() * 0.4)) + (t.skill * 0.2)))):
+				self.tempo = 1.0
+				self.trigger = 0.0
+				self.calmUntil = 0.0
+				self.exitUntil = 0.0
+				self.returnFireUntil = (now + 0.6)
+				self.punishUntil = (now + 0.5)
+		if ((((ps == "down") or (ps == "getup")) or (ps == "ko")) or (corner != null)):
+			self.pivotDir = 0.0
+			return
+		if (((pivotDir == 0.0) and (now > pivotNext)) and (not (me.action != null))):
+			var dd: float = perceivedDist()
+			var pair: float = (((me.size_ + opp.size_)) * 0.5)
+			if (((TBody.ropeGap(me.root.x, me.root.z) < 0.55) and (dd < (1.5 * pair))) and (ps == "fight")):
+				if rng.chance((dt * ((0.5 + (t.footwork * 1.5))))):
+					askPivot(chooseCircleDir(), rng.range_(0.6, 0.75), 0.3)
+			elif (((((plan == "circle") or (plan == "outbox")) or (plan == "counter")) and (dd < (myPunchRange() * 1.5))) and rng.chance(((dt * t.footwork) * 0.35))):
+				askPivot(circleDir, rng.range_(0.4, 0.55), 0.3)
+		if (pivotDir != 0.0):
+			if (now > pivotBy):
+				self.pivotDir = 0.0
+			elif ((not (me.action != null)) and me.tryDodge("pivot", pivotDir, pivotReach)):
+				self.pivotDir = 0.0
+				self.pivotNext = (now + rng.range_(1.2, 2.6))
 	
 	func cutOff(tx: float, tz: float) -> float:
 		var v: V3 = perceived.vel
