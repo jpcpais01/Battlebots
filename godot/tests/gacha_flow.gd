@@ -3,7 +3,8 @@ extends SceneTree
 ## Epic pity, a Rare in every 10-pull, duplicates turning into shards and shards into a skin, the
 ## state's save and load, a worn skin surviving the bot's save, and the vault screen: the welcome
 ## 10-pull, paid pulls taking credits (and refused without them), the pulls playing out on the
-## vault's own place (render/vault/vault_stage.gd), wearing a skin, the garage's Skins page and an
+## vault's own place (render/vault/vault_stage.gd), an Epic in a 10-pull getting the spotlight
+## before the cards, wearing a skin, the garage's Skins page and an
 ## opponent's skin.
 ##   godot --headless --path godot -s res://tests/gacha_flow.gd
 var app: App
@@ -127,6 +128,11 @@ func _screen() -> void:
 	check(float(app.record.career.credits) == credits, "the welcome pull is free")
 	v.show._skip()
 	await _wait(3)
+	# (an Epic among them is shown on the robot first: tap on past it)
+	while v.show._phase == "spot":
+		v.show._spot_t = 1.0
+		v.show._skip()
+		await _wait(3)
 	check(stage.mode == "orbs" and v.show._cards.size() == 10, "a tap pops them all and deals the cards")
 	check(stage._swing == 1.0 and stage._bolt == 1.0, "and throws the vault door wide open")
 	v.show._skip()
@@ -171,6 +177,31 @@ func _screen() -> void:
 	check(app.player.get("skin") == got, "Wear it puts the skin on the bot")
 	check(Store.load_player().get("skin") == got, "and it's saved")
 	check(app.game.showcase != null and app.game.showcase.model.skin != null and app.game.showcase.model.skin.id == got, "the bot on the lift wears it")
+	# a 10-pull with an Epic in it: the Epic in the spotlight on the robot before the cards deal
+	app.record.career.credits = float(Gacha.TEN_COST)
+	app.skins.since_epic = Gacha.HARD_PITY - 1
+	v.pull(10)
+	await _wait(3)
+	v.show._skip()
+	await _wait(3)
+	var epic_i := -1
+	for i in v.show.results.size():
+		if int(v.show.results[i].skin.r) == Skins.EPIC:
+			epic_i = i
+	check(epic_i >= 0 and v.show._phase == "spot" and v.show._cards.is_empty(), "an Epic in a 10-pull gets the spotlight before the cards")
+	check(stage.mode == "reveal" and app.game.showcase.model.visible and app.game.showcase.model.skin != null and app.game.showcase.model.skin.id == v.show.results[epic_i].skin.id, "the Epic shown on the robot")
+	v.show._skip()
+	await _wait(3)
+	check(v.show._phase == "spot", "a tap too soon doesn't skip past it")
+	v.show._spot_t = 1.0
+	while v.show._phase == "spot":
+		v.show._spot_t = 1.0
+		v.show._skip()
+		await _wait(3)
+	check(stage.mode == "orbs" and v.show._phase == "cards" and v.show._cards.size() == 10, "then a tap deals the cards")
+	v._on_show("done", null, 10)
+	await _wait(3)
+	app.game.show_bot(app.player)
 	# the collection: try one on, then back
 	v.set_tab("collection")
 	await _wait(3)

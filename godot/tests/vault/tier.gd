@@ -18,5 +18,10 @@ static func prepare(app: App) -> void:
 			if int(s.r) == want:
 				res.append({"skin": s, "new": true, "shards": 0})
 				break
+	# (the show's words follow the same results)
+	var show: PullShow = app.screens.vault.show
+	show.results = res
+	show._best = Gacha.best_of(res)
+	show._tier = int(show._best.skin.r)
 	stage.play(res, app.player)
 	await one.hold(app)

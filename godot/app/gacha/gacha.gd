@@ -174,7 +174,7 @@ static func pull(g: Dictionary, n: int) -> Array:
 	return out
 
 
-## The best of a pull (highest rarity, new before old), for the capsule's colour.
+## The best of a pull (highest rarity, new before old): what its show builds up to.
 static func best_of(results: Array) -> Dictionary:
 	var best: Dictionary = results[0]
 	for x in results:
