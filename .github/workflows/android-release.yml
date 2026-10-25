@@ -1,7 +1,7 @@
 # Builds the Android app (godot/) and the Windows build of it, and publishes both on the repo's
 # Releases page whenever main changes something in godot/. The newest builds are always at
 #   https://github.com/<owner>/<repo>/releases/latest/download/Battlebots.apk
-#   https://github.com/<owner>/<repo>/releases/latest/download/Battlebots-Windows.zip
+#   https://github.com/<owner>/<repo>/releases/latest/download/Battlebots.exe
 # with patch-notes.json beside them (the newest groups of src/patchNotes.ts): the app checks the
 # latest release at launch and offers it, notes and all (godot/app/update/updater.gd).
 #
@@ -103,9 +103,9 @@ jobs:
           rm -f "$GODOT_ANDROID_KEYSTORE_RELEASE_PATH"
 
       # (the same version, stamped above; Windows builds aren't signed)
-      - name: Build the Windows zip
+      - name: Build the Windows exe
         if: steps.secrets.outputs.ok == 'true'
-        run: sh godot/tools/build-windows.sh "$RUNNER_TEMP/Battlebots-Windows.zip"
+        run: mkdir -p "$RUNNER_TEMP/win" && sh godot/tools/build-windows.sh "$RUNNER_TEMP/win/Battlebots.exe"
 
       - name: Publish the release
         if: steps.secrets.outputs.ok == 'true'
@@ -117,7 +117,7 @@ jobs:
             echo
             echo "On your phone: download **Battlebots.apk** below and open it. Android asks once to allow installs from your browser. It installs over the previous build. From this build on, the app offers new builds itself on its home screen."
             echo
-            echo "On a Windows PC: download **Battlebots-Windows.zip**, unzip it anywhere you can write to (not Program Files) and run Battlebots.exe. Windows may warn about an unknown app the first time: More info, then Run anyway. The game offers new builds itself and updates in place."
+            echo "On a Windows PC: download **Battlebots.exe**, put it anywhere you can write to (not Program Files) and run it. It is the whole game in one file. Windows may warn about an unknown app the first time: More info, then Run anyway. The game offers new builds itself and updates in place."
             echo
             echo "Latest change: $(git log -1 --format=%s)"
           } > "$RUNNER_TEMP/notes.md"
@@ -128,10 +128,10 @@ jobs:
           TAG="android-v$VERSION_NAME"
           for i in 1 2 3 4 5; do
             if gh release view "$TAG" > /dev/null 2>&1; then
-              gh release upload "$TAG" "$RUNNER_TEMP/Battlebots.apk" "$RUNNER_TEMP/Battlebots-Windows.zip" "$RUNNER_TEMP/patch-notes.json" --clobber \
+              gh release upload "$TAG" "$RUNNER_TEMP/Battlebots.apk" "$RUNNER_TEMP/win/Battlebots.exe" "$RUNNER_TEMP/patch-notes.json" --clobber \
                 && gh release edit "$TAG" --draft=false --latest && break
             else
-              gh release create "$TAG" "$RUNNER_TEMP/Battlebots.apk" "$RUNNER_TEMP/Battlebots-Windows.zip" "$RUNNER_TEMP/patch-notes.json" \
+              gh release create "$TAG" "$RUNNER_TEMP/Battlebots.apk" "$RUNNER_TEMP/win/Battlebots.exe" "$RUNNER_TEMP/patch-notes.json" \
                 --title "Battlebots $VERSION_NAME (Android + Windows)" \
                 --notes-file "$RUNNER_TEMP/notes.md" \
                 --target "$GITHUB_SHA" --latest && break
@@ -140,4 +140,4 @@ jobs:
           done
           gh release view "$TAG" --json assets --jq '.assets[].name' > "$RUNNER_TEMP/assets.txt"
           grep -qx Battlebots.apk "$RUNNER_TEMP/assets.txt"
-          grep -qx Battlebots-Windows.zip "$RUNNER_TEMP/assets.txt"
+          grep -qx Battlebots.exe "$RUNNER_TEMP/assets.txt"

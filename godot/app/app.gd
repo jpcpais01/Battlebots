@@ -130,6 +130,8 @@ func breathe() -> void:
 ## it hands back between steps (so the screen keeps moving) and warms each place up behind it.
 func _setup() -> void:
 	TInit.run()
+	# (online rooms' WebRTC, from inside the one-file Windows .exe)
+	WebrtcWindows.ensure()
 	_rng = TMath.Rng.new(float(randi()))
 	updater = Updater.new()
 	add_child(updater)
