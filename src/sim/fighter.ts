@@ -29,7 +29,7 @@ import { EC, type EmotePose } from './emote';
 export type FState = 'ready' | 'fight' | 'stun' | 'stagger' | 'down' | 'getup' | 'ko' | 'win' | 'held';
 export type GuardMode = 'normal' | 'high' | 'body' | 'low';
 /** sprawl: legs shot back and hips down onto a takedown shot. */
-export type DodgeType = 'slip' | 'duck' | 'sway' | 'backstep' | 'sidestep' | 'sprawl';
+export type DodgeType = 'slip' | 'duck' | 'sway' | 'backstep' | 'sidestep' | 'sprawl' | 'pivot';
 export type StrikeResult = 'pending' | 'hit' | 'blocked' | 'whiff' | 'dodged' | 'interrupted' | 'feint';
 
 export interface StrikeAction {
@@ -121,6 +121,8 @@ export const strikeId = (s: StrikeAction) => s.uid * 16 + s.sub;
 
 /** How long a cover takes to come up, and to let go once the shot is done with. */
 const COVER_IN = 0.09;
+/** A pivot's beats, as fractions of it: the lead step lands, the swing round it starts, the body has come over it. */
+const PIVOT = { lead: 0.38, sweep: 0.2, slide: 0.6 };
 const CHECK_IN = 0.13;
 const COVER_OUT = 0.24;
 
@@ -537,6 +539,13 @@ class Foot {
   /** This step was asked for: it re-aims for where the body will be, and maybe drags the other foot after it. */
   asked = false;
   drag = 0;
+  /**
+   * A pivot: the foot swings round the other (planted) one at (cx, cz) instead of going
+   * straight there, so it sweeps round behind it rather than cutting through its leg.
+   */
+  sweep = false;
+  cx = 0;
+  cz = 0;
 }
 
 interface StrikeProg {
@@ -573,6 +582,23 @@ export class Fighter {
   spinYaw = 0;
   /** Facing the root and support foot have already been turned to (see updateRoot). */
   private faceDone = 0;
+  /**
+   * A pivot under way (see planPivot): the foot it turns on (pvLead, the one on the side it goes), the facing it set off with and the
+   * turn it makes, the path the root takes (from pvR0 over to pvM under the new lead foot pvL,
+   * then round it), where the rear foot lands (pvB), and how far along it all is.
+   */
+  private pvLead = 0;
+  private pvYaw0 = 0;
+  private pvTurn = 0;
+  private pvDone = 0;
+  private pvSwept = false;
+  private pvR0 = new Vector3();
+  private pvM = new Vector3();
+  private pvL = new Vector3();
+  private pvB = new Vector3();
+  private pvAt = new Vector3();
+  /** Match time the other robot last took an angle on this one: it turns after them slowly a moment. */
+  angledAt = -9;
   /** Where updateRoot last left the root, to tell how far it has moved since. */
   private rootEnd = new Vector3();
   lift = 0;
@@ -1285,10 +1311,11 @@ export class Fighter {
     }
   }
 
-  tryDodge(type: DodgeType, dir: number): boolean {
+  /** `reach`: a pivot's step round them (body lengths along the circle they stand in the middle of). */
+  tryDodge(type: DodgeType, dir: number, reach = 0.5): boolean {
     if (this.state !== 'fight' || this.clinched) return false;
-    // a sprawl throws both legs back
-    if (type === 'sprawl' && this.legLost >= 0) return false;
+    // a sprawl throws both legs back; a pivot turns on one foot and swings the other round
+    if ((type === 'sprawl' || type === 'pivot') && this.legLost >= 0) return false;
     const s = this.strike;
     if (s) {
       // Only abort a strike that is still winding up (and not by much).
@@ -1299,8 +1326,9 @@ export class Fighter {
     const cost = 5 * (1 - this.passive('slipstream'));
     if (this.stamina < cost) return false;
     this.stamina -= cost;
-    const baseDur = type === 'backstep' || type === 'sidestep' ? 0.38 : type === 'duck' ? 0.48 : type === 'sprawl' ? 0.62 : 0.44;
+    const baseDur = type === 'backstep' || type === 'sidestep' ? 0.38 : type === 'duck' ? 0.48 : type === 'sprawl' ? 0.62 : type === 'pivot' ? 0.5 : 0.44;
     const d: DodgeAction = { kind: 'dodge', type, dir, t: 0, dur: baseDur / agility, uid: UID++ };
+    if (type === 'pivot') d.dur = (baseDur * (0.85 + reach * 0.3)) / Math.sqrt(agility);
     this.action = d;
     this.lastActTime = this.hooksTime;
     const fwd = this.forward(_v);
@@ -1320,6 +1348,7 @@ export class Fighter {
       this.askStep(first, 0, 0.21 * pace, 0.035, 0);
       this.askStep(1 - first, 0.08 * pace, 0.21 * pace, 0.03, 0);
     }
+    if (type === 'pivot') this.planPivot(dir, reach, d.dur);
     this.hooks?.emit('dodgeStart', { f: this, d });
     return true;
   }
@@ -2181,6 +2210,12 @@ export class Fighter {
     // (only its own walking: a dodge, a shove or a knock still brakes as hard as ever)
     else if (this.roomy && !s && this.state !== 'held' && this.rootVel.length() < maxSpd * 1.05 && this.hooksTime - this.thrownAt > 0.6)
       accel = Math.min(accel, 3.6 * legs);
+    // pivoting, the feet carry the body round (see updatePivot): no other travel
+    const pv = this.dodge && this.dodge.type === 'pivot' ? this.dodge : null;
+    if (pv) {
+      maxSpd = 0;
+      accel = 12;
+    }
     this.rootMax = maxSpd;
     this.rootAcc = accel;
 
@@ -2211,6 +2246,7 @@ export class Fighter {
 
     this.root.addScaledVector(this.rootVel, dt);
     this.root.y = 0;
+    if (pv) this.updatePivot(pv);
 
     // whatever still moves the body during a kick (lunge, leftover speed, a shove) carries the
     // support foot with it, a skip on its ball, so the body can't drift off over it
@@ -2238,25 +2274,38 @@ export class Fighter {
       if (this.state === 'getup') turn = this.getupProgress < 0.6 ? 0 : 3;
       // one leg turns slowly, a shuffle on the ball of the foot
       if (stand) turn *= 0.6;
+      // they took an angle on me: a moment flat-footed, turning to find them
+      if (this.hooksTime - this.angledAt < 0.42 && this.state === 'fight') turn = Math.min(turn, 2.4);
       const em = this.emote;
       if (em && em.faceOn && em.w > 0.2) {
         target = em.face;
         turn = em.turn;
       }
-      if (!(s && s.move.spin)) this.yaw = dampAngle(this.yaw, target, turn, dt);
+      if (!(s && s.move.spin) && !pv) this.yaw = dampAngle(this.yaw, target, turn, dt);
     }
 
     // on one leg the body turns over the support foot, not round its own centre: swing it
     // round a point between the hips and that foot, and turn the foot (on its ball) with
     // it, so the legs never cross when a kick spins or follows a moving target
     // (and hopping on one leg it is always on one leg)
+    // On two legs in its stance it turns over the lead foot the way a boxer pivots, the ball of
+    // that foot screwing round and the hips swinging round it, so the rear foot is what has to
+    // come round after (in a sweep, see sweepRound) rather than both feet twisting under it.
     const face = this.yaw + this.spinYaw;
     const dTurn = wrapAngle(face - this.faceDone);
     this.faceDone = face;
-    const piv = sup ?? stand;
-    if (piv && !piv.locked && !piv.stepping && dTurn !== 0 && Math.abs(dTurn) < 1) {
+    let piv = sup ?? stand;
+    let over = 0.5;
+    if (!piv && !pv && lost < 0 && (!s || s.phase === 'recovery') && !this.dodge && !this.clinched && (this.state === 'fight' || this.state === 'stun') && this.walkK < 0.3 && this.rootVel.lengthSq() < 0.36) {
+      const lf = this.feet[this.stance < 0 ? 0 : 1];
+      if (!this.feet[this.stance < 0 ? 1 : 0].locked) {
+        piv = lf;
+        over = 1;
+      }
+    }
+    if (piv && !piv.locked && !piv.stepping && dTurn !== 0 && Math.abs(dTurn) < 1 && !pv) {
       const f = piv;
-      const cx = (this.root.x + f.pos.x) * 0.5, cz = (this.root.z + f.pos.z) * 0.5;
+      const cx = this.root.x + (f.pos.x - this.root.x) * over, cz = this.root.z + (f.pos.z - this.root.z) * over;
       const c = DM.cos(dTurn), sn = DM.sin(dTurn);
       for (const p of [this.root, f.pos]) {
         const rx = p.x - cx, rz = p.z - cz;
@@ -2270,6 +2319,116 @@ export class Fighter {
 
   distTo(o: Fighter) {
     return DM.hypot(o.root.x - this.root.x, o.root.z - this.root.z);
+  }
+
+  // ---------------------------------------------------------------- pivots
+  /**
+   * An angle step: the foot on the side it goes steps out round them, then the body swings round
+   * on it to face them from the new angle while the other foot sweeps round after (the feet never
+   * cross: going the rear foot's way, that one steps and the lead foot comes round). The root ends `reach` body
+   * lengths round the circle they stand in the middle of, to my right for dir +1 (a touch
+   * further out: it steps off the line, not into them), facing them.
+   */
+  private planPivot(dir: number, reach: number, dur: number) {
+    const o = this.opp;
+    const sz = this.size;
+    const rx = this.root.x - o.root.x, rz = this.root.z - o.root.z;
+    const dd = Math.max(0.4 * sz, DM.hypot(rx, rz));
+    const b = clamp((reach * sz) / dd, 0.2, 1.2) * (dir < 0 ? -1 : 1);
+    const c = DM.cos(b), sn = DM.sin(b);
+    const out = 1 + (0.06 * sz) / dd;
+    const r1x = o.root.x + (rx * c + rz * sn) * out;
+    const r1z = o.root.z + (-rx * sn + rz * c) * out;
+    const yaw0 = this.yaw;
+    const li = dir < 0 ? 0 : 1;
+    this.pvLead = li;
+    this.pvYaw0 = yaw0;
+    this.pvTurn = wrapAngle(DM.atan2(o.root.x - r1x, o.root.z - r1z) - yaw0);
+    this.pvDone = 0;
+    this.pvSwept = false;
+    this.pvR0.copy(this.root);
+    this.pvAt.copy(this.root);
+    const yaw1 = yaw0 + this.pvTurn;
+    // the lead foot lands on its stance spot round the new root, facing them...
+    this.stanceFoot(li, _p);
+    this.toWorld(_p, this.pvL, yaw1);
+    this.pvL.x += r1x - this.root.x;
+    this.pvL.z += r1z - this.root.z;
+    this.pvL.y = FOOT_Y * sz;
+    // ...and the body first comes over it still facing the old way, then turns on it
+    this.toWorld(_p, _q, yaw0);
+    this.pvM.set(this.pvL.x - (_q.x - this.root.x), 0, this.pvL.z - (_q.z - this.root.z));
+    this.stanceFoot(1 - li, _p);
+    this.toWorld(_p, this.pvB, yaw1);
+    this.pvB.x += r1x - this.root.x;
+    this.pvB.z += r1z - this.root.z;
+    this.pvB.y = FOOT_Y * sz;
+    this.rootVel.set(0, 0, 0);
+    // that foot goes first, low and quick (its toes turn with the body, see updatePivot)
+    const f = this.feet[li];
+    f.from.copy(f.pos);
+    f.to.copy(this.pvL);
+    f.t = 0;
+    f.dur = PIVOT.lead * dur;
+    f.arc = 0.04 * sz;
+    f.fromYaw = f.yaw;
+    f.toYaw = yaw0 + this.stanceFootYaw(li);
+    f.walk = false;
+    f.asked = false;
+    f.sweep = false;
+    f.drag = 0;
+    f.reqAt = -1;
+    f.stepping = true;
+    this.feet[1 - li].reqAt = -1;
+    // they have to turn to find me
+    o.angledAt = this.hooksTime;
+  }
+
+  /** A pivot under way: carry the body along its path, turn it on the lead foot, sweep the rear one round. */
+  private updatePivot(d: DodgeAction) {
+    const k = clamp01(d.t / d.dur);
+    const ea = minJerk(k / PIVOT.slide);
+    const turn = this.pvTurn * minJerk((k - PIVOT.sweep) / (1 - PIVOT.sweep));
+    const c = DM.cos(turn), sn = DM.sin(turn);
+    const L = this.pvL, M = this.pvM, R0 = this.pvR0;
+    const mx = M.x - L.x, mz = M.z - L.z;
+    const px = L.x + mx * c + mz * sn + (R0.x - M.x) * (1 - ea);
+    const pz = L.z - mx * sn + mz * c + (R0.z - M.z) * (1 - ea);
+    this.root.x += px - this.pvAt.x;
+    this.root.z += pz - this.pvAt.z;
+    this.pvAt.set(px, 0, pz);
+    const dy = turn - this.pvDone;
+    this.pvDone = turn;
+    this.yaw = wrapAngle(this.yaw + dy);
+    // the foot it turns on turns with the body: on its ball once it's down
+    const lf = this.feet[this.pvLead];
+    if (lf.stepping) lf.toYaw += dy;
+    else lf.yaw = wrapAngle(lf.yaw + dy);
+    if (!this.pvSwept && k >= PIVOT.sweep) {
+      this.pvSwept = true;
+      const f = this.feet[1 - this.pvLead];
+      f.from.copy(f.pos);
+      f.to.copy(this.pvB);
+      f.t = 0;
+      f.dur = Math.max(0.1, (1 - k) * d.dur * 0.92);
+      f.arc = 0.022 * this.size;
+      f.fromYaw = f.yaw;
+      f.toYaw = this.pvYaw0 + this.pvTurn + this.stanceFootYaw(1 - this.pvLead);
+      f.walk = false;
+      f.asked = false;
+      f.drag = 0;
+      f.sweep = true;
+      f.cx = L.x;
+      f.cz = L.z;
+      f.stepping = true;
+    }
+  }
+
+  /** How far into a pivot's turn (0 outside one): the swing round the lead foot. */
+  private pivotK() {
+    const d = this.dodge;
+    if (!d || d.type !== 'pivot') return 0;
+    return clamp01((d.t / d.dur - PIVOT.sweep) / (1 - PIVOT.sweep));
   }
 
   // ---------------------------------------------------------------- feet
@@ -2451,6 +2610,32 @@ export class Fighter {
     return this.uncross(i, out);
   }
 
+  /** Foot f k of the way through a sweep: round (cx, cz) from where it lifted to where it lands. */
+  private sweepAt(f: Foot, k: number) {
+    const ax = f.from.x - f.cx, az = f.from.z - f.cz;
+    const bx = f.to.x - f.cx, bz = f.to.z - f.cz;
+    const a0 = DM.atan2(ax, az);
+    const a = a0 + wrapAngle(DM.atan2(bx, bz) - a0) * k;
+    const r = lerp(DM.hypot(ax, az), DM.hypot(bx, bz), k);
+    f.pos.x = f.cx + DM.sin(a) * r;
+    f.pos.z = f.cz + DM.cos(a) * r;
+  }
+
+  /**
+   * A placing step for foot i that has to come round the other, planted foot (the body turned
+   * over it): swing it round that foot. A step that hardly goes round it stays straight.
+   */
+  private sweepRound(i: number) {
+    const f = this.feet[i], o = this.feet[1 - i];
+    if (o.stepping || o.locked) return;
+    const a0 = DM.atan2(f.from.x - o.pos.x, f.from.z - o.pos.z);
+    const a1 = DM.atan2(f.to.x - o.pos.x, f.to.z - o.pos.z);
+    if (Math.abs(wrapAngle(a1 - a0)) < 0.22) return;
+    f.sweep = true;
+    f.cx = o.pos.x;
+    f.cz = o.pos.z;
+  }
+
   /** How far planted foot i is from under its hip, flat on the canvas (body lengths). */
   private reachOf(i: number) {
     this.toLocal(this.feet[i].pos, _w, this.yaw);
@@ -2480,13 +2665,15 @@ export class Fighter {
         }
         f.t += dt / f.dur;
         const k = minJerk(f.t);
-        f.pos.lerpVectors(f.from, f.to, k);
+        if (f.sweep) this.sweepAt(f, k);
+        else f.pos.lerpVectors(f.from, f.to, k);
         // the foot comes up early and reaches for the floor: the arc peaks before mid-step
         const ft = clamp01(f.t);
         f.pos.y = lerp(f.from.y, f.to.y, k) + DM.sin(Math.PI * ft * (1.25 - 0.25 * ft)) * f.arc;
         f.yaw = f.fromYaw + wrapAngle(f.toYaw - f.fromYaw) * smoothstep(0, 0.8, f.t);
         if (f.t >= 1) {
           f.stepping = false;
+          f.sweep = false;
           f.pos.copy(f.to);
           f.yaw = f.toYaw;
           // the knees give a little as the weight lands on the new foot; a hop lands
@@ -2564,6 +2751,7 @@ export class Fighter {
         if (f.stepping) {
           f.asked = true;
           f.walk = false;
+          f.sweep = false;
           f.drag = Math.max(f.drag, f.reqDrag);
           // (and gets there no later than the step asked for would)
           if ((1 - f.t) * f.dur > f.reqDur) f.dur = f.reqDur / (1 - f.t);
@@ -2585,6 +2773,8 @@ export class Fighter {
         f.stepping = true;
       }
     }
+    // a pivot places both feet itself (see updatePivot)
+    if (d && d.type === 'pivot') return;
     // on one leg the support foot pivots (see updateRoot) instead of stepping; only at the
     // very start of a kick may it make a quick set step back under the body
     const kick = !!s && s.move.kind === 'kick';
@@ -2710,6 +2900,8 @@ export class Fighter {
     f.fromYaw = f.yaw;
     f.toYaw = this.yaw + this.stanceFootYaw(best);
     f.stepping = true;
+    f.sweep = false;
+    if (!travel && lost < 0) this.sweepRound(best);
   }
 
   // ------------------------------------------------------------ pose → targets
@@ -3017,6 +3209,19 @@ export class Fighter {
           roll -= d.dir * 0.12 * env;
           crouch += 0.05 * env;
           break;
+        case 'pivot': {
+          // it sits into the step out, then the shoulders lead the swing round the lead foot
+          // and the hips follow; that heel comes up as the foot screws round on its ball
+          const sw = DM.sin(Math.PI * this.pivotK());
+          const dirT = this.pvTurn < 0 ? -1 : 1;
+          const amt = Math.min(1, Math.abs(this.pvTurn) / 0.5);
+          shTw -= dirT * 0.34 * sw * amt;
+          hipTw -= dirT * 0.14 * sw * amt;
+          crouch += 0.03 * env;
+          pitch += 0.04 * env;
+          heel[this.pvLead] = Math.max(heel[this.pvLead], 0.5 * sw);
+          break;
+        }
         case 'sprawl': {
           // hips down and back, chest over the shot, the weight on whoever is down there
           const sk = this.sprawlK();
@@ -3028,6 +3233,11 @@ export class Fighter {
           break;
         }
       }
+    }
+    // a foot sweeping round the other: that one turns on its ball, the heel up
+    for (let i = 0; i < 2; i++) {
+      const o = this.feet[1 - i];
+      if (o.sweep && o.stepping) heel[i] = Math.max(heel[i], 0.3 * DM.sin(Math.PI * clamp01(o.t)));
     }
     // a guard shaped to the shot: the trunk goes with the arms (see the arms and legs below)
     const cov = this.cover && this.cover.w > 0.001 && (this.state === 'fight' || this.state === 'stun') ? this.cover : null;
