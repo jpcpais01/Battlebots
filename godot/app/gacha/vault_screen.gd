@@ -1,13 +1,13 @@
-## The Skin Vault: where skins are won. The vault is its own place out in space
+## The Skin Vault: where skins are won. The vault is its own place, a neon-lit bank vault
 ## (render/vault/vault_stage.gd): the player's bot on a glowing turntable on the right (drag to turn
-## round it) in front of a giant gumball machine full of capsules; the panel on the left has two tabs.
+## round it) in front of the vault's great round door; the panel on the left has two tabs.
 ##   Vault: today's featured Epic turning in its halo, the rates and how close the Epic pity is,
 ##   the free pull (or when it's back), and the pulls (one, or ten with a Rare or better in them),
 ##   paid in career credits. The first visit has a free 10-pull waiting.
 ##   Collection: every skin as a card (the ones not owned yet veiled), by rarity. Tapping one
 ##   paints it onto the bot with a sweep of light: one owned goes on for good, one not owned is
 ##   only tried on, with the shards it costs.
-## Credits and shards sit top right. Pulls play out on the machine (VaultStage.play), with PullShow's
+## Credits and shards sit top right. Pulls play out in the vault (VaultStage.play), with PullShow's
 ## words and buttons over them.
 class_name VaultScreen
 extends AppScreen
@@ -540,7 +540,7 @@ func _close_show() -> void:
 	var tw := s.create_tween()
 	tw.tween_property(s, "modulate:a", 0.0, 0.25)
 	tw.tween_callback(s.queue_free)
-	# the machine at rest again, the player's own bot back on the turntable (a 10-pull's card may
+	# the vault shutting again, the player's own bot back on the turntable (a 10-pull's card may
 	# have left another skin on it), and the panel back
 	var st := stage()
 	if st != null:
@@ -550,7 +550,7 @@ func _close_show() -> void:
 	_panel_shown(true)
 
 
-## The panel and the wallet out of the way while a pull plays on the machine, or back.
+## The panel and the wallet out of the way while a pull plays in the vault, or back.
 func _panel_shown(on: bool) -> void:
 	if _fade_tw != null:
 		_fade_tw.kill()

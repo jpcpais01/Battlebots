@@ -1,13 +1,13 @@
-## A pull, played out (the Skin Vault's big moment), over the vault's own place: the machine does
+## A pull, played out (the Skin Vault's big moment), over the vault's own place: the vault does
 ## the work in 3D (VaultStage.play) and this puts the words, the flashes and the buttons over it.
-## Black bars slide in like a film's while the giant gumball machine's crank turns.
-##   one pull: a capsule drops out of the chute, rolls out, rises and charges (a Rare teases
-##   violet through its seam, an Epic holds, shakes and blows through to gold) and bursts; the
-##   camera cuts to the robot as a beam paints the skin onto it, and its rarity, name and NEW (or
-##   the shards a copy gave) come in beside it.
-##   ten: ten capsules shoot out of the chute into an arc and pop one by one into lights of their
-##   rarity's colour, a pip lighting along the bottom for each (an Epic trembles first); then ten
-##   cards deal out and turn over. A card tapped shows that skin on the robot.
+## Black bars slide in like a film's while the vault door's wheel spins and it swings open.
+##   one pull: a pod glides out of the vault, hovers, rises and charges (a Rare teases violet
+##   through its seam, an Epic trips the alarm, lasers and all, and blows through to gold) and
+##   bursts; the camera cuts to the robot as a beam paints the skin onto it, and its rarity, name
+##   and NEW (or the shards a copy gave) come in beside it.
+##   ten: ten pods fly out of the vault onto pads in an arc and pop one by one into lights of their
+##   rarity's colour, a pip lighting along the bottom for each (an Epic trips the alarm first);
+##   then ten cards deal out and turn over. A card tapped shows that skin on the robot.
 ## A tap skips ahead (to the burst, to the lights, the cards all turned). `finished` says what the
 ## player picked: "done", "again" (the same pull again) or "wear" (with the id).
 class_name PullShow
@@ -130,7 +130,7 @@ func _bars_to(on: bool) -> void:
 		b.create_tween().tween_property(b, "position:y", to, 0.45).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT if on else Tween.EASE_IN)
 
 
-## Ten pips along the bottom bar, one lighting for each capsule as it pops.
+## Ten pips along the bottom bar, one lighting for each pod as it pops.
 func _build_pips(vs: Vector2) -> void:
 	var d := maxf(12.0, vs.y * 0.022)
 	var gap := d * 0.9

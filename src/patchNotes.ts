@@ -17,8 +17,18 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     hour: "2026-10-25 04:00",
+    title: "Crack the vault",
+    notes: [
+      "The Skin Vault is now a neon-lit bank vault: walls of safe-deposit boxes, a polished black floor and a giant round vault door behind your robot.",
+      "Every pull opens the vault: the wheel spins, the bolts shoot back, the door unseals in a hiss of steam and swings open onto racks of glowing pods.",
+      "Rare pulls turn the room violet. Epic pulls set off the alarm, with red beacons, a grid of lasers and every light flashing, until it all bursts into gold and coins.",
+    ],
+  },
+  {
+    hour: "2026-10-25 04:00",
     title: "Taking angles",
     notes: [
+      "In the Skin Vault, a ×10 pull sends ten pods flying out of the vault onto glowing pads to pop one by one.",
       "Robots now pivot: one foot steps out round the opponent, the body swings round on it and the other foot sweeps round behind, so they come out of a combination at a new angle.",
       "A robot that gets out-angled is caught flat-footed for a moment, turning to find its opponent, and sharp fighters jump on that opening.",
       "Pinned on the ropes, a robot can spin off along them, and it can step off the line when the other one charges in.",
