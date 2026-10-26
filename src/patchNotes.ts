@@ -16,6 +16,13 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-26 19:00",
+    title: "Cleaner cover art",
+    notes: [
+      "The game cover that comes with the Windows download now shows just the logo and title over the fight, with no text at the bottom.",
+    ],
+  },
+  {
     hour: "2026-10-26 02:00",
     title: "Windows build in a zip",
     notes: [
