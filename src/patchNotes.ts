@@ -16,6 +16,14 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    hour: "2026-10-26 01:00",
+    title: "Windows build in a zip",
+    notes: [
+      "The Windows game now comes as Battlebots-Windows.zip: unzip it and run Battlebots.exe, with the game's files right beside it.",
+      "Updating from inside the game on Windows downloads the new zip, unzips it into your Downloads folder and opens the new version from there.",
+    ],
+  },
+  {
     hour: "2026-10-25 10:00",
     title: "The Jet Knee takes off",
     notes: [

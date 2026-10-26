@@ -1,7 +1,7 @@
 ## The download screen: the whole screen while a new build comes in (Update now on the card,
 ## or the home screen's Update pill once one is on its way). A big ring fills with the download,
 ## its percentage inside; beside it the size so far, the speed and the time left, the steps
-## (Download, Verify, Install, and Restart on Windows), the new build's What's new lines turning
+## (Download, Verify, Install; on Windows Download, Verify, Unzip, Restart), the new build's What's new lines turning
 ## over one at a time, and the buttons for where it is: Keep playing (the download carries on, the
 ## pill shows how far), Cancel, Install now, Android's one-time Open settings, Try again.
 ##
@@ -20,7 +20,7 @@ const TICK := 4.5
 
 var _u: Updater
 var _tap: Callable
-## Where it is: "download", "verify", "ready", "allow" (Android needs the OK to install),
+## Where it is: "download", "verify", "unpack" (Windows: unzipping it), "ready", "allow" (Android needs the OK to install),
 ## "installer" (Android's installer was opened), "restart" (Windows is swapping it in),
 ## "failed" (the download), "nohand" (the build couldn't be handed over).
 var state := ""
@@ -258,7 +258,7 @@ func _process(dt: float) -> void:
 	_t += dt
 	_sync(false)
 	# the ring eases after the bytes, so it glides instead of stepping
-	var k := _u.fraction() if state == "download" or state == "verify" else 1.0 if state in ["ready", "allow", "installer", "restart", "nohand"] else _shown_k
+	var k := _u.fraction() if state in ["download", "verify", "unpack"] else 1.0 if state in ["ready", "allow", "installer", "restart", "nohand"] else _shown_k
 	_shown_k = lerpf(_shown_k, k, 1.0 - exp(-dt * 7.0))
 	if state == "download" and _u.got > 0 and _u.total > 0:
 		_pct.text = "%d%%" % int(floor(_shown_k * 100.0 + 0.001))
@@ -286,13 +286,15 @@ func _sync(force: bool) -> void:
 			s = "download" if not _u.ready_to_install() else s
 		"verify":
 			s = "verify"
+		"unpack":
+			s = "unpack"
 		"failed":
 			s = "failed"
 		"ready":
 			if not s in ["allow", "installer", "restart", "nohand"]:
 				s = "ready"
 		_:
-			if s == "download" or s == "verify":
+			if s == "download" or s == "verify" or s == "unpack":
 				# (cancelled from somewhere else)
 				close()
 				return
@@ -327,11 +329,17 @@ func _set_state(s: String) -> void:
 			col = TEAL
 			_add_button("Keep playing", "play", &"BtnSmall", _hide)
 			_add_button("Cancel", "close", &"BtnSmall", _cancel)
+		"unpack":
+			_title.text = "Unzipping v" + v
+			_status.text = "Taking Battlebots.exe and the files beside it out of the zip, ready to go into your Downloads folder."
+			_pct_sub.text = "UNZIPPING"
+			col = TEAL
+			_add_button("Keep playing", "play", &"BtnSmall", _hide)
 		"ready":
 			_kicker.text = "DOWNLOADED"
 			_title.text = "v%s is ready" % v
 			if OS.get_name() == "Windows":
-				_status.text = "Install now: Battlebots closes, updates itself and opens again in a few seconds. Your bots, record and career stay as they are."
+				_status.text = "Install now: Battlebots closes, puts v%s in %s and opens again from there in a few seconds. Your bots, record and career stay as they are." % [v, _where()]
 			else:
 				_status.text = "Install now, then tap Install on Android's screen. Your bots, record and career stay as they are."
 			_done_mark("check", GO)
@@ -359,7 +367,7 @@ func _set_state(s: String) -> void:
 		"restart":
 			_kicker.text = "INSTALLING"
 			_title.text = "Restarting Battlebots"
-			_status.text = "Battlebots closes, swaps in v%s and opens again in a few seconds." % v
+			_status.text = "Battlebots closes, puts v%s in %s and opens again in a few seconds." % [v, _where()]
 			_done_mark("refresh", GO)
 		"failed":
 			_kicker.text = "UPDATE PAUSED"
@@ -374,7 +382,7 @@ func _set_state(s: String) -> void:
 			_kicker.text = "UPDATE PAUSED"
 			_title.text = "Couldn't install"
 			if OS.get_name() == "Windows":
-				_status.text = "Battlebots couldn't write to its own folder (it may be under Program Files). Download %s from the Releases page and put it in place of the old one." % Updater.WIN_NAME
+				_status.text = "Battlebots couldn't write to %s. Download %s from the Releases page, unzip it and run Battlebots.exe." % [_where(), Updater.WIN_ZIP]
 			else:
 				_status.text = "Android wouldn't open its installer. Download Battlebots.apk from the Releases page instead and open it."
 			col = UiTheme.RED
@@ -414,6 +422,9 @@ func _fill_stats() -> void:
 		"verify":
 			_stats[1].text = "Checking"
 			_stats[2].text = "A moment"
+		"unpack":
+			_stats[1].text = "Unzipping"
+			_stats[2].text = "A moment"
 		"failed", "nohand":
 			_stats[1].text = "—"
 			_stats[2].text = "—"
@@ -422,14 +433,16 @@ func _fill_stats() -> void:
 			_stats[2].text = "Ready"
 
 
-## Download, Verify, Install (and Restart on Windows): done ones ticked, the one under way lit.
+## Download, Verify, Install (Download, Verify, Unzip, Restart on Windows): done ones ticked,
+## the one under way lit.
 func _steps_for(s: String) -> void:
 	for c in _steps.get_children():
 		c.queue_free()
 	var names := ["Download", "Verify", "Install"]
-	if OS.get_name() == "Windows":
-		names.append("Restart")
 	var at: int = {"download": 0, "verify": 1, "ready": 2, "allow": 2, "installer": 2, "nohand": 2, "restart": 3, "failed": 0}.get(s, 0)
+	if OS.get_name() == "Windows":
+		names = ["Download", "Verify", "Unzip", "Restart"]
+		at = {"download": 0, "verify": 1, "unpack": 2, "ready": 3, "nohand": 3, "restart": 3, "failed": 0}.get(s, 0)
 	var bad := s == "failed" or s == "nohand"
 	for i in names.size():
 		if i > 0:
@@ -489,6 +502,18 @@ func _add_button(text: String, icon_name: String, variant: StringName, fn: Calla
 
 
 # ------------------------------------------------------------------ what the buttons do
+
+## Where the Windows build goes, for a person: "your Downloads folder", "Downloads\\Battlebots-Windows",
+## or the whole path when it's somewhere else.
+static func _where() -> String:
+	var to := Updater.win_target()
+	var dl := OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS).replace("\\", "/").trim_suffix("/")
+	if dl != "" and to.to_lower() == dl.to_lower():
+		return "your Downloads folder"
+	if dl != "" and to.to_lower().begins_with(dl.to_lower() + "/"):
+		return "Downloads\\" + to.substr(dl.length() + 1).replace("/", "\\")
+	return to.replace("/", "\\")
+
 
 func _install() -> void:
 	if not Updater.can_install():

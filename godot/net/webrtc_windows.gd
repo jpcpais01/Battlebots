@@ -1,8 +1,9 @@
-## WebRTC (online rooms) for the Windows build, which is a single Battlebots.exe. A GDExtension's
-## library has to be a real file to load, so the webrtc-native DLL travels inside the .exe (the
-## Windows export's include_filter) and at launch it is copied out to user://webrtc/ with a
-## .gdextension of its own and loaded from there (addons/webrtc/webrtc.gdextension lists no
-## Windows library, or the export would put the DLL beside the .exe).
+## WebRTC (online rooms) for the Windows build. The release zip has the webrtc-native DLL beside
+## Battlebots.exe, where addons/webrtc/webrtc.gdextension loads it at startup like any other
+## library. The one-file Battlebots.exe the release also carries (for builds from before the zip
+## to update to) has nothing beside it: there the DLL travels inside the .exe (the Windows export's
+## include_filter) and at launch it is copied out to user://webrtc/ with a .gdextension of its own
+## and loaded from there.
 ##   WebrtcWindows.ensure()   (App._setup, before any NetLink)
 class_name WebrtcWindows
 extends RefCounted
@@ -13,7 +14,7 @@ const DIR := "user://webrtc"
 
 ## Load it, once. False if it couldn't be (online rooms then can't connect); true off Windows.
 static func ensure() -> bool:
-	if OS.get_name() != "Windows":
+	if OS.get_name() != "Windows" or GDExtensionManager.is_extension_loaded("res://addons/webrtc/webrtc.gdextension"):
 		return true
 	var cfg := DIR + "/webrtc.gdextension"
 	if GDExtensionManager.is_extension_loaded(cfg):

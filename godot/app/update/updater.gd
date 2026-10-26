@@ -16,9 +16,13 @@
 ## there. Updates install over the old app only because every release is signed with the same
 ## release key (the workflow's ANDROID_KEYSTORE secret): a local "dev" build never checks.
 ##
-## Windows: the same release carries Battlebots.exe (the whole game in one file). It downloads
-## the same way; installing hands over to a small cmd script that waits for the game to close,
-## copies the new .exe over the running one and starts it again (`_install_windows`).
+## Windows: the same release carries Battlebots-Windows.zip: Battlebots.exe with the files it needs
+## beside it (Battlebots.pck, the WebRTC DLL). It downloads the same way, then unzips on a worker
+## thread into user://update-win ("unpack"). Installing hands over to a small cmd script that
+## waits for the game to close, copies those files into the Downloads folder (`win_target`) and
+## starts the new Battlebots.exe from there (`_install_windows`). The release also carries the
+## whole game as one Battlebots.exe, only for the builds from before the zip, whose updater swaps
+## that one file in; the build they get then updates from the zip.
 ##
 ## Other desktop runs (and the tests) only check when BB_UPDATE_AS names a version to pretend to
 ## be, e.g. BB_UPDATE_AS=0.1.1.
@@ -43,14 +47,20 @@ signal installing
 const REPO := "jpcpais01/Battlebots"
 const API := "https://api.github.com/repos/" + REPO + "/releases/latest"
 const APK_NAME := "Battlebots.apk"
-const WIN_NAME := "Battlebots.exe"
+const WIN_ZIP := "Battlebots-Windows.zip"
+const WIN_EXE := "Battlebots.exe"
 const NOTES_NAME := "patch-notes.json"
 ## Where the download lands: the root of the app's files, so the FileProvider path is just its name.
-static var FILE := "Battlebots-update.exe" if OS.get_name() == "Windows" else "Battlebots-update.apk"
+static var FILE := "Battlebots-update.zip" if OS.get_name() == "Windows" else "Battlebots-update.apk"
 static var PART := FILE + ".part"
 const UA := "Battlebots-App"
-## The script that swaps the new Windows .exe in.
+## Where the Windows zip unpacks (and the version it holds), and the script that swaps it in.
+const WIN_DIR := "update-win"
+const WIN_DIR_VERSION := "update-win.version"
 const WIN_CMD := "update-win.cmd"
+## The folder in Downloads the Windows build goes to when this copy isn't in Downloads already:
+## the one Windows' Extract All makes of the zip.
+const WIN_FOLDER := "Battlebots-Windows"
 ## How many of the newer patch-note groups the card shows at most.
 const MAX_GROUPS := 12
 ## Coming back to the app looks again once the last check is this old (seconds).
@@ -74,7 +84,8 @@ var summary := ""
 var published := ""
 var digest := ""
 ## Where the update is: "" (not started), "download", "verify" (checking it's whole and
-## the very file GitHub has), "ready" (downloaded and checked), "failed" (`error` says why).
+## the very file GitHub has), "unpack" (Windows: unzipping it), "ready" (downloaded and checked),
+## "failed" (`error` says why).
 var stage := ""
 var error := ""
 ## The download (and the check after it): bytes so far, of `total`, and the speed in bytes a
@@ -93,6 +104,10 @@ var _hash_f: FileAccess = null
 ## The download running (null when none).
 var _dl: HTTPRequest = null
 var _checking := false
+## The unzip running on a worker thread (-1 when none), and how far it is: [files written, of
+## files in the zip, ok]. (The thread writes it, _process reads it.)
+var _unpack_task := -1
+var _unpack_at := [0, 0, false]
 
 
 func _ready() -> void:
@@ -118,9 +133,9 @@ static func enabled() -> bool:
 	return (OS.get_name() == "Android" or OS.get_name() == "Windows") and current() != "dev"
 
 
-## The release asset this platform installs: the .exe on Windows, else the APK.
+## The release asset this platform installs: the zip on Windows, else the APK.
 static func asset_name() -> String:
-	return WIN_NAME if OS.get_name() == "Windows" else APK_NAME
+	return WIN_ZIP if OS.get_name() == "Windows" else APK_NAME
 
 
 ## "0.1.61" is newer than "0.1.58" (each dot's number compared in turn).
@@ -140,25 +155,38 @@ func available() -> bool:
 	return latest != "" and newer(latest, current())
 
 
-## The newer build is already downloaded, whole.
+## The newer build is already downloaded, whole (and on Windows, unzipped).
 func ready_to_install() -> bool:
+	return _whole() and (OS.get_name() != "Windows" or _unpacked())
+
+
+## The newer build's file is downloaded and checked.
+func _whole() -> bool:
 	if not available() or apk_size <= 0:
 		return false
 	var f := FileAccess.open("user://" + FILE, FileAccess.READ)
 	return f != null and f.get_length() == apk_size and String(Store.pref("updateFile", "")) == latest
 
 
-## Downloading or checking the download.
+## (Windows) the newer build is unzipped, ready to copy in.
+func _unpacked() -> bool:
+	return FileAccess.file_exists("user://%s/%s" % [WIN_DIR, WIN_EXE]) \
+		and FileAccess.get_file_as_string("user://" + WIN_DIR_VERSION).strip_edges() == latest
+
+
+## Downloading, checking the download or unzipping it.
 func downloading() -> bool:
-	return _dl != null or _hash != null
+	return _dl != null or _hash != null or _unpack_task >= 0
 
 
 func checking() -> bool:
 	return _checking
 
 
-## How far along the download (or its check) is, 0..1.
+## How far along the download (or its check, or the unzip) is, 0..1.
 func fraction() -> float:
+	if stage == "unpack":
+		return clampf(float(_unpack_at[0]) / float(_unpack_at[1]), 0.0, 1.0) if _unpack_at[1] > 0 else 0.0
 	return clampf(float(got) / float(total), 0.0, 1.0) if total > 0 else 0.0
 
 
@@ -241,6 +269,9 @@ func apply(rel: Dictionary, all_notes: Array) -> bool:
 	published = str(rel.get("published_at", "")) if rel.get("published_at") != null else ""
 	if stage == "" and ready_to_install():
 		stage = "ready"
+	elif stage == "" and _whole():
+		# (downloaded before the game was closed, not unzipped yet)
+		_unpack()
 	return true
 
 
@@ -338,6 +369,9 @@ func download() -> void:
 		stage = "ready"
 		downloaded.emit()
 		return
+	if _whole():
+		_unpack()
+		return
 	DirAccess.remove_absolute("user://" + PART)
 	stage = "download"
 	error = ""
@@ -374,6 +408,9 @@ func cancel() -> void:
 
 
 func _process(dt: float) -> void:
+	if _unpack_task >= 0:
+		_unpack_poll()
+		return
 	if _hash != null:
 		_hash_step()
 		return
@@ -458,7 +495,7 @@ func _stop_hash() -> void:
 		_hash_f.close()
 	_hash_f = null
 	_hash = null
-	if _dl == null:
+	if _dl == null and _unpack_task < 0:
 		set_process(false)
 
 
@@ -467,6 +504,9 @@ func _verified() -> void:
 	DirAccess.rename_absolute("user://" + PART, "user://" + FILE)
 	Store.set_pref("updateFile", latest)
 	got = total
+	if OS.get_name() == "Windows":
+		_unpack()
+		return
 	stage = "ready"
 	downloaded.emit()
 
@@ -481,7 +521,8 @@ func _drop_dl() -> void:
 	if _dl != null:
 		_dl.queue_free()
 		_dl = null
-	set_process(false)
+	if _unpack_task < 0:
+		set_process(false)
 
 
 ## An update installed (this build is that version or newer) or abandoned halfway: its file goes.
@@ -492,6 +533,10 @@ func _tidy() -> void:
 	if had != "" and not newer(had, current()):
 		DirAccess.remove_absolute("user://" + FILE)
 		Store.set_pref("updateFile", "")
+	var unzipped := FileAccess.get_file_as_string("user://" + WIN_DIR_VERSION).strip_edges()
+	if unzipped == "" or not newer(unzipped, current()):
+		rmdir(ProjectSettings.globalize_path("user://" + WIN_DIR))
+		DirAccess.remove_absolute("user://" + WIN_DIR_VERSION)
 
 
 # ------------------------------------------------------------------ installing (Android)
@@ -573,24 +618,133 @@ func _notification(what: int) -> void:
 
 # ------------------------------------------------------------------ installing (Windows)
 
-## Hand over to a cmd script that waits for this process to end, copies the downloaded .exe over
-## this one (retrying while Windows still holds it) and starts it. The game quits a moment after.
-## False (nothing changed) when the game's folder can't be written (say, under Program Files).
-func _install_windows() -> bool:
-	var exe := OS.get_executable_path()
-	var probe := exe.get_base_dir().path_join(".bb-update-probe")
-	var pf := FileAccess.open(probe, FileAccess.WRITE)
-	if pf == null:
+## Unzip the downloaded build into user://update-win on a worker thread (it's 100+ MB), stage
+## "unpack" while it runs; `downloaded` once it's out, or a failure that starts it over.
+func _unpack() -> void:
+	if _unpack_task >= 0:
+		return
+	stage = "unpack"
+	error = ""
+	DirAccess.remove_absolute("user://" + WIN_DIR_VERSION)
+	var zip := ProjectSettings.globalize_path("user://" + FILE)
+	var to := ProjectSettings.globalize_path("user://" + WIN_DIR)
+	_unpack_at = [0, 0, false]
+	var at := _unpack_at
+	_unpack_task = WorkerThreadPool.add_task(func() -> void:
+		rmdir(to)
+		at[2] = unpack(zip, to, at) and FileAccess.file_exists(to.path_join(WIN_EXE)))
+	set_process(true)
+
+
+func _unpack_poll() -> void:
+	if not WorkerThreadPool.is_task_completed(_unpack_task):
+		progress.emit(_unpack_at[0], _unpack_at[1])
+		return
+	WorkerThreadPool.wait_for_task_completion(_unpack_task)
+	_unpack_task = -1
+	set_process(_dl != null or _hash != null)
+	if not _unpack_at[2]:
+		# (a damaged zip, or no room for its files: download it again)
+		rmdir(ProjectSettings.globalize_path("user://" + WIN_DIR))
+		DirAccess.remove_absolute("user://" + FILE)
+		Store.set_pref("updateFile", "")
+		_fail("The update couldn't be unzipped. Free up some space and try again.")
+		return
+	var f := FileAccess.open("user://" + WIN_DIR_VERSION, FileAccess.WRITE)
+	if f != null:
+		f.store_string(latest)
+		f.close()
+	stage = "ready"
+	downloaded.emit()
+
+
+## Unzip `zip` into the folder `to`, leaving out one folder everything in it may sit in. `at`
+## gets [files written so far, files in the zip] as it goes. False if it couldn't be read or
+## written, or a name in it points outside `to`.
+static func unpack(zip: String, to: String, at := [0, 0, false]) -> bool:
+	var z := ZIPReader.new()
+	if z.open(zip) != OK:
 		return false
-	pf.close()
-	DirAccess.remove_absolute(probe)
-	var pid := OS.get_process_id()
-	var w := func(p: String) -> String: return p.replace("/", "\\")
+	var names := z.get_files()
+	for n in names:
+		var p := n.replace("\\", "/")
+		if p.begins_with("/") or p.contains(":") or ".." in p.split("/"):
+			z.close()
+			return false
+	var top := ""
+	if not names.is_empty() and names[0].contains("/"):
+		top = names[0].get_slice("/", 0) + "/"
+		for n in names:
+			if not n.begins_with(top):
+				top = ""
+				break
+	var files := PackedStringArray()
+	for n in names:
+		if n.ends_with("/") or n.trim_prefix(top) == "":
+			continue
+		files.append(n)
+	var ok := not files.is_empty()
+	DirAccess.make_dir_recursive_absolute(to)
+	# (a zip doesn't say how big its files are before they're read: progress goes a file at a time)
+	at[0] = 0
+	at[1] = files.size()
+	for n in files:
+		var out := to.path_join(n.trim_prefix(top).replace("\\", "/"))
+		DirAccess.make_dir_recursive_absolute(out.get_base_dir())
+		var data := z.read_file(n)
+		var f := FileAccess.open(out, FileAccess.WRITE)
+		if f == null:
+			ok = false
+			break
+		f.store_buffer(data)
+		var wrote := f.get_error() == OK
+		f.close()
+		if not wrote:
+			ok = false
+			break
+		at[0] += 1
+	z.close()
+	return ok
+
+
+## Remove a folder and everything in it (nothing if it isn't there).
+static func rmdir(path: String) -> void:
+	var d := DirAccess.open(path)
+	if d == null:
+		return
+	d.include_hidden = true
+	for f in d.get_files():
+		d.remove(f)
+	for sub in d.get_directories():
+		rmdir(path.path_join(sub))
+	DirAccess.remove_absolute(path)
+
+
+## Where the new Windows build goes: the Downloads folder. That's this copy's own folder when it
+## is somewhere in Downloads already (it updates in place), else Downloads\Battlebots-Windows.
+## No Downloads folder: this copy's own folder.
+static func win_target(exe_dir := "", downloads := "") -> String:
+	var here := (exe_dir if exe_dir != "" else OS.get_executable_path().get_base_dir()).replace("\\", "/").trim_suffix("/")
+	var dl := (downloads if downloads != "" else OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS)).replace("\\", "/").trim_suffix("/")
+	if dl == "":
+		return here
+	if (here + "/").to_lower().begins_with(dl.to_lower() + "/"):
+		return here
+	return dl + "/" + WIN_FOLDER
+
+
+## The cmd script that swaps the unzipped build in: it waits for process `pid` (this game) to end,
+## copies everything in `src` into `dst` (retrying while Windows still holds the old files),
+## starts dst\Battlebots.exe and clears `src` away.
+static func win_script(pid: int, src: String, dst: String) -> String:
+	var w := func(p: String) -> String: return p.replace("/", "\\").trim_suffix("\\")
 	var lines := PackedStringArray([
 		"@echo off",
+		# (UTF-8, for a user name like João in the paths)
+		"chcp 65001 >NUL",
 		"setlocal",
-		"set \"SRC=%s\"" % w.call(ProjectSettings.globalize_path("user://" + FILE)),
-		"set \"EXE=%s\"" % w.call(exe),
+		"set \"SRC=%s\"" % w.call(src),
+		"set \"DST=%s\"" % w.call(dst),
 		"set /a N=0",
 		":wait",
 		"tasklist /FI \"PID eq %d\" /NH 2>NUL | find \" %d \" >NUL" % [pid, pid],
@@ -599,23 +753,42 @@ func _install_windows() -> bool:
 		"  ping -n 2 127.0.0.1 >NUL",
 		"  if %N% LSS 60 goto wait",
 		")",
+		"if not exist \"%DST%\" mkdir \"%DST%\"",
 		"set /a N=0",
 		":copy",
-		"copy /Y /B \"%SRC%\" \"%EXE%\" >NUL",
+		# (no backslash before a closing quote: xcopy would read it as an escaped quote)
+		"xcopy \"%SRC%\\*\" \"%DST%\" /E /Y /Q /I /R /H >NUL",
 		"if errorlevel 1 (",
 		"  set /a N+=1",
 		"  ping -n 2 127.0.0.1 >NUL",
 		"  if %N% LSS 20 goto copy",
 		")",
-		"start \"\" \"%EXE%\"",
+		"start \"\" /D \"%DST%\" \"%DST%\\" + WIN_EXE + "\"",
+		"rmdir /S /Q \"%SRC%\"",
 	])
+	return "\r\n".join(lines) + "\r\n"
+
+
+## Hand over to the cmd script (win_script) and quit a moment later. False (nothing changed)
+## when the new build isn't unzipped or the Downloads folder can't be written.
+func _install_windows() -> bool:
+	if not _unpacked():
+		return false
+	var dst := win_target()
+	DirAccess.make_dir_recursive_absolute(dst)
+	var probe := dst.path_join(".bb-update-probe")
+	var pf := FileAccess.open(probe, FileAccess.WRITE)
+	if pf == null:
+		return false
+	pf.close()
+	DirAccess.remove_absolute(probe)
 	var cmd := ProjectSettings.globalize_path("user://" + WIN_CMD)
 	var f := FileAccess.open(cmd, FileAccess.WRITE)
 	if f == null:
 		return false
-	f.store_string("\r\n".join(lines) + "\r\n")
+	f.store_string(win_script(OS.get_process_id(), ProjectSettings.globalize_path("user://" + WIN_DIR), dst))
 	f.close()
-	if OS.create_process("cmd.exe", ["/c", w.call(cmd)]) <= 0:
+	if OS.create_process("cmd.exe", ["/c", cmd.replace("/", "\\")]) <= 0:
 		return false
 	installing.emit()
 	# (a moment to say so on screen; the script waits for the game to close)

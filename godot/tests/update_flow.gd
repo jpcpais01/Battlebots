@@ -22,6 +22,7 @@ func _init() -> void:
 	_check(Updater.newer("0.1.100", "0.1.99"), "numbers, not text: 0.1.100 > 0.1.99")
 	_check(not Updater.newer("0.1.58", "0.1.58"), "the same build isn't newer")
 	_check(not Updater.newer("0.1.9", "0.1.10"), "0.1.9 isn't newer than 0.1.10")
+	_windows_bits()
 	TInit.run()
 	var top: Dictionary = TPatchNotes.PATCH_NOTES[0]
 	var remote := [
@@ -35,6 +36,42 @@ func _init() -> void:
 	app = (load("res://app/main.tscn") as PackedScene).instantiate()
 	root.add_child(app)
 	process_frame.connect(_frame)
+
+
+## The Windows update: the zip unpacks (out of a folder it sits in, never outside its own), the
+## build goes to Downloads, and the swap script copies it there and starts it.
+func _windows_bits() -> void:
+	var dir := ProjectSettings.globalize_path("user://test-unpack")
+	Updater.rmdir(dir)
+	DirAccess.make_dir_recursive_absolute(dir)
+	var zp := ZIPPacker.new()
+	zp.open(dir + "/a.zip")
+	for n in ["Battlebots/Battlebots.exe", "Battlebots/Battlebots.pck", "Battlebots/lib.dll"]:
+		zp.start_file(n)
+		zp.write_file(n.to_utf8_buffer())
+		zp.close_file()
+	zp.close()
+	var at := [0, 0, false]
+	_check(Updater.unpack(dir + "/a.zip", dir + "/out", at), "the Windows zip unpacks")
+	_check(FileAccess.get_file_as_string(dir + "/out/Battlebots.pck") == "Battlebots/Battlebots.pck" and FileAccess.file_exists(dir + "/out/lib.dll"), "its files side by side, out of the folder they sat in")
+	_check(at[0] == 3 and at[1] == 3, "counting them as it goes: %s" % [at])
+	zp = ZIPPacker.new()
+	zp.open(dir + "/bad.zip")
+	zp.start_file("../evil.exe")
+	zp.write_file(PackedByteArray([1]))
+	zp.close_file()
+	zp.close()
+	_check(not Updater.unpack(dir + "/bad.zip", dir + "/bad"), "a zip pointing outside its folder is refused")
+	Updater.rmdir(dir)
+	_check(not DirAccess.dir_exists_absolute(dir), "and the unpack folder is cleared away")
+	_check(Updater.win_target("C:/Users/jo/Desktop/Game", "C:/Users/jo/Downloads") == "C:/Users/jo/Downloads/Battlebots-Windows", "a copy outside Downloads updates into Downloads\\Battlebots-Windows")
+	_check(Updater.win_target("C:\\Users\\Jo\\downloads\\Battlebots-Windows", "C:/Users/jo/Downloads/") == "C:/Users/Jo/downloads/Battlebots-Windows", "a copy in Downloads updates in place")
+	_check(Updater.win_target("C:/Users/jo/Downloads", "C:/Users/jo/Downloads") == "C:/Users/jo/Downloads", "even in Downloads itself")
+	_check(Updater.win_target("C:/Users/jo/DownloadsOld", "C:/Users/jo/Downloads") == "C:/Users/jo/Downloads/Battlebots-Windows", "a folder only named like it isn't Downloads")
+	var cmd := Updater.win_script(4242, "C:/Users/jo/AppData/Roaming/Godot/app_userdata/Battlebots/update-win", "C:/Users/jo/Downloads/Battlebots-Windows")
+	_check(cmd.contains("set \"SRC=C:\\Users\\jo\\AppData\\Roaming\\Godot\\app_userdata\\Battlebots\\update-win\"\r\n"), "the script copies from the unpacked build")
+	_check(cmd.contains("set \"DST=C:\\Users\\jo\\Downloads\\Battlebots-Windows\"\r\n") and cmd.contains("\"PID eq 4242\""), "into Downloads, once the game (pid 4242) has closed")
+	_check(cmd.contains("xcopy \"%SRC%\\*\" \"%DST%\"") and cmd.contains("start \"\" /D \"%DST%\" \"%DST%\\Battlebots.exe\""), "then starts the new Battlebots.exe from there")
 
 
 func _check(ok: bool, what: String) -> void:
