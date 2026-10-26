@@ -4,8 +4,8 @@
 #   https://github.com/<owner>/<repo>/releases/latest/download/Battlebots-Windows.zip
 # with patch-notes.json beside them (the newest groups of src/patchNotes.ts): the app checks the
 # latest release at launch and offers it, notes and all (godot/app/update/updater.gd). The zip
-# holds Battlebots.exe and the files it needs beside it; the release also carries the game as one
-# Battlebots.exe, only for builds from before the zip to update themselves to (tools/build-windows.sh).
+# holds Battlebots.exe (the whole game in one file) and the store art beside it; the release also
+# carries that Battlebots.exe on its own, for builds from before the zip (tools/build-windows.sh).
 #
 # Signing needs three repository secrets (Settings > Secrets and variables > Actions), all from
 # the project's release keystore, so every build installs over the one before:
@@ -119,9 +119,9 @@ jobs:
             echo
             echo "On your phone: download **Battlebots.apk** below and open it. Android asks once to allow installs from your browser. It installs over the previous build. From this build on, the app offers new builds itself on its home screen."
             echo
-            echo "On a Windows PC: download **Battlebots-Windows.zip**, unzip it (Extract All puts it in Downloads\\Battlebots-Windows) and run **Battlebots.exe** from there, with the files beside it. Windows may warn about an unknown app the first time: More info, then Run anyway. The game offers new builds itself: it unzips them into your Downloads folder and opens again from there."
+            echo "On a Windows PC: download **Battlebots-Windows.zip**, unzip it (Extract All puts it in Downloads\\Battlebots-Windows) and run **Battlebots.exe**: it is the whole game in one file, with its banner, cover and logo beside it. Windows may warn about an unknown app the first time: More info, then Run anyway. The game offers new builds itself: it unzips them into your Downloads folder and opens again from there."
             echo
-            echo "(The loose Battlebots.exe below is the whole game in one file, only there so Windows builds from before the zip can update themselves. Download the zip.)"
+            echo "(The loose Battlebots.exe below is the same game, there so Windows builds from before the zip can update themselves. Download the zip.)"
             echo
             echo "Latest change: $(git log -1 --format=%s)"
           } > "$RUNNER_TEMP/notes.md"

@@ -331,7 +331,7 @@ func _set_state(s: String) -> void:
 			_add_button("Cancel", "close", &"BtnSmall", _cancel)
 		"unpack":
 			_title.text = "Unzipping v" + v
-			_status.text = "Taking Battlebots.exe and the files beside it out of the zip, ready to go into your Downloads folder."
+			_status.text = "Taking Battlebots.exe and its banner, cover and logo out of the zip, ready to go into your Downloads folder."
 			_pct_sub.text = "UNZIPPING"
 			col = TEAL
 			_add_button("Keep playing", "play", &"BtnSmall", _hide)

@@ -16,13 +16,13 @@
 ## there. Updates install over the old app only because every release is signed with the same
 ## release key (the workflow's ANDROID_KEYSTORE secret): a local "dev" build never checks.
 ##
-## Windows: the same release carries Battlebots-Windows.zip: Battlebots.exe with the files it needs
-## beside it (Battlebots.pck, the WebRTC DLL). It downloads the same way, then unzips on a worker
-## thread into user://update-win ("unpack"). Installing hands over to a small cmd script that
-## waits for the game to close, copies those files into the Downloads folder (`win_target`) and
-## starts the new Battlebots.exe from there (`_install_windows`). The release also carries the
-## whole game as one Battlebots.exe, only for the builds from before the zip, whose updater swaps
-## that one file in; the build they get then updates from the zip.
+## Windows: the same release carries Battlebots-Windows.zip: Battlebots.exe (the whole game in one
+## file) with the store art beside it (Battlebots_banner/cover/logo.png). It downloads the same
+## way, then unzips on a worker thread into user://update-win ("unpack"). Installing hands over to
+## a small cmd script that waits for the game to close, copies those files into the Downloads
+## folder (`win_target`) and starts the new Battlebots.exe from there (`_install_windows`). The
+## release also carries that Battlebots.exe on its own, for the builds from before the zip, whose
+## updater swaps that one file in; the build they get then updates from the zip.
 ##
 ## Other desktop runs (and the tests) only check when BB_UPDATE_AS names a version to pretend to
 ## be, e.g. BB_UPDATE_AS=0.1.1.
@@ -735,7 +735,8 @@ static func win_target(exe_dir := "", downloads := "") -> String:
 
 ## The cmd script that swaps the unzipped build in: it waits for process `pid` (this game) to end,
 ## copies everything in `src` into `dst` (retrying while Windows still holds the old files),
-## starts dst\Battlebots.exe and clears `src` away.
+## starts dst\Battlebots.exe and clears `src` away. A Battlebots.pck or WebRTC DLL left in `dst`
+## by a build that had them beside the .exe (v0.1.89) goes, unless the new build has one too.
 static func win_script(pid: int, src: String, dst: String) -> String:
 	var w := func(p: String) -> String: return p.replace("/", "\\").trim_suffix("\\")
 	var lines := PackedStringArray([
@@ -754,6 +755,8 @@ static func win_script(pid: int, src: String, dst: String) -> String:
 		"  if %N% LSS 60 goto wait",
 		")",
 		"if not exist \"%DST%\" mkdir \"%DST%\"",
+		"if not exist \"%SRC%\\Battlebots.pck\" del /F /Q \"%DST%\\Battlebots.pck\" 2>NUL",
+		"if not exist \"%SRC%\\libwebrtc_native*.dll\" del /F /Q \"%DST%\\libwebrtc_native*.dll\" 2>NUL",
 		"set /a N=0",
 		":copy",
 		# (no backslash before a closing quote: xcopy would read it as an escaped quote)
