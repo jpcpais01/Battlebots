@@ -17,7 +17,7 @@ static func hourLabel(hour: String) -> String:
 static func __init_module() -> void:
 	TPatchNotes.PATCH_NOTES = [
 	{
-	"hour": "2026-10-26 01:00",
+	"hour": "2026-10-26 02:00",
 	"title": "Windows build in a zip",
 	"notes": [
 	"The Windows game now comes as Battlebots-Windows.zip: unzip it and run Battlebots.exe, with the game's files right beside it.",
