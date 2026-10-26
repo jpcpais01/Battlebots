@@ -1,9 +1,10 @@
 ; WebRTC for online rooms (net/), from godotengine/webrtc-native 1.1.0-stable
 ; (https://github.com/godotengine/webrtc-native/releases, godot-extension-webrtc.zip): libdatachannel
 ; under Godot's WebRTCPeerConnection. Only the libraries this project uses are kept: Android arm64
-; (the app), Windows x86_64 (exported beside Battlebots.exe, in the release zip) and Linux x86_64
-; (headless tests and the container), each for debug and release. (The one-file Battlebots.exe the
-; release also carries has no DLL beside it: net/webrtc_windows.gd loads it from inside the .exe.)
+; (the app) and Linux x86_64 (headless tests and the container), each for debug and release.
+; The Windows build is one .exe, so its DLL (lib/*.windows.*.dll) isn't listed here (it would be
+; exported beside the .exe): it rides inside the .exe and net/webrtc_windows.gd loads it from
+; there at launch.
 [configuration]
 
 entry_symbol = "webrtc_extension_init"
@@ -15,5 +16,3 @@ linux.debug.x86_64 = "lib/libwebrtc_native.linux.template_debug.x86_64.so"
 linux.release.x86_64 = "lib/libwebrtc_native.linux.template_debug.x86_64.so"
 android.debug.arm64 = "lib/libwebrtc_native.android.template_release.arm64.so"
 android.release.arm64 = "lib/libwebrtc_native.android.template_release.arm64.so"
-windows.debug.x86_64 = "lib/libwebrtc_native.windows.template_release.x86_64.dll"
-windows.release.x86_64 = "lib/libwebrtc_native.windows.template_release.x86_64.dll"

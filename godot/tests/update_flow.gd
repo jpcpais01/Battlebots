@@ -46,14 +46,14 @@ func _windows_bits() -> void:
 	DirAccess.make_dir_recursive_absolute(dir)
 	var zp := ZIPPacker.new()
 	zp.open(dir + "/a.zip")
-	for n in ["Battlebots/Battlebots.exe", "Battlebots/Battlebots.pck", "Battlebots/lib.dll"]:
+	for n in ["Battlebots/Battlebots.exe", "Battlebots/Battlebots_banner.png", "Battlebots/Battlebots_logo.png"]:
 		zp.start_file(n)
 		zp.write_file(n.to_utf8_buffer())
 		zp.close_file()
 	zp.close()
 	var at := [0, 0, false]
 	_check(Updater.unpack(dir + "/a.zip", dir + "/out", at), "the Windows zip unpacks")
-	_check(FileAccess.get_file_as_string(dir + "/out/Battlebots.pck") == "Battlebots/Battlebots.pck" and FileAccess.file_exists(dir + "/out/lib.dll"), "its files side by side, out of the folder they sat in")
+	_check(FileAccess.get_file_as_string(dir + "/out/Battlebots_banner.png") == "Battlebots/Battlebots_banner.png" and FileAccess.file_exists(dir + "/out/Battlebots_logo.png"), "its files side by side, out of the folder they sat in")
 	_check(at[0] == 3 and at[1] == 3, "counting them as it goes: %s" % [at])
 	zp = ZIPPacker.new()
 	zp.open(dir + "/bad.zip")
@@ -71,6 +71,7 @@ func _windows_bits() -> void:
 	var cmd := Updater.win_script(4242, "C:/Users/jo/AppData/Roaming/Godot/app_userdata/Battlebots/update-win", "C:/Users/jo/Downloads/Battlebots-Windows")
 	_check(cmd.contains("set \"SRC=C:\\Users\\jo\\AppData\\Roaming\\Godot\\app_userdata\\Battlebots\\update-win\"\r\n"), "the script copies from the unpacked build")
 	_check(cmd.contains("set \"DST=C:\\Users\\jo\\Downloads\\Battlebots-Windows\"\r\n") and cmd.contains("\"PID eq 4242\""), "into Downloads, once the game (pid 4242) has closed")
+	_check(cmd.contains("del /F /Q \"%DST%\\Battlebots.pck\""), "and clears away a .pck the last layout left beside the .exe")
 	_check(cmd.contains("xcopy \"%SRC%\\*\" \"%DST%\"") and cmd.contains("start \"\" /D \"%DST%\" \"%DST%\\Battlebots.exe\""), "then starts the new Battlebots.exe from there")
 
 

@@ -20,7 +20,8 @@ static func __init_module() -> void:
 	"hour": "2026-10-26 02:00",
 	"title": "Windows build in a zip",
 	"notes": [
-	"The Windows game now comes as Battlebots-Windows.zip: unzip it and run Battlebots.exe, with the game's files right beside it.",
+	"The Windows zip now holds just Battlebots.exe, the whole game in one file, with the game's banner, cover and logo beside it.",
+	"The Windows game now comes as Battlebots-Windows.zip: unzip it and run Battlebots.exe.",
 	"Updating from inside the game on Windows downloads the new zip, unzips it into your Downloads folder and opens the new version from there."
 ]
 },
